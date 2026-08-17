@@ -167,6 +167,11 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
         aspect = float(length / max(2.0 * straightness, 1.0))
         if aspect < cfg.min_aspect_ratio:
             continue
+        # a real streak (even a dashed aircraft) deposits far more support
+        # per unit length than a chain of point residuals (undersampled or
+        # mis-registered stars strung together by the dash-bridging pass)
+        if area < 0.8 * length:
+            continue
 
         prof = _line_profile(diff, (x0, y0), (x1, y1)).astype(float)
         mean_i = float(prof.mean())

@@ -45,6 +45,20 @@ def main() -> int:
             except Exception:
                 self.failed.emit(traceback.format_exc())
 
+    class SelfTestWorker(QThread):
+        progressed = Signal(str)
+        done = Signal(bool, str)
+
+        def run(self):
+            try:
+                from meteorprep.selftest import format_report, run_self_test
+                result = run_self_test(progress=self.progressed.emit)
+                print(format_report(result))
+                self.done.emit(result["ok"], result["verdict"])
+            except Exception:
+                self.done.emit(False, "Self-test crashed — see console.")
+                traceback.print_exc()
+
     class Window(QMainWindow):
         def __init__(self):
             super().__init__()
@@ -103,6 +117,12 @@ def main() -> int:
             self.button.clicked.connect(self._start)
             layout.addWidget(self.button)
 
+            self.test_button = QPushButton(
+                "Test my setup (~2 min, no photos needed)")
+            self.test_button.setFlat(True)
+            self.test_button.clicked.connect(self._self_test)
+            layout.addWidget(self.test_button)
+
             self.bar = QProgressBar()
             self.status = QLabel("")
             layout.addWidget(self.bar)
@@ -158,6 +178,20 @@ def main() -> int:
             self.worker.finished_ok.connect(self._on_done)
             self.worker.failed.connect(self._on_fail)
             self.worker.start()
+
+        def _self_test(self):
+            self.test_button.setEnabled(False)
+            self.button.setEnabled(False)
+            self.status.setWordWrap(True)
+            self.tester = SelfTestWorker()
+            self.tester.progressed.connect(self.status.setText)
+
+            def finish(ok, verdict):
+                self.status.setText(("✓ " if ok else "✗ ") + verdict)
+                self.test_button.setEnabled(True)
+                self.button.setEnabled(self.folder is not None)
+            self.tester.done.connect(finish)
+            self.tester.start()
 
         def _on_progress(self, pct, msg):
             self.bar.setValue(pct)

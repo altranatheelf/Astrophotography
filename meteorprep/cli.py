@@ -13,7 +13,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="meteorprep",
         description="Turn a folder of fixed-tripod RAW meteor-shower frames "
                     "into a layered, geometry-corrected PSD.")
-    p.add_argument("input_dir", help="folder of RAW/TIFF frames (recursive)")
+    p.add_argument("input_dir", nargs="?", default=None,
+                   help="folder of RAW/TIFF frames (recursive)")
+    p.add_argument("--self-test", action="store_true",
+                   help="verify the whole setup on a tiny synthetic night "
+                        "(~2 min), no real photos needed")
     p.add_argument("-o", "--out", default="meteorprep_out", help="output folder")
     p.add_argument("--align-mode", choices=["reproject_tan", "rotate2d"],
                    default="reproject_tan",
@@ -64,6 +68,11 @@ def config_from_args(args) -> Config:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if args.self_test:
+        from meteorprep.selftest import main as selftest_main
+        return selftest_main()
+    if args.input_dir is None:
+        build_parser().error("input_dir is required (or use --self-test)")
     cfg = config_from_args(args)
     from meteorprep.pipeline import run
     try:

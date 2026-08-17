@@ -86,7 +86,12 @@ def blind_solve(image: np.ndarray, pixel_scale_deg: float,
     cat = np.asarray(catalog_radec, dtype=float)
 
     stars = detect_stars(image, max_stars=n_image_stars)
+    log.info("blind solve: %d stars detected in the reference frame",
+             len(stars))
     if len(stars) < min_votes:
+        log.warning("blind solve: too few stars (%d < %d) — clouds, trees "
+                    "or heavy light pollution in the reference frame?",
+                    len(stars), min_votes)
         return None
     if undistort is not None:
         stars = undistort(stars)
@@ -198,4 +203,8 @@ def blind_solve(image: np.ndarray, pixel_scale_deg: float,
         log.info("blind solve (best effort): %d stars, rms %.2f px",
                  best_result.n_matched, best_result.rms_px)
         return best_result
+    log.warning("blind solve: no pointing hypothesis survived (best "
+                "attempt matched %s stars) — the reference frame may show "
+                "too little clear sky",
+                best_result.n_matched if best_result else 0)
     return None

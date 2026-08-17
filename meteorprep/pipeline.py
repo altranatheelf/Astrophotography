@@ -223,8 +223,24 @@ def run(cfg: Config, progress=None) -> dict:
     """Run the pipeline; returns a summary dict with output paths."""
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(message)s")
-    notify = progress or (lambda frac, msg: log.info("[%3d%%] %s",
-                                                     int(frac * 100), msg))
+    # flight recorder: everything the run says, in one plain file the user
+    # can send when something looks wrong
+    cfg.output_path.mkdir(parents=True, exist_ok=True)
+    _fh = logging.FileHandler(cfg.output_path / "run_log.txt",
+                              mode="w", encoding="utf-8")
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger("meteorprep").addHandler(_fh)
+    import platform
+    from meteorprep import __version__ as _ver
+    log.info("METEORPREP %s on %s / Python %s", _ver, platform.platform(),
+             platform.python_version())
+
+    _base_notify = progress or (lambda frac, msg: None)
+
+    def notify(frac, msg):
+        log.info("[%3d%%] %s", int(frac * 100), msg)
+        _base_notify(frac, msg)
     # optional overrides shipped alongside the frames (tests / power users)
     override = Path(cfg.input_dir) / "meteorprep_config.json"
     if override.exists():
@@ -261,6 +277,17 @@ def run(cfg: Config, progress=None) -> dict:
             "continuous run of frames from a fixed tripod.")
     results = {"groups": []}
     errors = []
+    try:
+        _run_groups(cfg, real_groups, bad_pixels, notify, results, errors)
+    finally:
+        logging.getLogger("meteorprep").removeHandler(_fh)
+        _fh.close()
+    if errors and not results["groups"]:
+        raise RuntimeError(f"every group failed: {errors}")
+    return results
+
+
+def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors):
     for group in real_groups:
         try:
             res = _run_group(cfg, group, bad_pixels, notify)
@@ -271,9 +298,6 @@ def run(cfg: Config, progress=None) -> dict:
             log.exception("group %s failed; continuing with the others",
                           group.group_id)
             errors.append(group.group_id)
-    if errors and not results["groups"]:
-        raise RuntimeError(f"every group failed: {errors}")
-    return results
 
 
 def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
