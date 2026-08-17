@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meteorprep"
+version = "1.0.0"
+description = "Turn a folder of fixed-tripod RAW meteor-shower frames into a layered, geometry-corrected PSD"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "METEORPREP contributors" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "astropy>=5.3",
+    "reproject>=0.13",
+    "opencv-python-headless>=4.8",
+    "rawpy>=0.19",
+    "tifffile>=2023.1",
+    "pillow>=10.0",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+solve = ["twirl>=0.4", "astroquery>=0.4"]
+psd = ["pytoshop>=1.2", "psd-tools>=1.9"]
+gui = ["PySide6>=6.5"]
+lens = ["lensfunpy>=1.14"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+meteorprep = "meteorprep.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["meteorprep*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
