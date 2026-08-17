@@ -97,31 +97,57 @@ class ExiftoolError(RuntimeError):
     """exiftool exists but running it failed — not an install problem."""
 
 
+EXIFTOOL_BATCH = 40
+EXIFTOOL_BATCH_TIMEOUT_S = 240
+
+
 def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
     exe = find_exiftool()
     if exe is None:
         return None
-    cmd = [exe, "-j", "-n"] + [f"-{t}" for t in EXIF_TAGS] + [str(p) for p in paths]
-    try:
-        out = subprocess.run(cmd, capture_output=True, timeout=600)
-        # exiftool exits non-zero if ANY file has minor issues but still
-        # emits JSON for the rest — use the output when there is one
-        if not out.stdout.strip():
+    records = []
+    for start in range(0, len(paths), EXIFTOOL_BATCH):
+        batch = paths[start:start + EXIFTOOL_BATCH]
+        log.info("reading photo info (%d/%d)…",
+                 min(start + len(batch), len(paths)), len(paths))
+        cmd = ([exe, "-j", "-n", "-fast2"] + [f"-{t}" for t in EXIF_TAGS]
+               + [str(p) for p in batch])
+        try:
+            out = subprocess.run(cmd, capture_output=True,
+                                 timeout=EXIFTOOL_BATCH_TIMEOUT_S)
+            # exiftool exits non-zero if ANY file has minor issues but
+            # still emits JSON for the rest — use the output when present
+            if not out.stdout.strip():
+                raise ExiftoolError(
+                    "exiftool is installed but couldn't read these files.\n"
+                    f"Its message was: {out.stderr.decode(errors='replace')[:500]}")
+            records.extend(json.loads(out.stdout))
+        except subprocess.TimeoutExpired as exc:
             raise ExiftoolError(
-                "exiftool is installed but couldn't read these files.\n"
-                f"Its message was: {out.stderr.decode(errors='replace')[:500]}")
-        records = json.loads(out.stdout)
-    except ExiftoolError:
-        raise
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
-        raise ExiftoolError(
-            f"exiftool is installed at {exe} but failed to run: {exc}") from exc
+                "Reading the photos is taking far too long — this almost "
+                "always means the files aren't actually ON this Mac yet "
+                "(iCloud keeps Desktop/Documents files in the cloud and only "
+                "downloads them on demand).\nFix: open the photo folder in "
+                "Finder, select all the files (Cmd-A), right-click and "
+                "choose 'Download Now', wait for the little cloud icons to "
+                "disappear, then press Prepare again. Or move the folder "
+                "somewhere not synced to iCloud, like your Pictures folder."
+            ) from exc
+        except ExiftoolError:
+            raise
+        except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
+            raise ExiftoolError(
+                f"exiftool is installed at {exe} but failed to run: {exc}") from exc
     metas = []
     for rec in records:
         p = Path(rec["SourceFile"])
+        if not rec.get("DateTimeOriginal"):
+            log.warning("skipping %s — no capture time in its metadata "
+                        "(not a camera frame?)", p.name)
+            continue
         metas.append(FrameMeta(
             path=p, file=p.name,
-            datetime_original=_parse_dt(str(rec.get("DateTimeOriginal", "1970:01:01 00:00:00"))),
+            datetime_original=_parse_dt(str(rec["DateTimeOriginal"])),
             exposure_s=float(rec.get("ExposureTime", 20.0)),
             iso=int(rec.get("ISO", 0) or 0),
             fnumber=float(rec.get("FNumber", 0) or 0),
@@ -132,6 +158,10 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
             height=int(rec.get("ImageHeight", 0) or 0),
             subsec=str(rec.get("SubSecTimeOriginal", "")),
         ))
+    if not metas:
+        raise ExiftoolError(
+            "None of the files in that folder carry a capture time — are "
+            "these the original RAW files from the camera?")
     return metas
 
 
