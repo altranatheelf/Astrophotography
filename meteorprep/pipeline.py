@@ -142,9 +142,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                              image_path=base_meta.path, undistort=undistort)
         if result is None:
             raise RuntimeError(
-                "base frame failed to solve — supply --seed-ra/--seed-dec "
-                "and a catalog, install twirl (network) or astrometry.net, "
-                "or fall back to --align-mode=rotate2d (degraded)")
+                "I couldn't match the stars in your photos to a star map "
+                "(this is how the tool learns where the camera was pointed). "
+                "Two easy fixes, either works:\n"
+                "  1. Install the star-matching add-on and make sure you're "
+                "online:  pip install twirl astroquery\n"
+                "  2. Or install the astrometry.net solver "
+                "(Mac: brew install astrometry-net, plus its index files).\n"
+                "If clouds/trees hide most of the sky in the middle frame, "
+                "try again — the tool picks a different reference frame if "
+                "you delete the worst frames from the folder.")
         base_wcs = result.wcs
         solver_used = result.source
         base_meta.wcs_source = "solved"

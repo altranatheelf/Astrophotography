@@ -141,7 +141,10 @@ def read_metadata(paths: list[Path]) -> list[FrameMeta]:
     metas = _from_sidecar(paths) or _from_exiftool(paths)
     if metas is None:
         raise RuntimeError(
-            "No metadata source: install exiftool or provide frames_meta.json")
+            "I couldn't read the capture times from your photos. The free "
+            "helper program 'exiftool' is needed for that. Install it from "
+            "https://exiftool.org (Mac: download the installer package, "
+            "double-click it, done), then run METEORPREP again.")
     metas.sort(key=lambda m: m.datetime_original)
     return metas
 

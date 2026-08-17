@@ -1,0 +1,90 @@
+# METEORPREP — plain-language guide
+
+*For the photographer with a folder of meteor-shower RAW files who does not
+want to learn programming. Ten minutes of one-time setup, then it's
+drag-and-drop.*
+
+## What this tool actually does
+
+You shot hundreds of frames on a fixed tripod during the Perseids. Somewhere
+in there are a handful of meteors, plus planes, satellites, and a lot of
+identical starfields. METEORPREP:
+
+1. Reads every RAW file and its capture time.
+2. Works out the exact sky position of every frame (it matches your stars
+   to a star map — this is why it needs internet or a star database once).
+3. Undoes the sky's rotation **correctly**. Simply rotating the images
+   looks fine in the middle but is off by *hundreds of pixels* in the
+   corners of a wide lens over a night — this tool does the real map
+   projection instead, so corner stars and meteors land where they should.
+4. Finds streaks, and tells meteors apart from planes (blinking, colored)
+   and satellites (thin, steady, multi-frame). Nothing is deleted — the
+   rejects go into a hidden "FLAGGED" folder of layers you can inspect.
+5. Averages all your frames into one super-clean starfield (the meteors are
+   carefully kept out of the average).
+6. Gives you a layered Photoshop document: clean sky at the bottom, your
+   foreground, then **one layer per meteor** that you toggle on/off.
+
+Your taste stays yours: which meteors to keep, which foreground, crop,
+color — all still done by you in Photoshop, non-destructively.
+
+## One-time setup (Mac)
+
+1. Install Python from https://www.python.org/downloads/ (big yellow
+   button, then open the downloaded file and click through).
+2. Install exiftool from https://exiftool.org (reads capture times from
+   your RAWs — same drill, download and double-click the installer).
+3. Open the **Terminal** app once (I know — it's three lines, copy-paste
+   them one at a time and press Return):
+
+   ```
+   pip3 install meteorprep-folder-path-here   # or: pip3 install -e /path/to/this/folder
+   pip3 install twirl astroquery              # the star-matching add-on
+   pip3 install PySide6                       # the drag-and-drop window
+   ```
+
+## Every time after that
+
+1. Put all the frames from one night/one tripod position in one folder
+   (subfolders are fine; don't mix in shots from a different composition).
+2. Run: `python3 -m meteorprep.gui` (or make a shortcut for it once).
+3. Drag your folder onto the window. Press **Prepare**. Go make coffee —
+   a few hundred 20-megapixel RAWs take a while (up to ~an hour), and the
+   working folder needs a good chunk of free disk (tens of GB for ~200
+   frames; you can delete the `cache` folder afterwards).
+4. When it's done, look at **contact_sheet.png** in the output folder:
+   every candidate it found, one thumbnail each, labeled meteor / plane /
+   satellite with a confidence score. This is your 30-second sanity check.
+
+## Getting it into Photoshop
+
+- If a `meteorprep.psd` file was written: just open it.
+- Otherwise (always works): open Photoshop, go to
+  **File ▸ Scripts ▸ Browse…**, pick `assemble.jsx` from the output
+  folder. Photoshop rebuilds the whole layered document itself.
+
+What you'll see in the Layers panel:
+
+- **BASE_SKY** — the clean averaged starfield. Bottom layer.
+- **FOREGROUND** — your foreground options (the normal one is on; any
+  light-painted versions are there too, turned off — pick your favorite).
+- **METEORS** — one layer per meteor, already in Lighten mode, named with
+  its source file, time, and a `perseid`/`sporadic` tag. Turn them on and
+  off to taste. That's the whole game.
+- **FLAGGED** (hidden) — the planes/satellites/searchlight frames, in case
+  the tool got one wrong. Peek if a meteor you remember is missing.
+
+There's also `meteorprep.json` — a receipt of everything the tool did, so
+your composite is honestly documentable ("all meteors registered to the sky
+positions they actually occurred at").
+
+## If something goes wrong
+
+- **"couldn't read the capture times"** → install exiftool (step 2 above).
+- **"couldn't match the stars"** → you need to be online the first time
+  (it downloads a star map for your patch of sky), and the middle frame of
+  your sequence needs a reasonable amount of visible sky. Frames ruined by
+  clouds or car headlights are fine elsewhere in the folder — the tool
+  skips them for matching.
+- **A plane got labeled as a meteor (or vice versa)** → nothing is lost;
+  drag the layer between the METEORS and FLAGGED groups in Photoshop.
