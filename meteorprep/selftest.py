@@ -111,7 +111,8 @@ def run_self_test(progress=None) -> dict:
 
 
 def format_report(result: dict) -> str:
-    lines = ["METEORPREP setup self-test", "=" * 30]
+    from meteorprep import __version__
+    lines = [f"METEORPREP {__version__} setup self-test", "=" * 30]
     for name, ok, detail in result["checks"]:
         lines.append(f"  {'✓' if ok else '✗'} {name}: {detail}")
     lines += ["-" * 30, result["verdict"]]

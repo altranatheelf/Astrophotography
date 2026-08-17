@@ -62,7 +62,8 @@ def main() -> int:
     class Window(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("METEORPREP")
+            from meteorprep import __version__
+            self.setWindowTitle(f"METEORPREP {__version__}")
             self.setAcceptDrops(True)
             self.folder = None
             self.worker = None
