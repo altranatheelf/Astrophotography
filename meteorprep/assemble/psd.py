@@ -34,22 +34,19 @@ def _to_u16(arr: np.ndarray) -> np.ndarray:
 
 
 def _layer_channels(layer: Layer, width: int, height: int):
-    """Full-canvas 16-bit channels + straight alpha for one layer."""
+    """16-bit channels + straight alpha + (top, left) for one layer.
+
+    Bbox layers stay bbox-sized (PSD layers carry their own offsets), so a
+    night with many meteor/satellite layers never balloons memory."""
     rgb = layer.rgb
     if layer.bbox is not None:
         x0, y0, x1, y1 = layer.bbox
-        full = np.zeros((height, width, 3), np.float32)
-        full[y0:y1, x0:x1] = rgb
-        rgb = full
-        if layer.alpha is not None:
-            a = np.zeros((height, width), np.float32)
-            a[y0:y1, x0:x1] = layer.alpha
-        else:
-            a = np.zeros((height, width), np.float32)
-            a[y0:y1, x0:x1] = 1.0
-    else:
-        a = layer.alpha if layer.alpha is not None else np.ones((height, width), np.float32)
-    return _to_u16(rgb), _to_u16(a * 65535.0)
+        a = (layer.alpha if layer.alpha is not None
+             else np.ones(rgb.shape[:2], np.float32))
+        return _to_u16(rgb), _to_u16(a * 65535.0), y0, x0
+    a = (layer.alpha if layer.alpha is not None
+         else np.ones((height, width), np.float32))
+    return _to_u16(rgb), _to_u16(a * 65535.0), 0, 0
 
 
 def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
@@ -67,13 +64,13 @@ def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
     w, h = stack.width, stack.height
 
     def make_image(layer: Layer):
-        rgb, alpha = _layer_channels(layer, w, h)
+        rgb, alpha, top, left = _layer_channels(layer, w, h)
         channels = {0: rgb[:, :, 0], 1: rgb[:, :, 1], 2: rgb[:, :, 2], -1: alpha}
         blend = (enums.BlendMode.lighten if layer.blend == "lighten"
                  else enums.BlendMode.normal)
         return nested_layers.Image(
             name=layer.name, channels=channels, visible=layer.visible,
-            blend_mode=blend, top=0, left=0)
+            blend_mode=blend, top=top, left=left)
 
     root = [make_image(stack.base)]
     for grp in stack.groups:

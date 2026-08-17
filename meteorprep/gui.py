@@ -65,7 +65,7 @@ def main() -> int:
             layout.addWidget(self.drop_label)
 
             pointing_row = QHBoxLayout()
-            pointing_row.addWidget(QLabel("Camera faced:"))
+            pointing_row.addWidget(QLabel("Camera faced (optional):"))
             self.compass = QComboBox()
             self.compass.addItems(["not sure", "N", "NE", "E", "SE",
                                    "S", "SW", "W", "NW"])
@@ -171,9 +171,24 @@ def main() -> int:
             self.button.setEnabled(True)
 
         def _on_fail(self, tb):
-            self.status.setText("Failed — see console")
+            # show the human-readable message (last line) in the window —
+            # a Finder-launched app has no console to "see"
+            last = [l for l in tb.strip().splitlines() if l.strip()][-1]
+            last = last.split(":", 1)[-1].strip() if ":" in last else last
+            self.status.setText(last[:600])
+            self.status.setWordWrap(True)
             print(tb, file=sys.stderr)
             self.button.setEnabled(True)
+
+        def closeEvent(self, event):
+            if self.worker is not None and self.worker.isRunning():
+                self.status.setText(
+                    "Still working — quit again to stop the run.")
+                self.worker.requestInterruption()
+                self.worker = None
+                event.ignore()
+                return
+            event.accept()
 
     app = QApplication(sys.argv)
     win = Window()

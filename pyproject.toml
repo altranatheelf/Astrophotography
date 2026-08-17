@@ -38,7 +38,7 @@ meteorprep-phone = "meteorprep.webapp:main"
 include = ["meteorprep*"]
 
 [tool.setuptools.package-data]
-meteorprep = ["*.html"]
+meteorprep = ["*.html", "data/*.npy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

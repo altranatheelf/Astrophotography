@@ -60,11 +60,17 @@ def _wcs_from_str(s: str):
 
 def scale_wcs(wcs, s: float):
     """The same sky mapping expressed for an image resampled by factor s
-    (s=2: detection-space WCS -> full-resolution WCS)."""
+    (s=2: detection-space WCS -> full-resolution WCS).  SIP terms are in
+    pixel units and cannot be carried across a resolution change, so they
+    are dropped: lens distortion is pre-corrected analytically (§4.2) and
+    the scaled WCS is pure TAN."""
     out = wcs.deepcopy()
     out.wcs.cd = np.asarray(wcs.wcs.cd) / s
     out.wcs.crpix = [s * (wcs.wcs.crpix[0] - 0.5) + 0.5,
                      s * (wcs.wcs.crpix[1] - 0.5) + 0.5]
+    if getattr(out, "sip", None) is not None:
+        out.sip = None
+        out.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     return out
 
 
@@ -93,10 +99,24 @@ def _detect_reproject_one(args) -> int:
     return i
 
 
+def _paint_segments(mask: np.ndarray, segments) -> None:
+    """Paint streak corridors (tiny endpoint lists, not stored bitmaps)."""
+    import cv2
+    for (x0, y0, x1, y1, half_width) in segments:
+        cv2.line(mask, (int(round(x0)), int(round(y0))),
+                 (int(round(x1)), int(round(y1))), 1,
+                 thickness=max(int(2 * half_width), 3))
+
+
 def _stack_partial(args) -> tuple[str, str]:
     """Accumulate a subset of frames into partial sum/weight arrays for the
-    streaming full-resolution base stack; returns the two .npy paths."""
-    (indices, paths, wcs_strs, base_wcs_str, shape_hw, mask_paths,
+    streaming full-resolution base stack; returns the two .npy paths.
+
+    Memory-conscious: float32 throughout, per-channel in-place accumulation
+    (no full-frame temporaries), corridors painted from endpoint lists.  A
+    frame that fails to decode is skipped with a warning, never fatal.
+    """
+    (indices, paths, wcs_strs, base_wcs_str, shape_hw, segments_per_frame,
      tmp_dir_str, worker_id, half_size, bad_pixels) = args
     import numpy as _np
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
@@ -106,21 +126,42 @@ def _stack_partial(args) -> tuple[str, str]:
     ssum = _np.zeros((h, w, 3), _np.float32)
     wsum = _np.zeros((h, w), _np.float32)
     base_wcs = _wcs_from_str(base_wcs_str)
+    scratch = _np.zeros((h, w), _np.uint8)
     for i, path, wstr in zip(indices, paths, wcs_strs):
-        rgb = _raw.decode(Path(path), "final", bad_pixels, half_size=half_size)
+        try:
+            rgb = _raw.decode(Path(path), "final", bad_pixels,
+                              half_size=half_size)
+        except Exception as exc:
+            log.warning("skipping unreadable frame %s in the stack: %s",
+                        Path(path).name, exc)
+            continue
         arr, foot = _rp(rgb, _wcs_from_str(wstr), base_wcs, (h, w),
                         quality=True)
+        del rgb
         ok = foot.astype(bool)
-        mp = mask_paths.get(i)
-        if mp:
-            ok &= ~_np.load(mp)
-        ssum += arr * ok[:, :, None]
-        wsum += ok
+        segs = segments_per_frame.get(i)
+        if segs:
+            scratch[:] = 0
+            _paint_segments(scratch, segs)
+            ok &= scratch == 0
+        okf = ok.astype(_np.float32)
+        for c in range(3):
+            ssum[:, :, c] += arr[:, :, c] * okf
+        wsum += okf
+        del arr, foot, ok, okf
     tmp = Path(tmp_dir_str)
     sp, wp = tmp / f"sum_{worker_id}.npy", tmp / f"wsum_{worker_id}.npy"
     _np.save(sp, ssum)
     _np.save(wp, wsum)
     return str(sp), str(wp)
+
+
+def _available_ram_gb() -> float:
+    import os
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
+    except (ValueError, OSError, AttributeError):
+        return 16.0
 
 
 # ----------------------------------------------------------------------
@@ -155,10 +196,30 @@ def run(cfg: Config, progress=None) -> dict:
     groups = segment_folder(metas, cfg.max_gap_factor)
     log.info("found %d frame(s) in %d group(s)", len(metas), len(groups))
 
+    real_groups = [g for g in groups if len(g.frames) >= 5]
+    for g in groups:
+        if len(g.frames) < 5:
+            log.info("skipping group %s: only %d frame(s) (test shots?)",
+                     g.group_id, len(g.frames))
+    if not real_groups:
+        raise RuntimeError(
+            "No usable shooting sequence found — the folder seems to hold "
+            "only a handful of scattered shots. This tool needs one "
+            "continuous run of frames from a fixed tripod.")
     results = {"groups": []}
-    for group in groups:
-        res = _run_group(cfg, group, bad_pixels, notify)
-        results["groups"].append(res)
+    errors = []
+    for group in real_groups:
+        try:
+            res = _run_group(cfg, group, bad_pixels, notify)
+            results["groups"].append(res)
+        except Exception:
+            if len(real_groups) == 1:
+                raise
+            log.exception("group %s failed; continuing with the others",
+                          group.group_id)
+            errors.append(group.group_id)
+    if errors and not results["groups"]:
+        raise RuntimeError(f"every group failed: {errors}")
     return results
 
 
@@ -169,14 +230,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     cache = CacheStore(cfg.cache_path / group.group_id)
     skipped = 0
+    # frame-set fingerprint: adding/removing/replacing files re-runs stages
+    import hashlib as _hashlib
+    _fp = _hashlib.sha256()
+    for m in frames:
+        try:
+            _fp.update(f"{m.file}:{m.path.stat().st_size}".encode())
+        except OSError:
+            _fp.update(m.file.encode())
+    frames_fp = _fp.hexdigest()[:16]
 
     def stage_fresh(stage):
         nonlocal skipped
-        h_ = cfg.stage_hash(stage)
+        h_ = cfg.stage_hash(stage) + ":" + frames_fp
         if not cfg.force and cache.is_done(stage, h_):
             skipped += 1
             return False
         return True
+
+    def stage_done(stage):
+        cache.mark_done(stage, cfg.stage_hash(stage) + ":" + frames_fp)
 
     # Detection space: always half-size decode (the spec's 2x2 binning).
     # Output space: full resolution, or half when the user chose half_size.
@@ -194,7 +267,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                          for i in range(n)])
         lp = flag_lightpainted(gmed, cfg.lp_window, cfg.lp_sigma)
         cache.write_json("lightpaint.json", lp.tolist())
-        cache.mark_done("lightpaint", cfg.stage_hash("lightpaint"))
+        stage_done("lightpaint")
     else:
         lp = np.array(cache.read_json("lightpaint.json"), dtype=bool)
     for m, f in zip(frames, lp):
@@ -213,11 +286,19 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     hd, wd = base_det_lum.shape[:2]
 
     # ---------------- plate solving (at detection scale) ----------------
-    notify(0.12, "plate solving (sparse subset)")
+    notify(0.12, "matching your stars to the star map")
     det_pitch_um = cfg.pixel_pitch_um * 2.0   # half-size decode
     det_scale_deg = float(np.rad2deg(np.arctan(
         det_pitch_um * 1e-3 / max(base_meta.focal_mm, 1e-3))))
-    catalog = (np.load(cfg.catalog_file) if cfg.catalog_file else None)
+    # matching catalog: user-supplied, else the bundled naked-eye catalog —
+    # solving needs no network and no pointing hints
+    from meteorprep.astrometry.blind import blind_solve, load_bright_catalog
+    if cfg.catalog_file:
+        catalog = np.load(cfg.catalog_file)[:, :2]
+        blind_catalog = catalog
+    else:
+        blind_catalog = load_bright_catalog()
+        catalog = blind_catalog[:, :2]
 
     k1 = cfg.lens_k1
     if abs(k1) < 1e-12:
@@ -240,12 +321,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                                  det_scale_deg, (hd, wd),
                                  rotation_deg=cfg.seed_rotation_deg)
         elif cfg.pointed_compass:
-            # "which way was the camera facing" -> solver seed, offline
+            # optional hint: "which way was the camera facing" -> seed.
+            # EXIF times are camera-local; approximate UTC from the site
+            # longitude (1 h per 15 deg) — a seed only needs to be rough.
+            from datetime import timedelta
+
             from meteorprep.cloudrun import altaz_seed, parse_pointing
             try:
+                utc_guess = base_meta.epoch_mid - timedelta(
+                    hours=cfg.site_lon / 15.0)
                 ra_s, dec_s = altaz_seed(
-                    cfg.site_lat, cfg.site_lon,
-                    base_meta.epoch_mid.isoformat(),
+                    cfg.site_lat, cfg.site_lon, utc_guess.isoformat(),
                     parse_pointing(cfg.pointed_compass),
                     cfg.pointed_elevation_deg)
                 seed = build_tan_wcs(ra_s, dec_s, det_scale_deg, (hd, wd),
@@ -256,20 +342,23 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             except (ValueError, RuntimeError) as exc:
                 log.warning("could not derive a seed from the pointing "
                             "hint (%s); solving blind", exc)
-        result = solve_frame(base_det_lum, seed, catalog, cfg,
-                             image_path=base_meta.path, undistort=undistort)
+        result = (solve_frame(base_det_lum, seed, catalog, cfg,
+                              undistort=undistort)
+                  if seed is not None else None)
+        if result is None:
+            # fully automatic: search every plausible pointing against the
+            # bundled naked-eye catalog — no hints, no network
+            notify(0.14, "working out where the camera pointed")
+            result = blind_solve(base_det_lum, det_scale_deg,
+                                 catalog_radec=blind_catalog,
+                                 undistort=undistort)
         if result is None:
             raise RuntimeError(
-                "I couldn't match the stars in your photos to a star map "
-                "(this is how the tool learns where the camera was pointed). "
-                "Two easy fixes, either works:\n"
-                "  1. Install the star-matching add-on and make sure you're "
-                "online:  pip install twirl astroquery\n"
-                "  2. Or install the astrometry.net solver "
-                "(Mac: brew install astrometry-net, plus its index files).\n"
-                "If clouds/trees hide most of the sky in the middle frame, "
-                "try again — the tool picks a different reference frame if "
-                "you delete the worst frames from the folder.")
+                "I couldn't match the stars in your photos to the star map. "
+                "This usually means the reference frame shows too few stars "
+                "(clouds, trees, or heavy light pollution). Try removing the "
+                "worst frames from the folder and running again — the tool "
+                "will pick a different reference frame.")
         base_det_wcs = result.wcs
         solver_used = result.source
         base_meta.wcs_source = "solved"
@@ -290,7 +379,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             dt = (frames[i].epoch_mid - base_mid).total_seconds()
             seed_i = propagate_wcs(base_det_wcs, dt)
             res_i = solve_frame(decode_det_lum(i), seed_i, catalog, cfg,
-                                image_path=frames[i].path, undistort=undistort)
+                                undistort=undistort)
             if res_i is not None and res_i.rms_px <= cfg.solve_rms_max_px:
                 solved[i] = res_i.wcs
                 frames[i].wcs_source = "solved"
@@ -344,23 +433,43 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             work = [(i, str(frames[i].path), _wcs_to_str(det_wcs[i]),
                      det_str, (hd, wd), str(det_dir), bad_pixels)
                     for i in range(n)]
-            if cfg.jobs > 1:
-                from concurrent.futures import ProcessPoolExecutor
+            jobs_eff = (min(cfg.jobs, 3) if _available_ram_gb() < 12
+                        else cfg.jobs)
+            failed: list = []
+            if jobs_eff > 1:
+                from concurrent.futures import ProcessPoolExecutor, as_completed
                 try:
-                    done = 0
-                    with ProcessPoolExecutor(max_workers=cfg.jobs) as pool:
-                        for _ in pool.map(_detect_reproject_one, work):
+                    with ProcessPoolExecutor(max_workers=jobs_eff) as pool:
+                        futs = {pool.submit(_detect_reproject_one, a): a
+                                for a in work}
+                        done = 0
+                        for fut in as_completed(futs):
                             done += 1
+                            try:
+                                fut.result()
+                            except Exception as exc:
+                                failed.append((futs[fut], exc))
                             notify(0.25 + 0.15 * done / n,
                                    f"searching preparation ({done}/{n})")
                 except Exception as exc:
                     log.warning("parallel alignment failed (%s); using one "
                                 "core", exc)
-                    for args in work:
-                        _detect_reproject_one(args)
+                    failed = [(a, None) for a in work]
             else:
-                for k, args in enumerate(work):
+                failed = [(a, None) for a in work]
+            for k, (args, prev_exc) in enumerate(failed):
+                try:
                     _detect_reproject_one(args)
+                except Exception as exc:
+                    # unreadable frame: blank footprint keeps the run alive
+                    i_bad = args[0]
+                    log.warning("frame %s is unreadable (%s); skipping it",
+                                frames[i_bad].file, exc)
+                    np.save(det_dir / f"lum_{i_bad:04d}.npy",
+                            np.zeros((hd, wd), np.uint16))
+                    np.save(det_dir / f"foot_{i_bad:04d}.npy",
+                            np.zeros((hd, wd), np.uint8))
+                if jobs_eff <= 1:
                     notify(0.25 + 0.15 * (k + 1) / n,
                            f"searching preparation ({k + 1}/{n})")
         else:
@@ -373,7 +482,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 np.save(det_dir / f"lum_{i:04d}.npy",
                         np.clip(arr, 0, 65535).astype(np.uint16))
                 np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
-        cache.mark_done("reproject", cfg.stage_hash("reproject"))
+        stage_done("reproject")
 
     def load_det_lum(i):
         return np.load(det_dir / f"lum_{i:04d}.npy", mmap_mode="r")
@@ -409,7 +518,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
         if s:
             streaks_per_frame[i] = s
-            diffs_det[i] = d
+            diffs_det[i] = np.clip(d, 0, 65535).astype(np.uint16)
+        if (i + 1) % 5 == 0 or i == n - 1:
+            notify(0.45 + 0.08 * (i + 1) / n,
+                   f"searching every frame for meteors ({i + 1}/{n})")
 
     # ---------------- tracking + colour + classification ----------------
     notify(0.55, "telling meteors from planes and satellites")
@@ -443,29 +555,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     flagged_cands = [c for c in candidates if c.label != "meteor"]
     meteor_cands.sort(key=lambda c: file_to_idx[c.frames[0]])
 
-    # ---- corridor masks: keep every detected streak out of the base ----
-    corridor_masks: dict[int, np.ndarray] = {}
+    # ---- streak corridors: endpoint lists, painted on demand (tiny) ----
+    corridor_segments: dict[int, list] = {}
     for c in candidates:
         for frame_file, st in zip(c.frames, c.streaks):
             i = file_to_idx[frame_file]
-            m = corridor_masks.get(i)
-            if m is None:
-                m = np.zeros((h, w), bool)
-                corridor_masks[i] = m
-            _paint_corridor(m, (st.x0, st.y0), (st.x1, st.y1),
-                            half_width=max(3.0 * max(st.fwhm_px, 2.0), 12.0))
+            corridor_segments.setdefault(i, []).append(
+                (st.x0, st.y0, st.x1, st.y1,
+                 max(3.0 * max(st.fwhm_px, 2.0), 12.0)))
 
     # ---------------- streaming full-resolution base stack --------------
     if stage_fresh("base_sky"):
         notify(0.62, "building the clean starfield from every frame")
         base_img = _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs,
-                                base_det_wcs, (h, w), S, corridor_masks,
+                                base_det_wcs, (h, w), S, corridor_segments,
                                 cache, bad_pixels, notify)
         import tifffile
         tifffile.imwrite(cache.path("base.tif"),
                          np.clip(base_img, 0, 65535).astype(np.uint16),
                          compression="lzw")
-        cache.mark_done("base_sky", cfg.stage_hash("base_sky"))
+        stage_done("base_sky")
     import tifffile
     base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
     base_lum = raw_mod.luminance(base_img)
@@ -539,14 +648,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- assembly ----------------
     notify(0.92, "assembling layers")
-    fg_layers = [Layer(name="FG_base_time",
-                       rgb=base_rgb_final.astype(np.float32),
+    fg_layers = [Layer(name="FG_base_time", rgb=base_rgb_final,
                        alpha=(1.0 - sky_mask), blend="normal", visible=True)]
     for i in np.nonzero(lp)[0]:
         rgb_lp = raw_mod.decode(frames[i].path, "final", bad_pixels,
                                 half_size=cfg.half_size)
         fg_layers.append(Layer(name=f"FG_lightpaint_{frames[i].file}",
-                               rgb=rgb_lp.astype(np.float32),
+                               rgb=rgb_lp,
                                alpha=(1.0 - sky_mask), blend="normal",
                                visible=False))
 
@@ -618,14 +726,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 # helpers
 # ----------------------------------------------------------------------
 
-def _paint_corridor(mask: np.ndarray, p0, p1, half_width: float) -> None:
-    """Mark a generous corridor around a streak (output-space pixels)."""
-    import cv2
-    cv2.line(mask.view(np.uint8), (int(round(p0[0])), int(round(p0[1]))),
-             (int(round(p1[0])), int(round(p1[1]))), 1,
-             thickness=max(int(2 * half_width), 3))
-
-
 def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
                               shape_det, S, bad_pixels) -> None:
     """Lazy colour measurement (§3.6): only candidate frames are re-decoded
@@ -672,7 +772,7 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
 
 
 def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
-                 shape_out, S, corridor_masks, cache, bad_pixels,
+                 shape_out, S, corridor_segments, cache, bad_pixels,
                  notify) -> np.ndarray:
     """Streaming masked mean at output resolution: each frame is decoded,
     aligned, accumulated and discarded — nothing big ever hits the disk.
@@ -680,11 +780,6 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     average, so the base stays clean without a multi-pass sigma clip."""
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
-    mask_paths = {}
-    for i, m in corridor_masks.items():
-        p = tmp / f"mask_{i:04d}.npy"
-        np.save(p, m)
-        mask_paths[i] = str(p)
 
     def frame_args(indices, worker_id):
         return (list(indices),
@@ -692,23 +787,32 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 [_wcs_to_str(scale_wcs(det_wcs[i], S))
                  if base_det_wcs is not None else "" for i in indices],
                 _wcs_to_str(base_wcs) if base_wcs is not None else "",
-                (h, w), mask_paths, str(tmp), worker_id, cfg.half_size,
-                bad_pixels)
+                (h, w),
+                {i: corridor_segments[i] for i in indices
+                 if i in corridor_segments},
+                str(tmp), worker_id, cfg.half_size, bad_pixels)
 
-    n_workers = max(min(cfg.jobs, 3), 1)   # float32 partials: cap RAM
+    # each worker holds ~0.6-1 GB at full 20 MP resolution: keep laptops
+    # with little memory on one worker, others on at most two
+    n_workers = 1 if _available_ram_gb() < 12 else max(min(cfg.jobs, 2), 1)
     partials = []
     if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
-        chunks = [ok_idx[k::n_workers] for k in range(n_workers)]
-        from concurrent.futures import ProcessPoolExecutor
+        # small chunks so the progress bar moves every minute or two
+        chunk_size = max(len(ok_idx) // (n_workers * 6), 4)
+        chunks = [ok_idx[k:k + chunk_size]
+                  for k in range(0, len(ok_idx), chunk_size)]
+        from concurrent.futures import ProcessPoolExecutor, as_completed
         try:
             with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                futures = [pool.submit(_stack_partial, frame_args(chunk, k))
-                           for k, chunk in enumerate(chunks)]
-                for k, fut in enumerate(futures):
+                futures = {pool.submit(_stack_partial, frame_args(chunk, k)): k
+                           for k, chunk in enumerate(chunks)}
+                done = 0
+                for fut in as_completed(futures):
                     partials.append(fut.result())
-                    notify(0.62 + 0.18 * (k + 1) / len(futures),
+                    done += 1
+                    notify(0.62 + 0.18 * done / len(chunks),
                            "building the clean starfield "
-                           f"({k + 1}/{len(futures)} parts)")
+                           f"({done}/{len(chunks)} parts)")
         except Exception as exc:
             log.warning("parallel stacking failed (%s); using one core", exc)
             partials = []
@@ -728,8 +832,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
                                            (w / 2.0, h / 2.0))
                 ok = foot.astype(bool)
-                if i in corridor_masks:
-                    ok &= ~corridor_masks[i]
+                if i in corridor_segments:
+                    scratch = np.zeros((h, w), np.uint8)
+                    _paint_segments(scratch, corridor_segments[i])
+                    ok &= scratch == 0
                 ssum += arr.astype(np.float32) * ok[:, :, None]
                 wsum += ok
             total_sum, total_w = ssum, wsum

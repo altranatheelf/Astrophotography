@@ -284,6 +284,10 @@ def make_synthetic_sequence(out_dir, n_frames: int = 30, exp_s: float = 20.0,
     }
     (out / "frames_meta.json").write_text(json.dumps(frames_meta, indent=2))
     (out / "ground_truth.json").write_text(json.dumps(gt, indent=2))
-    catalog = np.array([[s["ra"], s["dec"]] for s in gt["stars"]])
+    # (ra, dec, pseudo-magnitude) sorted brightest-first, like the bundled
+    # naked-eye catalog — consumers of only positions slice [:, :2]
+    catalog = np.array([[s["ra"], s["dec"], -2.5 * np.log10(s["flux"])]
+                        for s in gt["stars"]])
+    catalog = catalog[np.argsort(catalog[:, 2])]
     np.save(out / "catalog_radec.npy", catalog)
     return gt

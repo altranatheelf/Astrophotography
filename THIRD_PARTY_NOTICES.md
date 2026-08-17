@@ -11,6 +11,7 @@ METEORPREP is licensed Apache-2.0.  It builds on the following projects:
 | tifffile, imagecodecs | BSD | TIFF I/O |
 | Pillow | MIT-CMU | PNG / contact sheet |
 | shin3tky/detect_meteors | Apache-2.0 | detection constants & NPF auto-tuning heritage (derived with attribution) |
+| Yale Bright Star Catalog (via brettonw/YaleBrightStarCatalog) | MIT (mirror); catalog data public | bundled naked-eye catalog for automatic blind plate solving |
 | twirl (optional) | MIT | plate solving via Gaia asterisms |
 | astroquery (optional) | BSD | Gaia queries for twirl |
 | pytoshop (optional) | BSD | PSD writing |

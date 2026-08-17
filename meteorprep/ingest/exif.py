@@ -145,9 +145,16 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
             log.warning("skipping %s — no capture time in its metadata "
                         "(not a camera frame?)", p.name)
             continue
+        try:
+            dt = _parse_dt(str(rec["DateTimeOriginal"]))
+        except ValueError:
+            log.warning("skipping %s — unreadable capture time %r (camera "
+                        "clock was never set?)", p.name,
+                        rec["DateTimeOriginal"])
+            continue
         metas.append(FrameMeta(
             path=p, file=p.name,
-            datetime_original=_parse_dt(str(rec["DateTimeOriginal"])),
+            datetime_original=dt,
             exposure_s=float(rec.get("ExposureTime", 20.0)),
             iso=int(rec.get("ISO", 0) or 0),
             fnumber=float(rec.get("FNumber", 0) or 0),

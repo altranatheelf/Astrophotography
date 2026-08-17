@@ -49,6 +49,10 @@ class RunningReference:
                if j != i and j not in self.exclude]
         if not idx:
             idx = [j for j in range(n) if j != i][:self.window]
+        if not idx:
+            # single-frame group: no neighbours — the reference is the frame
+            # itself, so the difference is zero and nothing is detected
+            return np.asarray(self.frames[i], dtype=np.float32)
         win = np.stack([self.frames[j] for j in idx])
         foot = (np.stack([self.footprints[j] for j in idx])
                 if self.footprints is not None else None)

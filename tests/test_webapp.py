@@ -63,11 +63,10 @@ def test_full_phone_flow(server, synth_dir, ground_truth):
 
     # power-user override standing in for the phone's simpler defaults:
     # offline catalog + solver seed, and the parallel reprojection path
+    # note: NO seed hints — this exercises the fully automatic blind solve
     override = {
         "catalog_file": str(Path(synth_dir) / "catalog_radec.npy"),
         "pixel_pitch_um": 16000.0 / ground_truth["focal_px"],
-        "seed_ra_deg": ground_truth["tangent_radec"][0] + 0.2,
-        "seed_dec_deg": ground_truth["tangent_radec"][1] - 0.15,
         "solve_every_k": 4,
         "jobs": 2,
         "emit_psd": False,

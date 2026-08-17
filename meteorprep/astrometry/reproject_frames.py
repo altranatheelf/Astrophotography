@@ -33,15 +33,20 @@ def reproject_frame(data: np.ndarray, src_wcs, dst_wcs,
 
     if data.ndim == 2:
         arr, foot = _one(data.astype(np.float32))
-        arr = np.nan_to_num(arr, nan=0.0)
+        arr = np.nan_to_num(arr.astype(np.float32, copy=False), nan=0.0)
         return arr, (foot > 0).astype(np.uint8)
 
-    chans, foots = [], []
+    # float32 per channel, assembled in place — never a float64 full stack
+    h, w = shape_out
+    out = np.empty((h, w, data.shape[2]), np.float32)
+    foot_all = None
     for c in range(data.shape[2]):
         arr, foot = _one(data[:, :, c].astype(np.float32))
-        chans.append(np.nan_to_num(arr, nan=0.0))
-        foots.append(foot > 0)
-    return np.stack(chans, axis=2), np.all(foots, axis=0).astype(np.uint8)
+        out[:, :, c] = np.nan_to_num(arr.astype(np.float32, copy=False),
+                                     nan=0.0)
+        f = foot > 0
+        foot_all = f if foot_all is None else (foot_all & f)
+    return out, foot_all.astype(np.uint8)
 
 
 def rotate2d_frame(data: np.ndarray, angle_deg: float,

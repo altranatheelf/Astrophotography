@@ -140,12 +140,19 @@ def test_pngjsx_writer(tmp_path):
     text = jsx.read_text()
     assert "BlendMode.LIGHTEN" in text
     assert "METEORS" in text
+    assert "layer.translate" in text   # bbox layers are moved into place
     pngs = list((tmp_path / "layers").glob("*.png"))
     assert len(pngs) == 2
     from PIL import Image
-    img = Image.open([p for p in pngs if "M001" in p.name][0])
-    assert img.mode == "RGBA"
-    assert img.size == (60, 40)
+    base_png = Image.open([p for p in pngs if "BASE_SKY" in p.name][0])
+    assert base_png.size == (60, 40)
+    met_png = Image.open([p for p in pngs if "M001" in p.name][0])
+    assert met_png.mode == "RGBA"
+    assert met_png.size == (8, 5)      # bbox-sized, not full canvas
+    import json as _json
+    manifest = _json.loads((tmp_path / "layers_manifest.json").read_text())
+    m = [r for r in manifest if "M001" in r["name"]][0]
+    assert (m["x"], m["y"]) == (10, 20)
 
 
 def test_gnomonic_streak_is_great_circle(base_wcs, ground_truth):
