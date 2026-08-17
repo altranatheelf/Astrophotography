@@ -15,8 +15,9 @@ import traceback
 def main() -> int:
     try:
         from PySide6.QtCore import Qt, QThread, Signal
-        from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
-                                       QLabel, QMainWindow, QProgressBar,
+        from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
+                                       QFileDialog, QHBoxLayout, QLabel,
+                                       QLineEdit, QMainWindow, QProgressBar,
                                        QPushButton, QVBoxLayout, QWidget)
     except ImportError:
         print("PySide6 is not installed: pip install 'meteorprep[gui]'",
@@ -63,6 +64,28 @@ def main() -> int:
             self.drop_label.mousePressEvent = self._browse
             layout.addWidget(self.drop_label)
 
+            pointing_row = QHBoxLayout()
+            pointing_row.addWidget(QLabel("Camera faced:"))
+            self.compass = QComboBox()
+            self.compass.addItems(["not sure", "N", "NE", "E", "SE",
+                                   "S", "SW", "W", "NW"])
+            pointing_row.addWidget(self.compass)
+            pointing_row.addWidget(QLabel("aimed:"))
+            self.elevation = QComboBox()
+            self.elevation.addItems(["halfway up", "low (near horizon)",
+                                     "high (near overhead)"])
+            pointing_row.addWidget(self.elevation)
+            layout.addLayout(pointing_row)
+
+            site_row = QHBoxLayout()
+            site_row.addWidget(QLabel("Where (lat, lon):"))
+            self.site = QLineEdit("44.3275, -72.1725")
+            self.site.setToolTip(
+                "Find yours in Apple Maps: press and hold your spot, the "
+                "numbers appear on the place card. Rough is fine.")
+            site_row.addWidget(self.site)
+            layout.addLayout(site_row)
+
             self.cb_png = QCheckBox("Emit PNG + Photoshop script fallback")
             self.cb_png.setChecked(True)
             self.cb_trail = QCheckBox("Emit star-trail render")
@@ -108,6 +131,13 @@ def main() -> int:
 
         def _start(self):
             import os
+            elev = {"halfway up": 45.0, "low (near horizon)": 25.0,
+                    "high (near overhead)": 65.0}[self.elevation.currentText()]
+            compass = self.compass.currentText()
+            try:
+                lat, lon = (float(v) for v in self.site.text().split(","))
+            except ValueError:
+                lat, lon = 44.3275, -72.1725
             cfg = Config(
                 input_dir=self.folder,
                 output_dir=str(self.folder) + "_meteorprep",
@@ -118,6 +148,9 @@ def main() -> int:
                 force=self.cb_force.isChecked(),
                 jobs=max((os.cpu_count() or 2) - 1, 1),
                 cleanup_cache=True,
+                site_lat=lat, site_lon=lon,
+                pointed_compass="" if compass == "not sure" else compass,
+                pointed_elevation_deg=elev,
             )
             self.button.setEnabled(False)
             self.worker = Worker(cfg)

@@ -239,6 +239,23 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             seed = build_tan_wcs(cfg.seed_ra_deg, cfg.seed_dec_deg,
                                  det_scale_deg, (hd, wd),
                                  rotation_deg=cfg.seed_rotation_deg)
+        elif cfg.pointed_compass:
+            # "which way was the camera facing" -> solver seed, offline
+            from meteorprep.cloudrun import altaz_seed, parse_pointing
+            try:
+                ra_s, dec_s = altaz_seed(
+                    cfg.site_lat, cfg.site_lon,
+                    base_meta.epoch_mid.isoformat(),
+                    parse_pointing(cfg.pointed_compass),
+                    cfg.pointed_elevation_deg)
+                seed = build_tan_wcs(ra_s, dec_s, det_scale_deg, (hd, wd),
+                                     rotation_deg=cfg.seed_rotation_deg)
+                log.info("pointing %s at %.0f deg up -> seed RA %.1f Dec %.1f",
+                         cfg.pointed_compass, cfg.pointed_elevation_deg,
+                         ra_s, dec_s)
+            except (ValueError, RuntimeError) as exc:
+                log.warning("could not derive a seed from the pointing "
+                            "hint (%s); solving blind", exc)
         result = solve_frame(base_det_lum, seed, catalog, cfg,
                              image_path=base_meta.path, undistort=undistort)
         if result is None:
@@ -365,14 +382,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         return np.load(det_dir / f"foot_{i:04d}.npy", mmap_mode="r")
 
     # ---------------- detection ----------------
+    # Lazy views keep RAM flat (~7 frames in memory), never all 226.
     notify(0.45, "searching every frame for meteors")
-    lum_det = [np.asarray(load_det_lum(i)).astype(np.float32)
-               for i in range(n)]
-    foot_det = [np.asarray(load_det_foot(i)) for i in range(n)]
+
+    class _Lazy:
+        def __init__(self, loader, count):
+            self._loader, self._count = loader, count
+
+        def __getitem__(self, i):
+            return np.asarray(self._loader(i)).astype(np.float32)
+
+        def __len__(self):
+            return self._count
+
+    lum_det = _Lazy(load_det_lum, n)
+    foot_det = _Lazy(load_det_foot, n)
     ref = RunningReference(lum_det, cfg.ref_window, cfg.ref_sigma,
                            exclude=set(np.nonzero(lp)[0]),
                            footprints=foot_det)
     streaks_per_frame = {}
+    diffs_det = {}
     for i in range(n):
         if lp[i]:
             continue
@@ -380,9 +409,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
         if s:
             streaks_per_frame[i] = s
-    diffs_det = {i: difference(lum_det[i], ref.for_frame(i), foot_det[i])
-                 for i in streaks_per_frame}
-    del lum_det, foot_det
+            diffs_det[i] = d
 
     # ---------------- tracking + colour + classification ----------------
     notify(0.55, "telling meteors from planes and satellites")

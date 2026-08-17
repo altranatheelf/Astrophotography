@@ -43,6 +43,8 @@ class Config:
     seed_ra_deg: float = float("nan")   # rough base-frame center seed (else EXIF/alt-az)
     seed_dec_deg: float = float("nan")
     seed_rotation_deg: float = 0.0
+    pointed_compass: str = ""           # "NE" etc: derive the seed from where
+    pointed_elevation_deg: float = 45.0  # the camera pointed + site + time
     solve_every_k: int = 10
     solve_min_stars: int = 20
     solve_rms_max_px: float = 2.0
@@ -108,7 +110,8 @@ class Config:
         "solve": ["align_mode", "solve_every_k", "solve_min_stars",
                   "solve_rms_max_px", "sip_order", "lens_model", "lens_k1",
                   "site_lat", "site_lon", "pixel_pitch_um", "catalog_file",
-                  "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg"],
+                  "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg",
+                  "pointed_compass", "pointed_elevation_deg"],
         "reproject": ["align_mode"],
         "detect": ["bin_factor", "ref_window", "ref_sigma", "diff_threshold",
                    "min_area", "min_aspect_ratio", "hough_threshold",
