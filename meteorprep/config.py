@@ -79,6 +79,9 @@ class Config:
     stack_sigma: float = 2.5
     stack_maxiters: int = 5
     stack_band_rows: int = 512
+    frame_weighting: bool = True      # noise-weighted integration
+    emit_foreground_stack: bool = True  # Sequator-style frozen ground
+    emit_gradient_layer: bool = True    # sky-gradient layer (Subtract blend)
 
     # --- outputs ---
     emit_psd: bool = True
@@ -121,7 +124,8 @@ class Config:
                      "radiant_ra_deg", "radiant_dec_deg", "radiant_epoch",
                      "radiant_dra_deg_per_day", "radiant_ddec_deg_per_day",
                      "radiant_tol_deg"],
-        "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows"],
+        "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows",
+                     "frame_weighting", "emit_foreground_stack"],
         "sky_ground": [],
         "extract": [],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",

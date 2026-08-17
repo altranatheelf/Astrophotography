@@ -44,6 +44,7 @@ from meteorprep.mask.extract import extract_meteor
 from meteorprep.report.sidecar import write_sidecar
 from meteorprep.segment.sky_ground import segment_sky
 from meteorprep.stack.startrail import lighten_stack
+from meteorprep.stack.streaming import frame_noise_weights
 
 log = logging.getLogger("meteorprep")
 
@@ -108,25 +109,38 @@ def _paint_segments(mask: np.ndarray, segments) -> None:
                  thickness=max(int(2 * half_width), 3))
 
 
-def _stack_partial(args) -> tuple[str, str]:
-    """Accumulate a subset of frames into partial sum/weight arrays for the
-    streaming full-resolution base stack; returns the two .npy paths.
+def _stack_pass(args) -> dict:
+    """One streaming pass over a subset of frames.
 
-    Memory-conscious: float32 throughout, per-channel in-place accumulation
-    (no full-frame temporaries), corridors painted from endpoint lists.  A
-    frame that fails to decode is skipped with a warning, never fatal.
+    mode "moments": accumulate Welford per-pixel moments (mean/M2/count) for
+    the sigma-clip bounds, and optionally an *unaligned* foreground sum (the
+    ground is static on a fixed tripod, so the frozen-ground stack costs no
+    extra decodes).  mode "clipped": accumulate the frame-weighted mean of
+    samples within sigma of the pass-1 mean.  Returns saved .npy paths.
+    Memory-conscious (float32, in-place); unreadable frames are skipped.
     """
-    (indices, paths, wcs_strs, base_wcs_str, shape_hw, segments_per_frame,
-     tmp_dir_str, worker_id, half_size, bad_pixels) = args
+    (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
+     segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
+     bad_pixels, sigma, want_fg) = args
     import numpy as _np
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
+    from meteorprep.stack.streaming import RunningMoments
 
     h, w = shape_hw
-    ssum = _np.zeros((h, w, 3), _np.float32)
-    wsum = _np.zeros((h, w), _np.float32)
+    tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
     scratch = _np.zeros((h, w), _np.uint8)
+    if mode == "moments":
+        mom = RunningMoments((h, w, 3))
+        fg_sum = _np.zeros((h, w, 3), _np.float32) if want_fg else None
+        fg_n = 0
+    else:
+        clip_mean = _np.load(tmp / "clip_mean.npy", mmap_mode="r")
+        clip_bound = _np.load(tmp / "clip_bound.npy", mmap_mode="r")
+        ssum = _np.zeros((h, w, 3), _np.float32)
+        wsum = _np.zeros((h, w, 3), _np.float32)
+
     for i, path, wstr in zip(indices, paths, wcs_strs):
         try:
             rgb = _raw.decode(Path(path), "final", bad_pixels,
@@ -135,6 +149,9 @@ def _stack_partial(args) -> tuple[str, str]:
             log.warning("skipping unreadable frame %s in the stack: %s",
                         Path(path).name, exc)
             continue
+        if mode == "moments" and fg_sum is not None:
+            fg_sum += rgb.astype(_np.float32)
+            fg_n += 1
         arr, foot = _rp(rgb, _wcs_from_str(wstr), base_wcs, (h, w),
                         quality=True)
         del rgb
@@ -144,16 +161,36 @@ def _stack_partial(args) -> tuple[str, str]:
             scratch[:] = 0
             _paint_segments(scratch, segs)
             ok &= scratch == 0
-        okf = ok.astype(_np.float32)
-        for c in range(3):
-            ssum[:, :, c] += arr[:, :, c] * okf
-        wsum += okf
-        del arr, foot, ok, okf
-    tmp = Path(tmp_dir_str)
-    sp, wp = tmp / f"sum_{worker_id}.npy", tmp / f"wsum_{worker_id}.npy"
-    _np.save(sp, ssum)
-    _np.save(wp, wsum)
-    return str(sp), str(wp)
+        if mode == "moments":
+            mom.add(arr, ok)
+        else:
+            wgt = float(frame_weights.get(i, 1.0))
+            okf = ok.astype(_np.float32)
+            for c in range(3):
+                keep = okf * (
+                    _np.abs(arr[:, :, c] - clip_mean[:, :, c])
+                    <= clip_bound[:, :, c])
+                ssum[:, :, c] += arr[:, :, c] * keep * wgt
+                wsum[:, :, c] += keep * wgt
+        del arr, foot, ok
+    out = {}
+    if mode == "moments":
+        for name, a in (("count", mom.count), ("mean", mom.mean),
+                        ("m2", mom.m2)):
+            p = tmp / f"{name}_{worker_id}.npy"
+            _np.save(p, a)
+            out[name] = str(p)
+        if fg_sum is not None:
+            p = tmp / f"fg_{worker_id}.npy"
+            _np.save(p, fg_sum)
+            out["fg"] = str(p)
+            out["fg_n"] = fg_n
+    else:
+        for name, a in (("csum", ssum), ("cwsum", wsum)):
+            p = tmp / f"{name}_{worker_id}.npy"
+            _np.save(p, a)
+            out[name] = str(p)
+    return out
 
 
 def _available_ram_gb() -> float:
@@ -511,10 +548,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                            footprints=foot_det)
     streaks_per_frame = {}
     diffs_det = {}
+    noise_sigmas = {}
     for i in range(n):
         if lp[i]:
             continue
         d = difference(lum_det[i], ref.for_frame(i), foot_det[i])
+        # per-frame residual noise (haze/cloud raises it -> lower weight)
+        med = float(np.median(d))
+        noise_sigmas[i] = 1.4826 * float(np.median(np.abs(d - med))) + 1e-3
         s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
         if s:
             streaks_per_frame[i] = s
@@ -565,18 +606,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                  max(3.0 * max(st.fwhm_px, 2.0), 12.0)))
 
     # ---------------- streaming full-resolution base stack --------------
+    weights = (frame_noise_weights(noise_sigmas) if cfg.frame_weighting
+               else {})
     if stage_fresh("base_sky"):
-        notify(0.62, "building the clean starfield from every frame")
-        base_img = _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs,
-                                base_det_wcs, (h, w), S, corridor_segments,
-                                cache, bad_pixels, notify)
+        notify(0.60, "building the clean starfield from every frame")
+        base_img, fg_stack = _stream_base(
+            cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
+            corridor_segments, weights, cache, bad_pixels, notify)
         import tifffile
         tifffile.imwrite(cache.path("base.tif"),
                          np.clip(base_img, 0, 65535).astype(np.uint16),
                          compression="lzw")
+        if fg_stack is not None:
+            tifffile.imwrite(cache.path("fg_stack.tif"),
+                             np.clip(fg_stack, 0, 65535).astype(np.uint16),
+                             compression="lzw")
         stage_done("base_sky")
     import tifffile
     base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
+    fg_stack = (tifffile.imread(cache.path("fg_stack.tif")).astype(np.float32)
+                if cache.path("fg_stack.tif").exists() else None)
     base_lum = raw_mod.luminance(base_img)
 
     # ---------------- extraction (full quality, meteor frames only) -----
@@ -650,6 +699,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     notify(0.92, "assembling layers")
     fg_layers = [Layer(name="FG_base_time", rgb=base_rgb_final,
                        alpha=(1.0 - sky_mask), blend="normal", visible=True)]
+    if fg_stack is not None:
+        # frozen-ground stack: all frames averaged in camera space — far
+        # lower noise than any single frame's foreground
+        fg_layers.insert(0, Layer(name="FG_stacked_low_noise", rgb=fg_stack,
+                                  alpha=(1.0 - sky_mask), blend="normal",
+                                  visible=False))
     for i in np.nonzero(lp)[0]:
         rgb_lp = raw_mod.decode(frames[i].path, "final", bad_pixels,
                                 half_size=cfg.half_size)
@@ -670,10 +725,20 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                              bbox=layer.bbox, blend="lighten", visible=visible))
         return out
 
+    extra_layers = []
+    if cfg.emit_gradient_layer:
+        from meteorprep.stack.gradient import fit_sky_gradient
+        grad = fit_sky_gradient(base_img, sky_mask)
+        if grad is not None:
+            extra_layers.append(Layer(
+                name="SKY_GRADIENT_set_to_Subtract_to_flatten",
+                rgb=grad, blend="subtract", visible=False))
     stack = LayerStack(
         width=w, height=h,
         base=Layer(name="BASE_SKY", rgb=base_img, blend="normal", visible=True),
         groups=[
+            LayerGroup("SKY_TOOLS", extra_layers, visible=False)
+            if extra_layers else LayerGroup("SKY_TOOLS", [], visible=False),
             LayerGroup("FOREGROUND", fg_layers, visible=True),
             LayerGroup("METEORS", to_layers(meteor_layers, True), visible=True),
             LayerGroup("FLAGGED", to_layers(flagged_layers, False), visible=False),
@@ -772,17 +837,22 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
 
 
 def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
-                 shape_out, S, corridor_segments, cache, bad_pixels,
-                 notify) -> np.ndarray:
-    """Streaming masked mean at output resolution: each frame is decoded,
-    aligned, accumulated and discarded — nothing big ever hits the disk.
-    Detected streaks (meteors, planes, satellites) are masked out of the
-    average, so the base stays clean without a multi-pass sigma clip."""
+                 shape_out, S, corridor_segments, frame_weights, cache,
+                 bad_pixels, notify):
+    """Two-pass streaming sigma-clipped, noise-weighted stack at output
+    resolution — the same rejection statistics as the leading stackers'
+    kappa-sigma integration, with detected streaks additionally masked and
+    per-frame noise weights, holding at most one frame in memory.
+
+    Returns (base_rgb float32, foreground_rgb float32 | None): the
+    foreground (unaligned, "frozen ground") mean is accumulated inside
+    pass 1 at no extra decode cost.
+    """
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
 
-    def frame_args(indices, worker_id):
-        return (list(indices),
+    def frame_args(mode, indices, worker_id, want_fg=False):
+        return (mode, list(indices),
                 [str(frames[i].path) for i in indices],
                 [_wcs_to_str(scale_wcs(det_wcs[i], S))
                  if base_det_wcs is not None else "" for i in indices],
@@ -790,66 +860,105 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 (h, w),
                 {i: corridor_segments[i] for i in indices
                  if i in corridor_segments},
-                str(tmp), worker_id, cfg.half_size, bad_pixels)
+                {i: frame_weights.get(i, 1.0) for i in indices},
+                str(tmp), worker_id, cfg.half_size, bad_pixels,
+                cfg.stack_sigma, want_fg)
 
-    # each worker holds ~0.6-1 GB at full 20 MP resolution: keep laptops
-    # with little memory on one worker, others on at most two
+    # each worker holds ~1 GB at full 20 MP resolution: keep laptops with
+    # little memory on one worker, others on at most two
     n_workers = 1 if _available_ram_gb() < 12 else max(min(cfg.jobs, 2), 1)
-    partials = []
-    if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
-        # small chunks so the progress bar moves every minute or two
-        chunk_size = max(len(ok_idx) // (n_workers * 6), 4)
-        chunks = [ok_idx[k:k + chunk_size]
-                  for k in range(0, len(ok_idx), chunk_size)]
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-        try:
-            with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                futures = {pool.submit(_stack_partial, frame_args(chunk, k)): k
-                           for k, chunk in enumerate(chunks)}
-                done = 0
-                for fut in as_completed(futures):
-                    partials.append(fut.result())
-                    done += 1
-                    notify(0.62 + 0.18 * done / len(chunks),
-                           "building the clean starfield "
-                           f"({done}/{len(chunks)} parts)")
-        except Exception as exc:
-            log.warning("parallel stacking failed (%s); using one core", exc)
-            partials = []
-    if not partials:
-        if base_wcs is not None:
-            partials = [_stack_partial(frame_args(ok_idx, 0))]
-        else:
-            # degraded rotate2d path, serial
-            from meteorprep.astrometry.reproject_frames import rotate2d_frame
-            ssum = np.zeros((h, w, 3), np.float32)
-            wsum = np.zeros((h, w), np.float32)
-            base_mid = frames[ok_idx[len(ok_idx) // 2]].epoch_mid
-            for i in ok_idx:
-                rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
-                                     half_size=cfg.half_size)
-                dt = (frames[i].epoch_mid - base_mid).total_seconds()
-                arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
-                                           (w / 2.0, h / 2.0))
-                ok = foot.astype(bool)
-                if i in corridor_segments:
-                    scratch = np.zeros((h, w), np.uint8)
-                    _paint_segments(scratch, corridor_segments[i])
-                    ok &= scratch == 0
-                ssum += arr.astype(np.float32) * ok[:, :, None]
-                wsum += ok
-            total_sum, total_w = ssum, wsum
-            partials = None
-    if partials is not None:
-        total_sum = np.zeros((h, w, 3), np.float64)
-        total_w = np.zeros((h, w), np.float64)
-        for sp, wp in partials:
-            total_sum += np.load(sp)
-            total_w += np.load(wp)
-    base = total_sum / np.maximum(total_w, 1.0)[:, :, None]
+
+    def run_pass(mode, frac0, frac1, label, want_fg=False):
+        results = []
+        if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
+            chunk_size = max(len(ok_idx) // (n_workers * 4), 4)
+            chunks = [ok_idx[k:k + chunk_size]
+                      for k in range(0, len(ok_idx), chunk_size)]
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            try:
+                with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                    futures = {pool.submit(
+                        _stack_pass, frame_args(mode, chunk, k, want_fg)): k
+                        for k, chunk in enumerate(chunks)}
+                    done = 0
+                    for fut in as_completed(futures):
+                        results.append(fut.result())
+                        done += 1
+                        notify(frac0 + (frac1 - frac0) * done / len(chunks),
+                               f"{label} ({done}/{len(chunks)} parts)")
+            except Exception as exc:
+                log.warning("parallel stacking failed (%s); one core", exc)
+                results = []
+        if not results:
+            results = [_stack_pass(frame_args(mode, ok_idx, 0, want_fg))]
+        return results
+
+    if base_wcs is None:
+        return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
+                               shape_out, bad_pixels),
+                None)
+
+    # -------- pass 1: per-pixel moments (+ folded-in foreground sum) -----
+    from meteorprep.stack.streaming import RunningMoments
+    want_fg = bool(cfg.emit_foreground_stack)
+    parts = run_pass("moments", 0.60, 0.70,
+                     "measuring the sky (pass 1 of 2)", want_fg)
+    total = RunningMoments((h, w, 3))
+    fg_sum = np.zeros((h, w, 3), np.float32) if want_fg else None
+    fg_n = 0
+    for p in parts:
+        part = RunningMoments((h, w, 3))
+        part.count = np.load(p["count"])
+        part.mean = np.load(p["mean"])
+        part.m2 = np.load(p["m2"])
+        total.combine(part)
+        if want_fg and "fg" in p:
+            fg_sum += np.load(p["fg"])
+            fg_n += p["fg_n"]
+    np.save(tmp / "clip_mean.npy", total.mean)
+    np.save(tmp / "clip_bound.npy",
+            (cfg.stack_sigma * total.std()).astype(np.float32))
+    fg = (fg_sum / max(fg_n, 1)) if want_fg and fg_n else None
+    del fg_sum
+
+    # -------- pass 2: sigma-clipped, frame-weighted mean -----------------
+    parts = run_pass("clipped", 0.70, 0.80,
+                     "building the clean starfield (pass 2 of 2)")
+    total_sum = np.zeros((h, w, 3), np.float64)
+    total_w = np.zeros((h, w, 3), np.float64)
+    for p in parts:
+        total_sum += np.load(p["csum"])
+        total_w += np.load(p["cwsum"])
+    # pixels where clipping rejected everything fall back to the plain mean
+    base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
+                    total.mean)
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
-    return base.astype(np.float32)
+    return base.astype(np.float32), fg
+
+
+def _rotate2d_mean(cfg, frames, ok_idx, corridor_segments, shape_out,
+                   bad_pixels) -> np.ndarray:
+    """Degraded rotate2d path: serial masked mean."""
+    from meteorprep.astrometry.reproject_frames import rotate2d_frame
+    h, w = shape_out
+    ssum = np.zeros((h, w, 3), np.float32)
+    wsum = np.zeros((h, w), np.float32)
+    base_mid = frames[ok_idx[len(ok_idx) // 2]].epoch_mid
+    for i in ok_idx:
+        rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
+                             half_size=cfg.half_size)
+        dt = (frames[i].epoch_mid - base_mid).total_seconds()
+        arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
+                                   (w / 2.0, h / 2.0))
+        ok = foot.astype(bool)
+        if i in corridor_segments:
+            scratch = np.zeros((h, w), np.uint8)
+            _paint_segments(scratch, corridor_segments[i])
+            ok &= scratch == 0
+        ssum += arr.astype(np.float32) * ok[:, :, None]
+        wsum += ok
+    return (ssum / np.maximum(wsum, 1.0)[:, :, None]).astype(np.float32)
 
 
 def _detected_for_verify(lum, undistort):

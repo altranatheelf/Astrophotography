@@ -66,8 +66,9 @@ def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
     def make_image(layer: Layer):
         rgb, alpha, top, left = _layer_channels(layer, w, h)
         channels = {0: rgb[:, :, 0], 1: rgb[:, :, 1], 2: rgb[:, :, 2], -1: alpha}
-        blend = (enums.BlendMode.lighten if layer.blend == "lighten"
-                 else enums.BlendMode.normal)
+        blend = {"lighten": enums.BlendMode.lighten,
+                 "subtract": enums.BlendMode.subtract}.get(
+                     layer.blend, enums.BlendMode.normal)
         return nested_layers.Image(
             name=layer.name, channels=channels, visible=layer.visible,
             blend_mode=blend, top=top, left=left)
