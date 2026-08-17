@@ -84,8 +84,9 @@ class Config:
     emit_contact_sheet: bool = True
 
     # --- runtime ---
-    jobs: int = 1
+    jobs: int = 1               # >1 parallelises decode+reprojection
     force: bool = False
+    cleanup_cache: bool = False  # delete the big reprojection cache when done
 
     def to_dict(self) -> dict:
         d = asdict(self)

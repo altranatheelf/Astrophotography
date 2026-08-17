@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<title>METEORPREP</title>
+<style>
+  /* Night-vision-friendly single theme: this app is used in the dark. */
+  :root {
+    --bg: #0E1220;
+    --surface: #171D2E;
+    --ink: #E9EBF2;
+    --muted: #97A0B4;
+    --line: #2A3248;
+    --accent: #E5A44C;
+    --accent-ink: #1A1206;
+    --good: #7FC08B;
+    --bad: #E07A6E;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    padding: env(safe-area-inset-top) 18px 48px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.5rem; margin: 28px 0 2px; letter-spacing: 0.02em; }
+  .tag { color: var(--muted); font-size: 0.9rem; margin: 0 0 20px; }
+  .step { display: none; }
+  .step.active { display: block; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 14px 0;
+  }
+  .card h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  .card p { margin: 6px 0; color: var(--muted); font-size: 0.95rem; }
+  .checkrow { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; }
+  .checkrow .dot { font-weight: 700; }
+  .ok .dot { color: var(--good); }
+  .fail .dot { color: var(--bad); }
+  .checkrow small { color: var(--muted); display: block; }
+  button, .btn {
+    display: block; width: 100%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 1.05rem; font-weight: 700;
+    border: none; border-radius: 12px;
+    padding: 16px; margin: 16px 0 4px;
+    cursor: pointer; text-align: center; text-decoration: none;
+  }
+  button:disabled { opacity: 0.45; }
+  button:focus-visible, .btn:focus-visible, .ghost:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .ghost {
+    background: none; color: var(--muted);
+    border: 1px solid var(--line);
+    font-weight: 600;
+  }
+  input[type=file] { display: none; }
+  .droplabel {
+    display: block; border: 2px dashed var(--line); border-radius: 14px;
+    text-align: center; padding: 36px 16px; color: var(--muted);
+    font-size: 1rem; cursor: pointer;
+  }
+  .droplabel strong { color: var(--ink); display: block; font-size: 1.1rem; }
+  .bar {
+    height: 10px; border-radius: 999px; background: var(--line);
+    overflow: hidden; margin: 14px 0 8px;
+  }
+  .bar > div {
+    height: 100%; width: 0%;
+    background: var(--accent);
+    transition: width 0.6s ease;
+  }
+  .status { text-align: center; color: var(--muted); min-height: 1.4em; }
+  .big { font-size: 2.4rem; text-align: center; margin: 12px 0 0; font-weight: 700; }
+  .sheet { width: 100%; border-radius: 10px; border: 1px solid var(--line); }
+  ul.cands { list-style: none; padding: 0; margin: 8px 0 0; }
+  ul.cands li {
+    display: flex; justify-content: space-between; gap: 10px;
+    border-top: 1px solid var(--line); padding: 9px 2px; font-size: 0.94rem;
+  }
+  .pill {
+    font-size: 0.78rem; font-weight: 700; padding: 2px 10px;
+    border-radius: 999px; background: var(--line); color: var(--ink);
+    white-space: nowrap; align-self: center;
+  }
+  .pill.meteor { background: var(--accent); color: var(--accent-ink); }
+  .err { color: var(--bad); white-space: pre-wrap; }
+  @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } }
+</style>
+</head>
+<body>
+  <h1>☄️ METEORPREP</h1>
+  <p class="tag">Your meteor photos, sorted, aligned, and layered — guided from your phone.</p>
+
+  <!-- STEP 1: checkup -->
+  <section class="step" id="step-check">
+    <div class="card">
+      <h2>Quick checkup</h2>
+      <p>Making sure the computer running the helper has everything it needs.</p>
+      <div id="checks"></div>
+    </div>
+    <button id="btn-tocheck" disabled>Continue</button>
+  </section>
+
+  <!-- STEP 2: add photos -->
+  <section class="step" id="step-add">
+    <div class="card">
+      <h2>Add your photos</h2>
+      <p>Tap below and pick <strong>all the RAW files from one night</strong>.
+      From the Files app you can select a whole folder's contents —
+      a card reader plugged into your phone works too.</p>
+      <label class="droplabel" for="picker">
+        <strong>Tap to choose your photos</strong>
+        RAW files (.CR2, .CR3, .NEF, .ARW, .DNG…)
+      </label>
+      <input id="picker" type="file" multiple
+             accept=".cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2,.tif,.tiff">
+      <div class="bar" id="upbar-wrap" hidden><div id="upbar"></div></div>
+      <p class="status" id="upstatus"></p>
+    </div>
+    <button id="btn-start" disabled>Start preparing</button>
+    <button class="ghost" id="btn-reset2">Remove uploaded photos</button>
+  </section>
+
+  <!-- STEP 3: running -->
+  <section class="step" id="step-run">
+    <div class="card">
+      <h2>Working on it</h2>
+      <p>You can lock your phone or leave — the computer keeps working.
+      Come back to this page any time to check in.</p>
+      <p class="big" id="pct">0%</p>
+      <div class="bar"><div id="runbar"></div></div>
+      <p class="status" id="runmsg">Starting…</p>
+    </div>
+  </section>
+
+  <!-- STEP 4: review -->
+  <section class="step" id="step-done">
+    <div class="card">
+      <h2 id="done-headline">Done</h2>
+      <p id="done-summary"></p>
+      <img class="sheet" id="sheet" alt="Contact sheet of everything found" hidden>
+      <ul class="cands" id="cands"></ul>
+    </div>
+    <a class="btn" href="/api/download" id="btn-download">Download the result</a>
+    <div class="card">
+      <h2>Then, in Photoshop</h2>
+      <p>Unzip the download. Open <strong>meteorprep.psd</strong> directly —
+      or in Photoshop go to <strong>File ▸ Scripts ▸ Browse…</strong> and pick
+      <strong>assemble.jsx</strong>. Every meteor is its own layer: turn them
+      on and off until it looks right. Planes and satellites are in the
+      hidden “FLAGGED” group if you want to double-check them.</p>
+    </div>
+    <button class="ghost" id="btn-again">Start over with new photos</button>
+  </section>
+
+  <!-- error -->
+  <section class="step" id="step-err">
+    <div class="card">
+      <h2>Something needs fixing</h2>
+      <p class="err" id="errmsg"></p>
+    </div>
+    <button id="btn-retry">Try again</button>
+  </section>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => {
+    document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
+    $(id).classList.add("active");
+  };
+  let pollTimer = null;
+
+  async function api(path, opts) {
+    const r = await fetch(path, opts);
+    return r.json();
+  }
+
+  function renderChecks(c) {
+    const rows = [
+      [c.exiftool, "Photo info reader (exiftool)",
+       "Install it from exiftool.org on the computer, then reload this page."],
+      [c.star_matcher, "Star matcher",
+       "On the computer, run:  pip3 install twirl astroquery  — then reload."],
+      [c.disk_ok, `Disk space (${c.disk_free_gb} GB free)`,
+       "Free up ~40 GB on the computer for temporary working files."],
+    ];
+    $("checks").innerHTML = rows.map(([ok, label, fix]) =>
+      `<div class="checkrow ${ok ? "ok" : "fail"}">
+         <span class="dot">${ok ? "✓" : "✗"}</span>
+         <span>${label}${ok ? "" : `<small>${fix}</small>`}</span>
+       </div>`).join("");
+    $("btn-tocheck").disabled = !(c.exiftool && c.star_matcher);
+  }
+
+  async function uploadFiles(files) {
+    $("upbar-wrap").hidden = false;
+    let done = 0, failed = 0;
+    for (const f of files) {
+      $("upstatus").textContent =
+        `Copying ${done + 1} of ${files.length}: ${f.name}`;
+      try {
+        const r = await fetch("/api/upload?name=" + encodeURIComponent(f.name),
+                              { method: "POST", body: f });
+        if (!r.ok) failed++;
+      } catch (e) { failed++; }
+      done++;
+      $("upbar").style.width = Math.round(100 * done / files.length) + "%";
+    }
+    const s = await api("/api/status");
+    $("upstatus").textContent = failed
+      ? `${failed} file(s) didn't copy — tap above to retry those.`
+      : `${s.n_files} photos ready (${s.size_gb} GB).`;
+    $("btn-start").disabled = s.n_files < 5;
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      const s = await api("/api/status");
+      if (s.phase === "running") {
+        show("step-run");
+        const pct = Math.round(s.frac * 100);
+        $("pct").textContent = pct + "%";
+        $("runbar").style.width = pct + "%";
+        $("runmsg").textContent = s.msg || "Working…";
+      } else if (s.phase === "done") {
+        clearInterval(pollTimer); pollTimer = null;
+        renderDone(s);
+      } else if (s.phase === "error") {
+        clearInterval(pollTimer); pollTimer = null;
+        $("errmsg").textContent = s.error;
+        show("step-err");
+      }
+    }, 2000);
+  }
+
+  function renderDone(s) {
+    const g = (s.result && s.result.groups && s.result.groups[0]) || {};
+    const n = g.n_meteors ?? 0;
+    $("done-headline").textContent =
+      n ? `Found ${n} meteor${n === 1 ? "" : "s"} 🎉`
+        : "Finished — no meteors this time";
+    $("done-summary").textContent =
+      (n ? `Plus ${g.n_flagged ?? 0} plane/satellite candidates, kept in a hidden group. `
+         : "Every streak it found turned out to be a plane or satellite. ")
+      + "Here's everything it looked at:";
+    const img = $("sheet");
+    img.src = "/api/contact_sheet?t=" + Date.now();
+    img.hidden = false;
+    img.onerror = () => { img.hidden = true; };
+    const cands = g.candidates || [];
+    $("cands").innerHTML = cands.map(c => {
+      const label = c.label === "meteor"
+        ? (c.likely_perseid ? "meteor · Perseid" : "meteor · sporadic")
+        : c.label.replace("_", " ");
+      return `<li><span>${c.id} — seen in ${c.frames.length} frame${c.frames.length === 1 ? "" : "s"}</span>
+              <span class="pill ${c.label === "meteor" ? "meteor" : ""}">${label}</span></li>`;
+    }).join("");
+    show("step-done");
+  }
+
+  // wiring
+  $("btn-tocheck").onclick = () => show("step-add");
+  $("picker").onchange = (e) => uploadFiles([...e.target.files]);
+  $("btn-start").onclick = async () => {
+    $("btn-start").disabled = true;
+    await api("/api/start", { method: "POST" });
+    show("step-run");
+    startPolling();
+  };
+  const resetUploads = async () => {
+    await api("/api/reset", { method: "POST" });
+    $("upstatus").textContent = "";
+    $("upbar").style.width = "0%";
+    $("btn-start").disabled = true;
+  };
+  $("btn-reset2").onclick = resetUploads;
+  $("btn-again").onclick = async () => { await resetUploads(); show("step-add"); };
+  $("btn-retry").onclick = () => show("step-add");
+
+  // boot: land on the right step for the current state
+  (async () => {
+    const [checks, status] = await Promise.all([api("/api/checks"), api("/api/status")]);
+    renderChecks(checks);
+    if (status.phase === "running") { show("step-run"); startPolling(); }
+    else if (status.phase === "done") { renderDone(status); }
+    else {
+      show("step-check");
+      if (status.n_files > 0) {
+        $("upstatus").textContent = `${status.n_files} photos already here (${status.size_gb} GB).`;
+        $("btn-start").disabled = status.n_files < 5;
+      }
+    }
+  })();
+</script>
+</body>
+</html>

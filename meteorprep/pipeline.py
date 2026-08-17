@@ -43,12 +43,52 @@ from meteorprep.stack.startrail import lighten_stack
 log = logging.getLogger("meteorprep")
 
 
+def _wcs_to_str(wcs) -> str:
+    return wcs.to_header(relax=True).tostring(sep="\n")
+
+
+def _wcs_from_str(s: str):
+    from astropy.io import fits
+    from astropy.wcs import WCS
+    return WCS(fits.Header.fromstring(s, sep="\n"))
+
+
+def _reproject_one(args) -> int:
+    """Top-level worker (picklable, spawn-safe) that decodes one frame and
+    writes its reprojected RGB + footprint into the cache."""
+    (i, path, src_wcs_str, base_wcs_str, shape_hw, reproj_dir_str,
+     bad_pixels) = args
+    import numpy as _np
+    from meteorprep.astrometry.reproject_frames import reproject_frame
+    from meteorprep.ingest import raw as _raw
+
+    reproj_dir = Path(reproj_dir_str)
+    rgb = _raw.decode(Path(path), "final", bad_pixels)
+    arr, foot = reproject_frame(rgb, _wcs_from_str(src_wcs_str),
+                                _wcs_from_str(base_wcs_str),
+                                tuple(shape_hw), quality=True)
+    _np.save(reproj_dir / f"rgb_{i:04d}.npy",
+             _np.clip(arr, 0, 65535).astype(_np.uint16))
+    _np.save(reproj_dir / f"foot_{i:04d}.npy", foot.astype(_np.uint8))
+    return i
+
+
 def run(cfg: Config, progress=None) -> dict:
     """Run the pipeline; returns a summary dict with output paths."""
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(message)s")
     notify = progress or (lambda frac, msg: log.info("[%3d%%] %s",
                                                      int(frac * 100), msg))
+    # optional overrides shipped alongside the frames (tests / power users)
+    override = Path(cfg.input_dir) / "meteorprep_config.json"
+    if override.exists():
+        import json as _json
+        try:
+            for k, v in _json.loads(override.read_text()).items():
+                if hasattr(cfg, k):
+                    setattr(cfg, k, v)
+        except (ValueError, OSError) as exc:
+            log.warning("ignoring bad meteorprep_config.json: %s", exc)
     out_root = cfg.output_path
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -218,20 +258,41 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     reproj_dir = cache.dir("reproj")
     if stage_fresh("reproject"):
         notify(0.3, "reprojecting frames onto base WCS")
-        for i in range(n):
-            rgb = raw_mod.decode(frames[i].path, "final", bad_pixels)
-            if cfg.align_mode == "reproject_tan":
-                arr, foot = reproject_frame(rgb, wcs_per_frame[i], base_wcs,
-                                            (h, w), quality=True)
-            else:
-                from meteorprep.astrometry.reproject_frames import rotate2d_frame
-                dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
-                angle = SIDEREAL_DEG_PER_SEC * dt
-                center = (w / 2.0, h / 2.0)
-                arr, foot = rotate2d_frame(rgb, angle, center)
-            np.save(reproj_dir / f"rgb_{i:04d}.npy",
-                    np.clip(arr, 0, 65535).astype(np.uint16))
-            np.save(reproj_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
+        if cfg.align_mode == "reproject_tan" and cfg.jobs > 1:
+            from concurrent.futures import ProcessPoolExecutor
+            base_str = _wcs_to_str(base_wcs)
+            work = [(i, str(frames[i].path), _wcs_to_str(wcs_per_frame[i]),
+                     base_str, (h, w), str(reproj_dir), bad_pixels)
+                    for i in range(n)]
+            try:
+                done = 0
+                with ProcessPoolExecutor(max_workers=cfg.jobs) as pool:
+                    for _ in pool.map(_reproject_one, work):
+                        done += 1
+                        notify(0.3 + 0.2 * done / n,
+                               f"reprojecting frames ({done}/{n})")
+            except Exception as exc:
+                log.warning("parallel reprojection failed (%s); "
+                            "falling back to one core", exc)
+                for args in work:
+                    _reproject_one(args)
+        else:
+            for i in range(n):
+                rgb = raw_mod.decode(frames[i].path, "final", bad_pixels)
+                if cfg.align_mode == "reproject_tan":
+                    arr, foot = reproject_frame(rgb, wcs_per_frame[i], base_wcs,
+                                                (h, w), quality=True)
+                else:
+                    from meteorprep.astrometry.reproject_frames import rotate2d_frame
+                    dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
+                    angle = SIDEREAL_DEG_PER_SEC * dt
+                    center = (w / 2.0, h / 2.0)
+                    arr, foot = rotate2d_frame(rgb, angle, center)
+                np.save(reproj_dir / f"rgb_{i:04d}.npy",
+                        np.clip(arr, 0, 65535).astype(np.uint16))
+                np.save(reproj_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
+                notify(0.3 + 0.2 * (i + 1) / n,
+                       f"reprojecting frames ({i + 1}/{n})")
         cache.mark_done("reproject", cfg.stage_hash("reproject"))
 
     def load_rgb(i):
@@ -430,6 +491,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         base_wcs, pole_xy, radiant, frames, candidates,
         alignment_quality, solver_used, solve_files)
     outputs["sidecar"] = str(sidecar)
+    if cfg.cleanup_cache:
+        import shutil as _shutil
+        _shutil.rmtree(reproj_dir, ignore_errors=True)
+        cache.invalidate("reproject")   # a future re-run knows to rebuild
+        cache.invalidate("base_sky")
+        log.info("freed the reprojection cache (%s)", reproj_dir)
     if skipped:
         log.info("%d stage(s) up-to-date, skipped", skipped)
     notify(1.0, f"done: {len(meteor_cands)} meteor(s), "

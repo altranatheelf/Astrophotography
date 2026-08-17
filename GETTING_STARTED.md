@@ -1,5 +1,38 @@
 # METEORPREP — plain-language guide
 
+## Fastest route: straight from your phone, no computer
+
+If you're working with Claude (the AI that built this tool), your phone is
+already the app: Claude's cloud computer has METEORPREP installed.
+
+1. **Let the cloud reach the star map** (one-time): in your Claude Code
+   settings on claude.ai, open your environment's **network settings** and
+   allow internet access (or add the host `gea.esac.esa.int`). The solver
+   needs it to look up the stars in your photos.
+2. **Get your frames to the cloud**, either way works:
+   - *Small batch:* attach 10–20 RAW files straight to a message.
+   - *Whole night:* in the Files app, select the frames → **Compress** →
+     upload the zip to iCloud Drive / Dropbox / Google Drive → **Share ▸
+     Copy Link** → paste the link into the chat.
+3. **Say roughly where the camera pointed** — a compass direction and how
+   high ("northeast, about halfway up the sky"). That plus the photos'
+   own timestamps is all the solver needs.
+4. Claude runs the pipeline (`meteorprep-cloud <link> --pointed NE
+   --elevation 55`), shows you the contact sheet, and sends back the
+   layered result — which opens in **Photoshop on iPhone/iPad**.
+
+Everything below is the do-it-yourself route on your own computer.
+
+## Phone-guided mode on your own computer
+
+Run `meteorprep-phone` on the computer once; it prints an address like
+`http://192.168.1.23:8765`. Open that on your phone (same Wi-Fi): a
+step-by-step page checks the setup, takes your photos (a card reader
+plugged into the phone works), shows live progress, then the contact
+sheet and a download button. Safari's **Share ▸ Add to Home Screen**
+gives it an app icon. The page only exists on your home network — don't
+expose it to the internet.
+
 *For the photographer with a folder of meteor-shower RAW files who does not
 want to learn programming. Ten minutes of one-time setup, then it's
 drag-and-drop.*
