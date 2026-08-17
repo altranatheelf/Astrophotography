@@ -23,6 +23,8 @@ class Config:
     input_dir: str = "."
     output_dir: str = "meteorprep_out"
     half_size: bool = False   # half-resolution decode: ~4x less scratch disk/time
+    super_sample: float = 1.0  # >1: drizzle-style finer output grid using the
+                               # sky's own rotation as natural dither
     raw_extensions: tuple = (".cr2", ".cr3", ".nef", ".arw", ".dng",
                              ".raf", ".orf", ".rw2", ".tif", ".tiff", ".fits")
     site_lat: float = 44.3275
@@ -107,7 +109,7 @@ class Config:
     STAGE_PARAMS: dict = field(default=None, repr=False)
 
     _STAGE_PARAMS = {
-        "ingest": ["input_dir", "raw_extensions", "half_size"],
+        "ingest": ["input_dir", "raw_extensions", "half_size", "super_sample"],
         "segment_folder": ["max_gap_factor", "bump_px"],
         "lightpaint": ["lp_sigma", "lp_window"],
         "solve": ["align_mode", "solve_every_k", "solve_min_stars",

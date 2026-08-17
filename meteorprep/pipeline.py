@@ -131,15 +131,26 @@ def _stack_pass(args) -> dict:
     tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
     scratch = _np.zeros((h, w), _np.uint8)
+    bgs = {}
     if mode == "moments":
         mom = RunningMoments((h, w, 3))
-        fg_sum = _np.zeros((h, w, 3), _np.float32) if want_fg else None
+        fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
     else:
         clip_mean = _np.load(tmp / "clip_mean.npy", mmap_mode="r")
         clip_bound = _np.load(tmp / "clip_bound.npy", mmap_mode="r")
         ssum = _np.zeros((h, w, 3), _np.float32)
         wsum = _np.zeros((h, w, 3), _np.float32)
+
+    def _frame_background(a, okm):
+        """Per-channel sky level (Siril-style normalisation): 20th
+        percentile of a subsample of covered pixels — deterministic, so
+        pass 2 reproduces pass 1's offsets exactly."""
+        sub = a[::8, ::8]
+        oksub = okm[::8, ::8]
+        if oksub.sum() < 32:
+            return _np.zeros(3, _np.float32)
+        return _np.percentile(sub[oksub], 20, axis=0).astype(_np.float32)
 
     for i, path, wstr in zip(indices, paths, wcs_strs):
         try:
@@ -149,7 +160,9 @@ def _stack_pass(args) -> dict:
             log.warning("skipping unreadable frame %s in the stack: %s",
                         Path(path).name, exc)
             continue
-        if mode == "moments" and fg_sum is not None:
+        if mode == "moments" and want_fg:
+            if fg_sum is None:
+                fg_sum = _np.zeros(rgb.shape, _np.float32)
             fg_sum += rgb.astype(_np.float32)
             fg_n += 1
         arr, foot = _rp(rgb, _wcs_from_str(wstr), base_wcs, (h, w),
@@ -161,6 +174,9 @@ def _stack_pass(args) -> dict:
             scratch[:] = 0
             _paint_segments(scratch, segs)
             ok &= scratch == 0
+        bg = _frame_background(arr, foot.astype(bool))
+        bgs[i] = [float(v) for v in bg]
+        arr -= bg[None, None, :]     # remove this frame's sky drift
         if mode == "moments":
             mom.add(arr, ok)
         else:
@@ -173,7 +189,7 @@ def _stack_pass(args) -> dict:
                 ssum[:, :, c] += arr[:, :, c] * keep * wgt
                 wsum[:, :, c] += keep * wgt
         del arr, foot, ok
-    out = {}
+    out = {"bg": bgs}
     if mode == "moments":
         for name, a in (("count", mom.count), ("mean", mom.mean),
                         ("m2", mom.m2)):
@@ -289,35 +305,66 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         cache.mark_done(stage, cfg.stage_hash(stage) + ":" + frames_fp)
 
     # Detection space: always half-size decode (the spec's 2x2 binning).
-    # Output space: full resolution, or half when the user chose half_size.
-    S = 1 if cfg.half_size else 2   # detection -> output scale factor
+    # Output space: full resolution (optionally super-sampled), or half.
+    S = (1 if cfg.half_size else 2) * max(float(cfg.super_sample), 1.0)
 
+    from functools import lru_cache
+
+    @lru_cache(maxsize=6)
     def decode_det_lum(i):
         rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels,
                              half_size=True)
         return raw_mod.luminance(rgb)
 
-    # ---------------- light-paint flags ----------------
+    # ---------------- light-paint flags + frame sharpness ----------------
     if stage_fresh("lightpaint"):
-        notify(0.06, "flagging light-painted frames")
-        gmed = np.array([ground_luminance(decode_det_lum(i), None)
-                         for i in range(n)])
-        lp = flag_lightpainted(gmed, cfg.lp_window, cfg.lp_sigma)
-        cache.write_json("lightpaint.json", lp.tolist())
+        notify(0.06, "sizing up every frame")
+        gmed, sharp = [], []
+        for i in range(n):
+            lum = decode_det_lum(i)
+            gmed.append(ground_luminance(lum, None))
+            # star-sharpness proxy: high-frequency energy of the centre crop
+            c = lum[lum.shape[0] // 4: -lum.shape[0] // 4,
+                    lum.shape[1] // 4: -lum.shape[1] // 4]
+            sharp.append(float(np.mean(np.abs(np.diff(c, axis=1)))))
+        lp = flag_lightpainted(np.array(gmed), cfg.lp_window, cfg.lp_sigma)
+        cache.write_json("lightpaint.json",
+                         {"lp": lp.tolist(), "sharp": sharp})
         stage_done("lightpaint")
     else:
-        lp = np.array(cache.read_json("lightpaint.json"), dtype=bool)
+        rec = cache.read_json("lightpaint.json")
+        if isinstance(rec, dict):
+            lp = np.array(rec["lp"], dtype=bool)
+            sharp = rec.get("sharp", [0.0] * n)
+        else:                      # older cache format
+            lp = np.array(rec, dtype=bool)
+            sharp = [0.0] * n
     for m, f in zip(frames, lp):
         m.lightpainted = bool(f)
     ok_idx = [i for i in range(n) if not lp[i]]
     if not ok_idx:
         raise RuntimeError("every frame is flagged light-painted")
 
-    # base frame: median-time non-light-painted frame
-    base_i = ok_idx[len(ok_idx) // 2]
+    # base frame: the sharpest frame in the middle half of the run
+    mid = ok_idx[len(ok_idx) // 4: max(3 * len(ok_idx) // 4, len(ok_idx) // 4 + 1)]
+    base_i = (max(mid, key=lambda i: sharp[i]) if mid and any(sharp)
+              else ok_idx[len(ok_idx) // 2])
     base_meta = frames[base_i]
     base_rgb_final = raw_mod.decode(base_meta.path, "final", bad_pixels,
                                     half_size=cfg.half_size)
+    ss = max(float(cfg.super_sample), 1.0)
+    if ss > 1.001 and _available_ram_gb() < 12:
+        log.warning("super_sample needs more memory than this machine has; "
+                    "staying at 1.0")
+        ss = 1.0
+    if ss > 1.001:
+        import cv2 as _cv2
+        h0, w0 = base_rgb_final.shape[:2]
+        base_rgb_final = _cv2.resize(
+            base_rgb_final, (int(round(w0 * ss)), int(round(h0 * ss))),
+            interpolation=_cv2.INTER_CUBIC)
+        log.info("drizzle-style output grid: %.2fx (natural rotation dither)",
+                 ss)
     h, w = base_rgb_final.shape[:2]
     base_det_lum = decode_det_lum(base_i)
     hd, wd = base_det_lum.shape[:2]
@@ -697,8 +744,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- assembly ----------------
     notify(0.92, "assembling layers")
+    def _fit_output(arr):
+        if arr.shape[0] == h and arr.shape[1] == w:
+            return arr
+        import cv2 as _cv2
+        return _cv2.resize(arr, (w, h), interpolation=_cv2.INTER_CUBIC)
+
     fg_layers = [Layer(name="FG_base_time", rgb=base_rgb_final,
                        alpha=(1.0 - sky_mask), blend="normal", visible=True)]
+    if fg_stack is not None:
+        fg_stack = _fit_output(fg_stack)
     if fg_stack is not None:
         # frozen-ground stack: all frames averaged in camera space — far
         # lower noise than any single frame's foreground
@@ -706,8 +761,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                                   alpha=(1.0 - sky_mask), blend="normal",
                                   visible=False))
     for i in np.nonzero(lp)[0]:
-        rgb_lp = raw_mod.decode(frames[i].path, "final", bad_pixels,
-                                half_size=cfg.half_size)
+        rgb_lp = _fit_output(raw_mod.decode(frames[i].path, "final",
+                                            bad_pixels,
+                                            half_size=cfg.half_size))
         fg_layers.append(Layer(name=f"FG_lightpaint_{frames[i].file}",
                                rgb=rgb_lp,
                                alpha=(1.0 - sky_mask), blend="normal",
@@ -904,16 +960,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     parts = run_pass("moments", 0.60, 0.70,
                      "measuring the sky (pass 1 of 2)", want_fg)
     total = RunningMoments((h, w, 3))
-    fg_sum = np.zeros((h, w, 3), np.float32) if want_fg else None
+    fg_sum = None          # camera-sized (unaligned), not the output grid
     fg_n = 0
+    all_bgs = []
     for p in parts:
+        all_bgs.extend(p.get("bg", {}).values())
         part = RunningMoments((h, w, 3))
         part.count = np.load(p["count"])
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
         if want_fg and "fg" in p:
-            fg_sum += np.load(p["fg"])
+            part_fg = np.load(p["fg"])
+            fg_sum = part_fg if fg_sum is None else fg_sum + part_fg
             fg_n += p["fg_n"]
     np.save(tmp / "clip_mean.npy", total.mean)
     np.save(tmp / "clip_bound.npy",
@@ -932,6 +991,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # pixels where clipping rejected everything fall back to the plain mean
     base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
                     total.mean)
+    # frames were normalised to zero background: restore the mean sky level
+    if all_bgs:
+        base = base + np.mean(np.asarray(all_bgs, np.float32),
+                              axis=0)[None, None, :]
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
     return base.astype(np.float32), fg

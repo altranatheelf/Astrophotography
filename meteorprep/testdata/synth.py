@@ -84,6 +84,7 @@ def _cap_catalog(rng, tangent, theta_max_deg, n_stars):
 
 
 def _radiant_streak_px(rng, base_wcs, radiant, shape, length_px, margin=160):
+    margin = min(margin, shape[0] // 3, shape[1] // 3)
     """Streak endpoints radiating from the radiant, built in the base TAN
     plane (gnomonic maps great circles to straight lines, so a straight line
     through the projected radiant IS a great circle through the radiant).

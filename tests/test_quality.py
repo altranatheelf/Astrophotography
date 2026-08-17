@@ -130,3 +130,65 @@ def test_quality_layers_in_output(pipeline_result, synth_config):
     grad = [m for m in manifest if "SKY_GRADIENT" in m["name"]][0]
     assert grad["blend"] == "subtract"
     assert not grad["visible"]
+
+
+def test_background_normalization_beats_drift():
+    """Sky brightness drifting across the session (moonrise/dawn) must not
+    corrupt rejection: with per-frame normalisation the clipped stack still
+    rejects a transient AND lands on the mean sky level."""
+    rng = np.random.default_rng(4)
+    n = 40
+    drift = np.linspace(0, 3000, n)          # sky brightens over the night
+    frames = (rng.normal(2000, 30, (n, 6, 6, 3))
+              + drift[:, None, None, None]).astype(np.float32)
+    frames[8, 2, 2, :] += 20000.0            # one transient
+    ok = np.ones((6, 6), bool)
+
+    # normalised path (what the pipeline does)
+    bgs = np.percentile(frames.reshape(n, -1, 3), 20, axis=1)
+    normed = frames - bgs[:, None, None, :]
+    mom = RunningMoments((6, 6, 3))
+    for f in normed:
+        mom.add(f, ok)
+    bound = 2.5 * mom.std()
+    ssum = np.zeros((6, 6, 3))
+    wsum = np.zeros((6, 6, 3))
+    for f in normed:
+        keep = np.abs(f - mom.mean) <= bound
+        ssum += f * keep
+        wsum += keep
+    clipped = ssum / np.maximum(wsum, 1) + bgs.mean(axis=0)
+    assert abs(clipped[2, 2, 0] - (2000 + drift.mean())) < 60
+
+    # at a clean pixel, un-normalised sigma bounds are inflated by the
+    # drift itself (rejection blinded); normalisation removes that
+    mom2 = RunningMoments((6, 6, 3))
+    for f in frames:
+        mom2.add(f, ok)
+    assert mom2.std()[0, 0, 0] > 3 * mom.std()[0, 0, 0]
+
+
+def test_supersampled_pipeline(tmp_path):
+    """Drizzle-style output: the sky's own rotation is the dither. The
+    pipeline runs on a finer grid and still finds its meteors."""
+    import json
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+    from meteorprep.testdata.synth import make_synthetic_sequence
+
+    src = tmp_path / "seq"
+    gt = make_synthetic_sequence(src, n_frames=8, shape=(300, 450),
+                                 focal_px=2443.0 * 450 / 5472, n_stars=220,
+                                 n_meteors=1, n_aircraft=0, n_satellites=0,
+                                 seed=11)
+    json.dump({"super_sample": 1.5, "solve_every_k": 4,
+               "catalog_file": str(src / "catalog_radec.npy"),
+               "pixel_pitch_um": 16000.0 / gt["focal_px"],
+               "emit_psd": False, "emit_gradient_layer": False},
+              open(src / "meteorprep_config.json", "w"))
+    res = run(Config(input_dir=str(src), output_dir=str(tmp_path / "out")))
+    g = res["groups"][0]
+    assert g["n_meteors"] >= 1
+    import tifffile
+    base = tifffile.imread(tmp_path / "out" / "cache" / "g01" / "base.tif")
+    assert base.shape[0] == 450 and base.shape[1] == 675   # 1.5x grid
