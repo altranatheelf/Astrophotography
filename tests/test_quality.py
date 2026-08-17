@@ -192,3 +192,53 @@ def test_supersampled_pipeline(tmp_path):
     import tifffile
     base = tifffile.imread(tmp_path / "out" / "cache" / "g01" / "base.tif")
     assert base.shape[0] == 450 and base.shape[1] == 675   # 1.5x grid
+
+
+def test_star_white_balance_recovers_color_cast():
+    """Offline SPCC: render neutral (6500 K) stars through a known color
+    cast; the calibration must recover the inverse gains."""
+    from meteorprep.astrometry.solve import build_tan_wcs
+    from meteorprep.calibrate import predicted_ratios, star_white_balance
+
+    rng = np.random.default_rng(7)
+    h, w = 400, 600
+    wcs = build_tan_wcs(80.0, 55.0, 0.2, (h, w))
+    n = 60
+    ras = 80.0 + rng.uniform(-40, 40, n)
+    decs = 55.0 + rng.uniform(-30, 30, n)
+    cast = np.array([1.30, 1.00, 0.75])       # warm cast to be corrected
+
+    img = np.full((h, w, 3), 2000.0, np.float32)
+    px = np.column_stack(wcs.world_to_pixel_values(ras, decs))
+    for x, y in px:
+        if 10 < x < w - 10 and 10 < y < h - 10:
+            yy, xx = np.mgrid[int(y) - 6:int(y) + 7, int(x) - 6:int(x) + 7]
+            g = 30000 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * 1.5 ** 2))
+            for c in range(3):
+                img[yy, xx, c] += g * cast[c]
+    img += rng.normal(0, 20, img.shape).astype(np.float32)
+
+    catalog = np.column_stack([ras, decs, np.full(n, 3.0),
+                               np.full(n, 6504.0)])   # neutral stars
+    cal = star_white_balance(img, wcs, catalog, min_stars=15)
+    assert cal is not None
+    gains = cal["gains"]
+    # inverse of the cast, within tolerance of the aperture photometry
+    assert abs(gains[0] - 1.0 / cast[0]) < 0.06
+    assert abs(gains[2] - 1.0 / cast[2]) < 0.08
+    # sanity of the physics: hot stars predict blue, cool stars red
+    rg_hot, bg_hot = predicted_ratios(10000.0)
+    rg_cool, bg_cool = predicted_ratios(3500.0)
+    assert bg_hot > 1.0 > bg_cool
+    assert rg_cool > 1.0 > rg_hot
+
+
+def test_star_white_balance_skips_without_temps(synth_dir, ground_truth,
+                                                base_wcs):
+    """The synthetic catalog carries no temperatures: calibration must
+    decline gracefully, never guess."""
+    import tifffile
+    from meteorprep.calibrate import star_white_balance
+    cat = np.load(synth_dir / "catalog_radec.npy")   # (N, 3): no temp col
+    img = tifffile.imread(synth_dir / ground_truth["base_file"]).astype(float)
+    assert star_white_balance(img, base_wcs, cat) is None

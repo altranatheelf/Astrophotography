@@ -24,7 +24,8 @@ def _sanitize(obj):
 def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
                   base_wcs, pole_xy, radiant_radec, frames, candidates,
                   alignment_quality: str, solver: str,
-                  solve_frames: list[str]) -> Path:
+                  solve_frames: list[str],
+                  color_calibration: dict | None = None) -> Path:
     doc = {
         "tool_version": __version__,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -47,6 +48,7 @@ def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
         },
         "frames": [m.to_dict() for m in frames],
         "candidates": [c.to_dict() for c in candidates],
+        "color_calibration": color_calibration,
         "params": cfg.to_dict(),
         "params_hash": cfg.params_hash(),
     }

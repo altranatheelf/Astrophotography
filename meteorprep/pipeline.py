@@ -782,6 +782,19 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         return out
 
     extra_layers = []
+    color_cal = None
+    if base_wcs is not None:
+        from meteorprep.calibrate import star_white_balance
+        try:
+            color_cal = star_white_balance(base_img, base_wcs, blind_catalog)
+        except Exception as exc:
+            log.warning("star colour calibration failed: %s", exc)
+        if color_cal is not None:
+            g_ = np.asarray(color_cal["gains"], np.float32)
+            extra_layers.append(Layer(
+                name="BASE_SKY_star_calibrated_colors",
+                rgb=np.clip(base_img * g_[None, None, :], 0, 65535),
+                blend="normal", visible=False))
     if cfg.emit_gradient_layer:
         from meteorprep.stack.gradient import fit_sky_gradient
         grad = fit_sky_gradient(base_img, sky_mask)
@@ -825,7 +838,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     sidecar = write_sidecar(
         out_dir / "meteorprep.json", cfg, group.group_id, base_meta.file,
         base_wcs, pole_xy, radiant, frames, candidates,
-        alignment_quality, solver_used, solve_files)
+        alignment_quality, solver_used, solve_files,
+        color_calibration=color_cal)
     outputs["sidecar"] = str(sidecar)
     if cfg.cleanup_cache:
         import shutil as _shutil

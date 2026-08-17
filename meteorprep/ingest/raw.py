@@ -73,8 +73,11 @@ def decode(path: Path, mode: str = "detect",
                     log.warning("bad-pixel repair failed for %s: %s", path.name, exc)
             import rawpy as _rp
             if mode == "final":
-                kw = dict(_FINAL_KW,
-                          demosaic_algorithm=_rp.DemosaicAlgorithm.AHD,
+                # DHT renders point sources (stars) cleaner than AHD —
+                # same direction modern stackers took with RCD
+                algo = getattr(_rp.DemosaicAlgorithm, "DHT",
+                               _rp.DemosaicAlgorithm.AHD)
+                kw = dict(_FINAL_KW, demosaic_algorithm=algo,
                           output_color=_rp.ColorSpace.sRGB)
             else:
                 kw = dict(_DETECT_KW,
