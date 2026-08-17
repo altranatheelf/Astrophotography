@@ -26,7 +26,8 @@ from meteorprep.assemble.psd import write_psd
 from meteorprep.astrometry.lensdistort import Poly3Distortion, lookup_lensfun_k1
 from meteorprep.astrometry.pole import pole_pixel_xy
 from meteorprep.astrometry.reproject_frames import reproject_frame
-from meteorprep.astrometry.solve import (build_tan_wcs, propagate_wcs,
+from meteorprep.astrometry.solve import (build_tan_wcs, detect_stars,
+                                         propagate_wcs, refine_wcs,
                                          solve_frame, solve_rms_px)
 from meteorprep.cache.store import CacheStore
 from meteorprep.config import SIDEREAL_DEG_PER_SEC, Config
@@ -500,12 +501,31 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 "folder.")
         base_det_wcs = result.wcs
         solver_used = result.source
+        # polish the lock against the full star list: identifies nearly
+        # every detected star and averages the lens distortion fairly
+        stars_full = detect_stars(base_det_lum, max_stars=200,
+                                  max_elongation=3.0)
+        if undistort is not None and len(stars_full):
+            stars_full = undistort(stars_full)
+        polished = refine_wcs(stars_full, catalog, base_det_wcs,
+                              sip_order=cfg.sip_order)
+        if polished is not None and polished.n_matched > result.n_matched:
+            log.info("base polish: %d -> %d stars, rms %.2f px",
+                     result.n_matched, polished.n_matched, polished.rms_px)
+            base_det_wcs = polished.wcs
+            result = polished
         base_meta.wcs_source = "solved"
         base_meta.solve_rms_px = result.rms_px
         det_wcs[base_i] = base_det_wcs
         solve_files.append(base_meta.file)
         log.info("base solve via %s: rms=%.2f px (%d stars)",
                  result.source, result.rms_px, result.n_matched)
+        # a real lens leaves a few px of residual at the corners of an
+        # ultra-wide field; judge per-frame solves relative to what the
+        # base itself achieved rather than by an absolute lab number
+        rms_gate = max(cfg.solve_rms_max_px, 1.5 * float(result.rms_px))
+        import dataclasses as _dc
+        cfg_solve = _dc.replace(cfg, solve_rms_max_px=rms_gate)
 
         # sparse subset: every K-th frame; others propagated + verified
         base_mid = base_meta.epoch_mid
@@ -517,9 +537,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 continue
             dt = (frames[i].epoch_mid - base_mid).total_seconds()
             seed_i = propagate_wcs(base_det_wcs, dt)
-            res_i = solve_frame(decode_det_lum(i), seed_i, catalog, cfg,
+            res_i = solve_frame(decode_det_lum(i), seed_i, catalog, cfg_solve,
                                 undistort=undistort)
-            if res_i is not None and res_i.rms_px <= cfg.solve_rms_max_px:
+            if res_i is not None and res_i.rms_px <= rms_gate:
                 solved[i] = res_i.wcs
                 frames[i].wcs_source = "solved"
                 frames[i].solve_rms_px = res_i.rms_px
@@ -542,9 +562,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                                                             undistort),
                                        catalog)
                 frames[i].solve_rms_px = rms
-                if rms > cfg.solve_rms_max_px and nm >= cfg.solve_min_stars:
+                if rms > rms_gate and nm >= cfg.solve_min_stars:
                     res_i = solve_frame(decode_det_lum(i), det_wcs[i],
-                                        catalog, cfg, undistort=undistort)
+                                        catalog, cfg_solve,
+                                        undistort=undistort)
                     if res_i is not None:
                         det_wcs[i] = res_i.wcs
                         frames[i].wcs_source = "solved"
@@ -732,7 +753,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- extraction (full quality, meteor frames only) -----
     notify(0.82, "cutting each meteor onto its own layer")
-    from meteorprep.astrometry.solve import detect_stars
     star_cat_xy = detect_stars(base_img, max_stars=500)
 
     _full_cache: dict[int, tuple] = {}

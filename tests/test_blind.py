@@ -62,3 +62,25 @@ def test_blind_solve_wrong_scale_rescued_by_sweep(synth_dir, ground_truth):
             break
     assert r is not None and r.rms_px < 2.0
     assert abs(mult - 1 / 1.6) < 1e-9
+
+
+def test_blind_solve_real_camera_field():
+    """Star centroids detected from a real Canon 6D + 20mm frame (105x70
+    deg field pointed near the celestial pole) with the truth center from
+    astrometry.net.  This exact case defeated the old grid-projection
+    solver: rigid 2D alignment of gnomonic projections with different
+    tangent points misplaces edge stars by far more than the vote
+    tolerance.  The attitude (TRIAD) solver must lock it, fast."""
+    from pathlib import Path
+    data = np.load(Path(__file__).parent / "data" / "real_field_6d20mm.npz")
+    h, w = data["shape"]
+    r = blind_solve(np.zeros((h, w), np.uint8),
+                    float(data["pixel_scale_deg"][0]),
+                    stars_xy=data["stars"])
+    assert r is not None, "real-field blind solve failed"
+    c = r.wcs.pixel_to_world_values((w - 1) / 2.0, (h - 1) / 2.0)
+    tra, tdec = data["truth_center"]
+    err = np.hypot((float(c[0]) - tra) * np.cos(np.deg2rad(tdec)),
+                   float(c[1]) - tdec)
+    assert err < 1.5, f"center off by {err:.2f} deg"
+    assert r.n_matched >= 12

@@ -55,10 +55,13 @@ class SolveResult:
 
 def detect_stars(image: np.ndarray, max_stars: int = 200,
                  threshold_sigma: float = 5.0, sky_mask: np.ndarray | None = None,
-                 min_area: int = 2) -> np.ndarray:
+                 min_area: int = 2,
+                 max_elongation: float | None = None) -> np.ndarray:
     """Centroid bright point sources; returns (N, 2) array of (x, y),
     brightest first.  ``sky_mask`` (bool, True = sky) restricts detection to
-    the sky region so trees/obelisks don't produce false sources."""
+    the sky region so trees/obelisks don't produce false sources.
+    ``max_elongation`` drops elongated sources (satellite/plane streaks:
+    >>3; sidereally-trailed stars stay below ~2)."""
     import cv2
 
     img = image.astype(np.float32)
@@ -71,18 +74,39 @@ def detect_stars(image: np.ndarray, max_stars: int = 200,
     if sky_mask is not None:
         mask &= sky_mask.astype(np.uint8)
     n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
-    out = []
-    for i in range(1, n):
-        if stats[i, cv2.CC_STAT_AREA] < min_area:
-            continue
-        ys, xs = np.nonzero(labels == i)
-        flux = resid[ys, xs].sum()
-        # flux-weighted centroid
-        cx = float((xs * resid[ys, xs]).sum() / flux)
-        cy = float((ys * resid[ys, xs]).sum() / flux)
-        out.append((flux, cx, cy))
-    out.sort(reverse=True)
-    return np.array([[x, y] for _, x, y in out[:max_stars]], dtype=float).reshape(-1, 2)
+    if n <= 1:
+        return np.empty((0, 2), dtype=float)
+    # single-pass weighted moments per component (bincount, O(masked px));
+    # a per-component `labels == i` scan is O(components x image) and takes
+    # minutes on a real high-ISO frame with tens of thousands of components
+    ys, xs = np.nonzero(mask)
+    labs = labels[ys, xs]
+    fl = resid[ys, xs].astype(np.float64)
+    flux = np.bincount(labs, weights=fl, minlength=n)
+    sx = np.bincount(labs, weights=xs * fl, minlength=n)
+    sy = np.bincount(labs, weights=ys * fl, minlength=n)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cxs = sx / flux
+        cys = sy / flux
+    keep = (stats[:, cv2.CC_STAT_AREA] >= min_area) & (flux > 0)
+    keep[0] = False                    # background label
+    if max_elongation is not None:
+        sxx = np.bincount(labs, weights=xs * xs * fl, minlength=n)
+        syy = np.bincount(labs, weights=ys * ys * fl, minlength=n)
+        sxy = np.bincount(labs, weights=xs * ys * fl, minlength=n)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            vxx = sxx / flux - cxs ** 2
+            vyy = syy / flux - cys ** 2
+            vxy = sxy / flux - cxs * cys
+        tr = vxx + vyy
+        det = vxx * vyy - vxy * vxy
+        disc = np.sqrt(np.maximum(tr * tr / 4.0 - det, 0.0))
+        l1 = np.maximum(tr / 2.0 + disc, 1e-6)
+        l2 = np.maximum(tr / 2.0 - disc, 1e-6)
+        keep &= np.sqrt(l1 / l2) <= max_elongation
+    idx = np.nonzero(keep)[0]
+    idx = idx[np.argsort(-flux[idx])][:max_stars]
+    return np.column_stack([cxs[idx], cys[idx]]).astype(float).reshape(-1, 2)
 
 
 def star_fwhm_px(image: np.ndarray, xy: np.ndarray, box: int = 7) -> float:

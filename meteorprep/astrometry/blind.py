@@ -1,15 +1,19 @@
 """Fully automatic ("lost-in-space") plate solving — no pointing hints, no
 network.
 
-Star-tracker approach, adapted for a very wide field: the plate scale is
-known from the lens, so a single correspondence between one bright *pair*
-of detected stars and one catalog pair of the same projected separation
-fixes rotation, translation and parity at once.  For each coarse pointing
-on a sphere grid we project the bundled naked-eye catalog (Yale Bright
-Star Catalog, ~9k stars, 106 KB), enumerate pair hypotheses among the
-brightest stars, and let every other star vote.  A winning hypothesis is
-polished by iteratively re-centering the TAN fit on its own solution.
-Runs in seconds, pure numpy.
+Real star-tracker geometry, correct at any field width: detected stars are
+back-projected through the known plate scale into unit vectors on the
+celestial sphere, so a bright image pair's *angular* separation can be
+compared against catalog pair separations exactly (projection-free).  Each
+matching pair hypothesis fixes the full 3D camera attitude (TRIAD), the
+catalog is projected through that exact attitude, and every other detected
+star votes.  A winning hypothesis is polished by re-centering the TAN fit
+on its own solution.  Runs in seconds, pure numpy.
+
+(The previous approach — 2D rotation+translation about coarse sphere-grid
+tangent points — breaks on ultra-wide fields: two gnomonic projections
+with tangent points even a few degrees apart differ by far more than the
+vote tolerance at the field edges.  Diagnosed on real 105-degree frames.)
 """
 
 from __future__ import annotations
@@ -20,9 +24,8 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 
-from meteorprep.astrometry.solve import (SolveResult, _standard_coords_deg,
-                                         detect_stars, fit_tan_wcs,
-                                         solve_rms_px)
+from meteorprep.astrometry.solve import (SolveResult, detect_stars,
+                                         fit_tan_wcs, solve_rms_px)
 
 log = logging.getLogger("meteorprep")
 
@@ -30,23 +33,225 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def load_bright_catalog(mag_limit: float = 6.5) -> np.ndarray:
-    """(N, 3) ra_deg, dec_deg, vmag — brightest first."""
+    """(N, 3+) ra_deg, dec_deg, vmag[, temp_K] — brightest first."""
     cat = np.load(DATA_DIR / "bright_stars.npy")
     return cat[cat[:, 2] <= mag_limit]
 
 
-def _fibonacci_sphere(n: int) -> np.ndarray:
-    k = np.arange(n, dtype=float)
-    golden = (1 + 5 ** 0.5) / 2
-    ra = (360.0 * k / golden) % 360.0
-    dec = np.rad2deg(np.arcsin(2 * (k + 0.5) / n - 1))
-    return np.column_stack([ra, dec])
+def _unit_vectors(radec: np.ndarray) -> np.ndarray:
+    ra = np.deg2rad(radec[:, 0])
+    dec = np.deg2rad(radec[:, 1])
+    return np.stack([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra),
+                     np.sin(dec)], axis=1)
+
+
+def _camera_vectors(xy: np.ndarray, cx: float, cy: float,
+                    tan_per_px: float) -> np.ndarray:
+    """Pixel coords -> unit vectors in the camera frame (+z boresight).
+    Exact inverse gnomonic: the optical axis is the *frame center*, which
+    is known — unlike the pointing."""
+    xt = (xy[:, 0] - cx) * tan_per_px
+    yt = (xy[:, 1] - cy) * tan_per_px
+    v = np.stack([xt, yt, np.ones_like(xt)], axis=1)
+    return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+
+def _dedupe(stars: np.ndarray, radius_px: float = 8.0) -> np.ndarray:
+    """Drop near-duplicate detections (keep the earlier = brighter one)."""
+    if len(stars) < 2:
+        return stars
+    keep = []
+    for i, s in enumerate(stars):
+        if all(np.hypot(*(s - stars[j])) > radius_px for j in keep):
+            keep.append(i)
+    return stars[keep]
+
+
+def blind_solve(image: np.ndarray, pixel_scale_deg: float,
+                catalog_radec: np.ndarray | None = None,
+                n_image_stars: int = 42, n_pair_stars: int = 10,
+                pair_mag_limit: float = 3.6,
+                min_votes: int = 10, vote_tol_px: float = 12.0,
+                accept_rms_px: float = 2.0,
+                undistort=None, stars_xy: np.ndarray | None = None,
+                progress_cb=None) -> SolveResult | None:
+    """Solve with no prior pointing.
+
+    ``catalog_radec``: (N, >=3) with ra, dec, vmag, brightest first;
+    defaults to the bundled naked-eye catalog.  ``stars_xy`` skips the
+    internal star detection (already-cleaned centroids, brightest first).
+    """
+    if catalog_radec is None:
+        catalog_radec = load_bright_catalog()
+    cat = np.asarray(catalog_radec, dtype=float)
+
+    if stars_xy is None:
+        # elongation gate drops satellite/plane streaks; trailed stars on a
+        # fixed tripod stay below ~2, streaks are >>3
+        stars = detect_stars(image, max_stars=n_image_stars,
+                             max_elongation=3.0)
+    else:
+        stars = np.asarray(stars_xy, dtype=float)
+    stars = _dedupe(stars)[:n_image_stars]
+    log.info("blind solve: %d stars detected in the reference frame",
+             len(stars))
+    if len(stars) < min_votes:
+        log.warning("blind solve: too few stars (%d < %d) — clouds, trees "
+                    "or heavy light pollution in the reference frame?",
+                    len(stars), min_votes)
+        return None
+    if undistort is not None:
+        stars = undistort(stars)
+    h, w = image.shape[:2]
+    cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
+    diag = float(np.hypot(w, h))
+    tan_per_px = np.tan(np.deg2rad(pixel_scale_deg))
+    half_diag_rad = np.arctan(tan_per_px * diag / 2.0)
+
+    star_tree = cKDTree(stars)
+    img_vec = _camera_vectors(stars, cx, cy, tan_per_px)
+
+    # --- catalog pair table: separations among the all-sky brightest ---
+    if cat.shape[1] >= 3:
+        pool = cat[cat[:, 2] <= pair_mag_limit]
+        if len(pool) < 40:          # sparse custom catalogs: take brightest
+            pool = cat[:60]
+    else:
+        pool = cat[:60]
+    pool_vec = _unit_vectors(pool)
+    n_pool = len(pool)
+    ii, jj = np.triu_indices(n_pool, k=1)
+    cos_sep = np.einsum("ij,ij->i", pool_vec[ii], pool_vec[jj])
+    sep = np.arccos(np.clip(cos_sep, -1.0, 1.0))
+    within = sep < 2.05 * half_diag_rad
+    ii, jj, sep = ii[within], jj[within], sep[within]
+    order = np.argsort(sep)
+    ii, jj, sep = ii[order], jj[order], sep[order]
+
+    cat_vec = _unit_vectors(cat[:, :2])
+    bright_vec = pool_vec                     # coarse-vote subset
+    cos_cap = np.cos(min(half_diag_rad * 1.05, np.deg2rad(80)))
+
+    # 3D tree over the bright pool for the vectorized coarse vote: an image
+    # star rotated into the sky must land on SOME bright catalog star
+    pool_tree = cKDTree(pool_vec)
+    n_coarse = min(15, len(stars))
+    coarse_tol_chord = max(1.5 * vote_tol_px * tan_per_px, np.deg2rad(0.25))
+    coarse_need = 5
+
+    n_pair = min(n_pair_stars, len(stars))
+    pair_idx = [(a, b) for a in range(n_pair) for b in range(a + 1, n_pair)]
+    best_result = None
+    best_votes = 0
+    n_hyp = 0
+    for hyp_no, (ia, ib) in enumerate(pair_idx):
+        if progress_cb is not None:
+            progress_cb(hyp_no / max(len(pair_idx), 1))
+        a, b = img_vec[ia], img_vec[ib]
+        d_img = float(np.arccos(np.clip(a @ b, -1.0, 1.0)))
+        if d_img < 0.05 * half_diag_rad:      # too close: attitude ill-set
+            continue
+        # separation gate: exact angles; tolerance covers centroid error,
+        # residual distortion and a modestly wrong plate-scale guess
+        tol = 0.025 * d_img + np.deg2rad(0.25)
+        lo = np.searchsorted(sep, d_img - tol)
+        hi = np.searchsorted(sep, d_img + tol)
+        if hi <= lo:
+            continue
+        # both assignments (p,q) and (q,p) for every candidate pair
+        pi = np.concatenate([ii[lo:hi], jj[lo:hi]])
+        qi = np.concatenate([jj[lo:hi], ii[lo:hi]])
+        P, Q = pool_vec[pi], pool_vec[qi]
+        # batch TRIAD: camera triad is fixed for this image pair
+        c1 = np.cross(a, b)
+        n1 = np.linalg.norm(c1)
+        if n1 < 1e-8:
+            continue
+        t2 = c1 / n1
+        t3 = np.cross(a, t2)
+        C2 = np.cross(P, Q)
+        n2 = np.linalg.norm(C2, axis=1)
+        okc = n2 > 1e-8
+        P, Q, C2, n2, pi, qi = P[okc], Q[okc], C2[okc], n2[okc], pi[okc], qi[okc]
+        if not len(P):
+            continue
+        S2 = C2 / n2[:, None]
+        S3 = np.cross(P, S2)
+        # R_k = p_k a^T + s2_k t2^T + s3_k t3^T   (sky <- camera)
+        R = (np.einsum("ki,j->kij", P, a)
+             + np.einsum("ki,j->kij", S2, t2)
+             + np.einsum("ki,j->kij", S3, t3))
+        n_hyp += len(R)
+        # coarse vote, fully vectorized: rotate the brightest image stars
+        # into the sky and demand several land on bright catalog stars
+        U = np.einsum("kij,mj->kmi", R, img_vec[:n_coarse])
+        dch, _ = pool_tree.query(U.reshape(-1, 3),
+                                 distance_upper_bound=coarse_tol_chord)
+        score = np.isfinite(dch).reshape(len(R), n_coarse).sum(axis=1)
+        cand_order = np.nonzero(score >= coarse_need)[0]
+        cand_order = cand_order[np.argsort(-score[cand_order])][:50]
+        for k in cand_order:
+            Rk = R[k]
+            # full vote with the whole catalog through the exact attitude
+            vf = cat_vec @ Rk
+            cap = vf[:, 2] > cos_cap
+            pxf = cx + vf[cap, 0] / vf[cap, 2] / tan_per_px
+            pyf = cy + vf[cap, 1] / vf[cap, 2] / tan_per_px
+            inwf = ((pxf > -0.05 * w) & (pxf < 1.05 * w)
+                    & (pyf > -0.05 * h) & (pyf < 1.05 * h))
+            if inwf.sum() < min_votes:
+                continue
+            pred = np.column_stack([pxf[inwf], pyf[inwf]])
+            world = cat[cap][inwf][:, :2]
+            dist, nn = star_tree.query(pred,
+                                       distance_upper_bound=vote_tol_px)
+            sel = np.isfinite(dist)
+            votes_for = nn[sel]
+            uniq = len(np.unique(votes_for))
+            if uniq > best_votes:
+                best_votes = uniq
+            if uniq < min_votes:
+                continue
+            # matched correspondences -> exact TAN fit about the
+            # hypothesis boresight, then re-centered on its own solution
+            bs = Rk @ np.array([0.0, 0.0, 1.0])
+            crval = (float(np.rad2deg(np.arctan2(bs[1], bs[0]))) % 360.0,
+                     float(np.rad2deg(np.arcsin(np.clip(bs[2], -1, 1)))))
+            fitted = fit_tan_wcs(stars[votes_for], world[sel], crval)
+            if fitted is None:
+                continue
+            fitted = _iterate_recenter(stars, cat, fitted, (cx, cy))
+            if fitted is None:
+                continue
+            rms, n_tight = solve_rms_px(fitted, stars, cat[:, :2],
+                                        match_tol_px=3.0)
+            if n_tight >= max(min_votes, 12) and rms < accept_rms_px:
+                c = fitted.pixel_to_world_values(cx, cy)
+                log.info("blind solve: center RA %.1f Dec %.1f, "
+                         "%d stars, rms %.2f px (%d hypotheses)",
+                         float(c[0]), float(c[1]), n_tight, rms, n_hyp)
+                return SolveResult(wcs=fitted, rms_px=rms,
+                                   n_matched=int(n_tight),
+                                   source="blind")
+            if (best_result is None
+                    or n_tight > best_result.n_matched):
+                best_result = SolveResult(
+                    wcs=fitted, rms_px=rms,
+                    n_matched=int(n_tight), source="blind")
+    if best_result is not None and best_result.n_matched >= min_votes:
+        log.info("blind solve (best effort): %d stars, rms %.2f px",
+                 best_result.n_matched, best_result.rms_px)
+        return best_result
+    log.warning("blind solve: no attitude hypothesis survived (best got "
+                "%d votes of the %d needed) — the reference frame may show "
+                "too little clear sky", best_votes, min_votes)
+    return None
 
 
 def _iterate_recenter(stars, catalog, wcs, center_px, rounds=3):
-    """Re-center the TAN fit on its own solution: the pair hypothesis was
-    fit about a grid point up to ~20 deg from the true tangent point, which
-    a fixed-CRVAL affine cannot fully absorb over a 97-deg field."""
+    """Re-center the TAN fit on its own solution: the initial fit's tangent
+    point comes from the pair hypothesis and can sit a few degrees off,
+    which a fixed-CRVAL affine cannot fully absorb over a very wide field."""
     best = wcs
     for tol in (15.0, 6.0, 3.0)[:rounds]:
         c = best.pixel_to_world_values(center_px[0], center_px[1])
@@ -67,144 +272,3 @@ def _iterate_recenter(stars, catalog, wcs, center_px, rounds=3):
             return None
         best = fitted
     return best
-
-
-def blind_solve(image: np.ndarray, pixel_scale_deg: float,
-                catalog_radec: np.ndarray | None = None,
-                n_centers: int = 100, n_image_stars: int = 42,
-                n_pair_stars: int = 9, n_cat_pair: int = 16,
-                min_votes: int = 10, vote_tol_px: float = 10.0,
-                accept_rms_px: float = 2.0,
-                undistort=None) -> SolveResult | None:
-    """Solve with no prior pointing.
-
-    ``catalog_radec``: (N, 2) or (N, 3 with magnitude/brightness rank,
-    brightest first); defaults to the bundled naked-eye catalog.
-    """
-    if catalog_radec is None:
-        catalog_radec = load_bright_catalog()
-    cat = np.asarray(catalog_radec, dtype=float)
-
-    stars = detect_stars(image, max_stars=n_image_stars)
-    log.info("blind solve: %d stars detected in the reference frame",
-             len(stars))
-    if len(stars) < min_votes:
-        log.warning("blind solve: too few stars (%d < %d) — clouds, trees "
-                    "or heavy light pollution in the reference frame?",
-                    len(stars), min_votes)
-        return None
-    if undistort is not None:
-        stars = undistort(stars)
-    h, w = image.shape[:2]
-    cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
-    diag = float(np.hypot(w, h))
-    half_diag_deg = np.rad2deg(np.arctan(
-        np.tan(np.deg2rad(pixel_scale_deg)) * diag / 2.0))
-
-    star_tree = cKDTree(stars)
-    pair_stars = stars[:n_pair_stars]
-    pair_idx = [(a, b) for a in range(len(pair_stars))
-                for b in range(a + 1, len(pair_stars))]
-    pair_d = {p: float(np.linalg.norm(pair_stars[p[0]] - pair_stars[p[1]]))
-              for p in pair_idx}
-
-    cat_unit = np.stack(
-        [np.cos(np.deg2rad(cat[:, 1])) * np.cos(np.deg2rad(cat[:, 0])),
-         np.cos(np.deg2rad(cat[:, 1])) * np.sin(np.deg2rad(cat[:, 0])),
-         np.sin(np.deg2rad(cat[:, 1]))], axis=1)
-
-    best_result = None
-    for center in _fibonacci_sphere(n_centers):
-        ra0, dec0 = float(center[0]), float(center[1])
-        t = np.array([np.cos(np.deg2rad(dec0)) * np.cos(np.deg2rad(ra0)),
-                      np.cos(np.deg2rad(dec0)) * np.sin(np.deg2rad(ra0)),
-                      np.sin(np.deg2rad(dec0))])
-        near = cat_unit @ t > np.cos(np.deg2rad(min(half_diag_deg * 1.1, 80)))
-        if near.sum() < min_votes:
-            continue
-        sub = cat[near][:, :2]
-        std = _standard_coords_deg(sub, (ra0, dec0))
-        ok = np.isfinite(std).all(axis=1)
-        sub, std = sub[ok], std[ok]
-        proj = std / pixel_scale_deg          # catalog in pixel units
-        inframe = ((np.abs(proj[:, 0]) < 0.75 * diag)
-                   & (np.abs(proj[:, 1]) < 0.75 * diag))
-        sub, proj = sub[inframe], proj[inframe]
-        if len(sub) < min_votes:
-            continue
-        # brightest catalog stars for pair hypotheses (input is
-        # brightest-first, preserved by boolean masking)
-        cp = proj[:n_cat_pair]
-        cat_pairs = [(a, b) for a in range(len(cp))
-                     for b in range(a + 1, len(cp))]
-        cat_pair_d = np.array([np.linalg.norm(cp[a] - cp[b])
-                               for a, b in cat_pairs])
-
-        for (ia, ib) in pair_idx:
-            d_img = pair_d[(ia, ib)]
-            close = np.abs(cat_pair_d - d_img) < 0.04 * d_img + 3.0
-            if not close.any():
-                continue
-            A, B = pair_stars[ia], pair_stars[ib]
-            v_img = B - A
-            for k in np.nonzero(close)[0]:
-                ca, cb = cat_pairs[k]
-                for (c1, c2) in ((ca, cb), (cb, ca)):
-                    for parity in (1.0, -1.0):
-                        p1 = cp[c1] * [1.0, parity]
-                        p2 = cp[c2] * [1.0, parity]
-                        v_cat = p2 - p1
-                        ang = (np.arctan2(v_img[1], v_img[0])
-                               - np.arctan2(v_cat[1], v_cat[0]))
-                        rot = np.array([[np.cos(ang), -np.sin(ang)],
-                                        [np.sin(ang), np.cos(ang)]])
-                        pred = (proj * [1.0, parity]) @ rot.T
-                        pred += A - rot @ p1
-                        infr = ((pred[:, 0] > -0.05 * w) & (pred[:, 0] < 1.05 * w)
-                                & (pred[:, 1] > -0.05 * h) & (pred[:, 1] < 1.05 * h))
-                        if infr.sum() < min_votes:
-                            continue
-                        dist, nn = star_tree.query(
-                            pred[infr], distance_upper_bound=vote_tol_px)
-                        sel = np.isfinite(dist)
-                        if sel.sum() < min_votes:
-                            continue
-                        # one image star may not vote for two catalog stars
-                        votes_for = nn[sel]
-                        if len(np.unique(votes_for)) < min_votes:
-                            continue
-                        m_img = stars[votes_for]
-                        m_world = sub[infr][sel]
-                        fitted = fit_tan_wcs(m_img, m_world, (ra0, dec0))
-                        if fitted is None:
-                            continue
-                        fitted = _iterate_recenter(stars, cat, fitted,
-                                                   (cx, cy))
-                        if fitted is None:
-                            continue
-                        rms, n_tight = solve_rms_px(fitted, stars,
-                                                    cat[:, :2],
-                                                    match_tol_px=3.0)
-                        if (n_tight >= max(min_votes, 12)
-                                and rms < accept_rms_px):
-                            c = fitted.pixel_to_world_values(cx, cy)
-                            log.info("blind solve: center RA %.1f Dec %.1f, "
-                                     "%d stars, rms %.2f px",
-                                     float(c[0]), float(c[1]), n_tight, rms)
-                            return SolveResult(wcs=fitted, rms_px=rms,
-                                               n_matched=int(n_tight),
-                                               source="blind")
-                        if (best_result is None
-                                or n_tight > best_result.n_matched):
-                            best_result = SolveResult(
-                                wcs=fitted, rms_px=rms,
-                                n_matched=int(n_tight), source="blind")
-    if best_result is not None and best_result.n_matched >= min_votes:
-        log.info("blind solve (best effort): %d stars, rms %.2f px",
-                 best_result.n_matched, best_result.rms_px)
-        return best_result
-    log.warning("blind solve: no pointing hypothesis survived (best "
-                "attempt matched %s stars) — the reference frame may show "
-                "too little clear sky",
-                best_result.n_matched if best_result else 0)
-    return None
