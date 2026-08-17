@@ -94,10 +94,12 @@ def main() -> int:
 
             site_row = QHBoxLayout()
             site_row.addWidget(QLabel("Where (lat, lon):"))
-            self.site = QLineEdit("44.3275, -72.1725")
+            self.site = QLineEdit()
+            self.site.setPlaceholderText("example: 44.3275, -72.1725  (optional)")
             self.site.setToolTip(
                 "Find yours in Apple Maps: press and hold your spot, the "
-                "numbers appear on the place card. Rough is fine.")
+                "numbers appear on the place card. Rough is fine — and "
+                "leaving this empty is fine too.")
             site_row.addWidget(self.site)
             layout.addLayout(site_row)
 
@@ -158,7 +160,7 @@ def main() -> int:
             try:
                 lat, lon = (float(v) for v in self.site.text().split(","))
             except ValueError:
-                lat, lon = 44.3275, -72.1725
+                lat, lon = 44.3275, -72.1725   # blank/invalid: harmless default
             cfg = Config(
                 input_dir=self.folder,
                 output_dir=str(self.folder) + "_meteorprep",

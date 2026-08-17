@@ -687,11 +687,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         import tifffile
         tifffile.imwrite(cache.path("base.tif"),
                          np.clip(base_img, 0, 65535).astype(np.uint16),
-                         compression="lzw")
+                         compression="zlib")
         if fg_stack is not None:
             tifffile.imwrite(cache.path("fg_stack.tif"),
                              np.clip(fg_stack, 0, 65535).astype(np.uint16),
-                             compression="lzw")
+                             compression="zlib")
         stage_done("base_sky")
     import tifffile
     base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
@@ -856,7 +856,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             .astype(np.float32), n)
         tifffile.imwrite(out_dir / "startrail.tif",
                          np.clip(trail, 0, 65535).astype(np.uint16),
-                         compression="lzw")
+                         compression="zlib")
         outputs["startrail"] = str(out_dir / "startrail.tif")
 
     sidecar = write_sidecar(

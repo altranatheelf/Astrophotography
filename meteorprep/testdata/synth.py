@@ -249,7 +249,7 @@ def make_synthetic_sequence(out_dir, n_frames: int = 30, exp_s: float = 20.0,
         img = np.clip(img, 0, 65535).astype(np.uint16)
 
         fname = f"SYN_{i:04d}.tif"
-        tifffile.imwrite(out / fname, img, compression="lzw")
+        tifffile.imwrite(out / fname, img, compression="zlib")
 
         dto = (t_start + timedelta(seconds=i * (exp_s + gap_s)))
         frames_meta.append({
