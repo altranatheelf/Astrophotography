@@ -10,11 +10,16 @@ from meteorprep.ingest.raw import luminance
 
 def test_bundled_catalog_loads():
     cat = load_bright_catalog()
-    assert cat.shape[1] == 3
+    # ra, dec, vmag, effective temperature (K)
+    assert cat.shape[1] == 4
     assert len(cat) > 4000
     # brightest-first: Sirius leads
     assert cat[0, 2] < -1.0
     assert np.all(np.diff(cat[:, 2]) >= 0)
+    # temperatures present and physical for nearly all stars
+    temps = cat[:, 3]
+    assert (temps > 0).mean() > 0.95
+    assert 2000 < np.median(temps[temps > 0]) < 20000
 
 
 def test_blind_solve_no_hints(synth_dir, ground_truth, base_wcs):
