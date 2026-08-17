@@ -597,14 +597,25 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                         else cfg.jobs)
             failed: list = []
             if jobs_eff > 1:
+                import multiprocessing as _mp
                 from concurrent.futures import ProcessPoolExecutor, as_completed
+                pending: dict = {}
                 try:
-                    with ProcessPoolExecutor(max_workers=jobs_eff) as pool:
+                    # spawn (not fork): forking a process that already ran
+                    # threaded numeric code can deadlock the children on
+                    # Linux; macOS spawns by default.  The timeout turns a
+                    # silent hang into a clean single-core fallback.
+                    with ProcessPoolExecutor(
+                            max_workers=jobs_eff,
+                            mp_context=_mp.get_context("spawn")) as pool:
                         futs = {pool.submit(_detect_reproject_one, a): a
                                 for a in work}
                         done = 0
-                        for fut in as_completed(futs):
+                        pending.update(futs)
+                        for fut in as_completed(
+                                futs, timeout=600 + 240 * len(work)):
                             done += 1
+                            pending.pop(fut, None)
                             try:
                                 fut.result()
                             except Exception as exc:
@@ -612,9 +623,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                             notify(0.25 + 0.15 * done / n,
                                    f"searching preparation ({done}/{n})")
                 except Exception as exc:
-                    log.warning("parallel alignment failed (%s); using one "
-                                "core", exc)
-                    failed = [(a, None) for a in work]
+                    log.warning("parallel alignment failed (%s); finishing "
+                                "the remaining frames on one core", exc)
+                    failed.extend((a, None) for a in
+                                  (pending.values() if pending else work))
             else:
                 failed = [(a, None) for a in work]
             for k, (args, prev_exc) in enumerate(failed):
@@ -1019,14 +1031,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             chunk_size = max(len(ok_idx) // (n_workers * 4), 4)
             chunks = [ok_idx[k:k + chunk_size]
                       for k in range(0, len(ok_idx), chunk_size)]
+            import multiprocessing as _mp
             from concurrent.futures import ProcessPoolExecutor, as_completed
             try:
-                with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                # spawn, not fork: see the alignment pool above
+                with ProcessPoolExecutor(
+                        max_workers=n_workers,
+                        mp_context=_mp.get_context("spawn")) as pool:
                     futures = {pool.submit(
                         _stack_pass, frame_args(mode, chunk, k, want_fg)): k
                         for k, chunk in enumerate(chunks)}
                     done = 0
-                    for fut in as_completed(futures):
+                    for fut in as_completed(
+                            futures, timeout=600 + 300 * len(ok_idx)):
                         results.append(fut.result())
                         done += 1
                         notify(frac0 + (frac1 - frac0) * done / len(chunks),
