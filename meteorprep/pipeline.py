@@ -2,6 +2,12 @@
 
 Every mechanical/geometric step is automated; every aesthetic decision is
 surfaced as a PSD layer toggle and never baked in (§8).
+
+Disk strategy: the *search* for meteors runs on half-size decodes and only
+caches small binned luminance images (~3 GB for a 226-frame night); the
+clean starfield is a *streaming* masked mean at full resolution that never
+touches the disk; only the handful of frames containing meteors are ever
+reprojected at full quality, on demand.
 """
 
 from __future__ import annotations
@@ -26,9 +32,9 @@ from meteorprep.cache.store import CacheStore
 from meteorprep.config import SIDEREAL_DEG_PER_SEC, Config
 from meteorprep.detect.classify import classify
 from meteorprep.detect.diff import difference
-from meteorprep.detect.hough import bin2x, detect_streaks
+from meteorprep.detect.hough import _line_profile, detect_streaks
 from meteorprep.detect.radiant import radiant_at_epoch
-from meteorprep.detect.reference import RunningReference, reference_model
+from meteorprep.detect.reference import RunningReference
 from meteorprep.detect.track import build_tracks
 from meteorprep.ingest import raw as raw_mod
 from meteorprep.ingest.exif import read_metadata, scan_input_dir
@@ -37,7 +43,6 @@ from meteorprep.ingest.segment_folder import segment_folder
 from meteorprep.mask.extract import extract_meteor
 from meteorprep.report.sidecar import write_sidecar
 from meteorprep.segment.sky_ground import segment_sky
-from meteorprep.stack.base_sky import stack_frames
 from meteorprep.stack.startrail import lighten_stack
 
 log = logging.getLogger("meteorprep")
@@ -53,25 +58,72 @@ def _wcs_from_str(s: str):
     return WCS(fits.Header.fromstring(s, sep="\n"))
 
 
-def _reproject_one(args) -> int:
-    """Top-level worker (picklable, spawn-safe) that decodes one frame and
-    writes its reprojected RGB + footprint into the cache."""
-    (i, path, src_wcs_str, base_wcs_str, shape_hw, reproj_dir_str,
+def scale_wcs(wcs, s: float):
+    """The same sky mapping expressed for an image resampled by factor s
+    (s=2: detection-space WCS -> full-resolution WCS)."""
+    out = wcs.deepcopy()
+    out.wcs.cd = np.asarray(wcs.wcs.cd) / s
+    out.wcs.crpix = [s * (wcs.wcs.crpix[0] - 0.5) + 0.5,
+                     s * (wcs.wcs.crpix[1] - 0.5) + 0.5]
+    return out
+
+
+# ----------------------------------------------------------------------
+# process-pool workers (top-level: picklable, spawn-safe)
+# ----------------------------------------------------------------------
+
+def _detect_reproject_one(args) -> int:
+    """Decode one frame at detection size and cache its aligned binned
+    luminance + footprint (small: ~12 MB per 20 MP frame)."""
+    (i, path, src_wcs_str, det_wcs_str, shape_hw, det_dir_str,
      bad_pixels) = args
     import numpy as _np
-    from meteorprep.astrometry.reproject_frames import reproject_frame
+    from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
 
-    reproj_dir = Path(reproj_dir_str)
-    rgb = _raw.decode(Path(path), "final", bad_pixels)
-    arr, foot = reproject_frame(rgb, _wcs_from_str(src_wcs_str),
-                                _wcs_from_str(base_wcs_str),
-                                tuple(shape_hw), quality=True)
-    _np.save(reproj_dir / f"rgb_{i:04d}.npy",
+    det_dir = Path(det_dir_str)
+    rgb = _raw.decode(Path(path), "detect", bad_pixels, half_size=True)
+    lum = _raw.luminance(rgb)
+    arr, foot = _rp(lum, _wcs_from_str(src_wcs_str),
+                    _wcs_from_str(det_wcs_str), tuple(shape_hw),
+                    quality=False)
+    _np.save(det_dir / f"lum_{i:04d}.npy",
              _np.clip(arr, 0, 65535).astype(_np.uint16))
-    _np.save(reproj_dir / f"foot_{i:04d}.npy", foot.astype(_np.uint8))
+    _np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(_np.uint8))
     return i
 
+
+def _stack_partial(args) -> tuple[str, str]:
+    """Accumulate a subset of frames into partial sum/weight arrays for the
+    streaming full-resolution base stack; returns the two .npy paths."""
+    (indices, paths, wcs_strs, base_wcs_str, shape_hw, mask_paths,
+     tmp_dir_str, worker_id, half_size, bad_pixels) = args
+    import numpy as _np
+    from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
+    from meteorprep.ingest import raw as _raw
+
+    h, w = shape_hw
+    ssum = _np.zeros((h, w, 3), _np.float32)
+    wsum = _np.zeros((h, w), _np.float32)
+    base_wcs = _wcs_from_str(base_wcs_str)
+    for i, path, wstr in zip(indices, paths, wcs_strs):
+        rgb = _raw.decode(Path(path), "final", bad_pixels, half_size=half_size)
+        arr, foot = _rp(rgb, _wcs_from_str(wstr), base_wcs, (h, w),
+                        quality=True)
+        ok = foot.astype(bool)
+        mp = mask_paths.get(i)
+        if mp:
+            ok &= ~_np.load(mp)
+        ssum += arr * ok[:, :, None]
+        wsum += ok
+    tmp = Path(tmp_dir_str)
+    sp, wp = tmp / f"sum_{worker_id}.npy", tmp / f"wsum_{worker_id}.npy"
+    _np.save(sp, ssum)
+    _np.save(wp, wsum)
+    return str(sp), str(wp)
+
+
+# ----------------------------------------------------------------------
 
 def run(cfg: Config, progress=None) -> dict:
     """Run the pipeline; returns a summary dict with output paths."""
@@ -120,20 +172,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     def stage_fresh(stage):
         nonlocal skipped
-        h = cfg.stage_hash(stage)
-        if not cfg.force and cache.is_done(stage, h):
+        h_ = cfg.stage_hash(stage)
+        if not cfg.force and cache.is_done(stage, h_):
             skipped += 1
             return False
         return True
 
-    def decode_lum(i):
-        rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels)
+    # Detection space: always half-size decode (the spec's 2x2 binning).
+    # Output space: full resolution, or half when the user chose half_size.
+    S = 1 if cfg.half_size else 2   # detection -> output scale factor
+
+    def decode_det_lum(i):
+        rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels,
+                             half_size=True)
         return raw_mod.luminance(rgb)
 
     # ---------------- light-paint flags ----------------
     if stage_fresh("lightpaint"):
         notify(0.06, "flagging light-painted frames")
-        gmed = np.array([ground_luminance(decode_lum(i), None) for i in range(n)])
+        gmed = np.array([ground_luminance(decode_det_lum(i), None)
+                         for i in range(n)])
         lp = flag_lightpainted(gmed, cfg.lp_window, cfg.lp_sigma)
         cache.write_json("lightpaint.json", lp.tolist())
         cache.mark_done("lightpaint", cfg.stage_hash("lightpaint"))
@@ -148,13 +206,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     # base frame: median-time non-light-painted frame
     base_i = ok_idx[len(ok_idx) // 2]
     base_meta = frames[base_i]
-    base_rgb_final = raw_mod.decode(base_meta.path, "final", bad_pixels)
+    base_rgb_final = raw_mod.decode(base_meta.path, "final", bad_pixels,
+                                    half_size=cfg.half_size)
     h, w = base_rgb_final.shape[:2]
+    base_det_lum = decode_det_lum(base_i)
+    hd, wd = base_det_lum.shape[:2]
 
-    # ---------------- plate solving ----------------
+    # ---------------- plate solving (at detection scale) ----------------
     notify(0.12, "plate solving (sparse subset)")
-    pixel_scale_deg = float(np.rad2deg(np.arctan(
-        cfg.pixel_pitch_um * 1e-3 / max(frames[base_i].focal_mm, 1e-3))))
+    det_pitch_um = cfg.pixel_pitch_um * 2.0   # half-size decode
+    det_scale_deg = float(np.rad2deg(np.arctan(
+        det_pitch_um * 1e-3 / max(base_meta.focal_mm, 1e-3))))
     catalog = (np.load(cfg.catalog_file) if cfg.catalog_file else None)
 
     k1 = cfg.lens_k1
@@ -163,10 +225,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if found is not None:
             k1 = found
             log.info("Lensfun k1=%.5f for %s", k1, cfg.lens_model)
-    dist = Poly3Distortion(k1, (h, w))
+    dist = Poly3Distortion(k1, (hd, wd))   # k1 is scale-invariant
     undistort = None if dist.identity() else dist.undistort
 
-    wcs_per_frame: list = [None] * n
+    det_wcs: list = [None] * n   # per-frame WCS in detection space
     solver_used = "none"
     alignment_quality = "nominal"
     solve_files: list[str] = []
@@ -175,10 +237,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         seed = None
         if np.isfinite(cfg.seed_ra_deg) and np.isfinite(cfg.seed_dec_deg):
             seed = build_tan_wcs(cfg.seed_ra_deg, cfg.seed_dec_deg,
-                                 pixel_scale_deg, (h, w),
+                                 det_scale_deg, (hd, wd),
                                  rotation_deg=cfg.seed_rotation_deg)
-        base_lum = decode_lum(base_i)
-        result = solve_frame(base_lum, seed, catalog, cfg,
+        result = solve_frame(base_det_lum, seed, catalog, cfg,
                              image_path=base_meta.path, undistort=undistort)
         if result is None:
             raise RuntimeError(
@@ -192,11 +253,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 "If clouds/trees hide most of the sky in the middle frame, "
                 "try again — the tool picks a different reference frame if "
                 "you delete the worst frames from the folder.")
-        base_wcs = result.wcs
+        base_det_wcs = result.wcs
         solver_used = result.source
         base_meta.wcs_source = "solved"
         base_meta.solve_rms_px = result.rms_px
-        wcs_per_frame[base_i] = base_wcs
+        det_wcs[base_i] = base_det_wcs
         solve_files.append(base_meta.file)
         log.info("base solve via %s: rms=%.2f px (%d stars)",
                  result.source, result.rms_px, result.n_matched)
@@ -205,13 +266,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         base_mid = base_meta.epoch_mid
         solve_targets = {i for i in range(0, n, max(cfg.solve_every_k, 1))}
         solve_targets.add(base_i)
-        solved = {base_i: base_wcs}
+        solved = {base_i: base_det_wcs}
         for i in sorted(solve_targets):
             if i == base_i or lp[i]:
                 continue
             dt = (frames[i].epoch_mid - base_mid).total_seconds()
-            seed_i = propagate_wcs(base_wcs, dt)
-            res_i = solve_frame(decode_lum(i), seed_i, catalog, cfg,
+            seed_i = propagate_wcs(base_det_wcs, dt)
+            res_i = solve_frame(decode_det_lum(i), seed_i, catalog, cfg,
                                 image_path=frames[i].path, undistort=undistort)
             if res_i is not None and res_i.rms_px <= cfg.solve_rms_max_px:
                 solved[i] = res_i.wcs
@@ -223,122 +284,123 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                          frames[i].file)
         for i in range(n):
             if i in solved:
-                wcs_per_frame[i] = solved[i]
+                det_wcs[i] = solved[i]
                 continue
             nearest = min(solved, key=lambda j: abs(
                 (frames[i].epoch_mid - frames[j].epoch_mid).total_seconds()))
             dt = (frames[i].epoch_mid - frames[nearest].epoch_mid).total_seconds()
-            wcs_per_frame[i] = propagate_wcs(solved[nearest], dt)
+            det_wcs[i] = propagate_wcs(solved[nearest], dt)
             frames[i].wcs_source = "propagated"
             if catalog is not None and not lp[i]:
-                rms, nm = solve_rms_px(wcs_per_frame[i],
-                                       _detected_for_verify(decode_lum(i), undistort),
+                rms, nm = solve_rms_px(det_wcs[i],
+                                       _detected_for_verify(decode_det_lum(i),
+                                                            undistort),
                                        catalog)
                 frames[i].solve_rms_px = rms
                 if rms > cfg.solve_rms_max_px and nm >= cfg.solve_min_stars:
-                    res_i = solve_frame(decode_lum(i), wcs_per_frame[i],
+                    res_i = solve_frame(decode_det_lum(i), det_wcs[i],
                                         catalog, cfg, undistort=undistort)
                     if res_i is not None:
-                        wcs_per_frame[i] = res_i.wcs
+                        det_wcs[i] = res_i.wcs
                         frames[i].wcs_source = "solved"
                         frames[i].solve_rms_px = res_i.rms_px
                         solve_files.append(frames[i].file)
+        base_wcs = scale_wcs(base_det_wcs, S)   # output-space base WCS
         pole_xy = pole_pixel_xy(base_wcs)
     else:
         # --align-mode=rotate2d: explicitly degraded (§4.7)
         alignment_quality = "degraded"
         solver_used = "rotate2d"
+        base_det_wcs = None
         base_wcs = None
         pole_xy = None
         log.warning("ALIGNMENT DEGRADED: rotate2d mode — corner stars "
                     "mis-register by up to ~720 px/hr and meteors will not "
                     "radiate correctly from the true radiant")
 
-    # ---------------- reprojection ----------------
-    reproj_dir = cache.dir("reproj")
+    # ------- detection-space alignment cache (small: ~12 MB/frame) -------
+    det_dir = cache.dir("detect_aligned")
     if stage_fresh("reproject"):
-        notify(0.3, "reprojecting frames onto base WCS")
-        if cfg.align_mode == "reproject_tan" and cfg.jobs > 1:
-            from concurrent.futures import ProcessPoolExecutor
-            base_str = _wcs_to_str(base_wcs)
-            work = [(i, str(frames[i].path), _wcs_to_str(wcs_per_frame[i]),
-                     base_str, (h, w), str(reproj_dir), bad_pixels)
+        notify(0.25, "aligning small previews to search for meteors")
+        if cfg.align_mode == "reproject_tan":
+            det_str = _wcs_to_str(base_det_wcs)
+            work = [(i, str(frames[i].path), _wcs_to_str(det_wcs[i]),
+                     det_str, (hd, wd), str(det_dir), bad_pixels)
                     for i in range(n)]
-            try:
-                done = 0
-                with ProcessPoolExecutor(max_workers=cfg.jobs) as pool:
-                    for _ in pool.map(_reproject_one, work):
-                        done += 1
-                        notify(0.3 + 0.2 * done / n,
-                               f"reprojecting frames ({done}/{n})")
-            except Exception as exc:
-                log.warning("parallel reprojection failed (%s); "
-                            "falling back to one core", exc)
-                for args in work:
-                    _reproject_one(args)
+            if cfg.jobs > 1:
+                from concurrent.futures import ProcessPoolExecutor
+                try:
+                    done = 0
+                    with ProcessPoolExecutor(max_workers=cfg.jobs) as pool:
+                        for _ in pool.map(_detect_reproject_one, work):
+                            done += 1
+                            notify(0.25 + 0.15 * done / n,
+                                   f"searching preparation ({done}/{n})")
+                except Exception as exc:
+                    log.warning("parallel alignment failed (%s); using one "
+                                "core", exc)
+                    for args in work:
+                        _detect_reproject_one(args)
+            else:
+                for k, args in enumerate(work):
+                    _detect_reproject_one(args)
+                    notify(0.25 + 0.15 * (k + 1) / n,
+                           f"searching preparation ({k + 1}/{n})")
         else:
+            from meteorprep.astrometry.reproject_frames import rotate2d_frame
             for i in range(n):
-                rgb = raw_mod.decode(frames[i].path, "final", bad_pixels)
-                if cfg.align_mode == "reproject_tan":
-                    arr, foot = reproject_frame(rgb, wcs_per_frame[i], base_wcs,
-                                                (h, w), quality=True)
-                else:
-                    from meteorprep.astrometry.reproject_frames import rotate2d_frame
-                    dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
-                    angle = SIDEREAL_DEG_PER_SEC * dt
-                    center = (w / 2.0, h / 2.0)
-                    arr, foot = rotate2d_frame(rgb, angle, center)
-                np.save(reproj_dir / f"rgb_{i:04d}.npy",
+                lum = decode_det_lum(i)
+                dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
+                arr, foot = rotate2d_frame(lum, SIDEREAL_DEG_PER_SEC * dt,
+                                           (wd / 2.0, hd / 2.0))
+                np.save(det_dir / f"lum_{i:04d}.npy",
                         np.clip(arr, 0, 65535).astype(np.uint16))
-                np.save(reproj_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
-                notify(0.3 + 0.2 * (i + 1) / n,
-                       f"reprojecting frames ({i + 1}/{n})")
+                np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
         cache.mark_done("reproject", cfg.stage_hash("reproject"))
 
-    def load_rgb(i):
-        return np.load(reproj_dir / f"rgb_{i:04d}.npy", mmap_mode="r")
+    def load_det_lum(i):
+        return np.load(det_dir / f"lum_{i:04d}.npy", mmap_mode="r")
 
-    def load_foot(i):
-        return np.load(reproj_dir / f"foot_{i:04d}.npy", mmap_mode="r")
+    def load_det_foot(i):
+        return np.load(det_dir / f"foot_{i:04d}.npy", mmap_mode="r")
 
     # ---------------- detection ----------------
-    notify(0.5, "detecting meteors")
-    binf = cfg.bin_factor
-    lum_binned = [bin2x(raw_mod.luminance(np.asarray(load_rgb(i))), binf)
-                  for i in range(n)]
-    foot_binned = [(bin2x(np.asarray(load_foot(i)).astype(np.float32), binf) > 0.99)
-                   .astype(np.uint8) for i in range(n)]
-    ref = RunningReference(lum_binned, cfg.ref_window, cfg.ref_sigma,
+    notify(0.45, "searching every frame for meteors")
+    lum_det = [np.asarray(load_det_lum(i)).astype(np.float32)
+               for i in range(n)]
+    foot_det = [np.asarray(load_det_foot(i)) for i in range(n)]
+    ref = RunningReference(lum_det, cfg.ref_window, cfg.ref_sigma,
                            exclude=set(np.nonzero(lp)[0]),
-                           footprints=foot_binned)
+                           footprints=foot_det)
     streaks_per_frame = {}
     for i in range(n):
         if lp[i]:
             continue
-        d = difference(lum_binned[i], ref.for_frame(i), foot_binned[i])
-        # colour ratios from an aligned neighbour difference (stars cancel)
-        rgb_b = bin2x(np.asarray(load_rgb(i)), binf)
-        j = i - 1 if i > 0 else i + 1
-        rgb_d = np.clip(rgb_b - bin2x(np.asarray(load_rgb(j)), binf), 0, None)
-        s = detect_streaks(d, i, cfg, rgb_diff=rgb_d, bin_factor=binf)
+        d = difference(lum_det[i], ref.for_frame(i), foot_det[i])
+        s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
         if s:
             streaks_per_frame[i] = s
+    diffs_det = {i: difference(lum_det[i], ref.for_frame(i), foot_det[i])
+                 for i in streaks_per_frame}
+    del lum_det, foot_det
 
-    # ---------------- tracking + classification ----------------
-    notify(0.62, "classifying candidates")
+    # ---------------- tracking + colour + classification ----------------
+    notify(0.55, "telling meteors from planes and satellites")
     if base_wcs is not None:
         def world_endpoints(fi, s):
             r0 = base_wcs.pixel_to_world_values(s.x0, s.y0)
             r1 = base_wcs.pixel_to_world_values(s.x1, s.y1)
             return ((float(r0[0]), float(r0[1])), (float(r1[0]), float(r1[1])))
     else:
-        # degraded mode: use a nominal pixel->pseudo-world scaling
+        det_scale_out = det_scale_deg / S
         def world_endpoints(fi, s):
-            return ((s.x0 * pixel_scale_deg, s.y0 * pixel_scale_deg),
-                    (s.x1 * pixel_scale_deg, s.y1 * pixel_scale_deg))
+            return ((s.x0 * det_scale_out, s.y0 * det_scale_out),
+                    (s.x1 * det_scale_out, s.y1 * det_scale_out))
 
     candidates = build_tracks(streaks_per_frame, world_endpoints,
                               [m.file for m in frames])
+    _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
+                              (hd, wd), S, bad_pixels)
     radiant = radiant_at_epoch(cfg, base_meta.epoch_mid)
     candidates = classify(candidates, cfg, radiant)
     base_mid = base_meta.epoch_mid
@@ -350,42 +412,74 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         s = c.streaks[0]
         c.endpoints_pix_base = [[s.x0, s.y0], [s.x1, s.y1]]
 
-    # ---------------- extraction ----------------
-    notify(0.7, "extracting meteor layers")
     meteor_cands = [c for c in candidates if c.label == "meteor"]
     flagged_cands = [c for c in candidates if c.label != "meteor"]
     meteor_cands.sort(key=lambda c: file_to_idx[c.frames[0]])
 
-    from meteorprep.astrometry.solve import detect_stars
-    base_stack_lum = None  # full-res reference for extraction frames
+    # ---- corridor masks: keep every detected streak out of the base ----
+    corridor_masks: dict[int, np.ndarray] = {}
+    for c in candidates:
+        for frame_file, st in zip(c.frames, c.streaks):
+            i = file_to_idx[frame_file]
+            m = corridor_masks.get(i)
+            if m is None:
+                m = np.zeros((h, w), bool)
+                corridor_masks[i] = m
+            _paint_corridor(m, (st.x0, st.y0), (st.x1, st.y1),
+                            half_width=max(3.0 * max(st.fwhm_px, 2.0), 12.0))
 
-    def fullres_diff(i):
-        half = max(cfg.ref_window // 2, 1)
-        idx = [j for j in range(max(0, i - half), min(n, i + half + 1))
-               if j != i and not lp[j]]
-        win = np.stack([raw_mod.luminance(np.asarray(load_rgb(j))) for j in idx])
-        refl = reference_model(win, sigma=cfg.ref_sigma)
-        return difference(raw_mod.luminance(np.asarray(load_rgb(i))), refl,
-                          np.asarray(load_foot(i)))
+    # ---------------- streaming full-resolution base stack --------------
+    if stage_fresh("base_sky"):
+        notify(0.62, "building the clean starfield from every frame")
+        base_img = _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs,
+                                base_det_wcs, (h, w), S, corridor_masks,
+                                cache, bad_pixels, notify)
+        import tifffile
+        tifffile.imwrite(cache.path("base.tif"),
+                         np.clip(base_img, 0, 65535).astype(np.uint16),
+                         compression="lzw")
+        cache.mark_done("base_sky", cfg.stage_hash("base_sky"))
+    import tifffile
+    base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
+    base_lum = raw_mod.luminance(base_img)
+
+    # ---------------- extraction (full quality, meteor frames only) -----
+    notify(0.82, "cutting each meteor onto its own layer")
+    from meteorprep.astrometry.solve import detect_stars
+    star_cat_xy = detect_stars(base_img, max_stars=500)
+
+    _full_cache: dict[int, tuple] = {}
+
+    def full_aligned(i):
+        if i not in _full_cache:
+            if len(_full_cache) > 2:
+                _full_cache.pop(next(iter(_full_cache)))
+            rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
+                                 half_size=cfg.half_size)
+            if cfg.align_mode == "reproject_tan":
+                arr, foot = reproject_frame(
+                    rgb, scale_wcs(det_wcs[i], S), base_wcs, (h, w),
+                    quality=True)
+            else:
+                from meteorprep.astrometry.reproject_frames import rotate2d_frame
+                dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
+                arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
+                                           (w / 2.0, h / 2.0))
+            _full_cache[i] = (arr.astype(np.float32), foot)
+        return _full_cache[i]
 
     meteor_layers, flagged_layers = [], []
     roi_images = {}
-    exclusion_masks = {i: None for i in range(n)}
-    star_cat_xy = None
-
     for group_list, out_list in ((meteor_cands, meteor_layers),
                                  (flagged_cands, flagged_layers)):
         for c in group_list:
             for si, (frame_file, seg_streak) in enumerate(
                     zip(c.frames, c.streaks)):
                 i = file_to_idx[frame_file]
-                d_full = fullres_diff(i)
-                if star_cat_xy is None:
-                    star_cat_xy = detect_stars(
-                        np.asarray(load_rgb(base_i)).astype(np.float32),
-                        max_stars=500)
+                arr, foot = full_aligned(i)
+                d_full = difference(raw_mod.luminance(arr), base_lum, foot)
                 layer = extract_meteor(
-                    d_full, np.asarray(load_rgb(i)).astype(np.float32),
+                    d_full, arr,
                     ((seg_streak.x0, seg_streak.y0),
                      (seg_streak.x1, seg_streak.y1)),
                     seg_streak.fwhm_px, star_xy=star_cat_xy)
@@ -393,52 +487,37 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                     continue
                 x0, y0, x1, y1 = layer.bbox
                 roi_images.setdefault(c.id, d_full[y0:y1, x0:x1].copy())
-                mask = exclusion_masks.get(i)
-                if mask is None:
-                    mask = np.zeros((h, w), bool)
-                mask[y0:y1, x0:x1] |= layer.alpha > 0.02
-                exclusion_masks[i] = mask
                 out_list.append((c, layer, i, si))
+    _full_cache.clear()
 
-    # ---------------- base sky stack ----------------
-    if stage_fresh("base_sky"):
-        notify(0.8, "stacking point-star base (meteors excluded)")
-        stack_idx = ok_idx
-
-        def frame_loader(k):
-            return np.asarray(load_rgb(stack_idx[k])).astype(np.float32)
-
-        def mask_loader(k):
-            i = stack_idx[k]
-            m = exclusion_masks.get(i)
-            foot = np.asarray(load_foot(i)) == 0
-            return foot if m is None else (m | foot)
-
-        base = stack_frames(frame_loader, len(stack_idx), (h, w, 3),
-                            sigma=cfg.stack_sigma, maxiters=cfg.stack_maxiters,
-                            band_rows=cfg.stack_band_rows,
-                            mask_loader=mask_loader)
-        import tifffile
-        tifffile.imwrite(cache.path("base.tif"),
-                         np.clip(base, 0, 65535).astype(np.uint16),
-                         compression="lzw")
-        cache.mark_done("base_sky", cfg.stage_hash("base_sky"))
-    import tifffile
-    base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
+    # contact-sheet ROIs for candidates whose extraction produced nothing:
+    # fall back to the detection-space difference crop
+    for c in candidates:
+        if c.id in roi_images:
+            continue
+        i = file_to_idx[c.frames[0]]
+        if i in diffs_det:
+            st = c.streaks[0]
+            x0 = int(max(min(st.x0, st.x1) / S - 30, 0))
+            y0 = int(max(min(st.y0, st.y1) / S - 30, 0))
+            x1 = int(min(max(st.x0, st.x1) / S + 30, wd))
+            y1 = int(min(max(st.y0, st.y1) / S + 30, hd))
+            roi_images[c.id] = np.asarray(diffs_det[i][y0:y1, x0:x1]).copy()
 
     # ---------------- sky/ground segmentation ----------------
-    notify(0.85, "segmenting sky/ground")
+    notify(0.88, "finding the horizon")
     sky_mask = segment_sky(base_rgb_final)
     from PIL import Image
     Image.fromarray((sky_mask * 255).astype(np.uint8)).save(out_dir / "skymask.png")
 
     # ---------------- assembly ----------------
-    notify(0.9, "assembling layers")
+    notify(0.92, "assembling layers")
     fg_layers = [Layer(name="FG_base_time",
                        rgb=base_rgb_final.astype(np.float32),
                        alpha=(1.0 - sky_mask), blend="normal", visible=True)]
     for i in np.nonzero(lp)[0]:
-        rgb_lp = raw_mod.decode(frames[i].path, "final", bad_pixels)
+        rgb_lp = raw_mod.decode(frames[i].path, "final", bad_pixels,
+                                half_size=cfg.half_size)
         fg_layers.append(Layer(name=f"FG_lightpaint_{frames[i].file}",
                                rgb=rgb_lp.astype(np.float32),
                                alpha=(1.0 - sky_mask), blend="normal",
@@ -479,7 +558,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             outputs["contact_sheet"] = str(cs)
     if cfg.emit_startrail:
         trail = lighten_stack(
-            lambda i: raw_mod.decode(frames[i].path, "final", bad_pixels)
+            lambda i: raw_mod.decode(frames[i].path, "final", bad_pixels,
+                                     half_size=cfg.half_size)
             .astype(np.float32), n)
         tifffile.imwrite(out_dir / "startrail.tif",
                          np.clip(trail, 0, 65535).astype(np.uint16),
@@ -493,10 +573,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     outputs["sidecar"] = str(sidecar)
     if cfg.cleanup_cache:
         import shutil as _shutil
-        _shutil.rmtree(reproj_dir, ignore_errors=True)
+        _shutil.rmtree(det_dir, ignore_errors=True)
         cache.invalidate("reproject")   # a future re-run knows to rebuild
         cache.invalidate("base_sky")
-        log.info("freed the reprojection cache (%s)", reproj_dir)
+        log.info("freed the detection cache (%s)", det_dir)
     if skipped:
         log.info("%d stage(s) up-to-date, skipped", skipped)
     notify(1.0, f"done: {len(meteor_cands)} meteor(s), "
@@ -505,6 +585,138 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             "n_meteors": len(meteor_cands), "n_flagged": len(flagged_cands),
             "alignment_quality": alignment_quality,
             "candidates": [c.to_dict() for c in candidates]}
+
+
+# ----------------------------------------------------------------------
+# helpers
+# ----------------------------------------------------------------------
+
+def _paint_corridor(mask: np.ndarray, p0, p1, half_width: float) -> None:
+    """Mark a generous corridor around a streak (output-space pixels)."""
+    import cv2
+    cv2.line(mask.view(np.uint8), (int(round(p0[0])), int(round(p0[1]))),
+             (int(round(p1[0])), int(round(p1[1]))), 1,
+             thickness=max(int(2 * half_width), 3))
+
+
+def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
+                              shape_det, S, bad_pixels) -> None:
+    """Lazy colour measurement (§3.6): only candidate frames are re-decoded
+    for RGB, against an aligned neighbour so stars cancel."""
+    if base_det_wcs is None:
+        return
+    file_to_idx = {m.file: i for i, m in enumerate(frames)}
+
+    def det_rgb(i):
+        rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels,
+                             half_size=True)
+        arr, _ = reproject_frame(rgb, det_wcs[i], base_det_wcs, shape_det,
+                                 quality=False)
+        return arr.astype(np.float32)
+
+    cache: dict[int, np.ndarray] = {}
+
+    def get(i):
+        if i not in cache:
+            if len(cache) > 3:
+                cache.pop(next(iter(cache)))
+            cache[i] = det_rgb(i)
+        return cache[i]
+
+    n = len(frames)
+    for c in candidates:
+        rgs, bgs = [], []
+        for frame_file, st in zip(c.frames, c.streaks):
+            i = file_to_idx[frame_file]
+            j = i - 1 if i > 0 else min(i + 1, n - 1)
+            d = np.clip(get(i) - get(j), 0, None)
+            p0 = (st.x0 / S, st.y0 / S)
+            p1 = (st.x1 / S, st.y1 / S)
+            rprof = _line_profile(d[..., 0], p0, p1)
+            gprof = _line_profile(d[..., 1], p0, p1)
+            bprof = _line_profile(d[..., 2], p0, p1)
+            gmean = max(float(np.mean(gprof)), 1.0)
+            st.color_rg = float(np.mean(rprof)) / gmean
+            st.color_bg = float(np.mean(bprof)) / gmean
+            rgs.append(st.color_rg)
+            bgs.append(st.color_bg)
+        if rgs:
+            c.color_rgb = (float(np.mean(rgs)), float(np.mean(bgs)))
+
+
+def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
+                 shape_out, S, corridor_masks, cache, bad_pixels,
+                 notify) -> np.ndarray:
+    """Streaming masked mean at output resolution: each frame is decoded,
+    aligned, accumulated and discarded — nothing big ever hits the disk.
+    Detected streaks (meteors, planes, satellites) are masked out of the
+    average, so the base stays clean without a multi-pass sigma clip."""
+    h, w = shape_out
+    tmp = cache.dir("stack_tmp")
+    mask_paths = {}
+    for i, m in corridor_masks.items():
+        p = tmp / f"mask_{i:04d}.npy"
+        np.save(p, m)
+        mask_paths[i] = str(p)
+
+    def frame_args(indices, worker_id):
+        return (list(indices),
+                [str(frames[i].path) for i in indices],
+                [_wcs_to_str(scale_wcs(det_wcs[i], S))
+                 if base_det_wcs is not None else "" for i in indices],
+                _wcs_to_str(base_wcs) if base_wcs is not None else "",
+                (h, w), mask_paths, str(tmp), worker_id, cfg.half_size,
+                bad_pixels)
+
+    n_workers = max(min(cfg.jobs, 3), 1)   # float32 partials: cap RAM
+    partials = []
+    if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
+        chunks = [ok_idx[k::n_workers] for k in range(n_workers)]
+        from concurrent.futures import ProcessPoolExecutor
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                futures = [pool.submit(_stack_partial, frame_args(chunk, k))
+                           for k, chunk in enumerate(chunks)]
+                for k, fut in enumerate(futures):
+                    partials.append(fut.result())
+                    notify(0.62 + 0.18 * (k + 1) / len(futures),
+                           "building the clean starfield "
+                           f"({k + 1}/{len(futures)} parts)")
+        except Exception as exc:
+            log.warning("parallel stacking failed (%s); using one core", exc)
+            partials = []
+    if not partials:
+        if base_wcs is not None:
+            partials = [_stack_partial(frame_args(ok_idx, 0))]
+        else:
+            # degraded rotate2d path, serial
+            from meteorprep.astrometry.reproject_frames import rotate2d_frame
+            ssum = np.zeros((h, w, 3), np.float32)
+            wsum = np.zeros((h, w), np.float32)
+            base_mid = frames[ok_idx[len(ok_idx) // 2]].epoch_mid
+            for i in ok_idx:
+                rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
+                                     half_size=cfg.half_size)
+                dt = (frames[i].epoch_mid - base_mid).total_seconds()
+                arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
+                                           (w / 2.0, h / 2.0))
+                ok = foot.astype(bool)
+                if i in corridor_masks:
+                    ok &= ~corridor_masks[i]
+                ssum += arr.astype(np.float32) * ok[:, :, None]
+                wsum += ok
+            total_sum, total_w = ssum, wsum
+            partials = None
+    if partials is not None:
+        total_sum = np.zeros((h, w, 3), np.float64)
+        total_w = np.zeros((h, w), np.float64)
+        for sp, wp in partials:
+            total_sum += np.load(sp)
+            total_w += np.load(wp)
+    base = total_sum / np.maximum(total_w, 1.0)[:, :, None]
+    import shutil as _shutil
+    _shutil.rmtree(tmp, ignore_errors=True)
+    return base.astype(np.float32)
 
 
 def _detected_for_verify(lum, undistort):

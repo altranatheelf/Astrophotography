@@ -22,6 +22,7 @@ class Config:
     # --- ingest ---
     input_dir: str = "."
     output_dir: str = "meteorprep_out"
+    half_size: bool = False   # half-resolution decode: ~4x less scratch disk/time
     raw_extensions: tuple = (".cr2", ".cr3", ".nef", ".arw", ".dng",
                              ".raf", ".orf", ".rw2", ".tif", ".tiff", ".fits")
     site_lat: float = 44.3275
@@ -101,7 +102,7 @@ class Config:
     STAGE_PARAMS: dict = field(default=None, repr=False)
 
     _STAGE_PARAMS = {
-        "ingest": ["input_dir", "raw_extensions"],
+        "ingest": ["input_dir", "raw_extensions", "half_size"],
         "segment_folder": ["max_gap_factor", "bump_px"],
         "lightpaint": ["lp_sigma", "lp_window"],
         "solve": ["align_mode", "solve_every_k", "solve_min_stars",

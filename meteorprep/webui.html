@@ -195,7 +195,8 @@
       [c.star_matcher, "Star matcher",
        "On the computer, run:  pip3 install twirl astroquery  — then reload."],
       [c.disk_ok, `Disk space (${c.disk_free_gb} GB free)`,
-       "Free up ~40 GB on the computer for temporary working files."],
+       "Free up a few GB on the computer — the tool only needs a small " +
+       "temporary work area (about 3 GB for a full night of frames)."],
     ];
     $("checks").innerHTML = rows.map(([ok, label, fix]) =>
       `<div class="checkrow ${ok ? "ok" : "fail"}">

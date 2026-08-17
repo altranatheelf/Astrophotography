@@ -34,8 +34,13 @@ def is_raw(path: Path) -> bool:
 
 
 def decode(path: Path, mode: str = "detect",
-           bad_pixels: np.ndarray | None = None) -> np.ndarray:
-    """Decode any supported frame to a 16-bit linear RGB (H, W, 3) array."""
+           bad_pixels: np.ndarray | None = None,
+           half_size: bool = False) -> np.ndarray:
+    """Decode any supported frame to a 16-bit linear RGB (H, W, 3) array.
+
+    ``half_size=True`` decodes at half resolution (2x2 superpixel): ~4x
+    less memory/scratch disk and time, for space-constrained machines.
+    """
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix in (".tif", ".tiff"):
@@ -43,7 +48,11 @@ def decode(path: Path, mode: str = "detect",
         arr = tifffile.imread(path)
         if arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=2)
-        return arr.astype(np.uint16)
+        if half_size:
+            h2, w2 = arr.shape[0] // 2 * 2, arr.shape[1] // 2 * 2
+            arr = arr[:h2, :w2].astype(np.float32)
+            arr = arr.reshape(h2 // 2, 2, w2 // 2, 2, -1).mean(axis=(1, 3))
+        return np.clip(arr, 0, 65535).astype(np.uint16)
     if suffix in (".fits", ".fit"):
         from astropy.io import fits
         with fits.open(path) as hdul:
@@ -71,6 +80,7 @@ def decode(path: Path, mode: str = "detect",
                 kw = dict(_DETECT_KW,
                           demosaic_algorithm=_rp.DemosaicAlgorithm.LINEAR,
                           output_color=_rp.ColorSpace.raw)
+            kw["half_size"] = half_size
             return raw.postprocess(**kw)
     raise ValueError(f"unsupported frame type: {path}")
 

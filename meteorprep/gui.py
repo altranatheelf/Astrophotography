@@ -68,8 +68,11 @@ def main() -> int:
             self.cb_trail = QCheckBox("Emit star-trail render")
             self.cb_sheet = QCheckBox("Emit contact sheet")
             self.cb_sheet.setChecked(True)
+            self.cb_half = QCheckBox(
+                "Fast mode: half-resolution result (quicker; smaller file)")
             self.cb_force = QCheckBox("Force re-run (ignore cache)")
-            for cb in (self.cb_png, self.cb_trail, self.cb_sheet, self.cb_force):
+            for cb in (self.cb_png, self.cb_trail, self.cb_sheet,
+                       self.cb_half, self.cb_force):
                 layout.addWidget(cb)
 
             self.button = QPushButton("Prepare")
@@ -104,13 +107,17 @@ def main() -> int:
             self.button.setEnabled(True)
 
         def _start(self):
+            import os
             cfg = Config(
                 input_dir=self.folder,
                 output_dir=str(self.folder) + "_meteorprep",
                 emit_pngjsx=self.cb_png.isChecked(),
                 emit_startrail=self.cb_trail.isChecked(),
                 emit_contact_sheet=self.cb_sheet.isChecked(),
+                half_size=self.cb_half.isChecked(),
                 force=self.cb_force.isChecked(),
+                jobs=max((os.cpu_count() or 2) - 1, 1),
+                cleanup_cache=True,
             )
             self.button.setEnabled(False)
             self.worker = Worker(cfg)

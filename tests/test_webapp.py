@@ -99,8 +99,8 @@ def test_full_phone_flow(server, synth_dir, ground_truth):
     status, blob = _get(base, "/api/download")
     assert status == 200 and blob[:2] == b"PK" and len(blob) > 10000
 
-    # 4. cleanup_cache freed the big reprojection cache
-    reproj = Path(state.output_dir) / "cache" / "g01" / "reproj"
+    # 4. cleanup_cache freed the detection cache
+    reproj = Path(state.output_dir) / "cache" / "g01" / "detect_aligned"
     assert not reproj.exists() or not any(reproj.iterdir())
 
     # 5. reset clears the uploads for a new night

@@ -103,7 +103,8 @@ def _system_checks() -> dict:
     except OSError:
         free_gb = 0.0
     checks["disk_free_gb"] = round(free_gb, 1)
-    checks["disk_ok"] = free_gb > 40
+    # detection cache ~3 GB + outputs; the base stack streams through RAM
+    checks["disk_ok"] = free_gb > 8
     checks["cores"] = os.cpu_count() or 1
     return checks
 
