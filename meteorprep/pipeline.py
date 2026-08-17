@@ -395,9 +395,20 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- plate solving (at detection scale) ----------------
     notify(0.12, "matching your stars to the star map")
-    det_pitch_um = cfg.pixel_pitch_um * 2.0   # half-size decode
+    if base_meta.pixel_pitch_um > 0:
+        pitch_um = base_meta.pixel_pitch_um
+        log.info("sensor pixel spacing read from your photos: %.2f um (%s)",
+                 pitch_um, base_meta.model or "unknown camera")
+    else:
+        pitch_um = cfg.pixel_pitch_um
+        log.warning("your photos don't record their sensor pixel size; "
+                    "assuming %.2f um — if star matching fails, this "
+                    "assumption is the first suspect", pitch_um)
+    det_pitch_um = pitch_um * 2.0   # half-size decode
     det_scale_deg = float(np.rad2deg(np.arctan(
         det_pitch_um * 1e-3 / max(base_meta.focal_mm, 1e-3))))
+    log.info("assumed sky coverage: %.0f x %.0f deg (%.1f mm lens)",
+             det_scale_deg * wd, det_scale_deg * hd, base_meta.focal_mm)
     # matching catalog: user-supplied, else the bundled naked-eye catalog —
     # solving needs no network and no pointing hints
     from meteorprep.astrometry.blind import blind_solve, load_bright_catalog
@@ -461,12 +472,32 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                                  catalog_radec=blind_catalog,
                                  undistort=undistort)
         if result is None:
+            # the pair-distance gate is only as good as the assumed plate
+            # scale; sweep plausible crop/zoom factors before giving up
+            for mult in (1.6, 1 / 1.6, 1.3, 1 / 1.3, 2.0, 0.5):
+                notify(0.14, "working out where the camera pointed "
+                             f"(trying a different lens guess: {mult:.2f}x)")
+                log.info("blind solve retry at %.2fx assumed field of view",
+                         mult)
+                result = blind_solve(base_det_lum, det_scale_deg * mult,
+                                     catalog_radec=blind_catalog,
+                                     undistort=undistort)
+                if result is not None:
+                    det_scale_deg *= mult
+                    log.info("star match locked at %.2fx the assumed field "
+                             "of view — the lens/sensor guess was off; "
+                             "solved scale is now trusted instead", mult)
+                    break
+        if result is None:
             raise RuntimeError(
-                "I couldn't match the stars in your photos to the star map. "
-                "This usually means the reference frame shows too few stars "
+                "I couldn't match the stars in your photos to the star map, "
+                "even after trying several field-of-view guesses. This "
+                "usually means the reference frame shows too few stars "
                 "(clouds, trees, or heavy light pollution). Try removing the "
                 "worst frames from the folder and running again — the tool "
-                "will pick a different reference frame.")
+                "will pick a different reference frame. If it keeps "
+                "happening, send me the run_log.txt file from the output "
+                "folder.")
         base_det_wcs = result.wcs
         solver_used = result.source
         base_meta.wcs_source = "solved"

@@ -24,7 +24,8 @@ log = logging.getLogger("meteorprep")
 
 EXIF_TAGS = ["DateTimeOriginal", "SubSecTimeOriginal", "ExposureTime", "ISO",
              "FNumber", "FocalLength", "FocalLengthIn35mmFormat", "Model",
-             "LensModel", "Orientation", "ImageWidth", "ImageHeight"]
+             "LensModel", "Orientation", "ImageWidth", "ImageHeight",
+             "FocalPlaneXResolution", "FocalPlaneResolutionUnit"]
 
 
 @dataclass
@@ -36,6 +37,7 @@ class FrameMeta:
     iso: int = 0
     fnumber: float = 0.0
     focal_mm: float = 16.0
+    pixel_pitch_um: float = 0.0   # 0 = the file doesn't say
     model: str = ""
     lens_model: str = ""
     width: int = 0
@@ -72,6 +74,32 @@ def _parse_dt(value: str) -> datetime:
         except ValueError:
             continue
     return datetime.fromisoformat(value)
+
+
+def _pixel_pitch_um(rec: dict) -> float:
+    """Sensor pixel spacing in microns, from EXIF; 0.0 when unknowable.
+
+    Primary: FocalPlaneXResolution (pixels per inch/cm/mm on the sensor).
+    Fallback: FocalLengthIn35mmFormat / FocalLength gives the crop factor,
+    hence the sensor width, divided by the recorded pixel width.
+    Values outside the range of real camera sensors are distrusted.
+    """
+    pitch = 0.0
+    try:
+        fpxr = float(rec.get("FocalPlaneXResolution", 0) or 0)
+        if fpxr > 0:
+            unit = int(rec.get("FocalPlaneResolutionUnit", 2) or 2)
+            unit_um = {2: 25400.0, 3: 10000.0, 4: 1000.0}.get(unit, 25400.0)
+            pitch = unit_um / fpxr
+        else:
+            f = float(rec.get("FocalLength", 0) or 0)
+            f35 = float(rec.get("FocalLengthIn35mmFormat", 0) or 0)
+            w = float(rec.get("ImageWidth", 0) or 0)
+            if f > 0 and f35 > 0 and w > 0:
+                pitch = 36000.0 * f / (f35 * w)
+    except (TypeError, ValueError):
+        return 0.0
+    return pitch if 1.0 <= pitch <= 12.0 else 0.0
 
 
 EXIFTOOL_FALLBACK_PATHS = [
@@ -159,6 +187,7 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
             iso=int(rec.get("ISO", 0) or 0),
             fnumber=float(rec.get("FNumber", 0) or 0),
             focal_mm=float(rec.get("FocalLength", 16.0) or 16.0),
+            pixel_pitch_um=_pixel_pitch_um(rec),
             model=str(rec.get("Model", "")),
             lens_model=str(rec.get("LensModel", "")),
             width=int(rec.get("ImageWidth", 0) or 0),
@@ -196,6 +225,7 @@ def _from_sidecar(paths: list[Path]) -> list[FrameMeta] | None:
             iso=int(rec.get("ISO", 0)),
             fnumber=float(rec.get("FNumber", 0)),
             focal_mm=float(rec.get("FocalLength", 16.0)),
+            pixel_pitch_um=_pixel_pitch_um(rec),
             model=str(rec.get("Model", "")),
             lens_model=str(rec.get("LensModel", "")),
             width=int(rec.get("ImageWidth", 0)),

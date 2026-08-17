@@ -96,10 +96,20 @@ def find_bad_pixels(paths: list[Path]) -> np.ndarray | None:
         return None
     try:
         from rawpy import enhance
-        return enhance.find_bad_pixels(raw_paths[:10])
+        bad = enhance.find_bad_pixels(raw_paths[:10])
     except Exception as exc:
         log.warning("find_bad_pixels failed: %s", exc)
         return None
+    # real sensors have hundreds-to-thousands of hot pixels; a huge count
+    # means the scan mistook the (barely moving) stars for defects, and
+    # median-repairing those would erase the very stars we align on
+    if bad is not None and len(bad) > 30000:
+        log.warning("hot-pixel scan flagged %d pixels — far too many to be "
+                    "real, so the map is distrusted and skipped (this is "
+                    "harmless: the stacker rejects hot pixels anyway)",
+                    len(bad))
+        return None
+    return bad
 
 
 def luminance(rgb: np.ndarray) -> np.ndarray:

@@ -163,3 +163,28 @@ def test_gnomonic_streak_is_great_circle(base_wcs, ground_truth):
         miss = radiant_miss_deg(tuple(m["head_world"]), tuple(m["tail_world"]),
                                 tuple(ground_truth["radiant_radec"]))
         assert miss < 0.5
+
+
+def test_pixel_pitch_from_exif():
+    """Sensor pitch: FocalPlaneXResolution primary, 35mm-ratio fallback,
+    implausible values distrusted (-> 0 = 'the file doesn't say')."""
+    from meteorprep.ingest.exif import _pixel_pitch_um
+    # Canon style: pixels per inch (unit 2)
+    p = _pixel_pitch_um({"FocalPlaneXResolution": 5728.18,
+                         "FocalPlaneResolutionUnit": 2})
+    assert abs(p - 4.434) < 0.01
+    # pixels per cm (unit 3)
+    p = _pixel_pitch_um({"FocalPlaneXResolution": 2255.0,
+                         "FocalPlaneResolutionUnit": 3})
+    assert abs(p - 4.434) < 0.01
+    # fallback: crop factor from the 35mm-equivalent focal length
+    p = _pixel_pitch_um({"FocalLength": 18.0,
+                         "FocalLengthIn35mmFormat": 29.0,
+                         "ImageWidth": 6000})
+    assert abs(p - 3.724) < 0.01
+    # nothing usable
+    assert _pixel_pitch_um({}) == 0.0
+    assert _pixel_pitch_um({"FocalPlaneXResolution": "junk"}) == 0.0
+    # implausible (would mean a 100um pitch): distrusted
+    assert _pixel_pitch_um({"FocalPlaneXResolution": 254.0,
+                            "FocalPlaneResolutionUnit": 2}) == 0.0

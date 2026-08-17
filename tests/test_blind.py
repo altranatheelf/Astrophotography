@@ -44,3 +44,21 @@ def test_blind_solve_rejects_starless_image():
     rng = np.random.default_rng(0)
     noise = rng.normal(2000, 25, (300, 450)).astype(np.float32)
     assert blind_solve(noise, 0.28) is None
+
+
+def test_blind_solve_wrong_scale_rescued_by_sweep(synth_dir, ground_truth):
+    """A crop-sensor camera makes the assumed plate scale wrong by ~1.6x;
+    the solve must fail at the wrong scale (that is the observed real-world
+    failure) and succeed again once the sweep corrects it."""
+    cat = np.load(synth_dir / "catalog_radec.npy")
+    img = tifffile.imread(synth_dir / ground_truth["base_file"])
+    lum = luminance(img)
+    wrong = ground_truth["pixel_scale_deg"] * 1.6
+    assert blind_solve(lum, wrong, catalog_radec=cat) is None
+    r = None
+    for mult in (1.6, 1 / 1.6, 1.3, 1 / 1.3, 2.0, 0.5):
+        r = blind_solve(lum, wrong * mult, catalog_radec=cat)
+        if r is not None:
+            break
+    assert r is not None and r.rms_px < 2.0
+    assert abs(mult - 1 / 1.6) < 1e-9
