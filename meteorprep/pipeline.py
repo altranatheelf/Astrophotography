@@ -85,18 +85,21 @@ def scale_wcs(wcs, s: float):
 # ----------------------------------------------------------------------
 
 def _detect_reproject_one(args) -> int:
-    """Decode one frame at detection size and cache its aligned binned
-    luminance + footprint (small: ~12 MB per 20 MP frame)."""
+    """Align one frame's cached half-size luminance onto the base grid and
+    store it + its footprint (small: ~12 MB per 20 MP frame)."""
     (i, path, src_wcs_str, det_wcs_str, shape_hw, det_dir_str,
-     bad_pixels, k1) = args
+     bad_pixels, k1, lum_path) = args
     import numpy as _np
     from meteorprep.astrometry.lensdistort import Poly3Distortion as _P3
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
 
     det_dir = Path(det_dir_str)
-    rgb = _raw.decode(Path(path), "detect", bad_pixels, half_size=True)
-    lum = _raw.luminance(rgb)
+    if lum_path and Path(lum_path).exists():
+        lum = _np.load(lum_path).astype(_np.float32)
+    else:
+        rgb = _raw.decode(Path(path), "detect", bad_pixels, half_size=True)
+        lum = _raw.luminance(rgb)
     distort = (_P3(k1, lum.shape[:2]).distort if abs(k1) > 1e-9 else None)
     arr, foot = _rp(lum, _wcs_from_str(src_wcs_str),
                     _wcs_from_str(det_wcs_str), tuple(shape_hw),
@@ -105,6 +108,63 @@ def _detect_reproject_one(args) -> int:
              _np.clip(arr, 0, 65535).astype(_np.uint16))
     _np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(_np.uint8))
     return i
+
+
+def _det_lum_one(args) -> str:
+    """Decode one frame at half size and store its luminance — done ONCE
+    per frame per run; ranking, star-lock verification and alignment all
+    read this cache instead of re-decoding the RAW (3x decode saved)."""
+    (path, out_path, bad_pixels) = args
+    import numpy as _np
+    from meteorprep.ingest import raw as _raw
+    rgb = _raw.decode(Path(path), "detect", bad_pixels, half_size=True)
+    lum = _raw.luminance(rgb)
+    tmp = out_path + ".part"
+    _np.save(tmp, _np.clip(lum, 0, 65535).astype(_np.uint16))
+    Path(tmp + ".npy").rename(out_path)
+    return out_path
+
+
+def _streak_search_chunk(args) -> list:
+    """Search a chunk of frames for streaks against the rolling reference.
+    Runs in a worker: aligned luminances are memory-mapped from the cache."""
+    (indices, n, det_dir_str, sky_path, cfg, S, exclude, diff_dir_str) = args
+    import numpy as _np
+    from meteorprep.detect.hough import detect_streaks
+    from meteorprep.detect.reference import RunningReference
+    from meteorprep.detect.diff import difference
+
+    det_dir = Path(det_dir_str)
+    diff_dir = Path(diff_dir_str)
+
+    class _L:
+        def __init__(self, pattern):
+            self._p = pattern
+        def __getitem__(self, i):
+            return _np.load(det_dir / (self._p % i),
+                            mmap_mode="r").astype(_np.float32)
+        def __len__(self):
+            return n
+
+    lums, foots = _L("lum_%04d.npy"), _L("foot_%04d.npy")
+    sky_bin = (_np.load(sky_path) >= 0.5) if sky_path else None
+    ref = RunningReference(lums, cfg.ref_window, cfg.ref_sigma,
+                           exclude=set(exclude), footprints=foots)
+    out = []
+    for i in indices:
+        d = difference(lums[i], ref.for_frame(i), foots[i])
+        d_stat = d[sky_bin] if sky_bin is not None else d
+        med = float(_np.median(d_stat))
+        noise = 1.4826 * float(_np.median(_np.abs(d_stat - med))) + 1e-3
+        if sky_bin is not None:
+            d = d * sky_bin
+        streaks = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
+        diff_path = ""
+        if streaks:
+            diff_path = str(diff_dir / f"diff_{i:04d}.npy")
+            _np.save(diff_path, _np.clip(d, 0, 65535).astype(_np.uint16))
+        out.append((i, streaks, noise, diff_path))
+    return out
 
 
 def _paint_segments(mask: np.ndarray, segments) -> None:
@@ -393,10 +453,47 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     # Output space: full resolution (optionally super-sampled), or half.
     S = (1 if cfg.half_size else 2) * max(float(cfg.super_sample), 1.0)
 
-    from functools import lru_cache
+    # ------- decode-once cache: every stage reads half-size luminance
+    # ------- from here instead of re-decoding the RAW (3x decode saved)
+    det_lum_dir = cache.dir("det_lum")
+    if cfg.force:
+        for _f in det_lum_dir.glob("*.npy"):
+            _f.unlink()
 
-    @lru_cache(maxsize=6)
+    def det_lum_file(i):
+        return det_lum_dir / (Path(frames[i].file).stem + ".npy")
+
+    missing = [i for i in range(n) if not det_lum_file(i).exists()]
+    if missing:
+        notify(0.05, "reading every photo once (small size)")
+        dl_work = [(str(frames[i].path), str(det_lum_file(i)), bad_pixels)
+                   for i in missing]
+        done_dl = 0
+        if cfg.jobs > 1 and len(dl_work) > 3:
+            import multiprocessing as _mp
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            try:
+                with ProcessPoolExecutor(
+                        max_workers=max(min(cfg.jobs, 4), 1),
+                        mp_context=_mp.get_context("spawn")) as pool:
+                    futs = [pool.submit(_det_lum_one, a) for a in dl_work]
+                    for fut in as_completed(futs,
+                                            timeout=120 + 30 * len(dl_work)):
+                        fut.result()
+                        done_dl += 1
+                        notify(0.05 + 0.04 * done_dl / len(dl_work),
+                               f"reading every photo once "
+                               f"({done_dl}/{len(dl_work)})")
+            except Exception as exc:
+                log.warning("parallel decode failed (%s); one core", exc)
+        for a in dl_work:
+            if not Path(a[1]).exists():
+                _det_lum_one(a)
+
     def decode_det_lum(i):
+        p = det_lum_file(i)
+        if p.exists():
+            return np.load(p).astype(np.float32)
         rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels,
                              half_size=True)
         return raw_mod.luminance(rgb)
@@ -731,10 +828,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if cfg.align_mode == "reproject_tan":
             det_str = _wcs_to_str(base_det_wcs)
             work = [(i, str(frames[i].path), _wcs_to_str(det_wcs[i]),
-                     det_str, (hd, wd), str(det_dir), bad_pixels, k1)
+                     det_str, (hd, wd), str(det_dir), bad_pixels, k1,
+                     str(det_lum_file(i)))
                     for i in range(n)]
-            jobs_eff = (min(cfg.jobs, 3) if _available_ram_gb() < 12
-                        else cfg.jobs)
+            # workers only load a cached luminance and remap it: light on
+            # memory, so use every requested core
+            jobs_eff = max(cfg.jobs, 1)
             failed: list = []
             if jobs_eff > 1:
                 import multiprocessing as _mp
@@ -803,21 +902,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         return np.load(det_dir / f"foot_{i:04d}.npy", mmap_mode="r")
 
     # ---------------- detection ----------------
-    # Lazy views keep RAM flat (~7 frames in memory), never all 226.
+    # Workers memory-map the aligned cache: RAM stays flat, never all 226.
     notify(0.45, "searching every frame for meteors")
-
-    class _Lazy:
-        def __init__(self, loader, count):
-            self._loader, self._count = loader, count
-
-        def __getitem__(self, i):
-            return np.asarray(self._loader(i)).astype(np.float32)
-
-        def __len__(self):
-            return self._count
-
-    lum_det = _Lazy(load_det_lum, n)
-    foot_det = _Lazy(load_det_foot, n)
 
     # ground mask from alignment physics: static ground and flickering
     # lights deviate from the aligned-sky consensus in most frames, so
@@ -832,31 +918,52 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             log.info("ground found from alignment physics: %.0f%% of the "
                      "frame masked out of the meteor search",
                      100.0 * (sky_det < 0.5).mean())
-    sky_det_bin = None if sky_det is None else (sky_det >= 0.5)
-
-    ref = RunningReference(lum_det, cfg.ref_window, cfg.ref_sigma,
-                           exclude=set(np.nonzero(lp)[0]),
-                           footprints=foot_det)
+    sky_path = ""
+    if sky_det is not None:
+        sky_path = str(cache.path("sky_det.npy"))
+        np.save(sky_path, sky_det.astype(np.float32))
+    diff_dir = cache.dir("diffs")
+    exclude_lp = [int(v) for v in np.nonzero(lp)[0]]
+    search_idx = [i for i in range(n) if not lp[i]]
     streaks_per_frame = {}
     diffs_det = {}
     noise_sigmas = {}
-    for i in range(n):
-        if lp[i]:
-            continue
-        d = difference(lum_det[i], ref.for_frame(i), foot_det[i])
-        # per-frame residual noise (haze/cloud raises it -> lower weight)
-        d_stat = d[sky_det_bin] if sky_det_bin is not None else d
-        med = float(np.median(d_stat))
-        noise_sigmas[i] = 1.4826 * float(np.median(np.abs(d_stat - med))) + 1e-3
-        if sky_det_bin is not None:
-            d = d * sky_det_bin
-        s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
+    results_sr = []
+    n_chunks = max(min(cfg.jobs, 4), 1)
+    if n_chunks > 1 and len(search_idx) >= 8:
+        chunk_sz = (len(search_idx) + n_chunks - 1) // n_chunks
+        sr_chunks = [search_idx[k:k + chunk_sz]
+                     for k in range(0, len(search_idx), chunk_sz)]
+        import multiprocessing as _mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        try:
+            with ProcessPoolExecutor(
+                    max_workers=len(sr_chunks),
+                    mp_context=_mp.get_context("spawn")) as pool:
+                futs = [pool.submit(
+                    _streak_search_chunk,
+                    (ch, n, str(det_dir), sky_path, cfg, S, exclude_lp,
+                     str(diff_dir))) for ch in sr_chunks]
+                done_sr = 0
+                for fut in as_completed(futs,
+                                        timeout=300 + 60 * len(search_idx)):
+                    results_sr.extend(fut.result())
+                    done_sr += 1
+                    notify(0.45 + 0.08 * done_sr / len(sr_chunks),
+                           f"searching every frame for meteors "
+                           f"(part {done_sr}/{len(sr_chunks)})")
+        except Exception as exc:
+            log.warning("parallel meteor search failed (%s); one core", exc)
+            results_sr = []
+    if not results_sr:
+        results_sr = _streak_search_chunk(
+            (search_idx, n, str(det_dir), sky_path, cfg, S, exclude_lp,
+             str(diff_dir)))
+    for (i, s, noise, diff_path) in results_sr:
+        noise_sigmas[i] = noise
         if s:
             streaks_per_frame[i] = s
-            diffs_det[i] = np.clip(d, 0, 65535).astype(np.uint16)
-        if (i + 1) % 5 == 0 or i == n - 1:
-            notify(0.45 + 0.08 * (i + 1) / n,
-                   f"searching every frame for meteors ({i + 1}/{n})")
+            diffs_det[i] = np.load(diff_path, mmap_mode="r")
 
     # ---------------- tracking + colour + classification ----------------
     notify(0.55, "telling meteors from planes and satellites")
@@ -1187,6 +1294,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
+        _shutil.rmtree(det_lum_dir, ignore_errors=True)
+        _shutil.rmtree(diff_dir, ignore_errors=True)
         cache.invalidate("reproject")   # a future re-run knows to rebuild
         cache.invalidate("base_sky")
         log.info("freed the detection cache (%s)", det_dir)
@@ -1361,9 +1470,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
                 cfg.stack_sigma, want_fg, k1)
 
-    # each worker holds ~1 GB at full 20 MP resolution: keep laptops with
-    # little memory on one worker, others on at most two
-    n_workers = 1 if _available_ram_gb() < 12 else max(min(cfg.jobs, 2), 1)
+    # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
+    ram = _available_ram_gb()
+    n_workers = (1 if ram < 7.5 else
+                 2 if ram < 20 else max(min(cfg.jobs, 3), 1))
 
     def run_pass(mode, frac0, frac1, label, want_fg=False):
         results = []
