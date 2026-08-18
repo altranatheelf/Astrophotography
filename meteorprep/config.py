@@ -86,6 +86,9 @@ class Config:
     emit_gradient_layer: bool = True    # sky-gradient layer (Subtract blend)
 
     # --- outputs ---
+    crop_coverage_frac: float = 0.7   # crop the canvas to where at least
+                                      # this fraction of frames overlap
+                                      # (removes stacking seams); 0 = off
     emit_psd: bool = True
     emit_pngjsx: bool = True
     emit_startrail: bool = False
@@ -131,7 +134,7 @@ class Config:
         "sky_ground": [],
         "extract": [],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",
-                     "emit_contact_sheet"],
+                     "emit_contact_sheet", "crop_coverage_frac"],
     }
 
     _STAGE_UPSTREAM = {

@@ -66,13 +66,17 @@ def scale_wcs(wcs, s: float):
     pixel units and cannot be carried across a resolution change, so they
     are dropped: lens distortion is pre-corrected analytically (§4.2) and
     the scaled WCS is pure TAN."""
-    out = wcs.deepcopy()
-    out.wcs.cd = np.asarray(wcs.wcs.cd) / s
+    # build fresh: header round-trips store the linear part as PC+CDELT,
+    # fits as CD — pixel_scale_matrix reads both, and a clean CD-only TAN
+    # keeps every consumer (including the closed-form remapper) on the
+    # same convention
+    from astropy.wcs import WCS as _WCS
+    out = _WCS(naxis=2)
+    out.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    out.wcs.crval = [float(wcs.wcs.crval[0]), float(wcs.wcs.crval[1])]
+    out.wcs.cd = np.asarray(wcs.pixel_scale_matrix, dtype=float) / s
     out.wcs.crpix = [s * (wcs.wcs.crpix[0] - 0.5) + 0.5,
                      s * (wcs.wcs.crpix[1] - 0.5) + 0.5]
-    if getattr(out, "sip", None) is not None:
-        out.sip = None
-        out.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     return out
 
 
@@ -84,17 +88,19 @@ def _detect_reproject_one(args) -> int:
     """Decode one frame at detection size and cache its aligned binned
     luminance + footprint (small: ~12 MB per 20 MP frame)."""
     (i, path, src_wcs_str, det_wcs_str, shape_hw, det_dir_str,
-     bad_pixels) = args
+     bad_pixels, k1) = args
     import numpy as _np
+    from meteorprep.astrometry.lensdistort import Poly3Distortion as _P3
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
 
     det_dir = Path(det_dir_str)
     rgb = _raw.decode(Path(path), "detect", bad_pixels, half_size=True)
     lum = _raw.luminance(rgb)
+    distort = (_P3(k1, lum.shape[:2]).distort if abs(k1) > 1e-9 else None)
     arr, foot = _rp(lum, _wcs_from_str(src_wcs_str),
                     _wcs_from_str(det_wcs_str), tuple(shape_hw),
-                    quality=False)
+                    quality=False, distort=distort)
     _np.save(det_dir / f"lum_{i:04d}.npy",
              _np.clip(arr, 0, 65535).astype(_np.uint16))
     _np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(_np.uint8))
@@ -122,8 +128,10 @@ def _stack_pass(args) -> dict:
     """
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
-     bad_pixels, sigma, want_fg) = args
+     bad_pixels, sigma, want_fg, k1) = args
+    import cv2 as _cv2
     import numpy as _np
+    from meteorprep.astrometry.lensdistort import Poly3Distortion as _P3
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
     from meteorprep.stack.streaming import RunningMoments
@@ -131,24 +139,32 @@ def _stack_pass(args) -> dict:
     h, w = shape_hw
     tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
-    scratch = _np.zeros((h, w), _np.uint8)
     bgs = {}
     if mode == "moments":
-        mom = RunningMoments((h, w, 3))
-        fg_sum = None      # allocated at camera size on the first decode
-        fg_n = 0
+        # statistics pass at half resolution: the clip bounds don't need
+        # 20 MP, and the half-size decode + resample is ~4x cheaper
+        hs, ws = h // 2, w // 2
+        stat_wcs = scale_wcs(base_wcs, 0.5)
+        mom = RunningMoments((hs, ws, 3))
+        scratch = _np.zeros((h, w), _np.uint8)
     else:
+        hs, ws = h, w
+        stat_wcs = base_wcs
         clip_mean = _np.load(tmp / "clip_mean.npy", mmap_mode="r")
         clip_bound = _np.load(tmp / "clip_bound.npy", mmap_mode="r")
         ssum = _np.zeros((h, w, 3), _np.float32)
         wsum = _np.zeros((h, w, 3), _np.float32)
+        fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
+        fg_sum = None      # allocated at camera size on the first decode
+        fg_n = 0
+        scratch = _np.zeros((h, w), _np.uint8)
 
     def _frame_background(a, okm):
         """Per-channel sky level (Siril-style normalisation): 20th
-        percentile of a subsample of covered pixels — deterministic, so
-        pass 2 reproduces pass 1's offsets exactly."""
-        sub = a[::8, ::8]
-        oksub = okm[::8, ::8]
+        percentile of a subsample of covered pixels."""
+        step = max(okm.shape[0] // 256, 1)
+        sub = a[::step, ::step]
+        oksub = okm[::step, ::step]
         if oksub.sum() < 32:
             return _np.zeros(3, _np.float32)
         return _np.percentile(sub[oksub], 20, axis=0).astype(_np.float32)
@@ -156,31 +172,38 @@ def _stack_pass(args) -> dict:
     for i, path, wstr in zip(indices, paths, wcs_strs):
         try:
             rgb = _raw.decode(Path(path), "final", bad_pixels,
-                              half_size=half_size)
+                              half_size=(half_size or mode == "moments"))
         except Exception as exc:
             log.warning("skipping unreadable frame %s in the stack: %s",
                         Path(path).name, exc)
             continue
-        if mode == "moments" and want_fg:
+        if mode != "moments" and want_fg:
             if fg_sum is None:
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
             fg_sum += rgb.astype(_np.float32)
             fg_n += 1
-        arr, foot = _rp(rgb, _wcs_from_str(wstr), base_wcs, (h, w),
-                        quality=True)
+        distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
+                   else None)
+        arr, foot = _rp(rgb, _wcs_from_str(wstr), stat_wcs, (hs, ws),
+                        quality=True, distort=distort)
         del rgb
         ok = foot.astype(bool)
         segs = segments_per_frame.get(i)
         if segs:
             scratch[:] = 0
             _paint_segments(scratch, segs)
-            ok &= scratch == 0
+            if (hs, ws) != (h, w):
+                ok &= _cv2.resize(scratch, (ws, hs),
+                                  interpolation=_cv2.INTER_NEAREST) == 0
+            else:
+                ok &= scratch == 0
         bg = _frame_background(arr, foot.astype(bool))
         bgs[i] = [float(v) for v in bg]
         arr -= bg[None, None, :]     # remove this frame's sky drift
         if mode == "moments":
             mom.add(arr, ok)
         else:
+            fcount += ok.astype(_np.uint16)
             wgt = float(frame_weights.get(i, 1.0))
             okf = ok.astype(_np.float32)
             for c in range(3):
@@ -197,16 +220,17 @@ def _stack_pass(args) -> dict:
             p = tmp / f"{name}_{worker_id}.npy"
             _np.save(p, a)
             out[name] = str(p)
+    else:
+        for name, a in (("csum", ssum), ("cwsum", wsum),
+                        ("fcount", fcount)):
+            p = tmp / f"{name}_{worker_id}.npy"
+            _np.save(p, a)
+            out[name] = str(p)
         if fg_sum is not None:
             p = tmp / f"fg_{worker_id}.npy"
             _np.save(p, fg_sum)
             out["fg"] = str(p)
             out["fg_n"] = fg_n
-    else:
-        for name, a in (("csum", ssum), ("cwsum", wsum)):
-            p = tmp / f"{name}_{worker_id}.npy"
-            _np.save(p, a)
-            out[name] = str(p)
     return out
 
 
@@ -508,12 +532,44 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if undistort is not None and len(stars_full):
             stars_full = undistort(stars_full)
         polished = refine_wcs(stars_full, catalog, base_det_wcs,
-                              sip_order=cfg.sip_order)
+                              sip_order=None)
         if polished is not None and polished.n_matched > result.n_matched:
             log.info("base polish: %d -> %d stars, rms %.2f px",
                      result.n_matched, polished.n_matched, polished.rms_px)
             base_det_wcs = polished.wcs
             result = polished
+        # self-calibrate the lens's barrel curvature from the matched stars
+        # (no lens database needed) — uncorrected curvature blurs the
+        # stack: each frame's stars land a few px apart at the field edges
+        if dist.identity() and polished is not None and len(stars_full) >= 40:
+            from meteorprep.astrometry.lensdistort import estimate_k1
+            from scipy.spatial import cKDTree as _KD
+            _pred = np.column_stack(base_det_wcs.world_to_pixel_values(
+                catalog[:, 0], catalog[:, 1]))
+            _ok = np.isfinite(_pred).all(axis=1)
+            _d, _nn = _KD(_pred[_ok]).query(stars_full,
+                                            distance_upper_bound=10.0)
+            _sel = np.isfinite(_d)
+            if _sel.sum() >= 40:
+                m_xy = stars_full[_sel]
+                m_world = catalog[np.nonzero(_ok)[0][_nn[_sel]]]
+                crval0 = (float(base_det_wcs.wcs.crval[0]),
+                          float(base_det_wcs.wcs.crval[1]))
+                k1_est, rms_b, rms_a = estimate_k1(m_xy, m_world, crval0,
+                                                   (hd, wd))
+                if rms_a < 0.85 * rms_b and abs(k1_est) > 1e-4:
+                    k1 = k1_est
+                    dist = Poly3Distortion(k1, (hd, wd))
+                    undistort = dist.undistort
+                    log.info("lens curvature self-calibrated from your "
+                             "stars: k1=%+.4f (star fit %.2f -> %.2f px)",
+                             k1, rms_b, rms_a)
+                    repolished = refine_wcs(dist.undistort(stars_full),
+                                            catalog, base_det_wcs,
+                                            sip_order=None)
+                    if repolished is not None:
+                        base_det_wcs = repolished.wcs
+                        result = repolished
         base_meta.wcs_source = "solved"
         base_meta.solve_rms_px = result.rms_px
         det_wcs[base_i] = base_det_wcs
@@ -591,7 +647,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if cfg.align_mode == "reproject_tan":
             det_str = _wcs_to_str(base_det_wcs)
             work = [(i, str(frames[i].path), _wcs_to_str(det_wcs[i]),
-                     det_str, (hd, wd), str(det_dir), bad_pixels)
+                     det_str, (hd, wd), str(det_dir), bad_pixels, k1)
                     for i in range(n)]
             jobs_eff = (min(cfg.jobs, 3) if _available_ram_gb() < 12
                         else cfg.jobs)
@@ -715,7 +771,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     candidates = build_tracks(streaks_per_frame, world_endpoints,
                               [m.file for m in frames])
     _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
-                              (hd, wd), S, bad_pixels)
+                              (hd, wd), S, bad_pixels, k1)
     radiant = radiant_at_epoch(cfg, base_meta.epoch_mid)
     candidates = classify(candidates, cfg, radiant)
     base_mid = base_meta.epoch_mid
@@ -745,9 +801,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                else {})
     if stage_fresh("base_sky"):
         notify(0.60, "building the clean starfield from every frame")
-        base_img, fg_stack = _stream_base(
+        base_img, fg_stack, coverage = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
-            corridor_segments, weights, cache, bad_pixels, notify)
+            corridor_segments, weights, cache, bad_pixels, notify, k1)
         import tifffile
         tifffile.imwrite(cache.path("base.tif"),
                          np.clip(base_img, 0, 65535).astype(np.uint16),
@@ -756,11 +812,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             tifffile.imwrite(cache.path("fg_stack.tif"),
                              np.clip(fg_stack, 0, 65535).astype(np.uint16),
                              compression="zlib")
+        if coverage is not None:
+            np.save(cache.path("coverage.npy"), coverage)
         stage_done("base_sky")
     import tifffile
     base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
     fg_stack = (tifffile.imread(cache.path("fg_stack.tif")).astype(np.float32)
                 if cache.path("fg_stack.tif").exists() else None)
+    coverage = (np.load(cache.path("coverage.npy"))
+                if cache.path("coverage.npy").exists() else None)
     base_lum = raw_mod.luminance(base_img)
 
     # ---------------- extraction (full quality, meteor frames only) -----
@@ -776,9 +836,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
                                  half_size=cfg.half_size)
             if cfg.align_mode == "reproject_tan":
+                distort_full = (Poly3Distortion(k1, rgb.shape[:2]).distort
+                                if abs(k1) > 1e-9 else None)
                 arr, foot = reproject_frame(
                     rgb, scale_wcs(det_wcs[i], S), base_wcs, (h, w),
-                    quality=True)
+                    quality=True, distort=distort_full)
             else:
                 from meteorprep.astrometry.reproject_frames import rotate2d_frame
                 dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
@@ -831,13 +893,57 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- assembly ----------------
     notify(0.92, "assembling layers")
-    def _fit_output(arr):
-        if arr.shape[0] == h and arr.shape[1] == w:
-            return arr
-        import cv2 as _cv2
-        return _cv2.resize(arr, (w, h), interpolation=_cv2.INTER_CUBIC)
 
-    fg_layers = [Layer(name="FG_base_time", rgb=base_rgb_final,
+    # seam-removing crop: keep the region where most frames overlap — the
+    # sky rotates during the session, so the canvas rim is covered by only
+    # a few frames and shows visible level steps
+    h_full, w_full = h, w
+    crop = None
+    if (coverage is not None and cfg.crop_coverage_frac > 0
+            and coverage.max() >= 3):
+        need = max(int(np.ceil(cfg.crop_coverage_frac
+                               * float(coverage.max()))), 2)
+        good = coverage >= need
+        x0c, y0c, x1c, y1c = 0, 0, w, h
+        for _ in range(h + w):
+            edges = [(~good[y0c, x0c:x1c]).sum(),
+                     (~good[y1c - 1, x0c:x1c]).sum(),
+                     (~good[y0c:y1c, x0c]).sum(),
+                     (~good[y0c:y1c, x1c - 1]).sum()]
+            k_worst = int(np.argmax(edges))
+            if edges[k_worst] == 0:
+                break
+            if k_worst == 0:
+                y0c += 1
+            elif k_worst == 1:
+                y1c -= 1
+            elif k_worst == 2:
+                x0c += 1
+            else:
+                x1c -= 1
+            if (y1c - y0c) < h // 2 or (x1c - x0c) < w // 2:
+                break   # never crop away more than half the canvas
+        if (x0c, y0c, x1c, y1c) != (0, 0, w, h):
+            crop = (x0c, y0c, x1c, y1c)
+            log.info("cropping the canvas to the well-covered region: "
+                     "%dx%d -> %dx%d (removes stacking seams at the rim)",
+                     w, h, x1c - x0c, y1c - y0c)
+            base_img = base_img[y0c:y1c, x0c:x1c]
+            base_lum = base_lum[y0c:y1c, x0c:x1c]
+            sky_mask = sky_mask[y0c:y1c, x0c:x1c]
+            h, w = base_img.shape[:2]
+
+    def _fit_output(arr):
+        """Bring a camera-sized array onto the (possibly cropped) canvas."""
+        import cv2 as _cv2
+        if arr.shape[0] != h_full or arr.shape[1] != w_full:
+            arr = _cv2.resize(arr, (w_full, h_full),
+                              interpolation=_cv2.INTER_CUBIC)
+        if crop is not None:
+            arr = arr[crop[1]:crop[3], crop[0]:crop[2]]
+        return arr
+
+    fg_layers = [Layer(name="FG_base_time", rgb=_fit_output(base_rgb_final),
                        alpha=(1.0 - sky_mask), blend="normal", visible=True)]
     if fg_stack is not None:
         fg_stack = _fit_output(fg_stack)
@@ -859,21 +965,40 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     def to_layers(pairs, visible):
         out = []
         for k, (c, layer, i, si) in enumerate(pairs):
+            rgb_l, alpha_l, bbox_l = layer.rgb, layer.alpha, layer.bbox
+            if crop is not None and bbox_l is not None:
+                x0, y0, x1, y1 = bbox_l
+                nx0, ny0 = max(x0 - crop[0], 0), max(y0 - crop[1], 0)
+                nx1 = min(x1 - crop[0], w)
+                ny1 = min(y1 - crop[1], h)
+                if nx1 <= nx0 or ny1 <= ny0:
+                    continue          # fell entirely inside the cropped rim
+                sx0, sy0 = nx0 + crop[0] - x0, ny0 + crop[1] - y0
+                sx1, sy1 = sx0 + (nx1 - nx0), sy0 + (ny1 - ny0)
+                rgb_l = rgb_l[sy0:sy1, sx0:sx1]
+                alpha_l = (alpha_l[sy0:sy1, sx0:sx1]
+                           if alpha_l is not None else None)
+                bbox_l = (nx0, ny0, nx1, ny1)
             flag = candidate_flag(c)
             name = meteor_layer_name(
                 k + 1, c.frames[min(si, len(c.frames) - 1)],
                 frames[i].epoch_mid.astimezone(timezone.utc).isoformat(),
                 c.rotation_deg, c.confidence, flag)
-            out.append(Layer(name=name, rgb=layer.rgb, alpha=layer.alpha,
-                             bbox=layer.bbox, blend="lighten", visible=visible))
+            out.append(Layer(name=name, rgb=rgb_l, alpha=alpha_l,
+                             bbox=bbox_l, blend="lighten", visible=visible))
         return out
 
     extra_layers = []
     color_cal = None
     if base_wcs is not None:
         from meteorprep.calibrate import star_white_balance
+        canvas_wcs = base_wcs
+        if crop is not None:
+            canvas_wcs = base_wcs.deepcopy()
+            canvas_wcs.wcs.crpix = [base_wcs.wcs.crpix[0] - crop[0],
+                                    base_wcs.wcs.crpix[1] - crop[1]]
         try:
-            color_cal = star_white_balance(base_img, base_wcs, blind_catalog)
+            color_cal = star_white_balance(base_img, canvas_wcs, blind_catalog)
         except Exception as exc:
             log.warning("star colour calibration failed: %s", exc)
         if color_cal is not None:
@@ -949,7 +1074,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 # ----------------------------------------------------------------------
 
 def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
-                              shape_det, S, bad_pixels) -> None:
+                              shape_det, S, bad_pixels, k1=0.0) -> None:
     """Lazy colour measurement (§3.6): only candidate frames are re-decoded
     for RGB, against an aligned neighbour so stars cancel."""
     if base_det_wcs is None:
@@ -959,8 +1084,10 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
     def det_rgb(i):
         rgb = raw_mod.decode(frames[i].path, "detect", bad_pixels,
                              half_size=True)
+        distort = (Poly3Distortion(k1, rgb.shape[:2]).distort
+                   if abs(k1) > 1e-9 else None)
         arr, _ = reproject_frame(rgb, det_wcs[i], base_det_wcs, shape_det,
-                                 quality=False)
+                                 quality=False, distort=distort)
         return arr.astype(np.float32)
 
     cache: dict[int, np.ndarray] = {}
@@ -995,15 +1122,18 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
 
 def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  shape_out, S, corridor_segments, frame_weights, cache,
-                 bad_pixels, notify):
+                 bad_pixels, notify, k1=0.0):
     """Two-pass streaming sigma-clipped, noise-weighted stack at output
     resolution — the same rejection statistics as the leading stackers'
     kappa-sigma integration, with detected streaks additionally masked and
-    per-frame noise weights, holding at most one frame in memory.
+    per-frame noise weights, holding at most one frame in memory.  Pass 1
+    (the clip statistics) runs at half resolution; pass 2 does the only
+    full-resolution decode of each frame and also accumulates the
+    unaligned "frozen ground" mean at no extra decode cost.
 
-    Returns (base_rgb float32, foreground_rgb float32 | None): the
-    foreground (unaligned, "frozen ground") mean is accumulated inside
-    pass 1 at no extra decode cost.
+    Returns (base_rgb float32, foreground_rgb float32 | None,
+    coverage uint16): coverage counts contributing frames per pixel, for
+    the seam-removing crop.
     """
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
@@ -1019,7 +1149,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  if i in corridor_segments},
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
-                cfg.stack_sigma, want_fg)
+                cfg.stack_sigma, want_fg, k1)
 
     # each worker holds ~1 GB at full 20 MP resolution: keep laptops with
     # little memory on one worker, others on at most two
@@ -1058,52 +1188,64 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     if base_wcs is None:
         return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
                                shape_out, bad_pixels),
-                None)
+                None, None)
 
-    # -------- pass 1: per-pixel moments (+ folded-in foreground sum) -----
+    # -------- pass 1: per-pixel moments at half resolution ---------------
+    import cv2 as _cv2
+
     from meteorprep.stack.streaming import RunningMoments
     want_fg = bool(cfg.emit_foreground_stack)
+    hs, ws = h // 2, w // 2
     parts = run_pass("moments", 0.60, 0.70,
-                     "measuring the sky (pass 1 of 2)", want_fg)
-    total = RunningMoments((h, w, 3))
-    fg_sum = None          # camera-sized (unaligned), not the output grid
-    fg_n = 0
+                     "measuring the sky (pass 1 of 2)")
+    total = RunningMoments((hs, ws, 3))
     all_bgs = []
     for p in parts:
         all_bgs.extend(p.get("bg", {}).values())
-        part = RunningMoments((h, w, 3))
+        part = RunningMoments((hs, ws, 3))
         part.count = np.load(p["count"])
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
+    # clip statistics upsampled to the output grid for pass 2
+    mean_full = _cv2.resize(total.mean, (w, h),
+                            interpolation=_cv2.INTER_LINEAR)
+    bound_full = _cv2.resize(
+        (cfg.stack_sigma * total.std()).astype(np.float32), (w, h),
+        interpolation=_cv2.INTER_LINEAR)
+    np.save(tmp / "clip_mean.npy", mean_full.astype(np.float32))
+    np.save(tmp / "clip_bound.npy", bound_full.astype(np.float32))
+    del bound_full
+
+    # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
+    parts = run_pass("clipped", 0.70, 0.80,
+                     "building the clean starfield (pass 2 of 2)", want_fg)
+    total_sum = np.zeros((h, w, 3), np.float64)
+    total_w = np.zeros((h, w, 3), np.float64)
+    coverage = np.zeros((h, w), np.uint16)
+    fg_sum = None          # camera-sized (unaligned), not the output grid
+    fg_n = 0
+    for p in parts:
+        all_bgs.extend(p.get("bg", {}).values())
+        total_sum += np.load(p["csum"])
+        total_w += np.load(p["cwsum"])
+        coverage += np.load(p["fcount"])
         if want_fg and "fg" in p:
             part_fg = np.load(p["fg"])
             fg_sum = part_fg if fg_sum is None else fg_sum + part_fg
             fg_n += p["fg_n"]
-    np.save(tmp / "clip_mean.npy", total.mean)
-    np.save(tmp / "clip_bound.npy",
-            (cfg.stack_sigma * total.std()).astype(np.float32))
     fg = (fg_sum / max(fg_n, 1)) if want_fg and fg_n else None
     del fg_sum
-
-    # -------- pass 2: sigma-clipped, frame-weighted mean -----------------
-    parts = run_pass("clipped", 0.70, 0.80,
-                     "building the clean starfield (pass 2 of 2)")
-    total_sum = np.zeros((h, w, 3), np.float64)
-    total_w = np.zeros((h, w, 3), np.float64)
-    for p in parts:
-        total_sum += np.load(p["csum"])
-        total_w += np.load(p["cwsum"])
     # pixels where clipping rejected everything fall back to the plain mean
     base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
-                    total.mean)
+                    mean_full)
     # frames were normalised to zero background: restore the mean sky level
     if all_bgs:
         base = base + np.mean(np.asarray(all_bgs, np.float32),
                               axis=0)[None, None, :]
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
-    return base.astype(np.float32), fg
+    return base.astype(np.float32), fg, coverage
 
 
 def _rotate2d_mean(cfg, frames, ok_idx, corridor_segments, shape_out,

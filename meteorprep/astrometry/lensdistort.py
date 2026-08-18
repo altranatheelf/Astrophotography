@@ -38,6 +38,37 @@ def lookup_lensfun_k1(lens_model: str, focal_mm: float) -> float | None:
     return None
 
 
+def estimate_k1(star_xy: np.ndarray, world_radec: np.ndarray,
+                crval, shape_hw: tuple[int, int]) -> tuple[float, float, float]:
+    """Self-calibrate the poly3 barrel term from matched stars: pick the k1
+    whose undistortion lets a pure TAN fit the matches best.  Returns
+    (k1, rms_before_px, rms_after_px).  No lens database needed — the sky
+    itself is the calibration target."""
+    from meteorprep.astrometry.solve import fit_tan_wcs
+
+    def rms_for(k1: float) -> float:
+        pts = (Poly3Distortion(k1, shape_hw).undistort(star_xy)
+               if abs(k1) > 1e-9 else star_xy)
+        wcs = fit_tan_wcs(pts, world_radec, crval)
+        if wcs is None:
+            return float("inf")
+        pred = np.column_stack(wcs.world_to_pixel_values(world_radec[:, 0],
+                                                         world_radec[:, 1]))
+        ok = np.isfinite(pred).all(axis=1)
+        if ok.sum() < 8:
+            return float("inf")
+        return float(np.sqrt(np.mean((pred[ok] - pts[ok]) ** 2)))
+
+    grid = np.linspace(-0.20, 0.10, 31)
+    r = np.array([rms_for(k) for k in grid])
+    i = int(np.argmin(r))
+    # parabolic refinement around the grid minimum
+    fine = np.linspace(grid[max(i - 1, 0)], grid[min(i + 1, len(grid) - 1)], 21)
+    rf = np.array([rms_for(k) for k in fine])
+    j = int(np.argmin(rf))
+    return float(fine[j]), float(rms_for(0.0)), float(rf[j])
+
+
 class Poly3Distortion:
     """r_distorted = r_undistorted * (1 + k1 * r_undistorted^2), r in units
     of the half-diagonal.  k1 < 0 is barrel."""

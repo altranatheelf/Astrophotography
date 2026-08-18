@@ -67,8 +67,13 @@ def decode(path: Path, mode: str = "detect",
         with rawpy.imread(str(path)) as raw:
             if bad_pixels is not None and len(bad_pixels):
                 try:
+                    import contextlib
+                    import io as _io
+
                     from rawpy import enhance
-                    enhance.repair_bad_pixels(raw, bad_pixels, method="median")
+                    with contextlib.redirect_stdout(_io.StringIO()):
+                        enhance.repair_bad_pixels(raw, bad_pixels,
+                                                  method="median")
                 except Exception as exc:
                     log.warning("bad-pixel repair failed for %s: %s", path.name, exc)
             import rawpy as _rp
@@ -100,15 +105,19 @@ def find_bad_pixels(paths: list[Path]) -> np.ndarray | None:
     except Exception as exc:
         log.warning("find_bad_pixels failed: %s", exc)
         return None
-    # real sensors have hundreds-to-thousands of hot pixels; a huge count
-    # means the scan mistook the (barely moving) stars for defects, and
-    # median-repairing those would erase the very stars we align on
-    if bad is not None and len(bad) > 30000:
-        log.warning("hot-pixel scan flagged %d pixels — far too many to be "
-                    "real, so the map is distrusted and skipped (this is "
-                    "harmless: the stacker rejects hot pixels anyway)",
+    # long-exposure high-ISO sensors genuinely carry 100k+ warm pixels
+    # (confirmed against real frames: the flagged pixels are static across
+    # frames while every star drifts).  Only a truly pathological count —
+    # several percent of the sensor — marks a broken scan.
+    if bad is not None and len(bad) > 500000:
+        log.warning("hot-pixel scan flagged %d pixels — several percent of "
+                    "the sensor, so the map is distrusted and skipped",
                     len(bad))
         return None
+    if bad is not None and len(bad) > 20000:
+        log.info("hot-pixel map: %d warm pixels will be repaired in every "
+                 "decode (normal for long exposures on older sensors)",
+                 len(bad))
     return bad
 
 

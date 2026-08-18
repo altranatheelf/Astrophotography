@@ -12,13 +12,34 @@ from __future__ import annotations
 import numpy as np
 
 
+def _plain_tan(wcs) -> bool:
+    try:
+        return (list(wcs.wcs.ctype) == ["RA---TAN", "DEC--TAN"]
+                and wcs.sip is None)
+    except AttributeError:
+        return False
+
+
 def reproject_frame(data: np.ndarray, src_wcs, dst_wcs,
-                    shape_out: tuple[int, int], quality: bool = False):
+                    shape_out: tuple[int, int], quality: bool = False,
+                    distort=None):
     """Reproject (H, W) or (H, W, C) data from src_wcs onto dst_wcs.
 
     Returns (array, footprint); pixels with no source coverage have
     footprint 0 and value 0, and are excluded from stacking statistics.
+
+    Plain TAN pairs (the pipeline's normal case) go through the exact
+    closed-form pixel map + cv2.remap — several times faster than the
+    ``reproject`` package and able to fold the lens's radial distortion
+    (``distort``: ideal->observed coords, Poly3Distortion.distort) into
+    the same single resample.
     """
+    if _plain_tan(src_wcs) and _plain_tan(dst_wcs):
+        from meteorprep.astrometry.tanmap import remap_frame, tan_to_tan_maps
+        mapx, mapy = tan_to_tan_maps(src_wcs, dst_wcs, shape_out,
+                                     distort=distort)
+        return remap_frame(data, mapx, mapy, quality=quality)
+
     from reproject import reproject_adaptive, reproject_interp
 
     def _one(chan):
