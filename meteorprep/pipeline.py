@@ -252,14 +252,34 @@ def _stack_pass(args) -> dict:
         return _np.percentile(sub[oksub], 20, axis=0).astype(_np.float32)
 
     stats_extra_half = (mode == "moments" and not half_size)
-    for i, path, wstr in zip(indices, paths, wcs_strs):
-        try:
-            rgb = _raw.decode(Path(path), "final", bad_pixels,
-                              half_size=(half_size or mode == "moments"))
-        except Exception as exc:
-            log.warning("skipping unreadable frame %s in the stack: %s",
-                        Path(path).name, exc)
-            continue
+
+    # prefetch: LibRaw decoding releases the GIL, so a producer thread
+    # develops frame N+1 while the main thread aligns/accumulates frame N
+    # — the stage's wall time drops to max(decode, math) instead of their
+    # sum.  Queue depth 1 caps extra memory at one frame.
+    from queue import Queue
+    from threading import Thread
+    _q: Queue = Queue(maxsize=1)
+
+    def _producer():
+        for i_, path_, wstr_ in zip(indices, paths, wcs_strs):
+            try:
+                rgb_ = _raw.decode(Path(path_), "final", bad_pixels,
+                                   half_size=(half_size
+                                              or mode == "moments"))
+            except Exception as exc_:
+                log.warning("skipping unreadable frame %s in the stack: %s",
+                            Path(path_).name, exc_)
+                continue
+            _q.put((i_, wstr_, rgb_))
+        _q.put(None)
+
+    Thread(target=_producer, daemon=True).start()
+    while True:
+        item = _q.get()
+        if item is None:
+            break
+        i, wstr, rgb = item
         if mode != "moments" and want_fg:
             if fg_sum is None:
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
