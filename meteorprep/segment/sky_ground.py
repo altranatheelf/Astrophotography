@@ -152,8 +152,11 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
     # windows are independent; numpy/cv2 release the GIL for the heavy
     # ops, so a small thread pool parallelizes them without pickling the
     # memory-mapped loaders
+    import os
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=min(3, len(windows))) as tp:
+    with ThreadPoolExecutor(
+            max_workers=max(min(len(windows), (os.cpu_count() or 4) - 1,
+                                5), 1)) as tp:
         for ev_w in tp.map(_window_evidence, windows):
             evidence |= ev_w
     # drop pointlike star-registration jitter, keep blobby ground churn

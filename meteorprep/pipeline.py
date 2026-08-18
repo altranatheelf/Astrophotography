@@ -1622,12 +1622,18 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
     ram = _available_ram_gb()
     n_workers = (1 if ram < 7.5 else
-                 2 if ram < 14 else max(min(cfg.jobs, 3), 1))
+                 2 if ram < 14 else max(min(cfg.jobs, 4), 1))
 
     def run_pass(mode, frac0, frac1, label, want_fg=False,
-                 want_trail=False, indices=None):
+                 want_trail=False, indices=None, on_result=None,
+                 on_reset=None):
+        """on_result(part) merges each worker's result AS IT LANDS, so the
+        parent's ~GB of part loading/adding overlaps the slowest worker
+        instead of running serially after every worker is done.  If the
+        pool dies mid-merge, on_reset() zeroes the accumulators and the
+        pass reruns on one core (the proven fallback)."""
         idx = ok_idx if indices is None else list(indices)
-        results = []
+        merged = 0
         if base_wcs is not None and n_workers > 1 and len(idx) >= n_workers:
             chunk_size = max(len(idx) // (n_workers * 4), 4)
             chunks = [idx[k:k + chunk_size]
@@ -1646,17 +1652,21 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                     done = 0
                     for fut in as_completed(
                             futures, timeout=600 + 300 * len(idx)):
-                        results.append(fut.result())
+                        on_result(fut.result())
+                        merged += 1
                         done += 1
                         notify(frac0 + (frac1 - frac0) * done / len(chunks),
                                f"{label} ({done}/{len(chunks)} parts)")
             except Exception as exc:
                 log.warning("parallel stacking failed (%s); one core", exc)
-                results = []
-        if not results:
-            results = [_stack_pass(
-                frame_args(mode, idx, 0, want_fg, want_trail))]
-        return results
+                if merged:
+                    if on_reset is None:
+                        raise
+                    on_reset()
+                merged = 0
+        if not merged:
+            on_result(_stack_pass(
+                frame_args(mode, idx, 0, want_fg, want_trail)))
 
     if base_wcs is None:
         return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
@@ -1670,12 +1680,11 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     want_fg = bool(cfg.emit_foreground_stack)
     hs, ws = h // 2, w // 2
     stat_idx = (ok_idx if len(ok_idx) < _STAT_SUBSET_MIN else ok_idx[::2])
-    parts = run_pass("moments", 0.60, 0.70,
-                     "measuring the sky (pass 1 of 2)", indices=stat_idx)
     total = RunningMoments((hs, ws, 3))
     all_coef = {}
     all_bgs = {}
-    for p in parts:
+
+    def _merge_moments(p):
         all_bgs.update(p.get("bg", {}))
         all_coef.update(p.get("coef", {}))
         part = RunningMoments((hs, ws, 3))
@@ -1683,6 +1692,16 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
+
+    def _reset_moments():
+        nonlocal total
+        total = RunningMoments((hs, ws, 3))
+        all_coef.clear()
+        all_bgs.clear()
+
+    run_pass("moments", 0.60, 0.70, "measuring the sky (pass 1 of 2)",
+             indices=stat_idx, on_result=_merge_moments,
+             on_reset=_reset_moments)
     all_coef = _fill_norm_coef(all_coef, ok_idx)
     import json as _json
     (tmp / "norm_coef.json").write_text(_json.dumps(
@@ -1697,29 +1716,40 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
     want_trail = bool(cfg.emit_startrail)
-    parts = run_pass("clipped", 0.70, 0.80,
-                     "building the clean starfield (pass 2 of 2)", want_fg,
-                     want_trail)
     total_sum = np.zeros((h, w, 3), np.float64)
     total_w = np.zeros((h, w, 3), np.float64)
     coverage = np.zeros((h, w), np.uint16)
-    fg_sum = None          # camera-sized (unaligned), not the output grid
-    fg_n = 0
-    trail = None           # camera-space lighten-max, rides along free
-    for p in parts:
+    p2 = {"fg_sum": None, "fg_n": 0, "trail": None}
+
+    def _merge_clipped(p):
         all_bgs.update(p.get("bg", {}))
-        total_sum += np.load(p["csum"])
-        total_w += np.load(p["cwsum"])
-        coverage += np.load(p["fcount"])
+        # in-place adds (+= would rebind the closed-over names)
+        np.add(total_sum, np.load(p["csum"]), out=total_sum)
+        np.add(total_w, np.load(p["cwsum"]), out=total_w)
+        np.add(coverage, np.load(p["fcount"]), out=coverage)
         if want_fg and "fg" in p:
             part_fg = np.load(p["fg"])
-            fg_sum = part_fg if fg_sum is None else fg_sum + part_fg
-            fg_n += p["fg_n"]
+            p2["fg_sum"] = (part_fg if p2["fg_sum"] is None
+                            else p2["fg_sum"] + part_fg)
+            p2["fg_n"] += p["fg_n"]
         if want_trail and "trail" in p:
             part_t = np.load(p["trail"])
-            trail = part_t if trail is None else np.maximum(trail, part_t)
-    fg = (fg_sum / max(fg_n, 1)) if want_fg and fg_n else None
-    del fg_sum
+            p2["trail"] = (part_t if p2["trail"] is None
+                           else np.maximum(p2["trail"], part_t))
+
+    def _reset_clipped():
+        total_sum[:] = 0
+        total_w[:] = 0
+        coverage[:] = 0
+        p2.update(fg_sum=None, fg_n=0, trail=None)
+
+    run_pass("clipped", 0.70, 0.80,
+             "building the clean starfield (pass 2 of 2)", want_fg,
+             want_trail, on_result=_merge_clipped, on_reset=_reset_clipped)
+    fg = ((p2["fg_sum"] / max(p2["fg_n"], 1))
+          if want_fg and p2["fg_n"] else None)
+    trail = p2["trail"]
+    p2["fg_sum"] = None
     # pixels where clipping rejected everything fall back to the plain mean
     base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
                     mean_full)

@@ -89,52 +89,66 @@ def write_psd_native(stack, path: Path) -> Path:
         raise ValueError("canvas exceeds PSD limits (PSB not implemented)")
     specs = _flatten_specs(stack)
 
-    records, channel_blobs = [], []
-    for sp in specs:
-        if sp.lsct is not None:                       # group marker layer
-            top = left = bottom = right = 0
-            empty = struct.pack(">H", 2) + _zip16(np.zeros((0, 0), np.uint16))
-            chans = [(cid, empty) for cid in (0, 1, 2)]
-            blend_key = b"norm"
-            extra = _unicode_name(sp.name) + _lsct(sp.lsct, sp.group_blend)
-        else:
-            rgb = np.clip(np.asarray(sp.rgb, np.float32), 0, 65535)
-            if sp.bbox is not None:
-                left, top = int(sp.bbox[0]), int(sp.bbox[1])
-                right, bottom = int(sp.bbox[2]), int(sp.bbox[3])
-            else:
-                left = top = 0
-                bottom, right = rgb.shape[0], rgb.shape[1]
-            jobs = []
-            if sp.alpha is not None:
-                a16 = np.clip(np.asarray(sp.alpha, np.float32) * 65535.0,
-                              0, 65535).astype(np.uint16)
-                jobs.append((-1, a16))
-            for cid in (0, 1, 2):
-                jobs.append((cid, rgb[:, :, cid].astype(np.uint16)))
-            # channels compress independently and zlib releases the GIL
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=len(jobs)) as tp:
-                blobs = list(tp.map(lambda jb: _zip16(jb[1]), jobs))
-            chans = [(cid, struct.pack(">H", 2) + blob)
-                     for (cid, _), blob in zip(jobs, blobs)]
-            blend_key = _BLEND_KEYS.get(sp.blend, b"norm")
-            extra = _unicode_name(sp.name)
+    # compress every channel of every layer in ONE pool: zlib releases the
+    # GIL and the conversion to big-endian u16 happens inside each task, so
+    # nothing full-size is duplicated up front and all cores stay busy for
+    # the whole write instead of per-layer bursts
+    import os
+    from concurrent.futures import ThreadPoolExecutor
 
-        rec = struct.pack(">iiii", top, left, bottom, right)
-        rec += struct.pack(">H", len(chans))
-        for cid, blob in chans:
-            rec += struct.pack(">hI", cid, len(blob))
-        rec += b"8BIM" + blend_key
-        flags = 0 if sp.visible else 2                # bit 1 set = hidden
-        rec += struct.pack(">BBBB", 255, 0, flags, 0)  # opacity, clip, flags
-        name_p = _pascal(sp.name)
-        extra_block = struct.pack(">I", 0)            # no layer mask
-        extra_block += struct.pack(">I", 0)           # no blending ranges
-        extra_block += name_p + extra
-        rec += struct.pack(">I", len(extra_block)) + extra_block
-        records.append(rec)
-        channel_blobs.append(b"".join(blob for _, blob in chans))
+    def _chan_task(sp, cid):
+        if cid == -1:
+            plane = np.clip(np.asarray(sp.alpha, np.float32) * 65535.0,
+                            0, 65535)
+        else:
+            plane = np.clip(sp.rgb[:, :, cid], 0, 65535)
+        return _zip16(plane)
+
+    futs = {}
+    with ThreadPoolExecutor(
+            max_workers=min(8, os.cpu_count() or 4)) as tp:
+        for si, sp in enumerate(specs):
+            if sp.lsct is not None:
+                continue
+            cids = ([-1] if sp.alpha is not None else []) + [0, 1, 2]
+            futs[si] = [(cid, tp.submit(_chan_task, sp, cid))
+                        for cid in cids]
+        records, channel_blobs = [], []
+        for si, sp in enumerate(specs):
+            if sp.lsct is not None:                   # group marker layer
+                top = left = bottom = right = 0
+                empty = struct.pack(">H", 2) + _zip16(
+                    np.zeros((0, 0), np.uint16))
+                chans = [(cid, empty) for cid in (0, 1, 2)]
+                blend_key = b"norm"
+                extra = _unicode_name(sp.name) + _lsct(sp.lsct,
+                                                       sp.group_blend)
+            else:
+                if sp.bbox is not None:
+                    left, top = int(sp.bbox[0]), int(sp.bbox[1])
+                    right, bottom = int(sp.bbox[2]), int(sp.bbox[3])
+                else:
+                    left = top = 0
+                    bottom, right = sp.rgb.shape[0], sp.rgb.shape[1]
+                chans = [(cid, struct.pack(">H", 2) + fut.result())
+                         for cid, fut in futs[si]]
+                blend_key = _BLEND_KEYS.get(sp.blend, b"norm")
+                extra = _unicode_name(sp.name)
+
+            rec = struct.pack(">iiii", top, left, bottom, right)
+            rec += struct.pack(">H", len(chans))
+            for cid, blob in chans:
+                rec += struct.pack(">hI", cid, len(blob))
+            rec += b"8BIM" + blend_key
+            flags = 0 if sp.visible else 2            # bit 1 set = hidden
+            rec += struct.pack(">BBBB", 255, 0, flags, 0)
+            name_p = _pascal(sp.name)
+            extra_block = struct.pack(">I", 0)        # no layer mask
+            extra_block += struct.pack(">I", 0)       # no blending ranges
+            extra_block += name_p + extra
+            rec += struct.pack(">I", len(extra_block)) + extra_block
+            records.append(rec)
+            channel_blobs.append(b"".join(blob for _, blob in chans))
 
     layer_info = struct.pack(">h", len(specs))
     layer_info += b"".join(records) + b"".join(channel_blobs)

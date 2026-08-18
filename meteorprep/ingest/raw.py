@@ -93,6 +93,49 @@ def decode(path: Path, mode: str = "detect",
     raise ValueError(f"unsupported frame type: {path}")
 
 
+def _bad_pixel_candidates_one(path: str):
+    """Per-frame hot/dead candidates — the exact per-image math of
+    rawpy.enhance.find_bad_pixels, split out so frames run in parallel
+    (LibRaw loading and cv2 median filtering both release the GIL)."""
+    from functools import partial
+
+    import rawpy
+    from rawpy import enhance as _e
+    raw = rawpy.imread(path)
+    try:
+        if raw.raw_type != rawpy.RawType.Flat:
+            raise NotImplementedError("only Bayer-type images supported")
+        width = raw.sizes.width
+        thresh = max(int(np.max(raw.raw_image_visible)) // 150, 20)
+        fn = partial(_e._is_candidate, find_hot=True, find_dead=True,
+                     thresh=thresh)
+        coords = _e._find_bad_pixel_candidates(raw, fn)
+        return np.vstack(coords), width
+    finally:
+        raw.close()
+
+
+def _find_bad_pixels_parallel(raw_paths: list[str]) -> np.ndarray:
+    """rawpy.enhance.find_bad_pixels, frames processed 4-wide: identical
+    candidate detection and cross-image confirmation (confirm_ratio 0.9),
+    ~4x faster on the first run of a session."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rawpy.enhance import _groupcount
+    with ThreadPoolExecutor(max_workers=min(4, len(raw_paths))) as tp:
+        results = list(tp.map(_bad_pixel_candidates_one, raw_paths))
+    coords_array = np.vstack([r[0] for r in results])
+    width = results[0][1]
+    if len(raw_paths) == 1:
+        return coords_array
+    offset = coords_array[:, 0].astype(np.int64) * width
+    offset += coords_array[:, 1]
+    counts = _groupcount(offset)
+    is_bad = counts[:, 1] >= 0.9 * len(raw_paths)
+    bad_offsets = counts[is_bad, 0]
+    return np.transpose([bad_offsets // width, bad_offsets % width])
+
+
 def find_bad_pixels(paths: list[Path]) -> np.ndarray | None:
     """Hot/dead pixel map across the group (prevents hot pixels being
     flagged as cosmic-ray streaks or corrupting solver source lists)."""
@@ -100,11 +143,15 @@ def find_bad_pixels(paths: list[Path]) -> np.ndarray | None:
     if len(raw_paths) < 3:
         return None
     try:
-        from rawpy import enhance
-        bad = enhance.find_bad_pixels(raw_paths[:10])
+        bad = _find_bad_pixels_parallel(raw_paths[:10])
     except Exception as exc:
-        log.warning("find_bad_pixels failed: %s", exc)
-        return None
+        log.info("parallel hot-pixel scan unavailable (%s); serial", exc)
+        try:
+            from rawpy import enhance
+            bad = enhance.find_bad_pixels(raw_paths[:10])
+        except Exception as exc2:
+            log.warning("find_bad_pixels failed: %s", exc2)
+            return None
     # long-exposure high-ISO sensors genuinely carry 100k+ warm pixels
     # (confirmed against real frames: the flagged pixels are static across
     # frames while every star drifts).  Only a truly pathological count —

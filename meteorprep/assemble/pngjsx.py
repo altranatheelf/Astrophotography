@@ -15,6 +15,12 @@ from PIL import Image
 
 from meteorprep.assemble.layers import Layer, LayerStack
 
+# 16-bit -> gamma-encoded 8-bit lookup: replaces a 60M-element np.power
+# per layer (~8x faster, differs by at most 1 of 255 levels)
+_GAMMA_LUT = np.clip(
+    (np.arange(65536, dtype=np.float64) / 65535.0) ** (1 / 2.2) * 255.0
+    + 0.5, 0, 255).astype(np.uint8)
+
 
 def _write_png(layer: Layer, path: Path, width: int, height: int) -> tuple:
     """Write the layer PNG; bbox layers stay bbox-sized (the JSX moves them
@@ -30,7 +36,7 @@ def _write_png(layer: Layer, path: Path, width: int, height: int) -> tuple:
         alpha = np.ones(rgb.shape[:2], np.float32)
     # 8-bit PNG for JSX interchange (16-bit fidelity lives in the PSD path);
     # linear -> sRGB-ish gamma for a sane Photoshop starting point
-    rgb8 = np.clip((np.clip(rgb, 0, 65535) / 65535.0) ** (1 / 2.2) * 255, 0, 255).astype(np.uint8)
+    rgb8 = _GAMMA_LUT[np.clip(rgb, 0, 65535).astype(np.uint16)]
     a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
     # compress_level 2: ~3x faster writes than the default 6, ~10% larger
     # files — the assembly stage was spending minutes in zlib
