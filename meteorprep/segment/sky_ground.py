@@ -89,38 +89,52 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
         return None
     probe = np.asarray(lum_loader(idx[0]))
     h, w = probe.shape
-    # chunked over rows so 226 frames never sit in memory at once
-    med = np.empty((h, w), np.float32)
     count = np.zeros((h, w), np.float32)
-    chunk = max(int(2e8 / (len(idx) * w * 4)), 32)
-    for y0 in range(0, h, chunk):
-        y1 = min(y0 + chunk, h)
-        block = np.stack([np.asarray(lum_loader(i)[y0:y1]).astype(np.float32)
-                          for i in idx])
-        med[y0:y1] = np.median(block, axis=0)
-        del block
     for i in idx:
         count += (np.asarray(foot_loader(i)) > 0)
     used = count >= max(3.0, 0.6 * float(count.max()))
-    # deviation threshold: noise floor + a slice of the local gradient —
-    # sub-pixel registration jitter deviates in proportion to the local
-    # slope (star edges), while dragged ground deviates by full contrast
-    # against a smeared (low-gradient) median
-    gx = cv2.Sobel(med, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(med, cv2.CV_32F, 0, 1, ksize=3)
-    grad = np.hypot(gx, gy) * 0.25          # Sobel gain ~4 at ksize 3
-    dev = np.zeros((h, w), np.float32)
-    resid_scale = None
-    for i in idx:
-        a = np.asarray(lum_loader(i)).astype(np.float32)
-        f = (np.asarray(foot_loader(i)) > 0)
-        r = np.abs(a - med)
-        if resid_scale is None:
-            samp = r[used & f][:: max((used & f).sum() // 100000, 1)]
-            resid_scale = 1.4826 * float(np.median(samp)) + 1e-3
-        dev += ((r > 5.0 * resid_scale + 0.8 * grad) & f).astype(np.float32)
-    freq = dev / np.maximum(count, 1.0)
-    evidence = ((freq > 0.28) & used).astype(np.uint8)
+
+    # short TIME WINDOWS, then the union: over a whole night the aligned
+    # ground sweeps a wide arc, so any single spot is "tree" in only a
+    # small fraction of all frames — but within a dozen consecutive
+    # frames the ground barely moves and deviates from the window median
+    # in most of them.  (Tuned on a real 2-hour session that produced
+    # hundreds of leaf "aircraft" with a whole-night mask.)
+    WIN = 12
+    windows = [idx[k:k + WIN] for k in range(0, len(idx), WIN)]
+    if len(windows) > 1 and len(windows[-1]) < 6:
+        windows[-2].extend(windows.pop())
+    evidence = np.zeros((h, w), np.uint8)
+    chunk = max(int(2e8 / (WIN * w * 4)), 32)
+    for widx in windows:
+        med = np.empty((h, w), np.float32)
+        for y0 in range(0, h, chunk):
+            y1 = min(y0 + chunk, h)
+            block = np.stack([np.asarray(lum_loader(i)[y0:y1])
+                              .astype(np.float32) for i in widx])
+            med[y0:y1] = np.median(block, axis=0)
+            del block
+        # deviation threshold: noise floor + a slice of the local
+        # gradient — sub-pixel registration jitter deviates in proportion
+        # to the local slope (star edges), while dragged ground deviates
+        # by full contrast against a smeared (low-gradient) median
+        gx = cv2.Sobel(med, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(med, cv2.CV_32F, 0, 1, ksize=3)
+        grad = np.hypot(gx, gy) * 0.25      # Sobel gain ~4 at ksize 3
+        dev = np.zeros((h, w), np.float32)
+        cnt_w = np.zeros((h, w), np.float32)
+        resid_scale = None
+        for i in widx:
+            a = np.asarray(lum_loader(i)).astype(np.float32)
+            f = (np.asarray(foot_loader(i)) > 0)
+            r = np.abs(a - med)
+            if resid_scale is None:
+                samp = r[used & f][:: max((used & f).sum() // 100000, 1)]
+                resid_scale = 1.4826 * float(np.median(samp)) + 1e-3
+            dev += ((r > 5.0 * resid_scale + 0.8 * grad) & f).astype(np.float32)
+            cnt_w += f
+        freq = dev / np.maximum(cnt_w, 1.0)
+        evidence |= ((freq > 0.28) & used & (cnt_w >= 4)).astype(np.uint8)
     # drop pointlike star-registration jitter, keep blobby ground churn
     evidence = cv2.morphologyEx(evidence, cv2.MORPH_OPEN,
                                 np.ones((3, 3), np.uint8))

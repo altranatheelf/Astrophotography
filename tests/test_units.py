@@ -188,3 +188,34 @@ def test_pixel_pitch_from_exif():
     # implausible (would mean a 100um pitch): distrusted
     assert _pixel_pitch_um({"FocalPlaneXResolution": 254.0,
                             "FocalPlaneResolutionUnit": 2}) == 0.0
+
+
+def test_ground_mask_covers_long_session_sweep():
+    """Over a multi-hour session the aligned ground sweeps a wide arc; a
+    whole-night deviation-frequency mask misses it (each spot is 'tree' in
+    too few frames) — a real night produced hundreds of leaf 'aircraft'.
+    The windowed union must cover the full swept band without eating sky,
+    and must not mask the transient meteor."""
+    import cv2  # noqa: F401  (dependency of the segmenter)
+    from meteorprep.segment.sky_ground import ground_from_alignment
+    rng = np.random.default_rng(7)
+    H, W, N = 400, 600, 60
+    frames, foots = [], []
+    for t in range(N):
+        a = rng.normal(500, 25, (H, W)).astype(np.float32)
+        x_off = 4 * t
+        yy, xx = np.mgrid[0:H, 0:W]
+        tree = (yy > 300 + 12 * np.sin((xx - x_off) / 25.0)) & (yy < 400)
+        a[tree] *= 0.2
+        rim = tree & (yy < 305 + 12 * np.sin((xx - x_off) / 25.0) + 8)
+        a[rim] += rng.normal(900, 300, (H, W))[rim].clip(0)
+        if t == 30:
+            for k in range(120):
+                a[60 + k // 3, 200 + k] += 6000
+        frames.append(np.clip(a, 0, 65535).astype(np.uint16))
+        foots.append(np.ones((H, W), np.uint8))
+    m = ground_from_alignment(lambda i: frames[i], lambda i: foots[i], N)
+    assert m is not None
+    ground = m < 0.5
+    assert ground[315:, :].mean() > 0.9          # swept trees covered
+    assert ground[:250, :].mean() < 0.02         # sky (and meteor) kept
