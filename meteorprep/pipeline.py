@@ -1207,6 +1207,40 @@ def _absorb_track_fragments(candidates, file_to_idx) -> None:
             c.label = t.label
             c.confidence = min(c.confidence, t.confidence)
             break
+    # pair rule: a meteor lasts under ~2 s and cannot appear in two long
+    # exposures — two collinear single-frame "meteors" in adjacent frames
+    # whose connecting displacement lies along their own direction are one
+    # object in steady motion: a satellite (or aircraft) the tracker
+    # failed to link because only short bits of the trail were detected
+    singles = [c for c in candidates
+               if c.label == "meteor" and len(set(c.frames)) == 1]
+    for ai in range(len(singles)):
+        for bi in range(ai + 1, len(singles)):
+            ca, cb = singles[ai], singles[bi]
+            ia = file_to_idx.get(ca.frames[0])
+            ib = file_to_idx.get(cb.frames[0])
+            if ia is None or ib is None or abs(ia - ib) > 2:
+                continue
+            sa, sb = ca.streaks[0], cb.streaks[0]
+            mid_a = np.array([(sa.x0 + sa.x1) / 2.0, (sa.y0 + sa.y1) / 2.0])
+            mid_b = np.array([(sb.x0 + sb.x1) / 2.0, (sb.y0 + sb.y1) / 2.0])
+            hop = mid_b - mid_a
+            hop_n = np.linalg.norm(hop)
+            if hop_n < 20.0:
+                continue
+            hop = hop / hop_n
+            da = np.array([sa.x1 - sa.x0, sa.y1 - sa.y0], float)
+            da /= np.linalg.norm(da) + 1e-9
+            db = np.array([sb.x1 - sb.x0, sb.y1 - sb.y0], float)
+            db /= np.linalg.norm(db) + 1e-9
+            lim = np.cos(np.deg2rad(12.0))
+            if (abs(float(da @ db)) >= lim and abs(float(da @ hop)) >= lim
+                    and abs(float(db @ hop)) >= lim):
+                for c in (ca, cb):
+                    log.info("candidate %s reclassified: steady motion "
+                             "across frames — satellite, not meteor", c.id)
+                    c.label = "satellite"
+                    c.confidence = max(ca.confidence, cb.confidence)
 
 
 def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
