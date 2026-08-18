@@ -94,7 +94,20 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
     ``bin_factor`` maps endpoints back to full resolution.
     """
     scale = 256.0  # 8-bit-equivalent -> 16-bit ADU
-    thresh = cfg.diff_threshold * scale
+    # adaptive: the configured threshold is a CEILING, but on a clean sky
+    # the frame's own residual noise sets the floor — a satellite or faint
+    # meteor at 6-8 sigma is real even when it is far below the fixed
+    # threshold (observed: a real satellite trail at ~7 ADU-8bit missed by
+    # the fixed 8).  Ground junk that used to force a high threshold is
+    # excluded upstream by the alignment mask.
+    finite = diff[diff > 0]
+    if len(finite) > 1000:
+        med = float(np.median(finite))
+        mad = 1.4826 * float(np.median(np.abs(finite - med))) + 1e-3
+        thresh = min(cfg.diff_threshold * scale,
+                     max(med + 10.0 * mad, 3.0 * scale))
+    else:
+        thresh = cfg.diff_threshold * scale
     mask = (diff > thresh).astype(np.uint8)
 
     # component-level cleanup instead of a morphological open (an open
@@ -149,6 +162,7 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
     streaks: list[Streak] = []
     yy_all, xx_all = np.nonzero(mask)
     pts_all = np.column_stack([xx_all, yy_all]).astype(np.float32)
+    kept_support: list[np.ndarray] = []
     for seg in kept:
         x0, y0, x1, y1 = seg
         length = float(np.hypot(x1 - x0, y1 - y0))
@@ -162,6 +176,12 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
         sup = (along >= -3) & (along <= length + 3) & (across <= 3.0)
         area = int(sup.sum())
         if area < cfg.min_area:
+            continue
+        # two lines explained by the same pixels are one object: a shorter
+        # Hough line grazing a bright meteor head duplicates the meteor
+        sup_idx = np.nonzero(sup)[0]
+        if any(np.isin(sup_idx, prev, assume_unique=True).mean() > 0.35
+               for prev in kept_support):
             continue
         straightness = float(np.sqrt(np.mean(across[sup] ** 2)))
         aspect = float(length / max(2.0 * straightness, 1.0))
@@ -214,6 +234,7 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
             score=float(score), straightness_rms=straightness,
             dash_score=float(dash_score), color_rg=rg, color_bg=bg,
             head_tail_ratio=head_tail))
+        kept_support.append(sup_idx)
     return _merge_same_frame(streaks)
 
 

@@ -853,6 +853,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                               (hd, wd), S, bad_pixels, k1)
     radiant = radiant_at_epoch(cfg, base_meta.epoch_mid)
     candidates = classify(candidates, cfg, radiant)
+    _absorb_track_fragments(candidates,
+                            {m.file: i for i, m in enumerate(frames)})
     base_mid = base_meta.epoch_mid
     file_to_idx = {m.file: i for i, m in enumerate(frames)}
     for c in candidates:
@@ -1159,6 +1161,53 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 # ----------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------
+
+def _absorb_track_fragments(candidates, file_to_idx) -> None:
+    """A short detection that escaped track-linking shows up as a
+    single-frame "meteor" even though it is really a piece of a satellite
+    or aircraft pass.  Absorb any single-frame meteor that is collinear
+    with a multi-frame track and sits where that track's motion says it
+    should be at the fragment's frame time: it inherits the track's label
+    (so it lands in FLAGGED, not METEORS)."""
+    multi = [c for c in candidates
+             if c.label != "meteor" and len(set(c.frames)) >= 2]
+    if not multi:
+        return
+    for c in candidates:
+        if c.label != "meteor" or len(set(c.frames)) > 1:
+            continue
+        s = c.streaks[0]
+        fi = file_to_idx.get(c.frames[0])
+        mid = np.array([(s.x0 + s.x1) / 2.0, (s.y0 + s.y1) / 2.0])
+        d_c = np.array([s.x1 - s.x0, s.y1 - s.y0], float)
+        d_c /= np.linalg.norm(d_c) + 1e-9
+        for t in multi:
+            t_first, t_last = t.streaks[0], t.streaks[-1]
+            i0 = file_to_idx.get(t.frames[0])
+            i1 = file_to_idx.get(t.frames[-1])
+            a = np.array([t_first.x0, t_first.y0], float)
+            b = np.array([t_last.x1, t_last.y1], float)
+            d_t = b - a
+            span = np.linalg.norm(d_t)
+            if span < 1e-6 or None in (fi, i0, i1) or i1 == i0:
+                continue
+            d_t /= span
+            if abs(float(d_c @ d_t)) < np.cos(np.deg2rad(15.0)):
+                continue
+            perp = abs(float((mid - a) @ np.array([-d_t[1], d_t[0]])))
+            if perp > 60.0:
+                continue
+            # where the track's own motion puts it at the fragment's time
+            along = float((mid - a) @ d_t)
+            expect = span * (fi - i0) / float(i1 - i0)
+            if abs(along - expect) > max(1.0 * span, 150.0):
+                continue
+            log.info("candidate %s reclassified: fragment of a %s track",
+                     c.id, t.label)
+            c.label = t.label
+            c.confidence = min(c.confidence, t.confidence)
+            break
+
 
 def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
                               shape_det, S, bad_pixels, k1=0.0) -> None:

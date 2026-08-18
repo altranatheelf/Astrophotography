@@ -65,7 +65,7 @@ def _aperture_flux(img: np.ndarray, x: float, y: float,
 
 
 def star_white_balance(base_img: np.ndarray, wcs, catalog: np.ndarray,
-                       max_stars: int = 150, min_stars: int = 20):
+                       max_stars: int = 150, min_stars: int = 10):
     """Fit per-channel gains from matched stars' physical colours.
 
     ``catalog``: (N, >=4) ra, dec, mag, temp_K (brightest first).
