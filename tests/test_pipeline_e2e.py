@@ -186,3 +186,15 @@ def test_base_stack_contains_stars(pipeline_result, ground_truth, synth_config):
             quad_hits[qi] = int(np.percentile(q, 99.98) > sky_med + 10 * q.std())
         assert quad_hits.sum() >= 3, f"quadrants without stars: {quad_hits}"
         return
+
+
+def test_preview_and_report_emitted(pipeline_result):
+    """The effortless outputs: a ready-to-view preview.jpg and a
+    one-double-click report.html must exist and reference each other."""
+    from pathlib import Path
+    g = pipeline_result["groups"][0]
+    assert "preview" in g["outputs"], g["outputs"]
+    assert Path(g["outputs"]["preview"]).stat().st_size > 10000
+    assert "report" in g["outputs"]
+    text = Path(g["outputs"]["report"]).read_text()
+    assert "preview.jpg" in text and "meteor" in text

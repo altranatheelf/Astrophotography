@@ -1312,6 +1312,23 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                                 out_dir / "contact_sheet.png")
         if cs:
             outputs["contact_sheet"] = str(cs)
+
+    # ready-to-view preview + one-click report: nobody should need a
+    # Photoshop session just to SEE their night
+    notify(0.96, "rendering the preview")
+    from meteorprep.report.preview import render_preview
+    grad_arr = None
+    for lyr in extra_layers:
+        if lyr.blend == "subtract":
+            grad_arr = lyr.rgb
+    gains = (np.asarray(color_cal["gains"], np.float32)
+             if color_cal else None)
+    fg_for_preview = fg_stack if fg_stack is not None \
+        else _fit_output(base_rgb_final)
+    pv = render_preview(base_img, fg_for_preview, sky_mask, grad_arr,
+                        gains, meteor_layers, out_dir / "preview.jpg")
+    if pv:
+        outputs["preview"] = str(pv)
     if cfg.emit_startrail:
         trail = lighten_stack(
             lambda i: raw_mod.decode(frames[i].path, "final", bad_pixels,
@@ -1328,6 +1345,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         alignment_quality, solver_used, solve_files,
         color_calibration=color_cal)
     outputs["sidecar"] = str(sidecar)
+    from meteorprep.report.html import write_report_html
+    outputs["report"] = str(write_report_html(
+        out_dir,
+        {"candidates": [c.to_dict() for c in candidates],
+         "alignment_quality": alignment_quality},
+        have_preview="preview" in outputs,
+        have_contact="contact_sheet" in outputs,
+        have_psd="psd" in outputs))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
@@ -1510,7 +1535,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
     ram = _available_ram_gb()
     n_workers = (1 if ram < 7.5 else
-                 2 if ram < 20 else max(min(cfg.jobs, 3), 1))
+                 2 if ram < 14 else max(min(cfg.jobs, 3), 1))
 
     def run_pass(mode, frac0, frac1, label, want_fg=False):
         results = []

@@ -204,8 +204,30 @@ def main() -> int:
             total = sum(g["n_meteors"] for g in result["groups"])
             quality = ", ".join(g["alignment_quality"] for g in result["groups"])
             banner = "" if "degraded" not in quality else "  ⚠ ALIGNMENT DEGRADED"
-            self.status.setText(f"Done: {total} meteor(s).{banner}")
+            self.status.setText(
+                f"Done: {total} meteor(s).{banner}  Opening your results…")
             self.button.setEnabled(True)
+            # open the run report (falls back to the folder) so the result
+            # is one glance away, not a folder hunt
+            try:
+                import subprocess
+                target = None
+                for g in result["groups"]:
+                    target = g.get("outputs", {}).get("report") or target
+                if target is None and result["groups"]:
+                    from pathlib import Path as _P
+                    target = str(_P(next(iter(
+                        result["groups"][0]["outputs"].values()))).parent)
+                if target:
+                    if sys.platform == "darwin":
+                        subprocess.Popen(["open", target])
+                    elif sys.platform.startswith("linux"):
+                        subprocess.Popen(["xdg-open", target])
+                    else:
+                        import os
+                        os.startfile(target)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
         def _on_fail(self, tb):
             # show the human-readable message (last line) in the window —
