@@ -70,6 +70,98 @@ def segment_sky_classical(rgb: np.ndarray, feather_px: float = 3.0) -> np.ndarra
     return mask.astype(np.float32)
 
 
+def ground_from_alignment(lum_loader, foot_loader, n: int,
+                          exclude=frozenset()) -> np.ndarray | None:
+    """Sky mask from alignment physics — the cue no single photo has.
+
+    After sky-alignment, sky pixels agree frame to frame while the static
+    ground is dragged and flickering lights churn, so per-pixel deviation
+    *frequency* across the aligned frames separates them: ground deviates
+    in most frames, a passing meteor/plane in only one or two.  Brightness
+    plays no role, so a black tree line against a black sky — where the
+    classical Gaussian split fails — is found cleanly.
+
+    Returns float32 (H, W) alpha (1 = sky), or None when there is no
+    evidence of ground (all-sky frame or too few frames).
+    """
+    idx = [i for i in range(n) if i not in exclude]
+    if len(idx) < 5:
+        return None
+    probe = np.asarray(lum_loader(idx[0]))
+    h, w = probe.shape
+    # chunked over rows so 226 frames never sit in memory at once
+    med = np.empty((h, w), np.float32)
+    count = np.zeros((h, w), np.float32)
+    chunk = max(int(2e8 / (len(idx) * w * 4)), 32)
+    for y0 in range(0, h, chunk):
+        y1 = min(y0 + chunk, h)
+        block = np.stack([np.asarray(lum_loader(i)[y0:y1]).astype(np.float32)
+                          for i in idx])
+        med[y0:y1] = np.median(block, axis=0)
+        del block
+    for i in idx:
+        count += (np.asarray(foot_loader(i)) > 0)
+    used = count >= max(3.0, 0.6 * float(count.max()))
+    # deviation threshold: noise floor + a slice of the local gradient —
+    # sub-pixel registration jitter deviates in proportion to the local
+    # slope (star edges), while dragged ground deviates by full contrast
+    # against a smeared (low-gradient) median
+    gx = cv2.Sobel(med, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(med, cv2.CV_32F, 0, 1, ksize=3)
+    grad = np.hypot(gx, gy) * 0.25          # Sobel gain ~4 at ksize 3
+    dev = np.zeros((h, w), np.float32)
+    resid_scale = None
+    for i in idx:
+        a = np.asarray(lum_loader(i)).astype(np.float32)
+        f = (np.asarray(foot_loader(i)) > 0)
+        r = np.abs(a - med)
+        if resid_scale is None:
+            samp = r[used & f][:: max((used & f).sum() // 100000, 1)]
+            resid_scale = 1.4826 * float(np.median(samp)) + 1e-3
+        dev += ((r > 5.0 * resid_scale + 0.8 * grad) & f).astype(np.float32)
+    freq = dev / np.maximum(count, 1.0)
+    evidence = ((freq > 0.28) & used).astype(np.uint8)
+    # drop pointlike star-registration jitter, keep blobby ground churn
+    evidence = cv2.morphologyEx(evidence, cv2.MORPH_OPEN,
+                                np.ones((3, 3), np.uint8))
+    if evidence.mean() < 0.0005:
+        return None                     # no ground in frame
+    # per-column: ground extends from its first sustained evidence down;
+    # a running minimum across columns bridges the gaps between evidence
+    # columns along the same treeline
+    h, w = evidence.shape
+    # bridge dotty evidence (sparse lit patches in a tree crown) into
+    # vertical chains so the run detector can see them
+    evidence = cv2.morphologyEx(
+        evidence, cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (5, 25)))
+    run_need = max(h // 120, 6)
+    kernel = np.ones((run_need, 1), np.float32)
+    runs = cv2.filter2D(evidence.astype(np.float32), -1, kernel,
+                        anchor=(0, 0), borderType=cv2.BORDER_CONSTANT)
+    sustained = runs >= run_need - 0.5
+    first = np.where(sustained.any(axis=0), sustained.argmax(axis=0),
+                     h).astype(np.float32)
+    from scipy.ndimage import minimum_filter1d
+    first = minimum_filter1d(first, size=max(w // 40, 31))
+    ground = (np.arange(h)[:, None] >= first[None, :]).astype(np.uint8)
+    ground = np.maximum(ground, cv2.dilate(evidence,
+                                           np.ones((15, 15), np.uint8)))
+    # keep only plausible ground bodies: big, or sitting low in the frame
+    # (drops the isolated flicker of saturated star cores in open sky)
+    n_lab, labels, stats, cents = cv2.connectedComponentsWithStats(ground, 8)
+    keep = np.zeros(n_lab, bool)
+    for i in range(1, n_lab):
+        big = stats[i, cv2.CC_STAT_AREA] > 0.003 * h * w
+        low = cents[i][1] > 0.6 * h
+        keep[i] = big or low
+    ground = keep[labels].astype(np.float32)
+    if ground.mean() < 0.001:
+        return None
+    sky = 1.0 - np.clip(ground, 0, 1)
+    return cv2.GaussianBlur(sky.astype(np.float32), (0, 0), 3.0)
+
+
 def segment_sky(rgb: np.ndarray, ml_model=None, feather_px: float = 3.0) -> np.ndarray:
     """Dispatch: classical first; ``ml_model(rgb) -> (H, W) sky prob`` hook
     for the hard tree-through-branches case."""

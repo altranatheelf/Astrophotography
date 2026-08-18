@@ -48,7 +48,7 @@ def predicted_ratios(temp_k: float) -> tuple[float, float]:
 
 
 def _aperture_flux(img: np.ndarray, x: float, y: float,
-                   r_ap: int = 4, r_bg: int = 8) -> np.ndarray | None:
+                   r_ap: int = 5, r_bg: int = 12) -> np.ndarray | None:
     """Background-subtracted RGB flux in a small aperture."""
     h, w = img.shape[:2]
     xi, yi = int(round(x)), int(round(y))
@@ -74,7 +74,9 @@ def star_white_balance(base_img: np.ndarray, wcs, catalog: np.ndarray,
     """
     if catalog.shape[1] < 4:
         return None
-    cat = catalog[catalog[:, 3] > 2500.0][:600]
+    # skip the very brightest stars: their cores clip on any long exposure
+    # and clipped cores lie about colour
+    cat = catalog[(catalog[:, 3] > 2500.0) & (catalog[:, 2] > 2.0)][:800]
     if len(cat) < min_stars:
         return None
     px = np.column_stack(wcs.world_to_pixel_values(cat[:, 0], cat[:, 1]))

@@ -575,38 +575,61 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if dist.identity() and polished is not None and len(stars_full) >= 40:
             from meteorprep.astrometry.lensdistort import estimate_k1
             from scipy.spatial import cKDTree as _KD
-            _pred = np.column_stack(base_det_wcs.world_to_pixel_values(
-                catalog[:, 0], catalog[:, 1]))
-            _ok = np.isfinite(_pred).all(axis=1)
-            # wide net on purpose: the strongly-distorted corner stars are
-            # exactly the ones that constrain k1, and the double polish
-            # above makes wrong pairings unlikely
-            _d, _nn = _KD(_pred[_ok]).query(stars_full,
-                                            distance_upper_bound=12.0)
-            _sel = np.isfinite(_d)
-            if _sel.sum() >= 40:
-                m_xy = stars_full[_sel]
+
+            # iterative: with real barrel curvature the corner stars sit
+            # tens of px off a straight TAN fit — outside any safe match
+            # net.  Each round undistorts with the current k1, re-matches
+            # wider, and re-estimates, pulling the corners in gradually.
+            k1_cur = 0.0
+            wcs_cur = base_det_wcs
+            rms_pair = (None, None)
+            n_match = 0
+            for _round in range(3):
+                pts = (Poly3Distortion(k1_cur, (hd, wd)).undistort(stars_full)
+                       if abs(k1_cur) > 1e-9 else stars_full)
+                _pred = np.column_stack(wcs_cur.world_to_pixel_values(
+                    catalog[:, 0], catalog[:, 1]))
+                _ok = np.isfinite(_pred).all(axis=1)
+                _d, _nn = _KD(_pred[_ok]).query(pts,
+                                                distance_upper_bound=25.0)
+                _sel = np.isfinite(_d)
+                n_match = int(_sel.sum())
+                if n_match < 40:
+                    break
+                m_xy = stars_full[_sel]          # raw (distorted) coords
                 m_world = catalog[np.nonzero(_ok)[0][_nn[_sel]]]
-                crval0 = (float(base_det_wcs.wcs.crval[0]),
-                          float(base_det_wcs.wcs.crval[1]))
-                k1_est, rms_b, rms_a = estimate_k1(m_xy, m_world, crval0,
+                crval0 = (float(wcs_cur.wcs.crval[0]),
+                          float(wcs_cur.wcs.crval[1]))
+                k1_new, rms_b, rms_a = estimate_k1(m_xy, m_world, crval0,
                                                    (hd, wd))
-                log.info("lens self-calibration: k1=%+.4f would change the "
-                         "star fit %.2f -> %.2f px (%d stars)",
-                         k1_est, rms_b, rms_a, len(m_xy))
-                if rms_a < 0.95 * rms_b and abs(k1_est) > 1e-4:
-                    k1 = k1_est
-                    dist = Poly3Distortion(k1, (hd, wd))
-                    undistort = dist.undistort
-                    log.info("lens curvature self-calibrated from your "
-                             "stars: k1=%+.4f (star fit %.2f -> %.2f px)",
-                             k1, rms_b, rms_a)
-                    repolished = refine_wcs(dist.undistort(stars_full),
-                                            catalog, base_det_wcs,
-                                            sip_order=None)
-                    if repolished is not None:
-                        base_det_wcs = repolished.wcs
-                        result = repolished
+                rms_pair = (rms_b, rms_a)
+                converged = abs(k1_new - k1_cur) < 3e-4
+                k1_cur = k1_new
+                refit = refine_wcs(
+                    Poly3Distortion(k1_cur, (hd, wd)).undistort(stars_full)
+                    if abs(k1_cur) > 1e-9 else stars_full,
+                    catalog, wcs_cur, sip_order=None)
+                if refit is not None:
+                    wcs_cur = refit.wcs
+                if converged:
+                    break
+            if rms_pair[0] is not None:
+                log.info("lens self-calibration: k1=%+.4f, star fit "
+                         "%.2f -> %.2f px over %d stars",
+                         k1_cur, rms_pair[0], rms_pair[1], n_match)
+            if (rms_pair[0] is not None and abs(k1_cur) > 1e-4
+                    and rms_pair[1] < 0.95 * rms_pair[0]):
+                k1 = k1_cur
+                dist = Poly3Distortion(k1, (hd, wd))
+                undistort = dist.undistort
+                base_det_wcs = wcs_cur
+                final = refine_wcs(dist.undistort(stars_full), catalog,
+                                   base_det_wcs, sip_order=None)
+                if final is not None:
+                    base_det_wcs = final.wcs
+                    result = final
+                log.info("lens curvature adopted: k1=%+.4f — corner stars "
+                         "now land where the star map says", k1)
         base_meta.wcs_source = "solved"
         base_meta.solve_rms_px = result.rms_px
         det_wcs[base_i] = base_det_wcs
@@ -771,6 +794,22 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     lum_det = _Lazy(load_det_lum, n)
     foot_det = _Lazy(load_det_foot, n)
+
+    # ground mask from alignment physics: static ground and flickering
+    # lights deviate from the aligned-sky consensus in most frames, so
+    # they are excluded BEFORE streak detection — a porch light cannot
+    # become an "aircraft"
+    from meteorprep.segment.sky_ground import ground_from_alignment
+    sky_det = None
+    if base_wcs is not None:
+        sky_det = ground_from_alignment(load_det_lum, load_det_foot, n,
+                                        exclude=set(np.nonzero(lp)[0]))
+        if sky_det is not None:
+            log.info("ground found from alignment physics: %.0f%% of the "
+                     "frame masked out of the meteor search",
+                     100.0 * (sky_det < 0.5).mean())
+    sky_det_bin = None if sky_det is None else (sky_det >= 0.5)
+
     ref = RunningReference(lum_det, cfg.ref_window, cfg.ref_sigma,
                            exclude=set(np.nonzero(lp)[0]),
                            footprints=foot_det)
@@ -782,8 +821,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             continue
         d = difference(lum_det[i], ref.for_frame(i), foot_det[i])
         # per-frame residual noise (haze/cloud raises it -> lower weight)
-        med = float(np.median(d))
-        noise_sigmas[i] = 1.4826 * float(np.median(np.abs(d - med))) + 1e-3
+        d_stat = d[sky_det_bin] if sky_det_bin is not None else d
+        med = float(np.median(d_stat))
+        noise_sigmas[i] = 1.4826 * float(np.median(np.abs(d_stat - med))) + 1e-3
+        if sky_det_bin is not None:
+            d = d * sky_det_bin
         s = detect_streaks(d, i, cfg, rgb_diff=None, bin_factor=S)
         if s:
             streaks_per_frame[i] = s
@@ -924,7 +966,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ---------------- sky/ground segmentation ----------------
     notify(0.88, "finding the horizon")
-    sky_mask = segment_sky(base_rgb_final)
+    if sky_det is not None:
+        # the alignment-physics mask (already proven at detection time),
+        # brought up to output resolution
+        import cv2 as _cv2
+        sky_mask = _cv2.resize(sky_det.astype(np.float32), (w, h),
+                               interpolation=_cv2.INTER_LINEAR)
+        sky_mask = np.clip(sky_mask, 0.0, 1.0)
+    else:
+        sky_mask = segment_sky(base_rgb_final)
     from PIL import Image
     Image.fromarray((sky_mask * 255).astype(np.uint8)).save(out_dir / "skymask.png")
 
