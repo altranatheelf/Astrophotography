@@ -139,15 +139,28 @@ def _streak_search_chunk(args) -> list:
     diff_dir = Path(diff_dir_str)
 
     class _L:
-        def __init__(self, pattern):
+        """Loader with a small LRU: consecutive frames share 6 of their 7
+        window neighbours, so caching kills ~85% of the load+convert cost
+        (a dozen half-size frames is ~250 MB, fine for one worker)."""
+        def __init__(self, pattern, cap=12, dtype=_np.float32):
             self._p = pattern
+            self._cap = cap
+            self._dt = dtype                  # foots stay uint8: 4x less RAM
+            self._c: dict = {}
         def __getitem__(self, i):
-            return _np.load(det_dir / (self._p % i),
-                            mmap_mode="r").astype(_np.float32)
+            a = self._c.pop(i, None)
+            if a is None:
+                a = _np.load(det_dir / (self._p % i),
+                             mmap_mode="r").astype(self._dt)
+            self._c[i] = a                    # re-insert = most recent
+            while len(self._c) > self._cap:
+                self._c.pop(next(iter(self._c)))
+            return a
         def __len__(self):
             return n
 
-    lums, foots = _L("lum_%04d.npy"), _L("foot_%04d.npy")
+    lums = _L("lum_%04d.npy")
+    foots = _L("foot_%04d.npy", dtype=_np.uint8)
     sky_bin = (_np.load(sky_path) >= 0.5) if sky_path else None
     ref = RunningReference(lums, cfg.ref_window, cfg.ref_sigma,
                            exclude=set(exclude), footprints=foots)
@@ -665,11 +678,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         import shutil as _sh
         canvas_mb = h * w * 3 * 4 / 1e6                 # one float32 canvas
         det_mb = hd * wd * 3 / 1e6                      # uint16 lum + foot
-        need_mb = (n * det_mb                           # aligned det cache
-                   + n * det_mb                         # det_lum + diffs
-                   + 4 * 2.2 * canvas_mb                # stack scratch parts
-                   + 6 * canvas_mb                      # PSD/PNG/tifs out
-                   + 2000)                              # slack
+        det_total = 2 * n * det_mb                      # both decode caches
+        stack_total = (4 * 2.2 * canvas_mb              # scratch parts
+                       + 6 * canvas_mb)                 # PSD/PNG/tifs out
+        # with cleanup enabled the decode caches are freed BEFORE stacking
+        # starts, so the two phases never coexist on disk
+        need_mb = (max(det_total, stack_total) if cfg.cleanup_cache
+                   else det_total + stack_total) + 2000
         free_mb = _sh.disk_usage(str(out_dir)).free / 1e6
         if free_mb < need_mb:
             raise RuntimeError(
@@ -943,7 +958,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             # detection + matching release the GIL: thread-map the checks
             from concurrent.futures import ThreadPoolExecutor
             done_v = 0
-            with ThreadPoolExecutor(max_workers=min(4, cfg.jobs or 1)) as tp:
+            with ThreadPoolExecutor(max_workers=min(6, cfg.jobs or 1)) as tp:
                 for i, (rms, nm) in tp.map(_verify_one, verify_idx):
                     frames[i].solve_rms_px = rms
                     done_v += 1
@@ -1047,6 +1062,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 np.save(det_dir / f"foot_{i:04d}.npy", foot.astype(np.uint8))
         stage_done("reproject")
 
+    if cfg.cleanup_cache:
+        # the camera-space luminance cache (~10 MB/frame) has no consumer
+        # after alignment: free it NOW, not at the end — the stacking and
+        # assembly stages ahead are exactly when disk pressure peaks.
+        # (aligned workers fall back to decoding the RAW if a later resume
+        # ever needs these again)
+        import shutil as _shutil
+        _shutil.rmtree(det_lum_dir, ignore_errors=True)
+        log.info("freed the decode cache early (%s)", det_lum_dir.name)
+
     def load_det_lum(i):
         return np.load(det_dir / f"lum_{i:04d}.npy", mmap_mode="r")
 
@@ -1147,6 +1172,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         if s:
             streaks_per_frame[i] = s
             diffs_det[i] = np.load(diff_path, mmap_mode="r")
+
+    if cfg.cleanup_cache:
+        # the aligned-luminance cache (~15 MB/frame) is dead once the
+        # ground mask and streak search are done: free its GBs before the
+        # disk-heavy stacking begins.  Invalidate the alignment stage so a
+        # later resume knows to rebuild rather than trust missing files.
+        import shutil as _shutil
+        _shutil.rmtree(det_dir, ignore_errors=True)
+        cache.invalidate("reproject")
+        log.info("freed the alignment cache early (%s)", det_dir.name)
 
     # ---------------- tracking + colour + classification ----------------
     notify(0.55, "telling meteors from planes and satellites")
