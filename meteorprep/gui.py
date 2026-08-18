@@ -266,7 +266,9 @@ def main() -> int:
         def _set_folder(self, folder):
             self.folder = folder
             self.drop_label.setText(folder)
-            self.button.setEnabled(True)
+            # never re-arm Prepare while a run is active
+            if self.worker is None or not self.worker.isRunning():
+                self.button.setEnabled(True)
 
         def _start(self):
             import os
@@ -383,7 +385,6 @@ def main() -> int:
             self.status.setText(last[:600])
             self.status.setWordWrap(True)
             print(tb, file=sys.stderr)
-            self.button.setEnabled(True)
 
         def closeEvent(self, event):
             if self.worker is not None and self.worker.isRunning():

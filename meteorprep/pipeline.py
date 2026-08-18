@@ -1562,9 +1562,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     fg_for_preview = fg_stack if fg_stack is not None \
         else _fit_output(base_rgb_final)
     pv = render_preview(base_img, fg_for_preview, sky_mask, grad_arr,
-                        gains, meteor_layers, out_dir / "preview.jpg")
+                        gains, meteor_layers, out_dir / "preview.jpg",
+                        flagged_layers=flagged_layers,
+                        all_trails_path=out_dir / "preview_all_trails.jpg")
     if pv:
-        outputs["preview"] = str(pv)
+        outputs["preview"] = str(pv["preview"])
+        if pv.get("all_trails"):
+            outputs["preview_all_trails"] = str(pv["all_trails"])
     if cfg.emit_startrail:
         # rendered for free inside stack pass 2 (camera-space lighten-max)
         if cache.path("startrail.tif").exists():
@@ -1581,6 +1585,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                              np.clip(trail, 0, 65535).astype(np.uint16),
                              compression="zlib")
         outputs["startrail"] = str(out_dir / "startrail.tif")
+        # ready-to-share star-trail JPG next to the editable TIFF
+        try:
+            import tifffile as _tf
+            from meteorprep.report.preview import render_startrail
+            st = render_startrail(
+                _tf.imread(out_dir / "startrail.tif").astype(np.float32),
+                gains, out_dir / "startrail.jpg")
+            if st:
+                outputs["startrail_jpg"] = str(st)
+        except Exception as exc:
+            log.warning("star-trail JPG render failed: %s", exc)
 
     sidecar = write_sidecar(
         out_dir / "meteorprep.json", cfg, group.group_id, base_meta.file,
@@ -1607,6 +1622,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             f"({color_cal.get('n_stars', '?')} stars)")
     for lbl, secs in timings:
         log.info("stage timing: %-32s %6.1fs", lbl, secs)
+    looks = []
+    if "preview" in outputs:
+        looks.append(("preview.jpg", "Meteors",
+                      "the clean sky with every meteor brightened"))
+    if "preview_all_trails" in outputs:
+        looks.append(("preview_all_trails.jpg", "Meteors + satellites",
+                      "every detected trail — meteors, satellites, "
+                      "planes — at its true place in the sky"))
+    if "startrail_jpg" in outputs:
+        looks.append(("startrail.jpg", "Star trails",
+                      "the whole night in one arc: stars trail, the "
+                      "ground stays frozen"))
     outputs["report"] = str(write_report_html(
         out_dir,
         {"candidates": [c.to_dict() for c in candidates],
@@ -1614,7 +1641,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_preview="preview" in outputs,
         have_contact="contact_sheet" in outputs,
         have_psd="psd" in outputs,
-        crops=crops, timings=timings, info=info))
+        crops=crops, timings=timings, info=info, looks=looks))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)

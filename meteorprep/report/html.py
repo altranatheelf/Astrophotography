@@ -68,7 +68,8 @@ def write_report_html(out_dir: Path, group_result: dict,
                       have_preview: bool, have_contact: bool,
                       have_psd: bool, crops: dict | None = None,
                       timings: list | None = None,
-                      info: dict | None = None) -> Path:
+                      info: dict | None = None,
+                      looks: list | None = None) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
@@ -113,6 +114,20 @@ def write_report_html(out_dir: Path, group_result: dict,
             for k, v in info.items())
         info_html = f"<h2>Technical detail</h2><ul>{items}</ul>"
 
+    looks_html = ""
+    if looks and len(looks) > 1:
+        cards = "".join(
+            f'<div class="look"><a href="{fn}"><img src="{fn}"></a>'
+            f'<h3>{html.escape(title)}</h3>'
+            f'<p>{html.escape(caption)}</p></div>'
+            for fn, title, caption in looks)
+        looks_html = (
+            "<h2>Pick your look</h2>"
+            "<p>Three finished versions of the same night — every one is "
+            "share-ready as-is, and the layered Photoshop file lets you "
+            "build any of them (and more) yourself.</p>"
+            f'<div class="looks">{cards}</div>')
+
     open_line = (
         "<b>meteorprep.psd</b> — the layered Photoshop file (drag it in)"
         if have_psd else
@@ -130,12 +145,17 @@ def write_report_html(out_dir: Path, group_result: dict,
  td, th {{ border-bottom: 1px solid #333; padding: 6px 10px; text-align: left }}
  .big {{ font-size: 42px; font-weight: 700 }}
  .card {{ background:#1e242d; border-radius:8px; padding:1em 1.4em; margin:1em 0 }}
+ .looks {{ display:flex; gap:12px; flex-wrap:wrap }}
+ .look {{ flex:1 1 260px; background:#1e242d; border-radius:8px; padding:10px }}
+ .look h3 {{ margin:8px 0 4px; font-size:15px }}
+ .look p {{ margin:0; color:#9aa7b5; font-size:13px }}
 </style></head><body>
 <h1>Your night, processed</h1>
 <div class="card"><span class="big">{len(meteors)}</span> meteor(s)
  &nbsp;&middot;&nbsp; {len(flagged)} plane/satellite trail(s) flagged
  &nbsp;&middot;&nbsp; alignment {html.escape(str(g.get('alignment_quality', '?')))}</div>
 {'<h2>Preview</h2><p>Auto-processed for viewing only — your layered file stays untouched and fully adjustable.</p><a href="preview.jpg"><img src="preview.jpg"></a>' if have_preview else ''}
+{looks_html}
 {'<h2>Candidate lineup</h2><a href="contact_sheet.png"><img src="contact_sheet.png"></a>' if have_contact else ''}
 <h2>Every candidate</h2>
 <p>Each crop is auto-brightened for inspection — click to enlarge.</p>

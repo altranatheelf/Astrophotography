@@ -306,3 +306,37 @@ def test_targeted_bad_pixel_repair_matches_full_blur():
 
     _repair_bad_pixels_fast(FakeRaw(), coords)
     assert np.array_equal(FakeRaw.raw_image_visible, ref)
+
+
+def test_preview_downscaled_bbox_blend_and_all_trails(tmp_path):
+    """Large canvases are downsized before the stretch, so bbox layers
+    must land at SCALED coordinates — and the all-trails render must add
+    flagged trails that the meteors-only render omits."""
+    import cv2
+    from meteorprep.assemble.layers import Layer
+    from meteorprep.report.preview import render_preview
+
+    H, W = 1400, 2000
+    base = np.full((H, W, 3), 500.0, np.float32)
+    m = Layer(name="m", rgb=np.full((40, 200, 3), 20000.0, np.float32),
+              alpha=np.ones((40, 200), np.float32),
+              bbox=(1200, 600, 1400, 640), blend="lighten", visible=True)
+    f = Layer(name="f", rgb=np.full((40, 400, 3), 15000.0, np.float32),
+              alpha=np.ones((40, 400), np.float32),
+              bbox=(300, 900, 700, 940), blend="lighten", visible=True)
+    out = render_preview(base, None, None, None, [0.9, 1.0, 1.1],
+                         [(None, m, 0, 0)], tmp_path / "p.jpg",
+                         max_width=1000,
+                         flagged_layers=[(None, f, 0, 0)],
+                         all_trails_path=tmp_path / "a.jpg")
+    assert out and out["preview"].exists() and out["all_trails"].exists()
+    p = cv2.imread(str(tmp_path / "p.jpg")).mean(axis=2)
+    a = cv2.imread(str(tmp_path / "a.jpg")).mean(axis=2)
+    assert p.shape[1] == 1000                      # downsized canvas
+    bg = float(np.median(p))
+    # meteor at scaled (x=650, y=310) in both renders
+    assert p[305:315, 640:660].mean() > bg + 40
+    assert a[305:315, 640:660].mean() > bg + 40
+    # flagged trail at scaled (x=250, y=460): only in the all-trails look
+    assert a[455:465, 200:300].mean() > bg + 40
+    assert p[455:465, 200:300].mean() < bg + 10
