@@ -174,6 +174,7 @@ def _stack_pass(args) -> dict:
             return _np.zeros(3, _np.float32)
         return _np.percentile(sub[oksub], 20, axis=0).astype(_np.float32)
 
+    stats_extra_half = (mode == "moments" and not half_size)
     for i, path, wstr in zip(indices, paths, wcs_strs):
         try:
             rgb = _raw.decode(Path(path), "final", bad_pixels,
@@ -189,7 +190,13 @@ def _stack_pass(args) -> dict:
             fg_n += 1
         distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
                    else None)
-        arr, foot = _rp(rgb, _wcs_from_str(wstr), stat_wcs, (hs, ws),
+        src_wcs = _wcs_from_str(wstr)
+        if stats_extra_half:
+            # frames were decoded at half size for the stats pass, but the
+            # supplied WCS describes the full-size frame — rescale it or
+            # the resample reads only the top-left quarter of the data
+            src_wcs = scale_wcs(src_wcs, 0.5)
+        arr, foot = _rp(rgb, src_wcs, stat_wcs, (hs, ws),
                         quality=True, distort=distort)
         del rgb
         ok = foot.astype(bool)

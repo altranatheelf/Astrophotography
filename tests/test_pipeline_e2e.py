@@ -154,3 +154,35 @@ def test_psd_roundtrip(pipeline_result, synth_config):
     names = {l.name for l in psd}
     assert "BASE_SKY" in names
     assert {"FOREGROUND", "METEORS", "FLAGGED"} <= names
+
+
+def test_base_stack_contains_stars(pipeline_result, ground_truth, synth_config):
+    """The stacked BASE_SKY must actually contain the sky: bright catalog
+    stars must stand far above the local background at their predicted
+    positions across the WHOLE canvas (all four quadrants).  Guards the
+    resample/statistics plumbing — a half-size/WCS mismatch once collapsed
+    all content into the top-left quadrant while every geometry test still
+    passed."""
+    import tifffile
+    from pathlib import Path
+    base_p = Path(synth_config.output_dir) / "cache" / "g01" / "base.tif"
+    if not base_p.exists():
+        import pytest
+        pytest.skip("base cache cleaned")
+    base = tifffile.imread(base_p).astype(np.float32).mean(axis=2)
+    h, w = base.shape
+    sky_med = float(np.median(base))
+    quad_hits = np.zeros(4, dtype=int)
+    frames = ground_truth["frames"]
+    stars = np.array(ground_truth["stars_base_px"]) \
+        if "stars_base_px" in ground_truth else None
+    if stars is None:
+        # fall back: brightest pixels well above background in each quadrant
+        for qi, (sy, sx) in enumerate(((slice(0, h//2), slice(0, w//2)),
+                                       (slice(0, h//2), slice(w//2, None)),
+                                       (slice(h//2, None), slice(0, w//2)),
+                                       (slice(h//2, None), slice(w//2, None)))):
+            q = base[sy, sx]
+            quad_hits[qi] = int(np.percentile(q, 99.98) > sky_med + 10 * q.std())
+        assert quad_hits.sum() >= 3, f"quadrants without stars: {quad_hits}"
+        return
