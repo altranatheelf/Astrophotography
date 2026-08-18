@@ -364,16 +364,19 @@ def solve_frame(image: np.ndarray, seed_wcs: WCS | None,
     if seed_wcs is not None:
         pixel_scale_deg = float(np.sqrt(abs(np.linalg.det(
             seed_wcs.pixel_scale_matrix))))
-        fov_deg = max(h, w) * pixel_scale_deg
-        center = seed_wcs.pixel_to_world(w / 2.0, h / 2.0)
-        result = try_twirl(stars, (center.ra.deg, center.dec.deg), fov_deg, (h, w))
-        if result and result.rms_px <= cfg.solve_rms_max_px:
-            return result
+        # local catalog refinement first: offline, fast, and empirically
+        # the strongest on ultra-wide fields; twirl (network Gaia query)
+        # only as a fallback
         if catalog_radec is not None:
             result = refine_wcs(stars, catalog_radec, seed_wcs,
                                 sip_order=cfg.sip_order)
             if result and result.rms_px <= cfg.solve_rms_max_px:
                 return result
+        fov_deg = max(h, w) * pixel_scale_deg
+        center = seed_wcs.pixel_to_world(w / 2.0, h / 2.0)
+        result = try_twirl(stars, (center.ra.deg, center.dec.deg), fov_deg, (h, w))
+        if result and result.rms_px <= cfg.solve_rms_max_px:
+            return result
     if image_path is not None:
         scale_arcsec = (pixel_scale_deg or 84.4 / 3600.0) * 3600.0
         result = try_astrometry_net(image_path, scale_arcsec)

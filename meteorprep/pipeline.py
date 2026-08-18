@@ -150,8 +150,13 @@ def _stack_pass(args) -> dict:
     else:
         hs, ws = h, w
         stat_wcs = base_wcs
-        clip_mean = _np.load(tmp / "clip_mean.npy", mmap_mode="r")
-        clip_bound = _np.load(tmp / "clip_bound.npy", mmap_mode="r")
+        clip_mean = _np.load(tmp / "clip_mean.npy")
+        clip_bound = _np.load(tmp / "clip_bound.npy")
+        if clip_mean.shape[:2] != (h, w):     # stored half-size: upsample
+            clip_mean = _cv2.resize(clip_mean, (w, h),
+                                    interpolation=_cv2.INTER_LINEAR)
+            clip_bound = _cv2.resize(clip_bound, (w, h),
+                                     interpolation=_cv2.INTER_LINEAR)
         ssum = _np.zeros((h, w, 3), _np.float32)
         wsum = _np.zeros((h, w, 3), _np.float32)
         fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
@@ -285,7 +290,26 @@ def run(cfg: Config, progress=None) -> dict:
     if not paths:
         raise FileNotFoundError(f"no frames found under {cfg.input_dir}")
     metas = read_metadata(paths)
-    bad_pixels = raw_mod.find_bad_pixels([m.path for m in metas])
+    # the hot-pixel map is a property of the sensor, not the run: cache it
+    # so re-runs skip ~25 s of RAW analysis
+    bp_key = "|".join([metas[0].model, str(len(metas)),
+                       metas[0].file, metas[-1].file])
+    bp_npy = cfg.cache_path / "bad_pixels.npy"
+    bp_keyf = cfg.cache_path / "bad_pixels.key"
+    bad_pixels = None
+    if (not cfg.force and bp_npy.exists() and bp_keyf.exists()
+            and bp_keyf.read_text() == bp_key):
+        bad_pixels = np.load(bp_npy)
+        log.info("hot-pixel map reused from cache (%d pixels)",
+                 len(bad_pixels))
+        if len(bad_pixels) == 0:
+            bad_pixels = None
+    else:
+        bad_pixels = raw_mod.find_bad_pixels([m.path for m in metas])
+        cfg.cache_path.mkdir(parents=True, exist_ok=True)
+        np.save(bp_npy, bad_pixels if bad_pixels is not None
+                else np.empty((0, 2), np.int64))
+        bp_keyf.write_text(bp_key)
 
     groups = segment_folder(metas, cfg.max_gap_factor)
     log.info("found %d frame(s) in %d group(s)", len(metas), len(groups))
@@ -1220,15 +1244,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
-    # clip statistics upsampled to the output grid for pass 2
+    # clip statistics stay half-size on disk (~8x less I/O between the
+    # passes); each pass-2 worker upsamples them in memory
+    np.save(tmp / "clip_mean.npy", total.mean.astype(np.float32))
+    np.save(tmp / "clip_bound.npy",
+            (cfg.stack_sigma * total.std()).astype(np.float32))
     mean_full = _cv2.resize(total.mean, (w, h),
                             interpolation=_cv2.INTER_LINEAR)
-    bound_full = _cv2.resize(
-        (cfg.stack_sigma * total.std()).astype(np.float32), (w, h),
-        interpolation=_cv2.INTER_LINEAR)
-    np.save(tmp / "clip_mean.npy", mean_full.astype(np.float32))
-    np.save(tmp / "clip_bound.npy", bound_full.astype(np.float32))
-    del bound_full
 
     # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
     parts = run_pass("clipped", 0.70, 0.80,
