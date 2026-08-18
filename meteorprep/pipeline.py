@@ -547,6 +547,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     cache = CacheStore(cfg.cache_path / group.group_id)
     skipped = 0
+    # per-stage wall clock for the run report ("where the time went")
+    import time as _time
+    timings: list = []
+    _t_last = [_time.time()]
+
+    def mark(label):
+        now = _time.time()
+        timings.append((label, now - _t_last[0]))
+        _t_last[0] = now
     # frame-set fingerprint: adding/removing/replacing files re-runs stages
     import hashlib as _hashlib
     _fp = _hashlib.sha256()
@@ -706,6 +715,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         pass                                            # preflight is advisory
 
     # ---------------- plate solving (at detection scale) ----------------
+    mark("reading + ranking the photos")
     notify(0.12, "matching your stars to the star map")
     if base_meta.pixel_pitch_um > 0:
         pitch_um = base_meta.pixel_pitch_um
@@ -988,6 +998,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                     "mis-register by up to ~720 px/hr and meteors will not "
                     "radiate correctly from the true radiant")
 
+    mark("star lock (solve + verify)")
     # ------- detection-space alignment cache (small: ~12 MB/frame) -------
     det_dir = cache.dir("detect_aligned")
     if stage_fresh("reproject"):
@@ -1071,6 +1082,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         import shutil as _shutil
         _shutil.rmtree(det_lum_dir, ignore_errors=True)
         log.info("freed the decode cache early (%s)", det_lum_dir.name)
+
+    mark("aligning small previews")
 
     def load_det_lum(i):
         return np.load(det_dir / f"lum_{i:04d}.npy", mmap_mode="r")
@@ -1230,6 +1243,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     weights = (frame_noise_weights(noise_sigmas) if cfg.frame_weighting
                else {})
     if stage_fresh("base_sky"):
+        mark("meteor search + classification")
         notify(0.60, "building the clean starfield from every frame")
         base_img, fg_stack, coverage, trail_img = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
@@ -1259,6 +1273,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     base_lum = raw_mod.luminance(base_img)
 
     # ---------------- extraction (full quality, meteor frames only) -----
+    mark("building the clean starfield")
     notify(0.82, "cutting each meteor onto its own layer")
     star_cat_xy = detect_stars(base_img, max_stars=500)
 
@@ -1353,6 +1368,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     Image.fromarray((sky_mask * 255).astype(np.uint8)).save(out_dir / "skymask.png")
 
     # ---------------- assembly ----------------
+    mark("cutting layers + horizon")
     notify(0.92, "assembling layers")
 
     # seam-removing crop: keep the region where most frames overlap — the
@@ -1487,12 +1503,19 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         ])
 
     outputs = {}
-    if cfg.emit_pngjsx:
-        outputs["jsx"] = str(write_pngjsx(stack, out_dir))
+    psd_path = None
     if cfg.emit_psd:
         psd_path = write_psd(stack, out_dir / "meteorprep.psd")
         if psd_path:
             outputs["psd"] = str(psd_path)
+    # the PNG + script fallback duplicates the PSD's content (~0.5 GB on
+    # a full night): emit it when asked for, or automatically as the
+    # safety net whenever the PSD could not be written
+    if cfg.emit_pngjsx or (cfg.emit_psd and psd_path is None):
+        if not cfg.emit_pngjsx:
+            log.warning("Photoshop file could not be written — emitting "
+                        "the PNG + script fallback instead")
+        outputs["jsx"] = str(write_pngjsx(stack, out_dir))
     if cfg.emit_contact_sheet and candidates:
         cs = make_contact_sheet(candidates, roi_images,
                                 out_dir / "contact_sheet.png")
@@ -1501,6 +1524,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     # ready-to-view preview + one-click report: nobody should need a
     # Photoshop session just to SEE their night
+    mark("assembling the layered files")
     notify(0.96, "rendering the preview")
     from meteorprep.report.preview import render_preview
     grad_arr = None
@@ -1538,14 +1562,33 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         alignment_quality, solver_used, solve_files,
         color_calibration=color_cal)
     outputs["sidecar"] = str(sidecar)
-    from meteorprep.report.html import write_report_html
+    from meteorprep.report.html import (render_candidate_crops,
+                                        write_report_html)
+    crops = render_candidate_crops(candidates,
+                                   meteor_layers + flagged_layers,
+                                   roi_images, out_dir)
+    mark("preview + report")
+    info = {"star solver": solver_used,
+            "star-lock accuracy": f"{base_meta.solve_rms_px:.2f} px RMS"
+            if base_meta.solve_rms_px else "n/a",
+            "lens correction k1": f"{k1:+.4f}" if abs(k1) > 1e-9
+            else "none needed",
+            "photos stacked": f"{len(ok_idx)} of {n}"}
+    if color_cal is not None:
+        gn = color_cal["gains"]
+        info["star colour calibration"] = (
+            f"R x{gn[0]:.3f}  G x{gn[1]:.3f}  B x{gn[2]:.3f} "
+            f"({color_cal.get('n_stars', '?')} stars)")
+    for lbl, secs in timings:
+        log.info("stage timing: %-32s %6.1fs", lbl, secs)
     outputs["report"] = str(write_report_html(
         out_dir,
         {"candidates": [c.to_dict() for c in candidates],
          "alignment_quality": alignment_quality},
         have_preview="preview" in outputs,
         have_contact="contact_sheet" in outputs,
-        have_psd="psd" in outputs))
+        have_psd="psd" in outputs,
+        crops=crops, timings=timings, info=info))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)

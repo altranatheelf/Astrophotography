@@ -103,8 +103,9 @@ def main() -> int:
             site_row.addWidget(self.site)
             layout.addLayout(site_row)
 
-            self.cb_png = QCheckBox("Emit PNG + Photoshop script fallback")
-            self.cb_png.setChecked(True)
+            self.cb_png = QCheckBox("Also emit PNG + Photoshop script "
+                                    "(auto if the .psd fails; ~0.5 GB extra)")
+            self.cb_png.setChecked(False)
             self.cb_trail = QCheckBox("Emit star-trail render")
             self.cb_sheet = QCheckBox("Emit contact sheet")
             self.cb_sheet.setChecked(True)
