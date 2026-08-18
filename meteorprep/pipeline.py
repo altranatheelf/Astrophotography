@@ -939,24 +939,42 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
 
     meteor_layers, flagged_layers = [], []
     roi_images = {}
-    for group_list, out_list in ((meteor_cands, meteor_layers),
-                                 (flagged_cands, flagged_layers)):
+    # group by frame so every photo is decoded exactly once, even when
+    # several candidates (a long aircraft pass) share it — and narrate
+    # progress: a whole night's worth of plane trails means dozens of
+    # full-quality decodes here
+    work_items = []
+    for kind, group_list in (("m", meteor_cands), ("f", flagged_cands)):
         for c in group_list:
             for si, (frame_file, seg_streak) in enumerate(
                     zip(c.frames, c.streaks)):
-                i = file_to_idx[frame_file]
-                arr, foot = full_aligned(i)
-                d_full = difference(raw_mod.luminance(arr), base_lum, foot)
-                layer = extract_meteor(
-                    d_full, arr,
-                    ((seg_streak.x0, seg_streak.y0),
-                     (seg_streak.x1, seg_streak.y1)),
-                    seg_streak.fwhm_px, star_xy=star_cat_xy)
-                if layer is None:
-                    continue
-                x0, y0, x1, y1 = layer.bbox
-                roi_images.setdefault(c.id, d_full[y0:y1, x0:x1].copy())
-                out_list.append((c, layer, i, si))
+                work_items.append((file_to_idx[frame_file], kind, c, si,
+                                   seg_streak))
+    work_items.sort(key=lambda t: t[0])
+    n_extract = len({t[0] for t in work_items})
+    done_ex = 0
+    cur_i = None
+    d_full = None
+    arr = None
+    for (i, kind, c, si, seg_streak) in work_items:
+        if i != cur_i:
+            arr, foot = full_aligned(i)
+            d_full = difference(raw_mod.luminance(arr), base_lum, foot)
+            cur_i = i
+            done_ex += 1
+            notify(0.82 + 0.06 * done_ex / max(n_extract, 1),
+                   f"cutting candidate layers (photo {done_ex}/{n_extract})")
+        layer = extract_meteor(
+            d_full, arr,
+            ((seg_streak.x0, seg_streak.y0),
+             (seg_streak.x1, seg_streak.y1)),
+            seg_streak.fwhm_px, star_xy=star_cat_xy)
+        if layer is None:
+            continue
+        x0, y0, x1, y1 = layer.bbox
+        roi_images.setdefault(c.id, d_full[y0:y1, x0:x1].copy())
+        (meteor_layers if kind == "m" else flagged_layers).append(
+            (c, layer, i, si))
     _full_cache.clear()
 
     # contact-sheet ROIs for candidates whose extraction produced nothing:
