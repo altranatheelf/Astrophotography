@@ -258,6 +258,11 @@ def _available_ram_gb() -> float:
 
 def run(cfg: Config, progress=None) -> dict:
     """Run the pipeline; returns a summary dict with output paths."""
+    import warnings as _warnings
+    # astropy's iterative inverse warns loudly on wide fields; it is
+    # handled (results are verified downstream) and the console flood
+    # reads like an error to people
+    _warnings.filterwarnings("ignore", message=".*all_world2pix.*")
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(message)s")
     # flight recorder: everything the run says, in one plain file the user
@@ -648,16 +653,24 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         # base itself achieved rather than by an absolute lab number
         rms_gate = max(cfg.solve_rms_max_px, 1.5 * float(result.rms_px))
         import dataclasses as _dc
-        cfg_solve = _dc.replace(cfg, solve_rms_max_px=rms_gate)
+        # with the analytic k1 correction active, per-frame SIP fitting is
+        # redundant — and SIP WCS make every later transform iterative
+        # (slow, and the source of the astropy convergence warning spam)
+        cfg_solve = _dc.replace(cfg, solve_rms_max_px=rms_gate,
+                                sip_order=(0 if undistort is not None
+                                           else cfg.sip_order))
 
         # sparse subset: every K-th frame; others propagated + verified
         base_mid = base_meta.epoch_mid
         solve_targets = {i for i in range(0, n, max(cfg.solve_every_k, 1))}
         solve_targets.add(base_i)
         solved = {base_i: base_det_wcs}
-        for i in sorted(solve_targets):
+        n_sparse = len(solve_targets)
+        for k_s, i in enumerate(sorted(solve_targets)):
             if i == base_i or lp[i]:
                 continue
+            notify(0.14 + 0.04 * k_s / max(n_sparse, 1),
+                   f"checking the star lock ({k_s + 1}/{n_sparse} anchors)")
             dt = (frames[i].epoch_mid - base_mid).total_seconds()
             seed_i = propagate_wcs(base_det_wcs, dt)
             res_i = solve_frame(decode_det_lum(i), seed_i, catalog, cfg_solve,
@@ -680,6 +693,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             det_wcs[i] = propagate_wcs(solved[nearest], dt)
             frames[i].wcs_source = "propagated"
             if catalog is not None and not lp[i]:
+                if i % 10 == 0 or i == n - 1:
+                    notify(0.18 + 0.06 * i / max(n, 1),
+                           f"verifying the star lock frame by frame "
+                           f"({i + 1}/{n})")
                 rms, nm = solve_rms_px(det_wcs[i],
                                        _detected_for_verify(decode_det_lum(i),
                                                             undistort),
