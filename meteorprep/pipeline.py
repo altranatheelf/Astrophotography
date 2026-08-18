@@ -128,7 +128,8 @@ def _det_lum_one(args) -> str:
 def _streak_search_chunk(args) -> list:
     """Search a chunk of frames for streaks against the rolling reference.
     Runs in a worker: aligned luminances are memory-mapped from the cache."""
-    (indices, n, det_dir_str, sky_path, cfg, S, exclude, diff_dir_str) = args
+    (indices, n, det_dir_str, sky_path, cfg, S, exclude, diff_dir_str,
+     prog_path) = args
     import numpy as _np
     from meteorprep.detect.hough import detect_streaks
     from meteorprep.detect.reference import RunningReference
@@ -151,7 +152,12 @@ def _streak_search_chunk(args) -> list:
     ref = RunningReference(lums, cfg.ref_window, cfg.ref_sigma,
                            exclude=set(exclude), footprints=foots)
     out = []
-    for i in indices:
+    for k, i in enumerate(indices):
+        if prog_path:                       # live per-photo progress
+            try:
+                Path(prog_path).write_text(str(k))
+            except OSError:
+                pass
         d = difference(lums[i], ref.for_frame(i), foots[i])
         d_stat = d[sky_bin] if sky_bin is not None else d
         med = float(_np.median(d_stat))
@@ -276,11 +282,17 @@ def _stack_pass(args) -> dict:
         _q.put(None)
 
     Thread(target=_producer, daemon=True).start()
+    n_done = 0
     while True:
         item = _q.get()
         if item is None:
             break
         i, wstr, rgb = item
+        try:                                # live per-photo progress
+            (tmp / f"prog_{mode}_{worker_id}.txt").write_text(str(n_done))
+        except OSError:
+            pass
+        n_done += 1
         if mode != "moments" and want_fg:
             if fg_sum is None:
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
@@ -1012,8 +1024,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         chunk_sz = (len(search_idx) + n_chunks - 1) // n_chunks
         sr_chunks = [search_idx[k:k + chunk_sz]
                      for k in range(0, len(search_idx), chunk_sz)]
+        import time as _time
         import multiprocessing as _mp
-        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
+                                        wait)
+        prog_paths = [cache.path(f"prog_sr_{k}.txt")
+                      for k in range(len(sr_chunks))]
         try:
             with ProcessPoolExecutor(
                     max_workers=len(sr_chunks),
@@ -1021,22 +1037,49 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                 futs = [pool.submit(
                     _streak_search_chunk,
                     (ch, n, str(det_dir), sky_path, cfg, S, exclude_lp,
-                     str(diff_dir))) for ch in sr_chunks]
-                done_sr = 0
-                for fut in as_completed(futs,
-                                        timeout=300 + 60 * len(search_idx)):
-                    results_sr.extend(fut.result())
-                    done_sr += 1
-                    notify(0.45 + 0.08 * done_sr / len(sr_chunks),
-                           f"searching every frame for meteors "
-                           f"(part {done_sr}/{len(sr_chunks)})")
+                     str(diff_dir), str(prog_paths[k])))
+                    for k, ch in enumerate(sr_chunks)]
+                pending = set(futs)
+                finished_frames = 0
+                last_seen = -1
+                deadline = _time.time() + 300 + 60 * len(search_idx)
+                while pending:
+                    done_set, pending = wait(pending, timeout=2,
+                                             return_when=FIRST_COMPLETED)
+                    for fut in done_set:
+                        part = fut.result()
+                        results_sr.extend(part)
+                        finished_frames += len(part)
+                    # live count: finished chunks + each worker's counter
+                    in_flight = 0
+                    for k, fut in enumerate(futs):
+                        if not fut.done():
+                            try:
+                                in_flight += int(
+                                    prog_paths[k].read_text() or 0)
+                            except (OSError, ValueError):
+                                pass
+                    # max(): a counter read can race its writer and come
+                    # back empty — progress must never appear to go back
+                    seen = max(min(finished_frames + in_flight,
+                                   len(search_idx)), last_seen)
+                    if seen != last_seen:
+                        last_seen = seen
+                        notify(0.45 + 0.08 * seen / len(search_idx),
+                               f"searching every frame for meteors "
+                               f"(photo {seen}/{len(search_idx)})")
+                    if _time.time() > deadline:
+                        raise TimeoutError("meteor search timed out")
         except Exception as exc:
             log.warning("parallel meteor search failed (%s); one core", exc)
             results_sr = []
+        finally:
+            for p in prog_paths:
+                p.unlink(missing_ok=True)
     if not results_sr:
         results_sr = _streak_search_chunk(
             (search_idx, n, str(det_dir), sky_path, cfg, S, exclude_lp,
-             str(diff_dir)))
+             str(diff_dir), ""))
     for (i, s, noise, diff_path) in results_sr:
         noise_sigmas[i] = noise
         if s:
@@ -1638,8 +1681,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             chunk_size = max(len(idx) // (n_workers * 4), 4)
             chunks = [idx[k:k + chunk_size]
                       for k in range(0, len(idx), chunk_size)]
+            import time as _time
             import multiprocessing as _mp
-            from concurrent.futures import ProcessPoolExecutor, as_completed
+            from concurrent.futures import (FIRST_COMPLETED,
+                                            ProcessPoolExecutor, wait)
             try:
                 # spawn, not fork: see the alignment pool above
                 with ProcessPoolExecutor(
@@ -1649,14 +1694,37 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                         _stack_pass,
                         frame_args(mode, chunk, k, want_fg, want_trail)): k
                         for k, chunk in enumerate(chunks)}
-                    done = 0
-                    for fut in as_completed(
-                            futures, timeout=600 + 300 * len(idx)):
-                        on_result(fut.result())
-                        merged += 1
-                        done += 1
-                        notify(frac0 + (frac1 - frac0) * done / len(chunks),
-                               f"{label} ({done}/{len(chunks)} parts)")
+                    chunk_len = {k: len(c) for k, c in enumerate(chunks)}
+                    pending = set(futures)
+                    finished_frames = 0
+                    last_seen = -1
+                    deadline = _time.time() + 600 + 300 * len(idx)
+                    while pending:
+                        done_set, pending = wait(pending, timeout=2,
+                                                 return_when=FIRST_COMPLETED)
+                        for fut in done_set:
+                            on_result(fut.result())
+                            merged += 1
+                            finished_frames += chunk_len[futures[fut]]
+                        in_flight = 0
+                        for fut, k in futures.items():
+                            if not fut.done():
+                                try:
+                                    in_flight += int(
+                                        (tmp / f"prog_{mode}_{k}.txt")
+                                        .read_text() or 0)
+                                except (OSError, ValueError):
+                                    pass
+                        # max(): a counter read can race its writer and
+                        # come back empty — never step backwards
+                        seen = max(min(finished_frames + in_flight,
+                                       len(idx)), last_seen)
+                        if seen != last_seen:
+                            last_seen = seen
+                            notify(frac0 + (frac1 - frac0) * seen / len(idx),
+                                   f"{label} (photo {seen}/{len(idx)})")
+                        if _time.time() > deadline:
+                            raise TimeoutError(f"{label} timed out")
             except Exception as exc:
                 log.warning("parallel stacking failed (%s); one core", exc)
                 if merged:

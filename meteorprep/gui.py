@@ -133,6 +133,27 @@ def main() -> int:
             self.setCentralWidget(central)
             self.resize(460, 420)
 
+            # heartbeat: if a step goes quiet, show a live elapsed timer so
+            # a long stage never looks frozen
+            import time as _time
+            from PySide6.QtCore import QTimer
+            self._time = _time
+            self._last_msg = ""
+            self._msg_at = _time.time()
+            self._hb = QTimer(self)
+            self._hb.setInterval(1000)
+            self._hb.timeout.connect(self._heartbeat)
+
+        def _heartbeat(self):
+            if self.worker is None or not self.worker.isRunning():
+                return
+            quiet = self._time.time() - self._msg_at
+            if quiet > 4 and self._last_msg:
+                m, s = divmod(int(quiet), 60)
+                self.status.setText(
+                    f"{self._last_msg}  —  still working "
+                    f"({m}m {s:02d}s in this step)")
+
         def dragEnterEvent(self, e):
             if e.mimeData().hasUrls():
                 e.acceptProposedAction()
@@ -180,6 +201,9 @@ def main() -> int:
             self.worker.progressed.connect(self._on_progress)
             self.worker.finished_ok.connect(self._on_done)
             self.worker.failed.connect(self._on_fail)
+            self._last_msg = "starting up"
+            self._msg_at = self._time.time()
+            self._hb.start()
             self.worker.start()
 
         def _self_test(self):
@@ -199,8 +223,11 @@ def main() -> int:
         def _on_progress(self, pct, msg):
             self.bar.setValue(pct)
             self.status.setText(msg)
+            self._last_msg = msg
+            self._msg_at = self._time.time()
 
         def _on_done(self, result):
+            self._hb.stop()
             total = sum(g["n_meteors"] for g in result["groups"])
             quality = ", ".join(g["alignment_quality"] for g in result["groups"])
             banner = "" if "degraded" not in quality else "  ⚠ ALIGNMENT DEGRADED"
@@ -230,6 +257,7 @@ def main() -> int:
                 pass
 
         def _on_fail(self, tb):
+            self._hb.stop()
             # show the human-readable message (last line) in the window —
             # a Finder-launched app has no console to "see"
             last = [l for l in tb.strip().splitlines() if l.strip()][-1]
