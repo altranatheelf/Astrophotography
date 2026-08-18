@@ -127,14 +127,26 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
         for i in widx:
             a = np.asarray(lum_loader(i)).astype(np.float32)
             f = (np.asarray(foot_loader(i)) > 0)
-            r = np.abs(a - med)
+            r = a - med
+            # drop the smooth, large-scale part of the residual: twilight
+            # brightening between frames is spatially smooth and once
+            # walled off a skyscraper of real sky as "ground"; foliage
+            # churn is fine-grained and survives this high-pass intact.
+            # The coarse background uses per-block low percentiles, not a
+            # blur — a blur rings around bright stars and fabricates halos
+            hb, wb = (h // 32) * 32, (w // 32) * 32
+            blocks = r[:hb, :wb].reshape(hb // 32, 32, wb // 32, 32)
+            coarse = np.percentile(blocks, 30, axis=(1, 3)).astype(np.float32)
+            r = r - cv2.resize(coarse, (w, h),
+                               interpolation=cv2.INTER_LINEAR)
+            r = np.abs(r)
             if resid_scale is None:
                 samp = r[used & f][:: max((used & f).sum() // 100000, 1)]
                 resid_scale = 1.4826 * float(np.median(samp)) + 1e-3
             dev += ((r > 5.0 * resid_scale + 0.8 * grad) & f).astype(np.float32)
             cnt_w += f
         freq = dev / np.maximum(cnt_w, 1.0)
-        evidence |= ((freq > 0.28) & used & (cnt_w >= 4)).astype(np.uint8)
+        evidence |= ((freq > 0.35) & used & (cnt_w >= 4)).astype(np.uint8)
     # drop pointlike star-registration jitter, keep blobby ground churn
     evidence = cv2.morphologyEx(evidence, cv2.MORPH_OPEN,
                                 np.ones((3, 3), np.uint8))
@@ -154,6 +166,10 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
     runs = cv2.filter2D(evidence.astype(np.float32), -1, kernel,
                         anchor=(0, 0), borderType=cv2.BORDER_CONSTANT)
     sustained = runs >= run_need - 0.5
+    # the horizon can only start in the lower part of the frame: evidence
+    # high in the sky (a slow aircraft's repeated trail, a cloud edge)
+    # must never trigger "fill everything below it"
+    sustained[: int(0.35 * h), :] = False
     first = np.where(sustained.any(axis=0), sustained.argmax(axis=0),
                      h).astype(np.float32)
     from scipy.ndimage import minimum_filter1d

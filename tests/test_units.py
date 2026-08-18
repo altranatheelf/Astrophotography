@@ -212,10 +212,22 @@ def test_ground_mask_covers_long_session_sweep():
         if t == 30:
             for k in range(120):
                 a[60 + k // 3, 200 + k] += 6000
+        # dawn twilight: fast, spatially smooth brightening near the end —
+        # must NOT read as ground (it once walled off a column of sky)
+        if t > 45:
+            ramp = (t - 45) * 120.0
+            a += ramp * np.exp(-((xx - 450) ** 2 + (yy - 200) ** 2) / (2 * 120.0 ** 2))
+        # slow aircraft: nearly-collinear bright trail in 5 consecutive
+        # frames of one window — may mark its own line, must not fill below
+        if 12 <= t < 17:
+            for k in range(150):
+                a[100 + k // 5, 150 + k + 8 * (t - 12)] += 5000
         frames.append(np.clip(a, 0, 65535).astype(np.uint16))
         foots.append(np.ones((H, W), np.uint8))
     m = ground_from_alignment(lambda i: frames[i], lambda i: foots[i], N)
     assert m is not None
     ground = m < 0.5
     assert ground[315:, :].mean() > 0.9          # swept trees covered
-    assert ground[:250, :].mean() < 0.02         # sky (and meteor) kept
+    assert ground[:250, :].mean() < 0.02         # sky, meteor, twilight kept
+    # the twilight patch region specifically must stay sky
+    assert ground[120:250, 350:550].mean() < 0.05
