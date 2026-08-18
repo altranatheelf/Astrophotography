@@ -272,3 +272,37 @@ def test_disk_full_detection():
     assert _disk_full(wrapper)
     assert not _disk_full(ValueError("boom"))
     assert not _disk_full(OSError(errno.EPIPE, "broken pipe"))
+
+
+def test_targeted_bad_pixel_repair_matches_full_blur():
+    """The targeted 3x3-gather repair must reproduce rawpy's full
+    median-blur repair exactly, including clustered bad pixels and
+    sensor edges/corners."""
+    import numpy as np
+    import cv2
+    from meteorprep.ingest.raw import _repair_bad_pixels_fast
+
+    rng = np.random.default_rng(3)
+    H, W = 64, 80
+    img = rng.integers(0, 60000, (H, W), dtype=np.uint16)
+
+    class FakeRaw:
+        raw_pattern = np.zeros((2, 2), np.uint8)
+        raw_image_visible = img
+
+    coords = np.array([[0, 0], [0, W - 1], [H - 1, 0], [H - 1, W - 1],
+                       [10, 10], [10, 12], [12, 10],      # cluster, one color
+                       [33, 47], [2, 5], [63, 40]])
+    # reference: rawpy's approach — 3x3 median blur per color slice,
+    # then scatter at the flagged coords
+    ref = img.copy()
+    for oy in (0, 1):
+        for ox in (0, 1):
+            sl = np.require(img[oy::2, ox::2], img.dtype, "C")
+            sm = cv2.medianBlur(sl, 3)
+            m = (coords[:, 0] % 2 == oy) & (coords[:, 1] % 2 == ox)
+            cs = coords[m]
+            ref[cs[:, 0], cs[:, 1]] = sm[cs[:, 0] // 2, cs[:, 1] // 2]
+
+    _repair_bad_pixels_fast(FakeRaw(), coords)
+    assert np.array_equal(FakeRaw.raw_image_visible, ref)

@@ -478,14 +478,20 @@ def run(cfg: Config, progress=None) -> dict:
     paths = scan_input_dir(Path(cfg.input_dir), cfg.raw_extensions)
     if not paths:
         raise FileNotFoundError(f"no frames found under {cfg.input_dir}")
-    metas = read_metadata(paths)
     # the hot-pixel map is a property of the sensor, not the run: cache it
-    # so re-runs skip ~25 s of RAW analysis
-    bp_key = "|".join([metas[0].model, str(len(metas)),
-                       metas[0].file, metas[-1].file])
+    # (key from the file set alone, so the cache check needs no metadata
+    # and a fresh scan can run CONCURRENTLY with the exif read below)
+    try:
+        first_size = Path(paths[0]).stat().st_size
+    except OSError:
+        first_size = 0
+    bp_key = "|".join([str(len(paths)), Path(paths[0]).name,
+                       Path(paths[-1]).name, str(first_size)])
     bp_npy = cfg.cache_path / "bad_pixels.npy"
     bp_keyf = cfg.cache_path / "bad_pixels.key"
     bad_pixels = None
+    scan_thread = None
+    scan_out: dict = {}
     if (not cfg.force and bp_npy.exists() and bp_keyf.exists()
             and bp_keyf.read_text() == bp_key):
         bad_pixels = np.load(bp_npy)
@@ -494,7 +500,20 @@ def run(cfg: Config, progress=None) -> dict:
         if len(bad_pixels) == 0:
             bad_pixels = None
     else:
-        bad_pixels = raw_mod.find_bad_pixels([m.path for m in metas])
+        from threading import Thread
+
+        def _scan():
+            try:
+                scan_out["bad"] = raw_mod.find_bad_pixels(list(paths))
+            except Exception as exc:
+                log.warning("hot-pixel scan failed: %s", exc)
+
+        scan_thread = Thread(target=_scan, daemon=True)
+        scan_thread.start()
+    metas = read_metadata(paths)
+    if scan_thread is not None:
+        scan_thread.join()
+        bad_pixels = scan_out.get("bad")
         cfg.cache_path.mkdir(parents=True, exist_ok=True)
         np.save(bp_npy, bad_pixels if bad_pixels is not None
                 else np.empty((0, 2), np.int64))
