@@ -1171,9 +1171,7 @@ def _absorb_track_fragments(candidates, file_to_idx) -> None:
     (so it lands in FLAGGED, not METEORS)."""
     multi = [c for c in candidates
              if c.label != "meteor" and len(set(c.frames)) >= 2]
-    if not multi:
-        return
-    for c in candidates:
+    for c in (candidates if multi else []):
         if c.label != "meteor" or len(set(c.frames)) > 1:
             continue
         s = c.streaks[0]
