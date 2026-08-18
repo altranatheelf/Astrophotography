@@ -188,18 +188,25 @@ def _stack_pass(args) -> dict:
     """
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
-     bad_pixels, sigma, want_fg, k1) = args
+     bad_pixels, sigma, want_fg, k1, sky_path) = args
+    import json as _json
+
     import cv2 as _cv2
     import numpy as _np
     from meteorprep.astrometry.lensdistort import Poly3Distortion as _P3
     from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
     from meteorprep.ingest import raw as _raw
+    from meteorprep.stack.gradient import eval_frame_sky, fit_frame_sky
     from meteorprep.stack.streaming import RunningMoments
 
     h, w = shape_hw
     tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
     bgs = {}
+    sky_half = None
+    if sky_path:
+        sky_full = _np.load(sky_path)         # detection-scale sky mask
+        sky_half = sky_full
     if mode == "moments":
         # statistics pass at half resolution: the clip bounds don't need
         # 20 MP, and the half-size decode + resample is ~4x cheaper
@@ -207,6 +214,7 @@ def _stack_pass(args) -> dict:
         stat_wcs = scale_wcs(base_wcs, 0.5)
         mom = RunningMoments((hs, ws, 3))
         scratch = _np.zeros((h, w), _np.uint8)
+        norm_coef: dict = {}
     else:
         hs, ws = h, w
         stat_wcs = base_wcs
@@ -217,12 +225,21 @@ def _stack_pass(args) -> dict:
                                     interpolation=_cv2.INTER_LINEAR)
             clip_bound = _cv2.resize(clip_bound, (w, h),
                                      interpolation=_cv2.INTER_LINEAR)
+        try:
+            norm_coef = {int(k): _np.asarray(v, _np.float32) for k, v in
+                         _json.loads((tmp / "norm_coef.json")
+                                     .read_text()).items()}
+        except (OSError, ValueError):
+            norm_coef = {}
         ssum = _np.zeros((h, w, 3), _np.float32)
         wsum = _np.zeros((h, w, 3), _np.float32)
         fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
         fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
         scratch = _np.zeros((h, w), _np.uint8)
+    if sky_half is not None and sky_half.shape[:2] != (hs, ws):
+        sky_half = _cv2.resize(sky_half, (ws, hs),
+                               interpolation=_cv2.INTER_LINEAR)
 
     def _frame_background(a, okm):
         """Per-channel sky level (Siril-style normalisation): 20th
@@ -269,9 +286,26 @@ def _stack_pass(args) -> dict:
                                   interpolation=_cv2.INTER_NEAREST) == 0
             else:
                 ok &= scratch == 0
-        bg = _frame_background(arr, foot.astype(bool))
-        bgs[i] = [float(v) for v in bg]
-        arr -= bg[None, None, :]     # remove this frame's sky drift
+        # local normalization: subtract this frame's own low-order sky
+        # surface (twilight/light-pollution gradients differ frame to
+        # frame and a scalar offset cannot equalize them); the average
+        # surface is restored to the stack afterwards, so nothing is
+        # destructively flattened.  Pass 2 replays pass 1's coefficients
+        # exactly, keeping the clip bounds valid.
+        coef = None
+        if mode == "moments":
+            coef = fit_frame_sky(arr, foot.astype(bool), sky_half)
+            if coef is not None:
+                norm_coef[i] = coef
+        else:
+            coef = norm_coef.get(i)
+        if coef is not None:
+            arr -= eval_frame_sky(coef, hs, ws)
+            bgs[i] = [float(v) for v in coef[:, 0]]
+        else:
+            bg = _frame_background(arr, foot.astype(bool))
+            bgs[i] = [float(v) for v in bg]
+            arr -= bg[None, None, :]     # remove this frame's sky drift
         if mode == "moments":
             mom.add(arr, ok)
         else:
@@ -287,6 +321,8 @@ def _stack_pass(args) -> dict:
         del arr, foot, ok
     out = {"bg": bgs}
     if mode == "moments":
+        out["coef"] = {int(k): _np.asarray(v).tolist()
+                       for k, v in norm_coef.items()}
         for name, a in (("count", mom.count), ("mean", mom.mean),
                         ("m2", mom.m2)):
             p = tmp / f"{name}_{worker_id}.npy"
@@ -1015,7 +1051,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
         notify(0.60, "building the clean starfield from every frame")
         base_img, fg_stack, coverage = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
-            corridor_segments, weights, cache, bad_pixels, notify, k1)
+            corridor_segments, weights, cache, bad_pixels, notify, k1,
+            sky_path)
         import tifffile
         tifffile.imwrite(cache.path("base.tif"),
                          np.clip(base_img, 0, 65535).astype(np.uint16),
@@ -1441,7 +1478,7 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
 
 def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  shape_out, S, corridor_segments, frame_weights, cache,
-                 bad_pixels, notify, k1=0.0):
+                 bad_pixels, notify, k1=0.0, sky_path=""):
     """Two-pass streaming sigma-clipped, noise-weighted stack at output
     resolution — the same rejection statistics as the leading stackers'
     kappa-sigma integration, with detected streaks additionally masked and
@@ -1468,7 +1505,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  if i in corridor_segments},
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
-                cfg.stack_sigma, want_fg, k1)
+                cfg.stack_sigma, want_fg, k1, sky_path)
 
     # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
     ram = _available_ram_gb()
@@ -1519,14 +1556,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     parts = run_pass("moments", 0.60, 0.70,
                      "measuring the sky (pass 1 of 2)")
     total = RunningMoments((hs, ws, 3))
-    all_bgs = []
+    all_coef = {}
+    all_bgs = {}
     for p in parts:
-        all_bgs.extend(p.get("bg", {}).values())
+        all_bgs.update(p.get("bg", {}))
+        all_coef.update(p.get("coef", {}))
         part = RunningMoments((hs, ws, 3))
         part.count = np.load(p["count"])
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
+    import json as _json
+    (tmp / "norm_coef.json").write_text(_json.dumps(
+        {str(k): v for k, v in all_coef.items()}))
     # clip statistics stay half-size on disk (~8x less I/O between the
     # passes); each pass-2 worker upsamples them in memory
     np.save(tmp / "clip_mean.npy", total.mean.astype(np.float32))
@@ -1544,7 +1586,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     fg_sum = None          # camera-sized (unaligned), not the output grid
     fg_n = 0
     for p in parts:
-        all_bgs.extend(p.get("bg", {}).values())
+        all_bgs.update(p.get("bg", {}))
         total_sum += np.load(p["csum"])
         total_w += np.load(p["cwsum"])
         coverage += np.load(p["fcount"])
@@ -1557,10 +1599,21 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # pixels where clipping rejected everything fall back to the plain mean
     base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
                     mean_full)
-    # frames were normalised to zero background: restore the mean sky level
-    if all_bgs:
-        base = base + np.mean(np.asarray(all_bgs, np.float32),
-                              axis=0)[None, None, :]
+    # frames were normalised against their own sky surface: restore the
+    # AVERAGE surface, so the true mean sky (and its gradient) survives —
+    # only the frame-to-frame differences were removed
+    if all_bgs or all_coef:
+        from meteorprep.stack.gradient import eval_frame_sky
+        eff = []
+        for i, bgv in all_bgs.items():
+            c = np.zeros((3, 6), np.float32)
+            got = all_coef.get(i, all_coef.get(str(i)))
+            if got is not None:
+                c = np.asarray(got, np.float32)
+            else:
+                c[:, 0] = np.asarray(bgv, np.float32)
+            eff.append(c)
+        base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
     return base.astype(np.float32), fg, coverage

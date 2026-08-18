@@ -32,7 +32,10 @@ def _write_png(layer: Layer, path: Path, width: int, height: int) -> tuple:
     # linear -> sRGB-ish gamma for a sane Photoshop starting point
     rgb8 = np.clip((np.clip(rgb, 0, 65535) / 65535.0) ** (1 / 2.2) * 255, 0, 255).astype(np.uint8)
     a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
-    Image.fromarray(np.dstack([rgb8, a8]), "RGBA").save(path)
+    # compress_level 2: ~3x faster writes than the default 6, ~10% larger
+    # files — the assembly stage was spending minutes in zlib
+    Image.fromarray(np.dstack([rgb8, a8]), "RGBA").save(
+        path, compress_level=2)
     return x_off, y_off
 
 

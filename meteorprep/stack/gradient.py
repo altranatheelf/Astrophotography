@@ -13,6 +13,57 @@ import numpy as np
 log = logging.getLogger("meteorprep")
 
 
+_NORM_TERMS = 6   # 1, u, v, u^2, uv, v^2
+
+
+def fit_frame_sky(arr: np.ndarray, ok: np.ndarray,
+                  sky: np.ndarray | None = None,
+                  grid: int = 12) -> np.ndarray | None:
+    """Per-frame low-order sky surface (PixInsight-style local
+    normalization, streaming edition): coefficients of a quadratic in
+    normalized coords (u, v in [-0.5, 0.5]), per channel — evaluate at any
+    resolution with eval_frame_sky.  Robust sampling: coarse-cell 20th
+    percentiles over covered sky pixels.  Returns (C, 6) or None when too
+    little sky is usable (caller falls back to a scalar offset)."""
+    h, w = arr.shape[:2]
+    nch = arr.shape[2] if arr.ndim == 3 else 1
+    ys = np.linspace(0, h, grid + 1, dtype=int)
+    xs = np.linspace(0, w, grid + 1, dtype=int)
+    pts, vals = [], []
+    for gy in range(grid):
+        for gx in range(grid):
+            sl = (slice(ys[gy], ys[gy + 1]), slice(xs[gx], xs[gx + 1]))
+            okc = ok[sl]
+            if sky is not None:
+                okc = okc & (sky[sl] >= 0.5)
+            if okc.mean() < 0.5:
+                continue
+            cell = arr[sl][okc]
+            pts.append(((xs[gx] + xs[gx + 1]) / (2.0 * w) - 0.5,
+                        (ys[gy] + ys[gy + 1]) / (2.0 * h) - 0.5))
+            vals.append(np.percentile(cell.reshape(len(cell), -1), 20,
+                                      axis=0))
+    if len(pts) < 20:
+        return None
+    pts = np.asarray(pts, np.float64)
+    vals = np.asarray(vals, np.float64).reshape(len(pts), nch)
+    u, v = pts[:, 0], pts[:, 1]
+    A = np.column_stack([np.ones_like(u), u, v, u * u, u * v, v * v])
+    coef, *_ = np.linalg.lstsq(A, vals, rcond=None)
+    return coef.T.astype(np.float32)          # (C, 6)
+
+
+def eval_frame_sky(coef: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Evaluate fit_frame_sky coefficients on an (h, w) grid -> (h, w, C)."""
+    coef = np.asarray(coef, np.float32)
+    u = (np.arange(w, dtype=np.float32) + 0.5) / w - 0.5
+    v = (np.arange(h, dtype=np.float32) + 0.5) / h - 0.5
+    uu, vv = np.meshgrid(u, v)
+    basis = np.stack([np.ones_like(uu), uu, vv, uu * uu, uu * vv, vv * vv])
+    out = np.tensordot(coef, basis, axes=([1], [0]))   # (C, h, w)
+    return np.moveaxis(out, 0, -1)
+
+
 def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
                      grid: int = 24, order: int = 2) -> np.ndarray | None:
     """Fit a low-order 2D polynomial background per channel.
