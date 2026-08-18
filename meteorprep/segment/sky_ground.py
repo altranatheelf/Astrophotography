@@ -106,7 +106,8 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
         windows[-2].extend(windows.pop())
     evidence = np.zeros((h, w), np.uint8)
     chunk = max(int(2e8 / (WIN * w * 4)), 32)
-    for widx in windows:
+
+    def _window_evidence(widx):
         med = np.empty((h, w), np.float32)
         for y0 in range(0, h, chunk):
             y1 = min(y0 + chunk, h)
@@ -146,7 +147,15 @@ def ground_from_alignment(lum_loader, foot_loader, n: int,
             dev += ((r > 5.0 * resid_scale + 0.8 * grad) & f).astype(np.float32)
             cnt_w += f
         freq = dev / np.maximum(cnt_w, 1.0)
-        evidence |= ((freq > 0.35) & used & (cnt_w >= 4)).astype(np.uint8)
+        return ((freq > 0.35) & used & (cnt_w >= 4)).astype(np.uint8)
+
+    # windows are independent; numpy/cv2 release the GIL for the heavy
+    # ops, so a small thread pool parallelizes them without pickling the
+    # memory-mapped loaders
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(3, len(windows))) as tp:
+        for ev_w in tp.map(_window_evidence, windows):
+            evidence |= ev_w
     # drop pointlike star-registration jitter, keep blobby ground churn
     evidence = cv2.morphologyEx(evidence, cv2.MORPH_OPEN,
                                 np.ones((3, 3), np.uint8))

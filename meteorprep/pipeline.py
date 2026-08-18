@@ -845,25 +845,38 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             dt = (frames[i].epoch_mid - frames[nearest].epoch_mid).total_seconds()
             det_wcs[i] = propagate_wcs(solved[nearest], dt)
             frames[i].wcs_source = "propagated"
-            if catalog is not None and not lp[i]:
-                if i % 10 == 0 or i == n - 1:
-                    notify(0.18 + 0.06 * i / max(n, 1),
-                           f"verifying the star lock frame by frame "
-                           f"({i + 1}/{n})")
-                rms, nm = solve_rms_px(det_wcs[i],
-                                       _detected_for_verify(decode_det_lum(i),
-                                                            undistort),
-                                       catalog)
-                frames[i].solve_rms_px = rms
-                if rms > rms_gate and nm >= cfg.solve_min_stars:
-                    res_i = solve_frame(decode_det_lum(i), det_wcs[i],
-                                        catalog, cfg_solve,
-                                        undistort=undistort)
-                    if res_i is not None:
-                        det_wcs[i] = res_i.wcs
-                        frames[i].wcs_source = "solved"
-                        frames[i].solve_rms_px = res_i.rms_px
-                        solve_files.append(frames[i].file)
+        verify_idx = [i for i in range(n)
+                      if i not in solved and catalog is not None
+                      and not lp[i]]
+        if verify_idx:
+            notify(0.18, "verifying the star lock frame by frame")
+
+            def _verify_one(i):
+                return i, solve_rms_px(
+                    det_wcs[i],
+                    _detected_for_verify(decode_det_lum(i), undistort),
+                    catalog)
+
+            # detection + matching release the GIL: thread-map the checks
+            from concurrent.futures import ThreadPoolExecutor
+            done_v = 0
+            with ThreadPoolExecutor(max_workers=min(4, cfg.jobs or 1)) as tp:
+                for i, (rms, nm) in tp.map(_verify_one, verify_idx):
+                    frames[i].solve_rms_px = rms
+                    done_v += 1
+                    if done_v % 20 == 0:
+                        notify(0.18 + 0.06 * done_v / len(verify_idx),
+                               f"verifying the star lock "
+                               f"({done_v}/{len(verify_idx)})")
+                    if rms > rms_gate and nm >= cfg.solve_min_stars:
+                        res_i = solve_frame(decode_det_lum(i), det_wcs[i],
+                                            catalog, cfg_solve,
+                                            undistort=undistort)
+                        if res_i is not None:
+                            det_wcs[i] = res_i.wcs
+                            frames[i].wcs_source = "solved"
+                            frames[i].solve_rms_px = res_i.rms_px
+                            solve_files.append(frames[i].file)
         base_wcs = scale_wcs(base_det_wcs, S)   # output-space base WCS
         pole_xy = pole_pixel_xy(base_wcs)
     else:

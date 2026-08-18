@@ -133,11 +133,8 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
     exe = find_exiftool()
     if exe is None:
         return None
-    records = []
-    for start in range(0, len(paths), EXIFTOOL_BATCH):
-        batch = paths[start:start + EXIFTOOL_BATCH]
-        log.info("reading photo info (%d/%d)…",
-                 min(start + len(batch), len(paths)), len(paths))
+
+    def _read_batch(batch):
         cmd = ([exe, "-j", "-n", "-fast2"] + [f"-{t}" for t in EXIF_TAGS]
                + [str(p) for p in batch])
         try:
@@ -149,7 +146,7 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
                 raise ExiftoolError(
                     "exiftool is installed but couldn't read these files.\n"
                     f"Its message was: {out.stderr.decode(errors='replace')[:500]}")
-            records.extend(json.loads(out.stdout))
+            return json.loads(out.stdout)
         except subprocess.TimeoutExpired as exc:
             raise ExiftoolError(
                 "Reading the photos is taking far too long — this almost "
@@ -166,6 +163,17 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
         except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
             raise ExiftoolError(
                 f"exiftool is installed at {exe} but failed to run: {exc}") from exc
+
+    batches = [paths[s:s + EXIFTOOL_BATCH]
+               for s in range(0, len(paths), EXIFTOOL_BATCH)]
+    records = []
+    # batches are independent exiftool processes: run a few side by side
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, len(batches))) as tp:
+        for k, recs in enumerate(tp.map(_read_batch, batches)):
+            records.extend(recs)
+            log.info("reading photo info (%d/%d)…",
+                     min((k + 1) * EXIFTOOL_BATCH, len(paths)), len(paths))
     metas = []
     for rec in records:
         p = Path(rec["SourceFile"])
