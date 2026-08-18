@@ -472,6 +472,8 @@ def run(cfg: Config, progress=None) -> dict:
     out_root.mkdir(parents=True, exist_ok=True)
 
     # ---------------- ingest ----------------
+    import time as _time
+    _t_ingest = _time.time()
     notify(0.02, "scanning input folder")
     paths = scan_input_dir(Path(cfg.input_dir), cfg.raw_extensions)
     if not paths:
@@ -498,6 +500,8 @@ def run(cfg: Config, progress=None) -> dict:
                 else np.empty((0, 2), np.int64))
         bp_keyf.write_text(bp_key)
 
+    pre_timings = [("folder scan + hot-pixel map",
+                    _time.time() - _t_ingest)]
     groups = segment_folder(metas, cfg.max_gap_factor)
     log.info("found %d frame(s) in %d group(s)", len(metas), len(groups))
 
@@ -514,7 +518,8 @@ def run(cfg: Config, progress=None) -> dict:
     results = {"groups": []}
     errors = []
     try:
-        _run_groups(cfg, real_groups, bad_pixels, notify, results, errors)
+        _run_groups(cfg, real_groups, bad_pixels, notify, results, errors,
+                    pre_timings)
     except Exception as exc:
         if _disk_full(exc) and not isinstance(exc, RuntimeError):
             raise RuntimeError(_DISK_FULL_MSG) from exc
@@ -527,10 +532,11 @@ def run(cfg: Config, progress=None) -> dict:
     return results
 
 
-def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors):
+def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors,
+                pre_timings=None):
     for group in real_groups:
         try:
-            res = _run_group(cfg, group, bad_pixels, notify)
+            res = _run_group(cfg, group, bad_pixels, notify, pre_timings)
             results["groups"].append(res)
         except Exception:
             if len(real_groups) == 1:
@@ -540,7 +546,8 @@ def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors):
             errors.append(group.group_id)
 
 
-def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
+def _run_group(cfg: Config, group, bad_pixels, notify,
+               pre_timings=None) -> dict:
     frames = group.frames
     n = len(frames)
     out_dir = cfg.output_path / group.group_id
@@ -549,7 +556,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     skipped = 0
     # per-stage wall clock for the run report ("where the time went")
     import time as _time
-    timings: list = []
+    timings: list = list(pre_timings or [])
     _t_last = [_time.time()]
 
     def mark(label):
@@ -1813,6 +1820,29 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     n_workers = (1 if ram < 7.5 else
                  2 if ram < 14 else max(min(cfg.jobs, 4), 1))
 
+    # ONE spawn pool serves both passes: spawn startup re-imports the
+    # numeric stack in every worker (seconds each), so pass 2 reuses the
+    # warm workers pass 1 already paid for
+    _pool_holder: dict = {"pool": None}
+
+    def get_pool():
+        if _pool_holder["pool"] is None:
+            import multiprocessing as _mp
+            from concurrent.futures import ProcessPoolExecutor
+            _pool_holder["pool"] = ProcessPoolExecutor(
+                max_workers=n_workers,
+                mp_context=_mp.get_context("spawn"))
+        return _pool_holder["pool"]
+
+    def close_pool():
+        p = _pool_holder["pool"]
+        _pool_holder["pool"] = None
+        if p is not None:
+            try:
+                p.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
     def run_pass(mode, frac0, frac1, label, want_fg=False,
                  want_trail=False, indices=None, on_result=None,
                  on_reset=None):
@@ -1832,50 +1862,47 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             chunks = [idx[k:k + chunk_size]
                       for k in range(0, len(idx), chunk_size)]
             import time as _time
-            import multiprocessing as _mp
-            from concurrent.futures import (FIRST_COMPLETED,
-                                            ProcessPoolExecutor, wait)
+            from concurrent.futures import FIRST_COMPLETED, wait
             try:
                 # spawn, not fork: see the alignment pool above
-                with ProcessPoolExecutor(
-                        max_workers=n_workers,
-                        mp_context=_mp.get_context("spawn")) as pool:
-                    futures = {pool.submit(
-                        _stack_pass,
-                        frame_args(mode, chunk, k, want_fg, want_trail)): k
-                        for k, chunk in enumerate(chunks)}
-                    chunk_len = {k: len(c) for k, c in enumerate(chunks)}
-                    pending = set(futures)
-                    finished_frames = 0
-                    last_seen = -1
-                    deadline = _time.time() + 600 + 300 * len(idx)
-                    while pending:
-                        done_set, pending = wait(pending, timeout=2,
-                                                 return_when=FIRST_COMPLETED)
-                        for fut in done_set:
-                            on_result(fut.result())
-                            merged += 1
-                            finished_frames += chunk_len[futures[fut]]
-                        in_flight = 0
-                        for fut, k in futures.items():
-                            if not fut.done():
-                                try:
-                                    in_flight += int(
-                                        (tmp / f"prog_{mode}_{k}.txt")
-                                        .read_text() or 0)
-                                except (OSError, ValueError):
-                                    pass
-                        # max(): a counter read can race its writer and
-                        # come back empty — never step backwards
-                        seen = max(min(finished_frames + in_flight,
-                                       len(idx)), last_seen)
-                        if seen != last_seen:
-                            last_seen = seen
-                            notify(frac0 + (frac1 - frac0) * seen / len(idx),
-                                   f"{label} (photo {seen}/{len(idx)})")
-                        if _time.time() > deadline:
-                            raise TimeoutError(f"{label} timed out")
+                pool = get_pool()
+                futures = {pool.submit(
+                    _stack_pass,
+                    frame_args(mode, chunk, k, want_fg, want_trail)): k
+                    for k, chunk in enumerate(chunks)}
+                chunk_len = {k: len(c) for k, c in enumerate(chunks)}
+                pending = set(futures)
+                finished_frames = 0
+                last_seen = -1
+                deadline = _time.time() + 600 + 300 * len(idx)
+                while pending:
+                    done_set, pending = wait(pending, timeout=2,
+                                             return_when=FIRST_COMPLETED)
+                    for fut in done_set:
+                        on_result(fut.result())
+                        merged += 1
+                        finished_frames += chunk_len[futures[fut]]
+                    in_flight = 0
+                    for fut, k in futures.items():
+                        if not fut.done():
+                            try:
+                                in_flight += int(
+                                    (tmp / f"prog_{mode}_{k}.txt")
+                                    .read_text() or 0)
+                            except (OSError, ValueError):
+                                pass
+                    # max(): a counter read can race its writer and
+                    # come back empty — never step backwards
+                    seen = max(min(finished_frames + in_flight,
+                                   len(idx)), last_seen)
+                    if seen != last_seen:
+                        last_seen = seen
+                        notify(frac0 + (frac1 - frac0) * seen / len(idx),
+                               f"{label} (photo {seen}/{len(idx)})")
+                    if _time.time() > deadline:
+                        raise TimeoutError(f"{label} timed out")
             except Exception as exc:
+                close_pool()
                 if _disk_full(exc):
                     # a one-core retry against a full disk fails the same
                     # way half an hour later — stop with a human message
@@ -1978,6 +2005,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     run_pass("clipped", 0.70, 0.80,
              "building the clean starfield (pass 2 of 2)", want_fg,
              want_trail, on_result=_merge_clipped, on_reset=_reset_clipped)
+    close_pool()
     fg = ((p2["fg_sum"] / max(p2["fg_n"], 1))
           if want_fg and p2["fg_n"] else None)
     trail = p2["trail"]

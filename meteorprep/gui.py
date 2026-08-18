@@ -59,23 +59,51 @@ def main() -> int:
                 self.done.emit(False, "Self-test crashed — see console.")
                 traceback.print_exc()
 
+    STYLE = """
+    QMainWindow, QWidget { background: #161a20; color: #dde3ea;
+                           font-size: 13px; }
+    QLabel { color: #dde3ea; }
+    QCheckBox { spacing: 8px; padding: 2px 0; }
+    QLineEdit, QComboBox { background: #1e242d; border: 1px solid #333a44;
+                           border-radius: 6px; padding: 5px 8px; }
+    QPushButton { background: #2a3340; border: 1px solid #3a4657;
+                  border-radius: 8px; padding: 9px 16px; font-weight: 600; }
+    QPushButton:hover { background: #33404f; }
+    QPushButton:disabled { color: #667; background: #1d232b; }
+    QPushButton#primary { background: #2f6fd6; border-color: #2f6fd6;
+                          color: white; font-size: 15px; }
+    QPushButton#primary:hover { background: #3c7de4; }
+    QPushButton#primary:disabled { background: #253248; color: #778;
+                                   border-color: #253248; }
+    QProgressBar { background: #1e242d; border: none; border-radius: 6px;
+                   height: 12px; text-align: center; color: transparent; }
+    QProgressBar::chunk { background: #2f6fd6; border-radius: 6px; }
+    """
+
     class Window(QMainWindow):
         def __init__(self):
             super().__init__()
+            from PySide6.QtCore import QSettings
             from meteorprep import __version__
             self.setWindowTitle(f"METEORPREP {__version__}")
             self.setAcceptDrops(True)
             self.folder = None
             self.worker = None
+            self._settings = QSettings("meteorprep", "gui")
 
             central = QWidget()
             layout = QVBoxLayout(central)
+            layout.setSpacing(10)
             self.drop_label = QLabel(
-                "Drop your meteor-frame folder here\n(or click to browse)")
+                "Drop your meteor-photo folder here\n(or click to browse)")
             self.drop_label.setAlignment(Qt.AlignCenter)
-            self.drop_label.setMinimumHeight(160)
-            self.drop_label.setStyleSheet(
-                "border: 2px dashed #888; border-radius: 12px; font-size: 15px;")
+            self.drop_label.setMinimumHeight(150)
+            self._drop_css = ("border: 2px dashed #4a5666; border-radius: "
+                              "12px; font-size: 15px; color: #9aa7b5;")
+            self._drop_css_hot = ("border: 2px dashed #2f6fd6; border-radius:"
+                                  " 12px; font-size: 15px; color: #cfe0ff;"
+                                  " background: #1b2432;")
+            self.drop_label.setStyleSheet(self._drop_css)
             self.drop_label.mousePressEvent = self._browse
             layout.addWidget(self.drop_label)
 
@@ -117,6 +145,7 @@ def main() -> int:
                 layout.addWidget(cb)
 
             self.button = QPushButton("Prepare")
+            self.button.setObjectName("primary")
             self.button.setEnabled(False)
             self.button.clicked.connect(self._start)
             layout.addWidget(self.button)
@@ -129,10 +158,26 @@ def main() -> int:
 
             self.bar = QProgressBar()
             self.status = QLabel("")
+            self.status.setWordWrap(True)
             layout.addWidget(self.bar)
             layout.addWidget(self.status)
+
+            # revealed when a run finishes
+            done_row = QHBoxLayout()
+            self.open_report_btn = QPushButton("Open the report")
+            self.open_folder_btn = QPushButton("Show the files")
+            for b in (self.open_report_btn, self.open_folder_btn):
+                b.setVisible(False)
+                done_row.addWidget(b)
+            self.open_report_btn.clicked.connect(
+                lambda: self._open_path(getattr(self, "_report_path", None)))
+            self.open_folder_btn.clicked.connect(
+                lambda: self._open_path(getattr(self, "_result_dir", None)))
+            layout.addLayout(done_row)
+
             self.setCentralWidget(central)
-            self.resize(460, 420)
+            self.resize(480, 480)
+            self._restore_settings()
 
             # heartbeat: if a step goes quiet, show a live elapsed timer so
             # a long stage never looks frozen
@@ -155,11 +200,60 @@ def main() -> int:
                     f"{self._last_msg}  —  still working "
                     f"({m}m {s:02d}s in this step)")
 
+        def _restore_settings(self):
+            s = self._settings
+            folder = s.value("folder", "")
+            if folder:
+                import os
+                if os.path.isdir(folder):
+                    self._set_folder(folder)
+            for cb, key in ((self.cb_png, "png"), (self.cb_trail, "trail"),
+                            (self.cb_sheet, "sheet"), (self.cb_half, "half")):
+                v = s.value(key)
+                if v is not None:
+                    cb.setChecked(v in (True, "true", "1"))
+            self.site.setText(str(s.value("site", "")))
+            for combo, key in ((self.compass, "compass"),
+                               (self.elevation, "elevation")):
+                v = str(s.value(key, ""))
+                if v and combo.findText(v) >= 0:
+                    combo.setCurrentText(v)
+
+        def _save_settings(self):
+            s = self._settings
+            s.setValue("folder", self.folder or "")
+            for cb, key in ((self.cb_png, "png"), (self.cb_trail, "trail"),
+                            (self.cb_sheet, "sheet"), (self.cb_half, "half")):
+                s.setValue(key, cb.isChecked())
+            s.setValue("site", self.site.text())
+            s.setValue("compass", self.compass.currentText())
+            s.setValue("elevation", self.elevation.currentText())
+
+        def _open_path(self, target):
+            if not target:
+                return
+            try:
+                import subprocess
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", str(target)])
+                elif sys.platform.startswith("linux"):
+                    subprocess.Popen(["xdg-open", str(target)])
+                else:
+                    import os
+                    os.startfile(str(target))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
         def dragEnterEvent(self, e):
             if e.mimeData().hasUrls():
+                self.drop_label.setStyleSheet(self._drop_css_hot)
                 e.acceptProposedAction()
 
+        def dragLeaveEvent(self, e):
+            self.drop_label.setStyleSheet(self._drop_css)
+
         def dropEvent(self, e):
+            self.drop_label.setStyleSheet(self._drop_css)
             for url in e.mimeData().urls():
                 self._set_folder(url.toLocalFile())
                 break
@@ -197,15 +291,29 @@ def main() -> int:
                 pointed_compass="" if compass == "not sure" else compass,
                 pointed_elevation_deg=elev,
             )
-            self.button.setEnabled(False)
+            self._save_settings()
+            self._set_running(True)
             self.worker = Worker(cfg)
             self.worker.progressed.connect(self._on_progress)
             self.worker.finished_ok.connect(self._on_done)
             self.worker.failed.connect(self._on_fail)
             self._last_msg = "starting up"
             self._msg_at = self._time.time()
+            self._run_t0 = self._time.time()
             self._hb.start()
             self.worker.start()
+
+        def _set_running(self, running: bool):
+            self.button.setEnabled(not running and self.folder is not None)
+            self.button.setText("Working…" if running else "Prepare")
+            self.test_button.setEnabled(not running)
+            for wdg in (self.cb_png, self.cb_trail, self.cb_sheet,
+                        self.cb_half, self.cb_force, self.site,
+                        self.compass, self.elevation):
+                wdg.setEnabled(not running)
+            if running:
+                self.open_report_btn.setVisible(False)
+                self.open_folder_btn.setVisible(False)
 
         def _self_test(self):
             self.test_button.setEnabled(False)
@@ -223,42 +331,51 @@ def main() -> int:
 
         def _on_progress(self, pct, msg):
             self.bar.setValue(pct)
+            # rough time remaining once the run has enough history
+            t0 = getattr(self, "_run_t0", None)
+            if t0 is not None and 8 <= pct < 100:
+                left = (self._time.time() - t0) * (100 - pct) / pct
+                m = int(left // 60)
+                eta = (f"   (~{m + 1} min left)" if m >= 1
+                       else "   (under a minute left)")
+                msg = msg + eta
             self.status.setText(msg)
             self._last_msg = msg
             self._msg_at = self._time.time()
 
         def _on_done(self, result):
             self._hb.stop()
+            self._set_running(False)
             total = sum(g["n_meteors"] for g in result["groups"])
             quality = ", ".join(g["alignment_quality"] for g in result["groups"])
             banner = "" if "degraded" not in quality else "  ⚠ ALIGNMENT DEGRADED"
+            mins = (self._time.time() - getattr(self, "_run_t0",
+                                                self._time.time())) / 60
             self.status.setText(
-                f"Done: {total} meteor(s).{banner}  Opening your results…")
-            self.button.setEnabled(True)
+                f"Done in {mins:.0f} min: {total} meteor(s).{banner}  "
+                f"Opening your results…")
             # open the run report (falls back to the folder) so the result
             # is one glance away, not a folder hunt
             try:
-                import subprocess
+                from pathlib import Path as _P
                 target = None
                 for g in result["groups"]:
                     target = g.get("outputs", {}).get("report") or target
                 if target is None and result["groups"]:
-                    from pathlib import Path as _P
                     target = str(_P(next(iter(
                         result["groups"][0]["outputs"].values()))).parent)
                 if target:
-                    if sys.platform == "darwin":
-                        subprocess.Popen(["open", target])
-                    elif sys.platform.startswith("linux"):
-                        subprocess.Popen(["xdg-open", target])
-                    else:
-                        import os
-                        os.startfile(target)  # type: ignore[attr-defined]
+                    self._report_path = target
+                    self._result_dir = str(_P(target).parent)
+                    self.open_report_btn.setVisible(True)
+                    self.open_folder_btn.setVisible(True)
+                    self._open_path(target)
             except Exception:
                 pass
 
         def _on_fail(self, tb):
             self._hb.stop()
+            self._set_running(False)
             # show the human-readable message (last line) in the window —
             # a Finder-launched app has no console to "see"
             last = [l for l in tb.strip().splitlines() if l.strip()][-1]
@@ -278,7 +395,8 @@ def main() -> int:
                 return
             event.accept()
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyleSheet(STYLE)
     win = Window()
     win.show()
     return app.exec()

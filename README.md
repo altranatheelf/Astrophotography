@@ -4,6 +4,14 @@ An open-source preparer that turns a folder of fixed-tripod RAW meteor-shower
 frames into a **layered, geometry-corrected PSD** (plus a PNG + Photoshop-script
 fallback), with a JSON provenance sidecar.
 
+## Quick start (macOS, no terminal)
+
+Double-click **MeteorPrep.app** (or **Start MeteorPrep.command**) in this
+folder.  The first time, macOS may warn about an unidentified developer:
+right-click the app, choose **Open**, then **Open** again — only needed
+once.  First launch installs the components by itself if they're missing.
+Then drop your photo folder into the window and press **Prepare**.
+
 Every mechanical/geometric step is automated — decode, timing, plate solve,
 TAN reprojection, meteor detection, aircraft/satellite rejection, alpha
 extraction, sigma-clipped base stacking, assembly.  Every aesthetic decision

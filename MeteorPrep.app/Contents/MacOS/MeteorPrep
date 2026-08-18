@@ -1,0 +1,29 @@
+#!/bin/bash
+# MeteorPrep one-click launcher (app bundle).
+# Lives inside the unzipped METEORPREP folder — it launches the GUI from
+# the folder that contains this app, so keep them together.
+set -u
+HERE="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$HERE"
+
+PY="/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+if [ ! -x "$PY" ]; then
+    PY="$(command -v python3 || true)"
+fi
+if [ -z "${PY:-}" ]; then
+    command -v osascript >/dev/null 2>&1 && osascript -e \
+      'display alert "Python not found" message "Install Python 3 from python.org, then double-click MeteorPrep again."'
+    exit 1
+fi
+
+if ! "$PY" -c "import PySide6, numpy, astropy, cv2, rawpy, reproject" >/dev/null 2>&1; then
+    command -v osascript >/dev/null 2>&1 && osascript -e \
+      'display dialog "First-time setup: MeteorPrep will install its components now. This takes a few minutes — press OK and wait for the window to appear." buttons {"OK"} default button 1' >/dev/null 2>&1
+    if ! "$PY" -m pip install ".[gui]" > /tmp/meteorprep_setup.log 2>&1; then
+        command -v osascript >/dev/null 2>&1 && osascript -e \
+          'display alert "Setup did not finish" message "The install log is in /tmp/meteorprep_setup.log — send it to Claude and it will sort it out."'
+        exit 1
+    fi
+fi
+
+exec "$PY" -m meteorprep.gui
