@@ -188,7 +188,7 @@ def _stack_pass(args) -> dict:
     """
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
-     bad_pixels, sigma, want_fg, k1, sky_path) = args
+     bad_pixels, sigma, want_fg, want_trail, k1, sky_path) = args
     import json as _json
 
     import cv2 as _cv2
@@ -236,6 +236,7 @@ def _stack_pass(args) -> dict:
         fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
         fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
+        trail_max = None   # camera-space lighten-max (free star trails)
         scratch = _np.zeros((h, w), _np.uint8)
     if sky_half is not None and sky_half.shape[:2] != (hs, ws):
         sky_half = _cv2.resize(sky_half, (ws, hs),
@@ -285,6 +286,10 @@ def _stack_pass(args) -> dict:
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
             fg_sum += rgb.astype(_np.float32)
             fg_n += 1
+        if mode != "moments" and want_trail:
+            if trail_max is None:
+                trail_max = _np.zeros(rgb.shape, _np.uint16)
+            _np.maximum(trail_max, rgb, out=trail_max)
         distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
                    else None)
         src_wcs = _wcs_from_str(wstr)
@@ -359,6 +364,10 @@ def _stack_pass(args) -> dict:
             _np.save(p, fg_sum)
             out["fg"] = str(p)
             out["fg_n"] = fg_n
+        if trail_max is not None:
+            p = tmp / f"trail_{worker_id}.npy"
+            _np.save(p, trail_max)
+            out["trail"] = str(p)
     return out
 
 
@@ -1082,7 +1091,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                else {})
     if stage_fresh("base_sky"):
         notify(0.60, "building the clean starfield from every frame")
-        base_img, fg_stack, coverage = _stream_base(
+        base_img, fg_stack, coverage, trail_img = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
             corridor_segments, weights, cache, bad_pixels, notify, k1,
             sky_path)
@@ -1096,6 +1105,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                              compression="zlib")
         if coverage is not None:
             np.save(cache.path("coverage.npy"), coverage)
+        if trail_img is not None:
+            tifffile.imwrite(cache.path("startrail.tif"),
+                             np.clip(trail_img, 0, 65535).astype(np.uint16),
+                             compression="zlib")
         stage_done("base_sky")
     import tifffile
     base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
@@ -1363,13 +1376,20 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     if pv:
         outputs["preview"] = str(pv)
     if cfg.emit_startrail:
-        trail = lighten_stack(
-            lambda i: raw_mod.decode(frames[i].path, "final", bad_pixels,
-                                     half_size=cfg.half_size)
-            .astype(np.float32), n)
-        tifffile.imwrite(out_dir / "startrail.tif",
-                         np.clip(trail, 0, 65535).astype(np.uint16),
-                         compression="zlib")
+        # rendered for free inside stack pass 2 (camera-space lighten-max)
+        if cache.path("startrail.tif").exists():
+            import shutil as _sh
+            _sh.copyfile(cache.path("startrail.tif"),
+                         out_dir / "startrail.tif")
+        else:                     # cache from an older run: render classic
+            trail = lighten_stack(
+                lambda i: raw_mod.decode(frames[i].path, "final",
+                                         bad_pixels,
+                                         half_size=cfg.half_size)
+                .astype(np.float32), n)
+            tifffile.imwrite(out_dir / "startrail.tif",
+                             np.clip(trail, 0, 65535).astype(np.uint16),
+                             compression="zlib")
         outputs["startrail"] = str(out_dir / "startrail.tif")
 
     sidecar = write_sidecar(
@@ -1552,7 +1572,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
 
-    def frame_args(mode, indices, worker_id, want_fg=False):
+    def frame_args(mode, indices, worker_id, want_fg=False,
+                   want_trail=False):
         return (mode, list(indices),
                 [str(frames[i].path) for i in indices],
                 [_wcs_to_str(scale_wcs(det_wcs[i], S))
@@ -1563,14 +1584,15 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  if i in corridor_segments},
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
-                cfg.stack_sigma, want_fg, k1, sky_path)
+                cfg.stack_sigma, want_fg, want_trail, k1, sky_path)
 
     # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
     ram = _available_ram_gb()
     n_workers = (1 if ram < 7.5 else
                  2 if ram < 14 else max(min(cfg.jobs, 3), 1))
 
-    def run_pass(mode, frac0, frac1, label, want_fg=False):
+    def run_pass(mode, frac0, frac1, label, want_fg=False,
+                 want_trail=False):
         results = []
         if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
             chunk_size = max(len(ok_idx) // (n_workers * 4), 4)
@@ -1584,7 +1606,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                         max_workers=n_workers,
                         mp_context=_mp.get_context("spawn")) as pool:
                     futures = {pool.submit(
-                        _stack_pass, frame_args(mode, chunk, k, want_fg)): k
+                        _stack_pass,
+                        frame_args(mode, chunk, k, want_fg, want_trail)): k
                         for k, chunk in enumerate(chunks)}
                     done = 0
                     for fut in as_completed(
@@ -1597,13 +1620,14 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 log.warning("parallel stacking failed (%s); one core", exc)
                 results = []
         if not results:
-            results = [_stack_pass(frame_args(mode, ok_idx, 0, want_fg))]
+            results = [_stack_pass(
+                frame_args(mode, ok_idx, 0, want_fg, want_trail))]
         return results
 
     if base_wcs is None:
         return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
                                shape_out, bad_pixels),
-                None, None)
+                None, None, None)
 
     # -------- pass 1: per-pixel moments at half resolution ---------------
     import cv2 as _cv2
@@ -1636,13 +1660,16 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                             interpolation=_cv2.INTER_LINEAR)
 
     # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
+    want_trail = bool(cfg.emit_startrail)
     parts = run_pass("clipped", 0.70, 0.80,
-                     "building the clean starfield (pass 2 of 2)", want_fg)
+                     "building the clean starfield (pass 2 of 2)", want_fg,
+                     want_trail)
     total_sum = np.zeros((h, w, 3), np.float64)
     total_w = np.zeros((h, w, 3), np.float64)
     coverage = np.zeros((h, w), np.uint16)
     fg_sum = None          # camera-sized (unaligned), not the output grid
     fg_n = 0
+    trail = None           # camera-space lighten-max, rides along free
     for p in parts:
         all_bgs.update(p.get("bg", {}))
         total_sum += np.load(p["csum"])
@@ -1652,6 +1679,9 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             part_fg = np.load(p["fg"])
             fg_sum = part_fg if fg_sum is None else fg_sum + part_fg
             fg_n += p["fg_n"]
+        if want_trail and "trail" in p:
+            part_t = np.load(p["trail"])
+            trail = part_t if trail is None else np.maximum(trail, part_t)
     fg = (fg_sum / max(fg_n, 1)) if want_fg and fg_n else None
     del fg_sum
     # pixels where clipping rejected everything fall back to the plain mean
@@ -1674,7 +1704,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
-    return base.astype(np.float32), fg, coverage
+    return base.astype(np.float32), fg, coverage, trail
 
 
 def _rotate2d_mean(cfg, frames, ok_idx, corridor_segments, shape_out,

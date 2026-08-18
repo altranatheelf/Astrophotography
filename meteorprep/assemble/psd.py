@@ -1,10 +1,11 @@
-"""Layered 16-bit PSD writer via pytoshop (§7.1-§7.2).
+"""Layered 16-bit PSD writer (§7.1-§7.2).
 
-pytoshop is the primary writer but is lightly maintained (known raster-mask
-and ``nested_layers_to_psd`` quirks) and may be unavailable on modern
-toolchains — the PNG+JSX fallback (§7.3) is therefore always emitted
-alongside, and every written PSD is validated by re-opening with psd-tools
-when that package is present.  Auto-switches to PSB near the 2 GB limit.
+Primary path: the NATIVE writer (pure Python + numpy, no compiled
+dependencies — pytoshop needs a C compiler at install time and failed to
+build on the machines that matter).  pytoshop remains as a fallback when
+present; the PNG+JSX fallback (§7.3) is always emitted alongside, and
+every written PSD is validated by re-opening with psd-tools when that
+package is present.
 """
 
 from __future__ import annotations
@@ -50,8 +51,14 @@ def _layer_channels(layer: Layer, width: int, height: int):
 
 
 def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
-    """Write the layer stack as PSD (or PSB when size demands); returns the
-    written path or None when pytoshop is unavailable/fails."""
+    """Write the layer stack as PSD; returns the written path or None."""
+    try:
+        from meteorprep.assemble.psdwrite import write_psd_native
+        p = write_psd_native(stack, out_path)
+        validate_psd(p, stack)
+        return p
+    except Exception as exc:
+        log.warning("native PSD writer failed (%s); trying pytoshop", exc)
     try:
         import pytoshop
         from pytoshop import enums

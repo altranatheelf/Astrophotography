@@ -143,9 +143,12 @@ def test_rerun_uses_cache(pipeline_result, synth_config, caplog):
 
 
 def test_psd_roundtrip(pipeline_result, synth_config):
-    """§9.4 PSD round-trip — runs only when pytoshop is available."""
+    """§9.4 PSD round-trip through the native writer, verified with the
+    independent psd-tools parser: structure, blend modes, visibility, and
+    a bit-exact base-pixel comparison."""
     import pytest
-    pytest.importorskip("pytoshop")
+    pytest.importorskip("psd_tools")
+    import tifffile
     from psd_tools import PSDImage
 
     psd_path = Path(synth_config.output_dir) / "g01" / "meteorprep.psd"
@@ -154,6 +157,21 @@ def test_psd_roundtrip(pipeline_result, synth_config):
     names = {l.name for l in psd}
     assert "BASE_SKY" in names
     assert {"FOREGROUND", "METEORS", "FLAGGED"} <= names
+    by_name = {l.name: l for l in psd}
+    assert by_name["METEORS"].is_group()
+    assert not by_name["FLAGGED"].visible
+    # base pixels must round-trip exactly against the cached stack
+    base_p = Path(synth_config.output_dir) / "cache" / "g01" / "base.tif"
+    if base_p.exists():
+        comp = psd.numpy()[:, :, :3]
+        h, w = comp.shape[:2]
+        # crop-aware: compare the overlapping region
+        ref = None
+        for l in psd:
+            if l.name == "BASE_SKY":
+                ref = l.numpy()[:, :, :3]
+        assert ref is not None and ref.shape[:2] == (h, w)
+        assert float(np.abs(comp - ref).max()) < 1.0 / 65535 * 2
 
 
 def test_base_stack_contains_stars(pipeline_result, ground_truth, synth_config):

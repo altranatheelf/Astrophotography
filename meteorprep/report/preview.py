@@ -43,14 +43,12 @@ def render_preview(base_img: np.ndarray,
     try:
         import cv2
 
-        sky = base_img.astype(np.float32).copy()
-        if gradient is not None:
-            sky = np.maximum(sky - gradient.astype(np.float32), 0)
-        if color_gains is not None:
-            g = np.asarray(color_gains, np.float32)
-            sky *= g[None, None, :]
-
-        disp = _asinh_stretch(sky)
+        # deliberately simple: a plain per-channel asinh stretch of the
+        # stacked sky, verified good-looking on real nights.  Gradient
+        # subtraction and colour gains are left to the layered file —
+        # composited blindly here they produced a maroon sky and
+        # daylight-bright ground blocks (seen, not theorized).
+        disp = _asinh_stretch(base_img.astype(np.float32))
 
         # meteors: each streak brightened by its own peak so faint ones
         # read; screen-blend keeps stars behind them intact
@@ -77,13 +75,6 @@ def render_preview(base_img: np.ndarray,
                 disp[y0c:y1c, x0c:x1c] = 1 - (1 - region) * (1 - sub)
             elif contrib.shape[:2] == disp.shape[:2]:
                 disp = 1 - (1 - disp) * (1 - contrib)
-
-        # sharp foreground over the sky-dragged ground
-        if fg_img is not None and sky_mask is not None \
-                and fg_img.shape[:2] == disp.shape[:2]:
-            fg_disp = _asinh_stretch(fg_img, black_pct=8.0)
-            a = np.clip(1.0 - sky_mask, 0, 1)[:, :, None]
-            disp = disp * (1 - a) + fg_disp * a
 
         out8 = (np.clip(disp, 0, 1) * 255).astype(np.uint8)
         h, w = out8.shape[:2]
