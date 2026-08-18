@@ -716,9 +716,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         det_total = 2 * n * det_mb                      # both decode caches
         stack_total = (4 * 2.2 * canvas_mb              # scratch parts
                        + 6 * canvas_mb)                 # PSD/PNG/tifs out
-        # with cleanup enabled the decode caches are freed BEFORE stacking
-        # starts, so the two phases never coexist on disk
-        need_mb = (max(det_total, stack_total) if cfg.cleanup_cache
+        # with cleanup enabled the camera-decode cache is freed after
+        # alignment, but the aligned cache stays through stacking for the
+        # faint-meteor harvest
+        need_mb = (max(det_total, n * det_mb + stack_total)
+                   if cfg.cleanup_cache
                    else det_total + stack_total) + 2000
         free_mb = _sh.disk_usage(str(out_dir)).free / 1e6
         if free_mb < need_mb:
@@ -1212,15 +1214,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             streaks_per_frame[i] = s
             diffs_det[i] = np.load(diff_path, mmap_mode="r")
 
-    if cfg.cleanup_cache:
-        # the aligned-luminance cache (~15 MB/frame) is dead once the
-        # ground mask and streak search are done: free its GBs before the
-        # disk-heavy stacking begins.  Invalidate the alignment stage so a
-        # later resume knows to rebuild rather than trust missing files.
-        import shutil as _shutil
-        _shutil.rmtree(det_dir, ignore_errors=True)
-        cache.invalidate("reproject")
-        log.info("freed the alignment cache early (%s)", det_dir.name)
 
     # ---------------- tracking + colour + classification ----------------
     notify(0.55, "telling meteors from planes and satellites")
@@ -1297,6 +1290,52 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     coverage = (np.load(cache.path("coverage.npy"))
                 if cache.path("coverage.npy").exists() else None)
     base_lum = raw_mod.luminance(base_img)
+
+    # ------- second-pass faint-meteor harvest vs the clean base ---------
+    if (cfg.faint_harvest and base_wcs is not None
+            and (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists()):
+        try:
+            import cv2 as _cv2
+            from meteorprep.detect.harvest import harvest_faint_meteors
+            notify(0.815, "hunting fainter meteors against the clean sky")
+            base_lum_det = _cv2.resize(base_lum, (wd, hd),
+                                       interpolation=_cv2.INTER_AREA)
+            known_segs = [seg for segs in corridor_segments.values()
+                          for seg in segs]
+            sky_bin_h = ((sky_det >= 0.5).astype(np.float32)
+                         if sky_det is not None else None)
+            new_cands = harvest_faint_meteors(
+                load_det_lum, load_det_foot, base_lum_det, n,
+                set(int(v) for v in np.nonzero(lp)[0]), sky_bin_h,
+                known_segs, cfg, S, world_endpoints, radiant,
+                [m.file for m in frames], mad_k=cfg.faint_mad_k)
+            if new_cands:
+                for c in new_cands:
+                    i0 = file_to_idx[c.frames[0]]
+                    c.rotation_deg = SIDEREAL_DEG_PER_SEC * (
+                        frames[i0].epoch_mid - base_mid).total_seconds()
+                    s0 = c.streaks[0]
+                    c.endpoints_pix_base = [[s0.x0, s0.y0], [s0.x1, s0.y1]]
+                candidates.extend(new_cands)
+                meteor_cands = [c for c in candidates
+                                if c.label == "meteor"]
+                flagged_cands = [c for c in candidates
+                                 if c.label != "meteor"]
+                meteor_cands.sort(key=lambda c: file_to_idx[c.frames[0]])
+                log.info("faint harvest added %d meteor(s)", len(new_cands))
+        except Exception as exc:
+            log.warning("faint harvest skipped (%s); first-pass results "
+                        "are unaffected", exc)
+
+    if cfg.cleanup_cache:
+        # the aligned-luminance cache is now truly done (first pass AND
+        # harvest): free its GBs before assembly.  Invalidate the
+        # alignment stage so a later resume rebuilds rather than trusting
+        # missing files.
+        import shutil as _shutil
+        _shutil.rmtree(det_dir, ignore_errors=True)
+        cache.invalidate("reproject")
+        log.info("freed the alignment cache (%s)", det_dir.name)
 
     # ---------------- extraction (full quality, meteor frames only) -----
     mark("building the clean starfield")
@@ -1609,12 +1648,58 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                                    meteor_layers + flagged_layers,
                                    roi_images, out_dir)
     mark("preview + report")
+    # -------- evidence bundle (2.0 plan, Phase 1 lite) --------
+    try:
+        import cv2 as _cv2
+        evd = out_dir / "evidence"
+        evd.mkdir(exist_ok=True)
+
+        def _gray_png(arr, path, hi=None):
+            a = arr.astype(np.float32)
+            hi = hi or max(float(np.percentile(a, 99.5)), 1e-6)
+            g8 = (np.clip(a / hi, 0, 1) * 255).astype(np.uint8)
+            hh, ww2 = g8.shape[:2]
+            if ww2 > 1400:
+                g8 = _cv2.resize(g8, (1400, int(hh * 1400 / ww2)),
+                                 interpolation=_cv2.INTER_AREA)
+            _cv2.imwrite(str(path), g8)
+
+        ev_stats = {}
+        if coverage is not None:
+            cov = coverage
+            if crop is not None:
+                cov = coverage[crop[1]:crop[3], crop[0]:crop[2]]
+            _gray_png(cov, evd / "coverage.png", hi=float(cov.max()))
+            ev_stats["coverage"] = (f"{int(cov.min())}–{int(cov.max())} "
+                                    f"frames/px (median "
+                                    f"{int(np.median(cov))})")
+        if cache.path("noise_half.npy").exists():
+            nm = np.load(cache.path("noise_half.npy")).astype(np.float32)
+            nm = nm.mean(axis=2) if nm.ndim == 3 else nm
+            _gray_png(nm, evd / "noise.png")
+            ev_stats["sky noise per frame"] = (
+                f"~{float(np.median(nm)):.0f} ADU (median, 16-bit)")
+    except Exception as exc:
+        log.warning("evidence maps skipped: %s", exc)
+        ev_stats = {}
+
+    total_exp = sum(float(frames[i].exposure_s or 0) for i in ok_idx)
+    n_faint = sum(1 for c in candidates
+                  if c.flags.get("faint_harvest"))
     info = {"star solver": solver_used,
             "star-lock accuracy": f"{base_meta.solve_rms_px:.2f} px RMS"
             if base_meta.solve_rms_px else "n/a",
             "lens correction k1": f"{k1:+.4f}" if abs(k1) > 1e-9
             else "none needed",
-            "photos stacked": f"{len(ok_idx)} of {n}"}
+            "photos stacked": f"{len(ok_idx)} of {n}",
+            "integration": f"{total_exp / 60:.0f} min of exposure "
+                           f"({len(ok_idx)} x "
+                           f"{total_exp / max(len(ok_idx), 1):.0f}s)",
+            "faint-pass meteors": str(n_faint),
+            "generated pixels": "none — every trail is measured light, "
+                                "at its true sky position",
+            "recipe hash": cfg.params_hash()[:23]}
+    info.update(ev_stats)
     if color_cal is not None:
         gn = color_cal["gains"]
         info["star colour calibration"] = (
@@ -2074,6 +2159,14 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 c[:, 0] = np.asarray(bgv, np.float32)
             eff.append(c)
         base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
+    # evidence bundle: the per-pixel temporal noise map (pass-1 std) is a
+    # shipped product, not scaffolding — half-size float16 is ~30 MB
+    try:
+        bnd = np.load(tmp / "clip_bound.npy")
+        np.save(cache.path("noise_half.npy"),
+                (bnd / max(cfg.stack_sigma, 1e-6)).astype(np.float16))
+    except Exception:
+        pass
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
     return base.astype(np.float32), fg, coverage, trail

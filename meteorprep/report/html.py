@@ -173,6 +173,9 @@ meteors brightened; share it as-is or use it as a reference</li>
 coordinates) for every candidate</li>
 <li><b>skymask.png</b> — what the tool considered ground (black); should
 look like your treeline's silhouette</li>
+<li><b>evidence/</b> — the stack's own measurements: coverage.png (how
+many photos built each pixel) and noise.png (per-pixel sky noise) —
+the honest-image receipts</li>
 <li><b>run_log.txt</b> — the full diary; send it when something looks wrong</li>
 </ul>
 </body></html>"""

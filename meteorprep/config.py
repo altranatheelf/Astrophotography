@@ -76,6 +76,11 @@ class Config:
     radiant_dra_deg_per_day: float = 1.40
     radiant_ddec_deg_per_day: float = 0.20
     radiant_tol_deg: float = 5.0
+    # second-pass faint search against the clean stacked base (2.0 plan
+    # Phase 3): lower MAD multiplier than round one's 10 because the base
+    # diff is far cleaner; radiant gating protects precision
+    faint_harvest: bool = True
+    faint_mad_k: float = 6.0
 
     # --- stacking ---
     stack_sigma: float = 2.5

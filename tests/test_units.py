@@ -340,3 +340,63 @@ def test_preview_downscaled_bbox_blend_and_all_trails(tmp_path):
     # flagged trail at scaled (x=250, y=460): only in the all-trails look
     assert a[455:465, 200:300].mean() > bg + 40
     assert p[455:465, 200:300].mean() < bg + 10
+
+
+def test_faint_harvest_recovers_radiant_aligned_only():
+    """Phase-3 gates: a faint radiant-aligned streak IS recovered from
+    the clean-base diff; the same streak pointing away from the radiant
+    is rejected; corridors of known candidates are not re-found; pure
+    noise frames yield zero false meteors."""
+    import cv2
+    from meteorprep.config import Config
+    from meteorprep.detect.harvest import harvest_faint_meteors
+
+    rng = np.random.default_rng(11)
+    H, W, N = 600, 800, 6
+    sc = 0.05                                   # deg per pixel (fake TAN)
+    base = np.full((H, W), 500.0, np.float32)
+    noise = 300.0                               # realistic 16-bit sky noise
+    frames = [base + rng.normal(0, noise, (H, W)).astype(np.float32)
+              for _ in range(N)]
+
+    def draw(img, p0, p1, amp):
+        s = np.zeros((H, W), np.float32)
+        cv2.line(s, p0, p1, float(amp), thickness=2)
+        img += cv2.GaussianBlur(s, (5, 5), 1.2)
+
+    # peak ~0.7*amp after the blur: between the mad_k=6 harvest threshold
+    # (~1270 ADU) and round one's mad_k=10 (~1980 ADU) — genuinely faint
+    amp = 1900.0
+    draw(frames[2], (200, 150), (320, 240), amp)   # collinear with (0,0)
+    draw(frames[3], (500, 100), (500, 260), amp)   # perpendicular ray
+    draw(frames[4], (100, 400), (250, 400), amp)   # inside a KNOWN corridor
+
+    def world_endpoints(fi, s):
+        return ((s.x0 * sc, s.y0 * sc), (s.x1 * sc, s.y1 * sc))
+
+    cfg = Config(input_dir=".", output_dir=".")
+    # round one (mad_k=10) must NOT see it — that's what makes it faint
+    from meteorprep.detect.hough import detect_streaks
+    d2 = np.clip(frames[2] - base, 0, None)
+    assert detect_streaks(d2, 2, cfg, bin_factor=1, mad_k=10.0) == []
+    out = harvest_faint_meteors(
+        lambda i: frames[i], lambda i: np.ones((H, W), np.uint8),
+        base, N, exclude=set(), sky_bin=None,
+        known_segments=[(100, 400, 250, 400, 12.0)], cfg=cfg, S=1,
+        world_endpoints=world_endpoints, radiant=(0.0, 0.0),
+        files=[f"F{i}.tif" for i in range(N)], mad_k=6.0)
+    assert len(out) == 1, [(c.frames, c.label) for c in out]
+    c = out[0]
+    assert c.frames == ["F2.tif"] and c.flags.get("faint_harvest")
+    assert c.label == "meteor"
+
+    # meteor-free night: all noise -> nothing at all
+    quiet = [base + rng.normal(0, noise, (H, W)).astype(np.float32)
+             for _ in range(N)]
+    out2 = harvest_faint_meteors(
+        lambda i: quiet[i], lambda i: np.ones((H, W), np.uint8),
+        base, N, exclude=set(), sky_bin=None, known_segments=[],
+        cfg=cfg, S=1, world_endpoints=world_endpoints,
+        radiant=(0.0, 0.0), files=[f"F{i}.tif" for i in range(N)],
+        mad_k=6.0)
+    assert out2 == []

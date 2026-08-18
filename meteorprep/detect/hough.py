@@ -85,7 +85,7 @@ def _perpendicular_fwhm(diff: np.ndarray, p0, p1) -> float:
 
 def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
                    rgb_diff: np.ndarray | None = None,
-                   bin_factor: int = 1) -> list[Streak]:
+                   bin_factor: int = 1, mad_k: float = 10.0) -> list[Streak]:
     """Detect streaks in a (binned) luminance difference image.
 
     ``diff`` is `current_reprojected - reference`, negatives clipped, in
@@ -105,7 +105,7 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
         med = float(np.median(finite))
         mad = 1.4826 * float(np.median(np.abs(finite - med))) + 1e-3
         thresh = min(cfg.diff_threshold * scale,
-                     max(med + 10.0 * mad, 3.0 * scale))
+                     max(med + mad_k * mad, 3.0 * scale))
     else:
         thresh = cfg.diff_threshold * scale
     mask = (diff > thresh).astype(np.uint8)
