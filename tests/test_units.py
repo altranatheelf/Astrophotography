@@ -231,3 +231,29 @@ def test_ground_mask_covers_long_session_sweep():
     assert ground[:250, :].mean() < 0.02         # sky, meteor, twilight kept
     # the twilight patch region specifically must stay sky
     assert ground[120:250, 350:550].mean() < 0.05
+
+
+def test_fill_norm_coef_interpolates_skipped_frames():
+    """Pass-1 statistics may sample every 2nd frame; the skipped frames'
+    sky-surface coefficients must be linearly interpolated between fitted
+    temporal neighbours and constant-extended at the ends."""
+    from meteorprep.pipeline import _fill_norm_coef
+    ok_idx = list(range(9))
+    fitted = {0: np.full((3, 6), 10.0).tolist(),
+              2: np.full((3, 6), 20.0).tolist(),
+              4: np.full((3, 6), 40.0).tolist(),
+              6: np.full((3, 6), 30.0).tolist()}
+    out = _fill_norm_coef(dict(fitted), ok_idx)
+    assert set(out) == set(ok_idx)
+    for k, v in fitted.items():                  # fitted frames untouched
+        assert np.allclose(out[k], v)
+    assert np.allclose(out[1], 15.0)             # midpoint 0..2
+    assert np.allclose(out[3], 30.0)             # midpoint 2..4
+    assert np.allclose(out[5], 35.0)             # midpoint 4..6
+    assert np.allclose(out[7], 30.0)             # constant-extended tail
+    assert np.allclose(out[8], 30.0)
+    # complete dict passes through unchanged
+    full = {i: np.zeros((3, 6)).tolist() for i in ok_idx}
+    assert _fill_norm_coef(dict(full), ok_idx) == full
+    # empty dict (fit failed everywhere) stays empty
+    assert _fill_norm_coef({}, ok_idx) == {}

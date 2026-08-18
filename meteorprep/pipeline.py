@@ -539,7 +539,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             from concurrent.futures import ProcessPoolExecutor, as_completed
             try:
                 with ProcessPoolExecutor(
-                        max_workers=max(min(cfg.jobs, 4), 1),
+                        max_workers=max(min(cfg.jobs, 6), 1),
                         mp_context=_mp.get_context("spawn")) as pool:
                     futs = [pool.submit(_det_lum_one, a) for a in dl_work]
                     for fut in as_completed(futs,
@@ -1554,6 +1554,39 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
             c.color_rgb = (float(np.mean(rgs)), float(np.mean(bgs)))
 
 
+# below this many frames, pass 1 measures every frame; at or above it,
+# every 2nd frame (the clip statistics are population estimates and
+# converge long before that — the skipped frames' normalization surfaces
+# are interpolated by _fill_norm_coef and they contribute fully in pass 2)
+_STAT_SUBSET_MIN = 40
+
+
+def _fill_norm_coef(all_coef: dict, ok_idx) -> dict:
+    """Fill missing per-frame sky-surface coefficients by linear
+    interpolation between the fitted temporal neighbours (constant-
+    extended at the ends).  Sky surfaces drift smoothly through the
+    night, so an interpolated surface is faithful for a skipped frame."""
+    fitted = sorted(all_coef)
+    if not fitted or len(all_coef) >= len(ok_idx):
+        return all_coef
+    f_arr = np.array(fitted)
+    c_arr = np.array([np.asarray(all_coef[k], np.float32) for k in fitted])
+    for i in ok_idx:
+        if i in all_coef:
+            continue
+        pos = int(np.searchsorted(f_arr, i))
+        if pos == 0:
+            c = c_arr[0]
+        elif pos >= len(f_arr):
+            c = c_arr[-1]
+        else:
+            i0, i1 = int(f_arr[pos - 1]), int(f_arr[pos])
+            t = (i - i0) / max(i1 - i0, 1)
+            c = (1.0 - t) * c_arr[pos - 1] + t * c_arr[pos]
+        all_coef[i] = c.tolist()
+    return all_coef
+
+
 def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  shape_out, S, corridor_segments, frame_weights, cache,
                  bad_pixels, notify, k1=0.0, sky_path=""):
@@ -1592,12 +1625,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  2 if ram < 14 else max(min(cfg.jobs, 3), 1))
 
     def run_pass(mode, frac0, frac1, label, want_fg=False,
-                 want_trail=False):
+                 want_trail=False, indices=None):
+        idx = ok_idx if indices is None else list(indices)
         results = []
-        if base_wcs is not None and n_workers > 1 and len(ok_idx) >= n_workers:
-            chunk_size = max(len(ok_idx) // (n_workers * 4), 4)
-            chunks = [ok_idx[k:k + chunk_size]
-                      for k in range(0, len(ok_idx), chunk_size)]
+        if base_wcs is not None and n_workers > 1 and len(idx) >= n_workers:
+            chunk_size = max(len(idx) // (n_workers * 4), 4)
+            chunks = [idx[k:k + chunk_size]
+                      for k in range(0, len(idx), chunk_size)]
             import multiprocessing as _mp
             from concurrent.futures import ProcessPoolExecutor, as_completed
             try:
@@ -1611,7 +1645,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                         for k, chunk in enumerate(chunks)}
                     done = 0
                     for fut in as_completed(
-                            futures, timeout=600 + 300 * len(ok_idx)):
+                            futures, timeout=600 + 300 * len(idx)):
                         results.append(fut.result())
                         done += 1
                         notify(frac0 + (frac1 - frac0) * done / len(chunks),
@@ -1621,7 +1655,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 results = []
         if not results:
             results = [_stack_pass(
-                frame_args(mode, ok_idx, 0, want_fg, want_trail))]
+                frame_args(mode, idx, 0, want_fg, want_trail))]
         return results
 
     if base_wcs is None:
@@ -1635,8 +1669,9 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     from meteorprep.stack.streaming import RunningMoments
     want_fg = bool(cfg.emit_foreground_stack)
     hs, ws = h // 2, w // 2
+    stat_idx = (ok_idx if len(ok_idx) < _STAT_SUBSET_MIN else ok_idx[::2])
     parts = run_pass("moments", 0.60, 0.70,
-                     "measuring the sky (pass 1 of 2)")
+                     "measuring the sky (pass 1 of 2)", indices=stat_idx)
     total = RunningMoments((hs, ws, 3))
     all_coef = {}
     all_bgs = {}
@@ -1648,6 +1683,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
+    all_coef = _fill_norm_coef(all_coef, ok_idx)
     import json as _json
     (tmp / "norm_coef.json").write_text(_json.dumps(
         {str(k): v for k, v in all_coef.items()}))

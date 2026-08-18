@@ -45,21 +45,26 @@ def write_pngjsx(stack: LayerStack, out_dir: Path) -> Path:
     layers_dir = out_dir / "layers"
     layers_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = []  # (filename, group, blend, visible, name)
+    todo = [(stack.base, None)]
+    for grp in stack.groups:
+        for l in grp.layers:
+            todo.append((l, grp.name))
 
-    def emit(layer: Layer, group: str | None):
-        safe = "".join(c if c.isalnum() or c in "._+-" else "_" for c in layer.name)
+    def emit(item):
+        layer, group = item
+        safe = "".join(c if c.isalnum() or c in "._+-" else "_"
+                       for c in layer.name)
         fname = f"{safe}.png"
         x_off, y_off = _write_png(layer, layers_dir / fname,
                                   stack.width, stack.height)
-        manifest.append({"file": fname, "group": group, "blend": layer.blend,
-                         "visible": layer.visible, "name": layer.name,
-                         "x": x_off, "y": y_off})
+        return {"file": fname, "group": group, "blend": layer.blend,
+                "visible": layer.visible, "name": layer.name,
+                "x": x_off, "y": y_off}
 
-    emit(stack.base, None)
-    for grp in stack.groups:
-        for l in grp.layers:
-            emit(l, grp.name)
+    # PNG encoding is zlib-bound and releases the GIL: write layers 4-wide
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as tp:
+        manifest = list(tp.map(emit, todo))
 
     group_vis = {g.name: g.visible for g in stack.groups}
     jsx = _generate_jsx(stack, manifest, group_vis)

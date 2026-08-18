@@ -54,8 +54,10 @@ def _lsct(kind: int, blend: bytes = b"pass") -> bytes:
 
 
 def _zip16(plane: np.ndarray) -> bytes:
-    """Compression 2 (ZIP without prediction): big-endian u16, zlib."""
-    return zlib.compress(plane.astype(">u2").tobytes(), 6)
+    """Compression 2 (ZIP without prediction): big-endian u16, zlib.
+    Level 1: ~4x faster than the default for ~15% larger files — assembly
+    time matters more than a few hundred spare MB of scratch."""
+    return zlib.compress(plane.astype(">u2").tobytes(), 1)
 
 
 class _LayerSpec:
@@ -103,14 +105,19 @@ def write_psd_native(stack, path: Path) -> Path:
             else:
                 left = top = 0
                 bottom, right = rgb.shape[0], rgb.shape[1]
-            chans = []
+            jobs = []
             if sp.alpha is not None:
                 a16 = np.clip(np.asarray(sp.alpha, np.float32) * 65535.0,
                               0, 65535).astype(np.uint16)
-                chans.append((-1, struct.pack(">H", 2) + _zip16(a16)))
+                jobs.append((-1, a16))
             for cid in (0, 1, 2):
-                plane = rgb[:, :, cid].astype(np.uint16)
-                chans.append((cid, struct.pack(">H", 2) + _zip16(plane)))
+                jobs.append((cid, rgb[:, :, cid].astype(np.uint16)))
+            # channels compress independently and zlib releases the GIL
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=len(jobs)) as tp:
+                blobs = list(tp.map(lambda jb: _zip16(jb[1]), jobs))
+            chans = [(cid, struct.pack(">H", 2) + blob)
+                     for (cid, _), blob in zip(jobs, blobs)]
             blend_key = _BLEND_KEYS.get(sp.blend, b"norm")
             extra = _unicode_name(sp.name)
 
