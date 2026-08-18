@@ -182,6 +182,31 @@ def _paint_segments(mask: np.ndarray, segments) -> None:
                  thickness=max(int(2 * half_width), 3))
 
 
+_DISK_FULL_MSG = (
+    "Your disk is full — METEORPREP ran out of space for its working "
+    "files. Free up several GB (empty the Trash, delete old *_meteorprep "
+    "folders), then press Prepare again with 'Force re-run' UNCHECKED — "
+    "it will resume from where it stopped instead of starting over.")
+
+
+def _disk_full(exc) -> bool:
+    """True when an exception chain smells like an out-of-space write.
+    numpy's tofile raises a bare OSError('N requested and M written')
+    with no errno, so the string is checked too."""
+    import errno
+    seen, hops = exc, 0
+    while seen is not None and hops < 8:
+        if isinstance(seen, OSError) and seen.errno in (
+                errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)):
+            return True
+        s = str(seen)
+        if "requested and" in s and "written" in s:
+            return True
+        seen = seen.__cause__ or seen.__context__
+        hops += 1
+    return False
+
+
 def _stack_pass(args) -> dict:
     """One streaming pass over a subset of frames.
 
@@ -477,6 +502,10 @@ def run(cfg: Config, progress=None) -> dict:
     errors = []
     try:
         _run_groups(cfg, real_groups, bad_pixels, notify, results, errors)
+    except Exception as exc:
+        if _disk_full(exc) and not isinstance(exc, RuntimeError):
+            raise RuntimeError(_DISK_FULL_MSG) from exc
+        raise
     finally:
         logging.getLogger("meteorprep").removeHandler(_fh)
         _fh.close()
@@ -627,6 +656,39 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
     h, w = base_rgb_final.shape[:2]
     base_det_lum = decode_det_lum(base_i)
     hd, wd = base_det_lum.shape[:2]
+
+    # ---------------- free-disk preflight ----------------
+    # a full night's caches + stacking scratch + outputs are a real load
+    # on a laptop drive; failing here with a number beats an OSError
+    # after twenty minutes of work
+    try:
+        import shutil as _sh
+        canvas_mb = h * w * 3 * 4 / 1e6                 # one float32 canvas
+        det_mb = hd * wd * 3 / 1e6                      # uint16 lum + foot
+        need_mb = (n * det_mb                           # aligned det cache
+                   + n * det_mb                         # det_lum + diffs
+                   + 4 * 2.2 * canvas_mb                # stack scratch parts
+                   + 6 * canvas_mb                      # PSD/PNG/tifs out
+                   + 2000)                              # slack
+        free_mb = _sh.disk_usage(str(out_dir)).free / 1e6
+        if free_mb < need_mb:
+            raise RuntimeError(
+                f"Not enough free disk space: this night needs roughly "
+                f"{need_mb / 1000:.0f} GB of working room and the drive "
+                f"holding {out_dir.name} has only {free_mb / 1000:.1f} GB "
+                f"free. Free up space (empty the Trash, delete old "
+                f"*_meteorprep folders), then press Prepare again — or "
+                f"tick 'Fast mode: half-resolution result', which needs "
+                f"about a quarter of the room.")
+        if free_mb < 1.5 * need_mb:
+            log.warning("disk space is tight: ~%.0f GB free, ~%.0f GB "
+                        "needed — the run should fit, but closing other "
+                        "apps' downloads or emptying the Trash is wise",
+                        free_mb / 1000, need_mb / 1000)
+    except RuntimeError:
+        raise
+    except Exception:
+        pass                                            # preflight is advisory
 
     # ---------------- plate solving (at detection scale) ----------------
     notify(0.12, "matching your stars to the star map")
@@ -1647,6 +1709,12 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     """
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
+    # a crashed or interrupted earlier run leaves ~GB of stale part files
+    # here — never let them eat the disk a second time
+    for stale in tmp.glob("*.npy"):
+        stale.unlink(missing_ok=True)
+    for stale in tmp.glob("prog_*.txt"):
+        stale.unlink(missing_ok=True)
 
     def frame_args(mode, indices, worker_id, want_fg=False,
                    want_trail=False):
@@ -1678,7 +1746,11 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         idx = ok_idx if indices is None else list(indices)
         merged = 0
         if base_wcs is not None and n_workers > 1 and len(idx) >= n_workers:
-            chunk_size = max(len(idx) // (n_workers * 4), 4)
+            # one chunk per worker: each part on disk costs up to ~0.9 GB
+            # at 20 MP, so more chunks than workers once filled a laptop
+            # drive mid-run.  Per-photo progress comes from the counter
+            # files, not from chunk granularity.
+            chunk_size = -(-len(idx) // n_workers)
             chunks = [idx[k:k + chunk_size]
                       for k in range(0, len(idx), chunk_size)]
             import time as _time
@@ -1726,6 +1798,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                         if _time.time() > deadline:
                             raise TimeoutError(f"{label} timed out")
             except Exception as exc:
+                if _disk_full(exc):
+                    # a one-core retry against a full disk fails the same
+                    # way half an hour later — stop with a human message
+                    raise RuntimeError(_DISK_FULL_MSG) from exc
                 log.warning("parallel stacking failed (%s); one core", exc)
                 if merged:
                     if on_reset is None:
@@ -1733,8 +1809,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                     on_reset()
                 merged = 0
         if not merged:
-            on_result(_stack_pass(
-                frame_args(mode, idx, 0, want_fg, want_trail)))
+            try:
+                on_result(_stack_pass(
+                    frame_args(mode, idx, 0, want_fg, want_trail)))
+            except Exception as exc:
+                if _disk_full(exc):
+                    raise RuntimeError(_DISK_FULL_MSG) from exc
+                raise
 
     if base_wcs is None:
         return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
@@ -1760,6 +1841,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         part.mean = np.load(p["mean"])
         part.m2 = np.load(p["m2"])
         total.combine(part)
+        for key in ("count", "mean", "m2"):   # merged: free the disk now
+            Path(p[key]).unlink(missing_ok=True)
 
     def _reset_moments():
         nonlocal total
@@ -1804,6 +1887,9 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             part_t = np.load(p["trail"])
             p2["trail"] = (part_t if p2["trail"] is None
                            else np.maximum(p2["trail"], part_t))
+        for key in ("csum", "cwsum", "fcount", "fg", "trail"):
+            if key in p:                      # merged: free the disk now
+                Path(p[key]).unlink(missing_ok=True)
 
     def _reset_clipped():
         total_sum[:] = 0

@@ -257,3 +257,18 @@ def test_fill_norm_coef_interpolates_skipped_frames():
     assert _fill_norm_coef(dict(full), ok_idx) == full
     # empty dict (fit failed everywhere) stays empty
     assert _fill_norm_coef({}, ok_idx) == {}
+
+
+def test_disk_full_detection():
+    """ENOSPC must be recognised from errno, from numpy's errno-less
+    'requested and written' OSError, and through an exception chain —
+    and must not fire on unrelated failures."""
+    import errno
+    from meteorprep.pipeline import _disk_full
+    assert _disk_full(OSError(errno.ENOSPC, "No space left on device"))
+    assert _disk_full(OSError("5042580 requested and 0 written"))
+    wrapper = RuntimeError("worker died")
+    wrapper.__cause__ = OSError("12345 requested and 100 written")
+    assert _disk_full(wrapper)
+    assert not _disk_full(ValueError("boom"))
+    assert not _disk_full(OSError(errno.EPIPE, "broken pipe"))
