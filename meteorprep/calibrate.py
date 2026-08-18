@@ -81,11 +81,29 @@ def star_white_balance(base_img: np.ndarray, wcs, catalog: np.ndarray,
     good = np.isfinite(px).all(axis=1)
     cat, px = cat[good], px[good]
 
+    h_img, w_img = base_img.shape[:2]
+
+    def _snap(x, y, r_s=10):
+        """Snap the WCS-predicted position onto the actual star peak —
+        a few px of solve residual otherwise puts the tiny aperture on
+        empty sky."""
+        xi, yi = int(round(x)), int(round(y))
+        if not (r_s <= xi < w_img - r_s and r_s <= yi < h_img - r_s):
+            return None
+        patch = base_img[yi - r_s:yi + r_s + 1, xi - r_s:xi + r_s + 1, 1]
+        dy, dx = np.unravel_index(int(np.argmax(patch)), patch.shape)
+        if float(patch[dy, dx]) >= 60000.0:   # clipped core: colour is lies
+            return None
+        return xi - r_s + dx, yi - r_s + dy
+
     rg_corr, bg_corr = [], []
     for (ra, dec, mag, temp), (x, y) in zip(cat, px):
         if len(rg_corr) >= max_stars:
             break
-        flux = _aperture_flux(base_img, x, y)
+        snapped = _snap(x, y)
+        if snapped is None:
+            continue
+        flux = _aperture_flux(base_img, snapped[0], snapped[1])
         if flux is None:
             continue
         meas_rg = flux[0] / flux[1]

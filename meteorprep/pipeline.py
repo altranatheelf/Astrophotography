@@ -533,6 +533,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             stars_full = undistort(stars_full)
         polished = refine_wcs(stars_full, catalog, base_det_wcs,
                               sip_order=None)
+        # second round through the improved fit: from a marginal blind
+        # seed the first 25 px match picks up wrong pairs at the edges
+        if polished is not None:
+            again = refine_wcs(stars_full, catalog, polished.wcs,
+                               sip_order=None)
+            if again is not None and again.n_matched >= polished.n_matched:
+                polished = again
         if polished is not None and polished.n_matched > result.n_matched:
             log.info("base polish: %d -> %d stars, rms %.2f px",
                      result.n_matched, polished.n_matched, polished.rms_px)
@@ -547,8 +554,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
             _pred = np.column_stack(base_det_wcs.world_to_pixel_values(
                 catalog[:, 0], catalog[:, 1]))
             _ok = np.isfinite(_pred).all(axis=1)
+            # wide net on purpose: the strongly-distorted corner stars are
+            # exactly the ones that constrain k1, and the double polish
+            # above makes wrong pairings unlikely
             _d, _nn = _KD(_pred[_ok]).query(stars_full,
-                                            distance_upper_bound=10.0)
+                                            distance_upper_bound=12.0)
             _sel = np.isfinite(_d)
             if _sel.sum() >= 40:
                 m_xy = stars_full[_sel]
@@ -557,7 +567,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify) -> dict:
                           float(base_det_wcs.wcs.crval[1]))
                 k1_est, rms_b, rms_a = estimate_k1(m_xy, m_world, crval0,
                                                    (hd, wd))
-                if rms_a < 0.85 * rms_b and abs(k1_est) > 1e-4:
+                log.info("lens self-calibration: k1=%+.4f would change the "
+                         "star fit %.2f -> %.2f px (%d stars)",
+                         k1_est, rms_b, rms_a, len(m_xy))
+                if rms_a < 0.95 * rms_b and abs(k1_est) > 1e-4:
                     k1 = k1_est
                     dist = Poly3Distortion(k1, (hd, wd))
                     undistort = dist.undistort
