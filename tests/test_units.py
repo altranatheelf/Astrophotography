@@ -538,3 +538,47 @@ def test_candidate_cache_roundtrip(tmp_path):
     s = g.streaks[0]
     assert (s.x0, s.y0, s.x1, s.y1) == (10.5, 20.5, 110.5, 90.5)
     assert s.frame_index == 7 and abs(s.fwhm_px - 4.5) < 1e-6
+
+
+def test_meteor_layer_has_no_hard_edges():
+    """A streak's halo must fade out inside its own box: the layer has to
+    reach zero at every border, or the composite shows the rectangle —
+    straight edges and corners over the haze, which is exactly what a
+    too-small box with a hard corridor produced."""
+    import cv2
+    from meteorprep.mask.extract import extract_meteor
+
+    rng = np.random.default_rng(5)
+    h, w = 700, 900
+    sky = 800.0
+    base = np.full((h, w, 3), sky, np.float32)
+    # a streak with a broad glow, like a real bright meteor
+    core = np.zeros((h, w), np.float32)
+    cv2.line(core, (250, 300), (650, 420), 1.0, thickness=3)
+    glow = cv2.GaussianBlur(core, (0, 0), 18.0) * 9000.0     # wide haze
+    sharp = cv2.GaussianBlur(core, (0, 0), 1.6) * 45000.0    # bright core
+    streak = glow + sharp
+    frame = base + streak[:, :, None] + rng.normal(0, 40, (h, w, 3)).astype(np.float32)
+    diff = streak + rng.normal(0, 40, (h, w)).astype(np.float32)
+
+    layer = extract_meteor(diff, frame, ((250, 300), (650, 420)), 4.0,
+                           base_rgb=base)
+    assert layer is not None
+    a = layer.alpha
+    x0, y0, x1, y1 = layer.bbox
+
+    # 1) the box is far bigger than the old 6xFWHM=24 px pad
+    assert (x1 - x0) > (650 - 250) + 120, (x1 - x0)
+
+    # 2) alpha is zero on every border -> no edge can show
+    for edge in (a[0, :], a[-1, :], a[:, 0], a[:, -1]):
+        assert float(edge.max()) < 0.01, float(edge.max())
+
+    # 3) the halo is KEPT, not clipped: well off-axis but inside the box
+    #    there is still real signal carried by the layer
+    assert float(a[a > 0.05].size) > float((a > 0.9).sum()) * 2
+
+    # 4) the layer holds the streak's own light, not the sky, so screening
+    #    it where there is no streak changes nothing
+    corner = layer.rgb[:20, :20]
+    assert float(np.median(corner)) < 0.15 * sky

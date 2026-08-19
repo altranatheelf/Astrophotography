@@ -116,6 +116,7 @@ def _generate_jsx(stack: LayerStack, manifest, group_vis) -> str:
         lines.append(f"groups[{json.dumps(gname)}].visible = {str(vis).lower()};")
     for m in manifest:
         blend = {"lighten": "BlendMode.LIGHTEN",
+                 "screen": "BlendMode.SCREEN",
                  "subtract": "BlendMode.SUBTRACT"}.get(m["blend"],
                                                        "BlendMode.NORMAL")
         target = f"groups[{json.dumps(m['group'])}]" if m["group"] else "null"

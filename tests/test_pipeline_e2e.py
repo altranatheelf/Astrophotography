@@ -115,7 +115,9 @@ def test_outputs_exist_and_sidecar_valid(pipeline_result, synth_config):
     assert len(sidecar["candidates"]) == len(g["candidates"])
 
     jsx = (out / "assemble.jsx").read_text()
-    assert "BlendMode.LIGHTEN" in jsx
+    # streak layers carry the meteor's own added light and are screened
+    # onto the sky (Lighten pasted the source frame's sky with them)
+    assert "BlendMode.SCREEN" in jsx
     assert "BASE_SKY" in jsx
     manifest = json.loads((out / "layers_manifest.json").read_text())
     meteor_layers = [m for m in manifest if m["group"] == "METEORS"]

@@ -1490,7 +1490,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             d_full, arr,
             ((seg_streak.x0, seg_streak.y0),
              (seg_streak.x1, seg_streak.y1)),
-            seg_streak.fwhm_px, star_xy=star_cat_xy)
+            seg_streak.fwhm_px, star_xy=star_cat_xy,
+            base_rgb=base_img)
         if layer is None:
             continue
         x0, y0, x1, y1 = layer.bbox
@@ -1656,8 +1657,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 k + 1, c.frames[min(si, len(c.frames) - 1)],
                 frames[i].epoch_mid.astimezone(timezone.utc).isoformat(),
                 c.rotation_deg, c.confidence, flag)
+            # Screen, not Lighten: the layer holds the streak's own added
+            # light, so screening it onto the sky is the physical
+            # composite and leaves no box edge where the layer is zero
             out.append(Layer(name=name, rgb=rgb_l, alpha=alpha_l,
-                             bbox=bbox_l, blend="lighten", visible=visible))
+                             bbox=bbox_l, blend="screen", visible=visible))
         return out
 
     extra_layers = []
