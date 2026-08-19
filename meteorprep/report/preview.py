@@ -149,6 +149,18 @@ def render_preview(base_img: np.ndarray,
             if np.all(np.isfinite(g)) and np.all((g > 0.5) & (g < 2.0)):
                 lin = lin * g
                 wb = g
+        # sharp frozen foreground over the (sweep-suppressed) sky, blended
+        # in LINEAR light through the feathered horizon mask — verified by
+        # eye on real frames; the same composite a person would build from
+        # the layers
+        if (fg_img is not None and sky_mask is not None
+                and fg_img.shape[:2] == lin.shape[:2]
+                and sky_mask.shape[:2] == lin.shape[:2]):
+            fgl = fg_img.astype(np.float32)
+            if wb is not None:
+                fgl = fgl * wb
+            a = (1.0 - np.clip(sky_mask.astype(np.float32), 0, 1))[..., None]
+            lin = lin * (1.0 - a) + fgl * a
         # downsize to the output width BEFORE the stretch: INTER_AREA on
         # linear data is a clean average, and the arcsinh + blends then
         # touch ~2x fewer pixels
