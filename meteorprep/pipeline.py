@@ -1516,15 +1516,24 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             arr = arr[crop[1]:crop[3], crop[0]:crop[2]]
         return arr
 
-    fg_layers = [Layer(name="FG_base_time", rgb=_fit_output(base_rgb_final),
-                       alpha=(1.0 - sky_mask), blend="normal", visible=True)]
+    # The alignment mask exists to EXCLUDE ground from the meteor search;
+    # as an alpha channel its blocky edge and swept sky-islands paste the
+    # reference frame's brighter sky over the stack.  Reduce it to a clean
+    # treeline silhouette for compositing (the raw mask still ships as
+    # skymask.png and still drives detection).
+    from meteorprep.segment.silhouette import clean_silhouette
+    fg_ref = _fit_output(base_rgb_final)
+    sky_fg = clean_silhouette(sky_mask, image=fg_ref)
+    fg_alpha = 1.0 - sky_fg
+    fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
+                       alpha=fg_alpha, blend="normal", visible=True)]
     if fg_stack is not None:
         fg_stack = _fit_output(fg_stack)
     if fg_stack is not None:
         # frozen-ground stack: all frames averaged in camera space — far
         # lower noise than any single frame's foreground
         fg_layers.insert(0, Layer(name="FG_stacked_low_noise", rgb=fg_stack,
-                                  alpha=(1.0 - sky_mask), blend="normal",
+                                  alpha=fg_alpha, blend="normal",
                                   visible=False))
     for i in np.nonzero(lp)[0]:
         rgb_lp = _fit_output(raw_mod.decode(frames[i].path, "final",
@@ -1532,7 +1541,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                                             half_size=cfg.half_size))
         fg_layers.append(Layer(name=f"FG_lightpaint_{frames[i].file}",
                                rgb=rgb_lp,
-                               alpha=(1.0 - sky_mask), blend="normal",
+                               alpha=fg_alpha, blend="normal",
                                visible=False))
 
     def to_layers(pairs, visible):
@@ -1631,7 +1640,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
              if color_cal else None)
     fg_for_preview = fg_stack if fg_stack is not None \
         else _fit_output(base_rgb_final)
-    pv = render_preview(base_img, fg_for_preview, sky_mask, grad_arr,
+    pv = render_preview(base_img, fg_for_preview, sky_fg, grad_arr,
                         gains, meteor_layers, out_dir / "preview.jpg",
                         flagged_layers=flagged_layers,
                         all_trails_path=out_dir / "preview_all_trails.jpg",

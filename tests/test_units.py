@@ -417,3 +417,45 @@ def test_faint_harvest_recovers_radiant_aligned_only():
         radiant=(0.0, 0.0), files=[f"F{i}.tif" for i in range(N)],
         mad_k=6.0)
     assert out2 == []
+
+
+def test_clean_silhouette_and_level_match():
+    """The alignment mask is blocky and claims swept sky; as a foreground
+    alpha that pastes a brighter single frame over the stack (seen on a
+    real 226-frame night).  The cleaner must drop sky islands, drop
+    'ground' sitting on bright sky, keep a genuine ragged treeline, and
+    the level match must remove the brightness step."""
+    from meteorprep.segment.silhouette import clean_silhouette, match_sky_level
+
+    h, w = 600, 900
+    sky = np.ones((h, w), np.float32)
+    sky[430:, :] = 0.0                               # real treeline
+    for (y, x) in [(200, 300), (150, 700), (260, 500)]:
+        sky[y:y + 40, x:x + 40] = 0.0                # false blocks in sky
+    sky[380:430, ::60] = 0.0                         # blocky fringe
+    img = np.full((h, w, 3), 3000.0, np.float32)     # bright sky
+    img[430:, :] = 400.0                             # dark trees
+    c = clean_silhouette(sky, image=img)
+    assert c[140:300, 280:760].min() > 0.9           # islands gone
+    assert c[470:, :].max() < 0.1                    # trees kept
+    # a 'ground' blob sitting on bright sky is rejected by the content check
+    sky2 = np.ones((h, w), np.float32)
+    sky2[430:, :] = 0.0
+    sky2[200:330, 200:800] = 0.0                     # big blob over sky
+    c2 = clean_silhouette(sky2, image=img)
+    assert c2[210:320, 220:780].min() > 0.9
+    assert c2[470:, :].max() < 0.1
+    # genuine ragged treeline survives
+    sky3 = np.ones((h, w), np.float32)
+    img3 = np.full((h, w, 3), 3000.0, np.float32)
+    for x in range(w):
+        top = 430 + int(25 * np.sin(x / 40.0))
+        sky3[top:, x] = 0.0
+        img3[top:, x] = 400.0
+    c3 = clean_silhouette(sky3, image=img3)
+    assert c3[500:, :].max() < 0.1 and c3[:380, :].min() > 0.9
+    # level match removes the step between a bright frame and the stack
+    base = np.full((h, w, 3), 800.0, np.float32)
+    fg = np.full((h, w, 3), 2600.0, np.float32)
+    matched = match_sky_level(fg, base, c3)
+    assert abs(float(np.median(matched)) - 800.0) < 5.0

@@ -156,7 +156,11 @@ def render_preview(base_img: np.ndarray,
         if (fg_img is not None and sky_mask is not None
                 and fg_img.shape[:2] == lin.shape[:2]
                 and sky_mask.shape[:2] == lin.shape[:2]):
-            fgl = fg_img.astype(np.float32)
+            from meteorprep.segment.silhouette import match_sky_level
+            # a single frame's sky sits at a different level than the
+            # night-average stack; match it or the join glows
+            fgl = match_sky_level(fg_img.astype(np.float32),
+                                  base_img.astype(np.float32), sky_mask)
             if wb is not None:
                 fgl = fgl * wb
             a = (1.0 - np.clip(sky_mask.astype(np.float32), 0, 1))[..., None]
