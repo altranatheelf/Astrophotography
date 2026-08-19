@@ -105,6 +105,13 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
     if near.sum() < 500:
         return fg
     off = np.median(base[near], axis=0) - np.median(fg[near], axis=0)
+    # never crush the foreground to black: a downward shift is capped at
+    # 70% of the foreground's own dark level, so a silhouette keeps its
+    # detail even when the two sky levels are far apart
+    solid = sky < 0.5
+    if solid.sum() > 500:
+        dark = np.percentile(fg[solid], 20, axis=0)
+        off = np.maximum(off, -0.7 * dark)
     log.info("foreground level matched to the stack: %s ADU",
              np.round(off, 1).tolist())
-    return fg + off[None, None, :]
+    return np.maximum(fg + off[None, None, :], 0.0)

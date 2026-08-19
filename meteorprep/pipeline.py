@@ -1533,10 +1533,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     sky_fg = _fit_output(sky_cam) if sky_cam is not None else sky_mask
     sky_fg = np.clip(sky_fg, 0.0, 1.0)
     fg_alpha = 1.0 - sky_fg
+    # match the foreground's sky level to the stack IN THE LAYERS too, not
+    # only in the preview: a foreground that drops in at a different
+    # brightness or colour than the sky it sits against is the single
+    # most jarring thing to open in Photoshop
+    from meteorprep.segment.silhouette import match_sky_level
+    fg_ref = match_sky_level(fg_ref, base_img, sky_fg)
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
     if fg_stack is not None:
-        fg_stack = _fit_output(fg_stack)
+        fg_stack = match_sky_level(_fit_output(fg_stack), base_img, sky_fg)
     if fg_stack is not None:
         # frozen-ground stack: all frames averaged in camera space — far
         # lower noise than any single frame's foreground
