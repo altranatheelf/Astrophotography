@@ -513,11 +513,16 @@ def run(cfg: Config, progress=None) -> dict:
     metas = read_metadata(paths)
     if scan_thread is not None:
         scan_thread.join()
-        bad_pixels = scan_out.get("bad")
-        cfg.cache_path.mkdir(parents=True, exist_ok=True)
-        np.save(bp_npy, bad_pixels if bad_pixels is not None
-                else np.empty((0, 2), np.int64))
-        bp_keyf.write_text(bp_key)
+        if "bad" in scan_out:              # scan actually completed
+            bad_pixels = scan_out["bad"]
+            cfg.cache_path.mkdir(parents=True, exist_ok=True)
+            np.save(bp_npy, bad_pixels if bad_pixels is not None
+                    else np.empty((0, 2), np.int64))
+            bp_keyf.write_text(bp_key)
+        else:                              # crashed: never cache failure
+            log.warning("hot-pixel scan did not finish — running without "
+                        "repair this time; it will retry on the next run")
+            bad_pixels = None
 
     pre_timings = [("folder scan + hot-pixel map",
                     _time.time() - _t_ingest)]
@@ -605,7 +610,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     # Detection space: always half-size decode (the spec's 2x2 binning).
     # Output space: full resolution (optionally super-sampled), or half.
-    S = (1 if cfg.half_size else 2) * max(float(cfg.super_sample), 1.0)
+    # decode scale first; the super_sample factor joins AFTER the RAM
+    # guard below has had its say (a stale S once described a canvas 1.5x
+    # larger than the one actually built)
+    S = float(1 if cfg.half_size else 2)
 
     # ------- decode-once cache: every stage reads half-size luminance
     # ------- from here instead of re-decoding the RAW (3x decode saved)
@@ -701,6 +709,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             interpolation=_cv2.INTER_CUBIC)
         log.info("drizzle-style output grid: %.2fx (natural rotation dither)",
                  ss)
+    S = (1 if cfg.half_size else 2) * ss   # det -> output scale, final
     h, w = base_rgb_final.shape[:2]
     base_det_lum = decode_det_lum(base_i)
     hd, wd = base_det_lum.shape[:2]
@@ -1372,7 +1381,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 distort_full = (Poly3Distortion(k1, rgb.shape[:2]).distort
                                 if abs(k1) > 1e-9 else None)
                 arr, foot = reproject_frame(
-                    rgb, scale_wcs(det_wcs[i], S), base_wcs, (h, w),
+                    rgb, scale_wcs(det_wcs[i], 1 if cfg.half_size else 2),
+                    base_wcs, (h, w),
                     quality=True, distort=distort_full)
             else:
                 from meteorprep.astrometry.reproject_frames import rotate2d_frame
@@ -1447,8 +1457,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         sky_mask = np.clip(sky_mask, 0.0, 1.0)
     else:
         sky_mask = segment_sky(base_rgb_final)
-    from PIL import Image
-    Image.fromarray((sky_mask * 255).astype(np.uint8)).save(out_dir / "skymask.png")
 
     # ---------------- assembly ----------------
     mark("cutting layers + horizon")
@@ -1492,6 +1500,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             base_lum = base_lum[y0c:y1c, x0c:x1c]
             sky_mask = sky_mask[y0c:y1c, x0c:x1c]
             h, w = base_img.shape[:2]
+
+    # written AFTER the seam crop so it overlays the shipped canvas 1:1
+    from PIL import Image
+    Image.fromarray((sky_mask * 255).astype(np.uint8)).save(
+        out_dir / "skymask.png")
 
     def _fit_output(arr):
         """Bring a camera-sized array onto the (possibly cropped) canvas."""
@@ -1621,7 +1634,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     pv = render_preview(base_img, fg_for_preview, sky_mask, grad_arr,
                         gains, meteor_layers, out_dir / "preview.jpg",
                         flagged_layers=flagged_layers,
-                        all_trails_path=out_dir / "preview_all_trails.jpg")
+                        all_trails_path=out_dir / "preview_all_trails.jpg",
+                        crop_xy=((crop[0], crop[1]) if crop is not None
+                                 else (0, 0)))
     if pv:
         outputs["preview"] = str(pv["preview"])
         if pv.get("all_trails"):
@@ -1658,7 +1673,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         out_dir / "meteorprep.json", cfg, group.group_id, base_meta.file,
         base_wcs, pole_xy, radiant, frames, candidates,
         alignment_quality, solver_used, solve_files,
-        color_calibration=color_cal)
+        color_calibration=color_cal,
+        crop_xy=((crop[0], crop[1]) if crop is not None else None))
     outputs["sidecar"] = str(sidecar)
     from meteorprep.report.html import (render_candidate_crops,
                                         write_report_html)
@@ -1954,7 +1970,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                    want_trail=False):
         return (mode, list(indices),
                 [str(frames[i].path) for i in indices],
-                [_wcs_to_str(scale_wcs(det_wcs[i], S))
+                [_wcs_to_str(scale_wcs(det_wcs[i],
+                                       1 if cfg.half_size else 2))
                  if base_det_wcs is not None else "" for i in indices],
                 _wcs_to_str(base_wcs) if base_wcs is not None else "",
                 (h, w),
@@ -2057,10 +2074,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                     # way half an hour later — stop with a human message
                     raise RuntimeError(_DISK_FULL_MSG) from exc
                 log.warning("parallel stacking failed (%s); one core", exc)
-                if merged:
-                    if on_reset is None:
-                        raise
+                # reset unconditionally: an exception INSIDE the first
+                # on_result leaves half-merged accumulators with merged
+                # still 0, and the fallback must never double-count
+                if on_reset is not None:
                     on_reset()
+                elif merged:
+                    raise
                 merged = 0
         if not merged:
             try:

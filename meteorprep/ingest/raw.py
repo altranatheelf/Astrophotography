@@ -87,10 +87,13 @@ def decode(path: Path, mode: str = "detect",
         from astropy.io import fits
         with fits.open(path) as hdul:
             arr = hdul[0].data.astype(np.float32)
-        arr = np.clip(arr, 0, 65535).astype(np.uint16)
         if arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=2)
-        return arr
+        if half_size:                      # keep the S=2 scale contract
+            h2, w2 = arr.shape[0] // 2 * 2, arr.shape[1] // 2 * 2
+            arr = arr[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2,
+                                        -1).mean(axis=(1, 3))
+        return np.clip(arr, 0, 65535).astype(np.uint16)
     if suffix in RAW_EXTS:
         import rawpy
 

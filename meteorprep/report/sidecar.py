@@ -25,12 +25,17 @@ def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
                   base_wcs, pole_xy, radiant_radec, frames, candidates,
                   alignment_quality: str, solver: str,
                   solve_frames: list[str],
-                  color_calibration: dict | None = None) -> Path:
+                  color_calibration: dict | None = None,
+                  crop_xy=None) -> Path:
     doc = {
         "tool_version": __version__,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "input_dir": str(cfg.input_dir),
         "group_id": group_id,
+        # pixel coords in this file (endpoints_base_px, pole_pixel_xy,
+        # base_wcs_fits_header) are in the UNCROPPED stack canvas; the
+        # shipped PSD/preview canvas starts at this offset within it
+        "seam_crop_origin_xy": list(crop_xy) if crop_xy else [0, 0],
         "site": {"lat": cfg.site_lat, "lon": cfg.site_lon},
         "base_frame": base_frame,
         "base_wcs_fits_header": (base_wcs.to_header(relax=True).tostring(sep="\n")

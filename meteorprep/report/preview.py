@@ -33,12 +33,16 @@ def _asinh_stretch(img: np.ndarray, black_pct: float = 22.0,
 
 
 def _blend_streaks(disp: np.ndarray, layer_pairs, s: float,
-                   wb: np.ndarray | None, gain_cap: float = 40.0) -> None:
+                   wb: np.ndarray | None, gain_cap: float = 40.0,
+                   crop_xy=(0, 0)) -> None:
     """Screen-blend each candidate layer onto the stretched canvas in
     place — each streak brightened by its own peak so faint ones read;
-    ``s`` is the canvas downscale factor for bbox coordinates."""
+    ``s`` is the canvas downscale factor for bbox coordinates and
+    ``crop_xy`` the seam-crop origin (layer bboxes are in UNCROPPED
+    canvas coordinates)."""
     import cv2
 
+    cx, cy = crop_xy
     for (_c, layer, _i, _si) in layer_pairs or []:
         rgb = layer.rgb.astype(np.float32)
         if wb is not None:       # same balance as the sky they sit on
@@ -53,7 +57,9 @@ def _blend_streaks(disp: np.ndarray, layer_pairs, s: float,
         mlin = np.clip(rgb * min(gain, gain_cap), 0, 65535) / 65535.0
         contrib = mlin * alpha[:, :, None]
         if layer.bbox is not None:
-            x0, y0, x1, y1 = [int(round(v * s)) for v in layer.bbox]
+            bx0, by0, bx1, by1 = layer.bbox
+            x0, y0, x1, y1 = [int(round(v * s)) for v in
+                              (bx0 - cx, by0 - cy, bx1 - cx, by1 - cy)]
             if x1 <= x0 or y1 <= y0:
                 continue
             if s < 1.0:
@@ -116,7 +122,8 @@ def render_preview(base_img: np.ndarray,
                    out_path: Path,
                    max_width: int = 4096,
                    flagged_layers=None,
-                   all_trails_path: Path | None = None) -> dict | None:
+                   all_trails_path: Path | None = None,
+                   crop_xy=(0, 0)) -> dict | None:
     """Compose and save the ready-to-view JPEGs.  All inputs are
     canvas-sized linear arrays from the assembly stage; layer lists hold
     (candidate, layer, frame_idx, seg_idx) tuples.
@@ -154,13 +161,14 @@ def render_preview(base_img: np.ndarray,
         del lin
 
         want_all = bool(flagged_layers) and all_trails_path is not None
-        _blend_streaks(disp, meteor_layers, s, wb)
+        _blend_streaks(disp, meteor_layers, s, wb, crop_xy=crop_xy)
         out = {"preview": _save_jpg(disp, out_path), "all_trails": None}
         if want_all:
             # same sky, now with every satellite/plane trail composited
             # at its true (sky-aligned) position; slightly lower gain cap
             # so long faint trails don't amplify into noise streaks
-            _blend_streaks(disp, flagged_layers, s, wb, gain_cap=25.0)
+            _blend_streaks(disp, flagged_layers, s, wb, gain_cap=25.0,
+                           crop_xy=crop_xy)
             out["all_trails"] = _save_jpg(disp, all_trails_path)
         return out
     except Exception as exc:

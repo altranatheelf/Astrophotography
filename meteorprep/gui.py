@@ -387,11 +387,13 @@ def main() -> int:
             print(tb, file=sys.stderr)
 
         def closeEvent(self, event):
-            if self.worker is not None and self.worker.isRunning():
+            # keep the worker reference alive: dropping the only Python
+            # reference to a live QThread lets GC destroy it mid-run
+            if (self.worker is not None and self.worker.isRunning()
+                    and not getattr(self, "_quit_asked", False)):
+                self._quit_asked = True
                 self.status.setText(
                     "Still working — quit again to stop the run.")
-                self.worker.requestInterruption()
-                self.worker = None
                 event.ignore()
                 return
             event.accept()

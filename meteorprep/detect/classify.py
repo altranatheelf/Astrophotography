@@ -48,7 +48,12 @@ def classify(candidates: list[Candidate], cfg, radiant_radec) -> list[Candidate]
         if a.persistence == 1:
             for j in range(i + 1, len(candidates)):
                 b = candidates[j]
-                if (j not in skip and b.persistence == 1
+                # a meteor can only straddle ADJACENT exposures — abutting
+                # collinear streaks hours apart are a repeating satellite
+                # track, not one event
+                adjacent = abs(a.streaks[0].frame_index
+                               - b.streaks[0].frame_index) == 1
+                if (j not in skip and b.persistence == 1 and adjacent
                         and _is_collinear_abutting(a, b, cfg.boundary_gap_deg)):
                     a.streaks += b.streaks
                     a.frames += b.frames

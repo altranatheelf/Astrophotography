@@ -259,6 +259,15 @@ def read_metadata(paths: list[Path]) -> list[FrameMeta]:
             "installed it, open Terminal, run:  which exiftool  — and report "
             "what it prints.")
     metas.sort(key=lambda m: m.datetime_original)
+    # recursive scans can collect duplicate basenames (two memory cards,
+    # both with IMG_0001.CR2): everything downstream keys on m.file, so
+    # disambiguate colliding names with their parent folder
+    from collections import Counter
+    dupes = {name for name, cnt in
+             Counter(m.file for m in metas).items() if cnt > 1}
+    for m in metas:
+        if m.file in dupes:
+            m.file = f"{m.path.parent.name}_{m.path.name}"
     return metas
 
 

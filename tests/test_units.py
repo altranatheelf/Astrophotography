@@ -341,6 +341,18 @@ def test_preview_downscaled_bbox_blend_and_all_trails(tmp_path):
     assert a[455:465, 200:300].mean() > bg + 40
     assert p[455:465, 200:300].mean() < bg + 10
 
+    # seam crop: bboxes are uncropped-canvas coords, so with a crop
+    # origin of (100, 60) the meteor must shift by exactly that much
+    out_c = render_preview(base[60:, 100:], None, None, None, None,
+                           [(None, m, 0, 0)], tmp_path / "pc.jpg",
+                           max_width=950, crop_xy=(100, 60))
+    pc = cv2.imread(str(tmp_path / "pc.jpg")).mean(axis=2)
+    sc2 = 950 / (2000 - 100)
+    # meteor midpoint (1300, 620) uncropped -> (1200, 560) cropped
+    yy, xx = int(560 * sc2), int(1200 * sc2)
+    assert pc[yy - 5:yy + 5, xx - 10:xx + 10].mean() > \
+        float(np.median(pc)) + 40
+
 
 def test_faint_harvest_recovers_radiant_aligned_only():
     """Phase-3 gates: a faint radiant-aligned streak IS recovered from
