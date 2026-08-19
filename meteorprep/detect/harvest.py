@@ -43,14 +43,18 @@ def harvest_faint_meteors(load_lum, load_foot, base_lum_det: np.ndarray,
                           n: int, exclude: set, sky_bin,
                           known_segments: list, cfg, S: float,
                           world_endpoints, radiant, files: list,
-                          mad_k: float = 6.0, progress=None) -> list:
+                          mad_k: float = 6.0, jobs: int = 1,
+                          progress=None) -> list:
     """Search every frame against the clean base; return NEW candidates
     that are classified as meteors and point at the radiant.
 
     ``load_lum(i)``/``load_foot(i)`` load the aligned detection-scale
     luminance/footprint; ``known_segments`` is a list of full-res
-    (x0, y0, x1, y1, width) corridors from the first pass.
+    (x0, y0, x1, y1, width) corridors from the first pass;
+    ``progress(done, total)`` reports per-photo progress.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from meteorprep.detect.classify import classify
     from meteorprep.detect.hough import detect_streaks
     from meteorprep.detect.radiant import radiant_miss_deg
@@ -59,31 +63,49 @@ def harvest_faint_meteors(load_lum, load_foot, base_lum_det: np.ndarray,
     hd, wd = base_lum_det.shape[:2]
     keep_mask = np.ones((hd, wd), np.uint8)
     _mask_corridors(keep_mask, known_segments, S)
+    sky_ok = (sky_bin > 0) if sky_bin is not None else None
 
-    streaks_new: dict[int, list] = {}
-    n_raw = 0
-    for i in range(n):
-        if i in exclude:
-            continue
+    def _one(i):
         lum = np.asarray(load_lum(i), np.float32)
-        d = lum - base_lum_det
-        np.clip(d, 0, None, out=d)
         foot = np.asarray(load_foot(i))
-        d[foot == 0] = 0
-        if sky_bin is not None:
-            d *= sky_bin
+        d = lum - base_lum_det
+        # the base carries the night-AVERAGE sky surface: a frame shot in
+        # brighter (moonrise/twilight) or darker sky sits wholly above or
+        # below it, which would flood the threshold or clip faint streaks
+        # to zero — remove this frame's own median offset first
+        ok = foot != 0
+        if sky_ok is not None:
+            ok &= sky_ok
+        sub = d[::8, ::8][ok[::8, ::8]]
+        if sub.size > 100:
+            d -= float(np.median(sub))
+        np.clip(d, 0, None, out=d)
+        d[~ok] = 0
         d *= keep_mask
         streaks = detect_streaks(d, i, cfg, bin_factor=S, mad_k=mad_k)
-        n_raw += len(streaks)
         kept = []
         for s in streaks:
             e0, e1 = world_endpoints(i, s)
             if radiant_miss_deg(e0, e1, radiant) < cfg.radiant_tol_deg:
                 kept.append(s)
-        if kept:
-            streaks_new[i] = kept
-        if progress is not None:
-            progress(i)
+        return len(streaks), kept
+
+    idx = [i for i in range(n) if i not in exclude]
+    streaks_new: dict[int, list] = {}
+    n_raw = 0
+    done = 0
+    # cv2/numpy release the GIL for the heavy ops: thread the per-frame
+    # searches instead of stalling the UI for a serial second pass
+    with ThreadPoolExecutor(max_workers=max(min(jobs, 4), 1)) as tp:
+        futs = {tp.submit(_one, i): i for i in idx}
+        for fut in as_completed(futs):
+            raw_n, kept = fut.result()
+            n_raw += raw_n
+            if kept:
+                streaks_new[futs[fut]] = kept
+            done += 1
+            if progress is not None:
+                progress(done, len(idx))
 
     if not streaks_new:
         log.info("faint harvest: nothing new (%d raw detections, none "

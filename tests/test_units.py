@@ -370,7 +370,6 @@ def test_faint_harvest_recovers_radiant_aligned_only():
     draw(frames[2], (200, 150), (320, 240), amp)   # collinear with (0,0)
     draw(frames[3], (500, 100), (500, 260), amp)   # perpendicular ray
     draw(frames[4], (100, 400), (250, 400), amp)   # inside a KNOWN corridor
-
     def world_endpoints(fi, s):
         return ((s.x0 * sc, s.y0 * sc), (s.x1 * sc, s.y1 * sc))
 
@@ -379,6 +378,12 @@ def test_faint_harvest_recovers_radiant_aligned_only():
     from meteorprep.detect.hough import detect_streaks
     d2 = np.clip(frames[2] - base, 0, None)
     assert detect_streaks(d2, 2, cfg, bin_factor=1, mad_k=10.0) == []
+
+    # drifting sky: the streak frame is 1500 ADU brighter than the base
+    # (moonrise/twilight) and frame 5 is 3000 ADU of pure brighter sky —
+    # the harvest must still find the streak and must find NOTHING in 5
+    frames[2] += 1500.0
+    frames[5] += 3000.0
     out = harvest_faint_meteors(
         lambda i: frames[i], lambda i: np.ones((H, W), np.uint8),
         base, N, exclude=set(), sky_bin=None,

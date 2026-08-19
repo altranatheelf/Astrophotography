@@ -1306,23 +1306,41 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                          if sky_det is not None else None)
             new_cands = harvest_faint_meteors(
                 load_det_lum, load_det_foot, base_lum_det, n,
-                set(int(v) for v in np.nonzero(lp)[0]), sky_bin_h,
+                set(exclude_lp), sky_bin_h,
                 known_segs, cfg, S, world_endpoints, radiant,
-                [m.file for m in frames], mad_k=cfg.faint_mad_k)
+                [m.file for m in frames], mad_k=cfg.faint_mad_k,
+                jobs=max(min(cfg.jobs, 4), 1),
+                progress=lambda done, tot: notify(
+                    0.815, f"hunting fainter meteors (photo {done}/{tot})"))
             if new_cands:
-                for c in new_cands:
+                # build_tracks restarts ids at C000: renumber the harvest
+                # finds past every existing id before they join the pool
+                import re as _re
+                used = [int(m_.group(1)) for c in candidates
+                        if (m_ := _re.match(r"C(\d+)$", str(c.id)))]
+                nxt = (max(used) + 1) if used else 0
+                for j, c in enumerate(new_cands):
+                    c.id = f"C{nxt + j:03d}"
                     i0 = file_to_idx[c.frames[0]]
                     c.rotation_deg = SIDEREAL_DEG_PER_SEC * (
                         frames[i0].epoch_mid - base_mid).total_seconds()
                     s0 = c.streaks[0]
                     c.endpoints_pix_base = [[s0.x0, s0.y0], [s0.x1, s0.y1]]
                 candidates.extend(new_cands)
+                # the fragment/pair gauntlet must see the COMBINED list: a
+                # faint single-frame fragment collinear with a known
+                # satellite track gets demoted here, not shipped as a
+                # meteor
+                _absorb_track_fragments(candidates, file_to_idx)
                 meteor_cands = [c for c in candidates
                                 if c.label == "meteor"]
                 flagged_cands = [c for c in candidates
                                  if c.label != "meteor"]
                 meteor_cands.sort(key=lambda c: file_to_idx[c.frames[0]])
-                log.info("faint harvest added %d meteor(s)", len(new_cands))
+                n_kept = sum(1 for c in new_cands if c.label == "meteor")
+                log.info("faint harvest added %d meteor(s) "
+                         "(%d demoted by the track gauntlet)",
+                         n_kept, len(new_cands) - n_kept)
         except Exception as exc:
             log.warning("faint harvest skipped (%s); first-pass results "
                         "are unaffected", exc)
@@ -2096,8 +2114,12 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # clip statistics stay half-size on disk (~8x less I/O between the
     # passes); each pass-2 worker upsamples them in memory
     np.save(tmp / "clip_mean.npy", total.mean.astype(np.float32))
+    std_map = total.std()
     np.save(tmp / "clip_bound.npy",
-            (cfg.stack_sigma * total.std()).astype(np.float32))
+            (cfg.stack_sigma * std_map).astype(np.float32))
+    # evidence bundle: the per-pixel temporal noise map is a kept product
+    np.save(cache.path("noise_half.npy"), std_map.astype(np.float16))
+    del std_map
     mean_full = _cv2.resize(total.mean, (w, h),
                             interpolation=_cv2.INTER_LINEAR)
 
@@ -2159,14 +2181,6 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 c[:, 0] = np.asarray(bgv, np.float32)
             eff.append(c)
         base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
-    # evidence bundle: the per-pixel temporal noise map (pass-1 std) is a
-    # shipped product, not scaffolding — half-size float16 is ~30 MB
-    try:
-        bnd = np.load(tmp / "clip_bound.npy")
-        np.save(cache.path("noise_half.npy"),
-                (bnd / max(cfg.stack_sigma, 1e-6)).astype(np.float16))
-    except Exception:
-        pass
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
     return base.astype(np.float32), fg, coverage, trail

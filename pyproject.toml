@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meteorprep"
-version = "1.11.0"
+version = "1.11.1"
 description = "Turn a folder of fixed-tripod RAW meteor-shower frames into a layered, geometry-corrected PSD"
 readme = "README.md"
 license = { text = "Apache-2.0" }
