@@ -570,6 +570,46 @@ def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors,
             errors.append(group.group_id)
 
 
+def _save_candidates(cache, candidates) -> None:
+    """Persist the detection result so a re-run resumes instead of
+    repeating the search (the expensive half of a long night)."""
+    import dataclasses as _dc
+    import json as _json
+
+    def _plain(o):
+        if isinstance(o, (np.floating, np.integer)):
+            return o.item()
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return str(o)
+
+    from meteorprep import __version__ as _ver
+    cache.path("candidates.json").write_text(_json.dumps(
+        {"tool_version": _ver,
+         "candidates": [_dc.asdict(c) for c in candidates]}, default=_plain))
+
+
+def _load_candidates(cache):
+    import json as _json
+
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep import __version__ as _ver
+    doc = _json.loads(cache.path("candidates.json").read_text())
+    if isinstance(doc, list):            # pre-1.14 cache
+        doc = {"tool_version": "older", "candidates": doc}
+    if doc.get("tool_version") != _ver:
+        log.info("the saved detection was made by METEORPREP %s; reusing it "
+                 "(tick 'Force re-run' to search again from scratch)",
+                 doc.get("tool_version"))
+    out = []
+    for cd in doc.get("candidates", []):
+        cd = dict(cd)
+        streaks = [Streak(**s) for s in cd.pop("streaks", [])]
+        out.append(Candidate(streaks=streaks, **cd))
+    return out
+
+
 def _run_group(cfg: Config, group, bad_pixels, notify,
                pre_timings=None) -> dict:
     frames = group.frames
@@ -1036,9 +1076,24 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                     "radiate correctly from the true radiant")
 
     mark("star lock (solve + verify)")
+    # ---- can this run resume?  the search is the expensive half of a
+    # night, and its result is a few kB of JSON: reuse it when the frame
+    # set and the detection parameters are unchanged
+    detect_cached = bool(
+        not cfg.force
+        and cache.path("candidates.json").exists()
+        and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp)
+        and cache.path("base.tif").exists()
+        and cache.is_done("base_sky",
+                          cfg.stage_hash("base_sky") + ":" + frames_fp))
+    if detect_cached:
+        log.info("meteor search and starfield are up to date — resuming "
+                 "from the saved result instead of re-running them")
+        skipped += 1
+
     # ------- detection-space alignment cache (small: ~12 MB/frame) -------
     det_dir = cache.dir("detect_aligned")
-    if stage_fresh("reproject"):
+    if not detect_cached and stage_fresh("reproject"):
         notify(0.25, "aligning small previews to search for meteors")
         if cfg.align_mode == "reproject_tan":
             det_str = _wcs_to_str(base_det_wcs)
@@ -1138,7 +1193,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # become an "aircraft"
     from meteorprep.segment.sky_ground import ground_from_alignment
     sky_det = None
-    if base_wcs is not None:
+    if detect_cached and cache.path("sky_det.npy").exists():
+        sky_det = np.load(cache.path("sky_det.npy"))
+    elif base_wcs is not None:
         sky_det = ground_from_alignment(load_det_lum, load_det_foot, n,
                                         exclude=set(np.nonzero(lp)[0]))
         if sky_det is not None:
@@ -1151,7 +1208,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         np.save(sky_path, sky_det.astype(np.float32))
     diff_dir = cache.dir("diffs")
     exclude_lp = [int(v) for v in np.nonzero(lp)[0]]
-    search_idx = [i for i in range(n) if not lp[i]]
+    search_idx = ([] if detect_cached
+                  else [i for i in range(n) if not lp[i]])
     streaks_per_frame = {}
     diffs_det = {}
     noise_sigmas = {}
@@ -1245,6 +1303,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     candidates = classify(candidates, cfg, radiant)
     _absorb_track_fragments(candidates,
                             {m.file: i for i, m in enumerate(frames)})
+    if detect_cached:
+        candidates = _load_candidates(cache)
+        log.info("restored %d candidate(s) from the previous run",
+                 len(candidates))
     base_mid = base_meta.epoch_mid
     file_to_idx = {m.file: i for i, m in enumerate(frames)}
     for c in candidates:
@@ -1301,7 +1363,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     base_lum = raw_mod.luminance(base_img)
 
     # ------- second-pass faint-meteor harvest vs the clean base ---------
-    if (cfg.faint_harvest and base_wcs is not None
+    if (cfg.faint_harvest and not detect_cached
+            and base_wcs is not None
             and (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists()):
         try:
             import cv2 as _cv2
@@ -1353,6 +1416,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         except Exception as exc:
             log.warning("faint harvest skipped (%s); first-pass results "
                         "are unaffected", exc)
+
+    if not detect_cached:      # detection is complete (search + harvest)
+        _save_candidates(cache, candidates)
+        stage_done("detect")
 
     if cfg.cleanup_cache:
         # the aligned-luminance cache is now truly done (first pass AND
@@ -1799,8 +1866,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         _shutil.rmtree(det_dir, ignore_errors=True)
         _shutil.rmtree(det_lum_dir, ignore_errors=True)
         _shutil.rmtree(diff_dir, ignore_errors=True)
-        cache.invalidate("reproject")   # a future re-run knows to rebuild
-        cache.invalidate("base_sky")
+        cache.invalidate("reproject")   # its cache files are deleted;
+        # base.tif / fg_stack.tif / coverage.npy survive cleanup, so the
+        # stack stays valid — invalidating it here forced every re-run to
+        # rebuild the single most expensive stage of the night
         log.info("freed the detection cache (%s)", det_dir)
     if skipped:
         log.info("%d stage(s) up-to-date, skipped", skipped)

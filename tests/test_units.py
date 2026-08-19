@@ -500,3 +500,41 @@ def test_foreground_matte_hard_cases():
     img3[560:, :] = 0.45 * sky[560:, :]               # bright moonlit ridge
     a3 = 1.0 - foreground_sky_mask(np.dstack([img3] * 3))
     assert a3[650:780, 200:1000].mean() > 0.9         # solid, not 0.79
+
+
+def test_candidate_cache_roundtrip(tmp_path):
+    """A re-run must resume from the saved detection instead of repeating
+    the search, so candidates have to survive a JSON round-trip intact —
+    including their streak geometry and flags."""
+    from meteorprep.cache.store import CacheStore
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep.pipeline import _load_candidates, _save_candidates
+
+    st = Streak(frame_index=7, x0=10.5, y0=20.5, x1=110.5, y1=90.5,
+                length_px=134.0, mean_intensity=np.float32(5000.0),
+                peak_intensity=20000.0, fwhm_px=4.5, aspect=12.0,
+                area_px=np.int64(400), score=51.0, straightness_rms=0.4,
+                head_tail_ratio=2.1)
+    c = Candidate(id="C007", streaks=[st], frames=["IMG_1.CR2"],
+                  endpoints_world=[[[50.0, 57.0], [51.0, 56.5]]],
+                  persistence=1, dash_pattern=[0.0])
+    c.label = "meteor"
+    c.confidence = 0.83
+    c.flags = {"faint_harvest": True, "likely_perseid": True}
+    c.radiant_miss_deg = 2.5
+
+    cache = CacheStore(tmp_path / "cache")
+    _save_candidates(cache, [c])
+    got = _load_candidates(cache)
+    assert len(got) == 1
+    g = got[0]
+    assert g.id == "C007" and g.label == "meteor"
+    assert g.flags.get("faint_harvest") and g.flags.get("likely_perseid")
+    assert abs(g.confidence - 0.83) < 1e-6
+    assert abs(g.radiant_miss_deg - 2.5) < 1e-6
+    assert g.frames == ["IMG_1.CR2"]
+    assert len(g.streaks) == 1
+    s = g.streaks[0]
+    assert (s.x0, s.y0, s.x1, s.y1) == (10.5, 20.5, 110.5, 90.5)
+    assert s.frame_index == 7 and abs(s.fwhm_px - 4.5) < 1e-6
