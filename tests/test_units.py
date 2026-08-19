@@ -799,3 +799,29 @@ def test_below_horizon_solves_are_rejected_without_needing_the_clock():
     assert _reject_below_horizon(bad, possible, "blind", stash) is None
     assert stash["result"] is bad and round(stash["dec"]) == -67
     assert _reject_below_horizon(None, possible, "blind") is None
+
+
+def test_the_scale_retry_ladder_starts_fine_and_leans_wide():
+    """Measured on real frames: the star matcher tolerates an assumed
+    field up to ~8% too WIDE but fails once it is ~2% too NARROW, and a
+    camera reporting its pixel pitch 2% off is enough to lose the whole
+    run.  The retry ladder therefore has to step in a few percent, and
+    reach for a wider field before a narrower one."""
+    import inspect
+    import re
+
+    from meteorprep import pipeline
+
+    src = inspect.getsource(pipeline._run_group)
+    m = re.search(r"for mult in \(([^)]*)\):", src, re.S)
+    assert m, "the field-of-view retry ladder moved"
+    ladder = [eval(x.strip()) for x in m.group(1).split(",") if x.strip()]
+    assert min(abs(v - 1.0) for v in ladder) <= 0.05, ladder
+    # the first rung is a small step, and upward
+    assert 1.0 < ladder[0] <= 1.05, ladder[0]
+    # steps never jump more than ~1.35x between neighbours below 1.6x, so
+    # nothing in the plausible range is skipped
+    up = sorted(v for v in ladder if v >= 1.0)
+    for a, b in zip(up, up[1:]):
+        if a < 1.6:
+            assert b / a < 1.35, (a, b)

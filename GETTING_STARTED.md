@@ -107,9 +107,40 @@ What you'll see in the Layers panel:
 - **FLAGGED** (hidden) — the planes/satellites/searchlight frames, in case
   the tool got one wrong. Peek if a meteor you remember is missing.
 
+Layer names in **METEORS** are already in Lighten/Screen mode and carry
+the source file, the time, a `perseid`/`sporadic` tag and — if the tool
+knows where you were standing — roughly how long that meteor lasted and
+how high above the horizon it burned.
+
 There's also `meteorprep.json` — a receipt of everything the tool did, so
 your composite is honestly documentable ("all meteors registered to the sky
 positions they actually occurred at").
+
+## The receipts
+
+- **capsule.txt** — a short "how this image was made" block you can paste
+  under a post: integration time, how many frames, what was calibrated,
+  how many meteors are at their true sky positions, and *generated
+  pixels: none*. It ends with the hash of the exact recipe used, so the
+  same folder run again reproduces the same file.
+- **evidence/** — the stack's own measurements, as pictures:
+  `coverage.png` (how many photos built each pixel), `noise.png` (the
+  per-pixel sky noise), `rejected.png` (where outliers were thrown away),
+  `removed.png` (the light that was thrown away — meteors, planes,
+  satellites, cosmic rays) and `ledger.png`, which colours every pixel by
+  where it came from: measured at full depth, outliers removed, thin
+  coverage at the rim, or foreground.
+
+## Telling the tool where you were standing
+
+Optional, and worth ten seconds. Put your latitude and longitude in the
+**Where** box (Apple Maps: press and hold your spot, the numbers are on
+the place card) and each meteor also gets an estimate of how long it
+lasted, how high it burned and how far away it was — plus a sanity check
+that catches the rare case where the star matching locks onto the wrong
+patch of sky. Leave it empty and everything else works exactly the same;
+those numbers are simply left out rather than guessed. If your camera
+records GPS, the tool reads it from the photos and you can ignore the box.
 
 ## If something goes wrong
 

@@ -969,7 +969,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         if result is None:
             # the pair-distance gate is only as good as the assumed plate
             # scale; sweep plausible crop/zoom factors before giving up
-            for mult in (1.6, 1 / 1.6, 1.3, 1 / 1.3, 2.0, 0.5):
+            # Measured on real frames: the matcher tolerates an assumed
+            # field that is too WIDE by up to ~8%, but fails as soon as
+            # it is ~2% too NARROW — a wider guess only adds candidate
+            # star pairs, a narrower one drops the true ones.  The old
+            # ladder started at 1.6x and skipped the entire few-percent
+            # neighbourhood, so a camera whose EXIF pixel pitch is off by
+            # 2% (which is all it takes) got "I couldn't match the stars"
+            # instead of a picture.  Fine steps first, upward before
+            # downward, then the old coarse rungs for a truly wrong lens.
+            for mult in (1.03, 1.06, 1.10, 0.97, 1.15, 0.94, 1.22, 0.90,
+                         1.3, 1 / 1.3, 1.45, 0.85, 1.6, 1 / 1.6, 2.0, 0.5):
                 notify(0.14, "working out where the camera pointed "
                              f"(trying a different lens guess: {mult:.2f}x)")
                 log.info("blind solve retry at %.2fx assumed field of view",
