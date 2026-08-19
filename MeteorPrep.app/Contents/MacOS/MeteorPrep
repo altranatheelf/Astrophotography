@@ -4,26 +4,65 @@
 # the folder that contains this app, so keep them together.
 set -u
 HERE="$(cd "$(dirname "$0")/../../.." && pwd)"
-cd "$HERE"
+cd "$HERE" || exit 1
 
-PY="/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
-if [ ! -x "$PY" ]; then
-    PY="$(command -v python3 || true)"
-fi
-if [ -z "${PY:-}" ]; then
-    command -v osascript >/dev/null 2>&1 && osascript -e \
-      'display alert "Python not found" message "Install Python 3 from python.org, then double-click MeteorPrep again."'
+LOG=/tmp/meteorprep_setup.log
+NEEDS="import PySide6, meteorprep.pipeline"
+
+say_alert() {   # title, message
+    command -v osascript >/dev/null 2>&1 || return 0
+    osascript -e "display alert \"$1\" message \"$2\"" >/dev/null 2>&1
+}
+
+# Candidate interpreters, best first.  A Mac can easily carry several
+# Pythons; the components may already be installed in ANY of them, so
+# look for one that is ready before trying to install anything.
+CANDIDATES=""
+for v in 3.13 3.12 3.11 3.14; do
+    p="/Library/Frameworks/Python.framework/Versions/$v/bin/python3"
+    [ -x "$p" ] && CANDIDATES="$CANDIDATES $p"
+done
+for p in "$(command -v python3 || true)" /opt/homebrew/bin/python3 \
+         /usr/local/bin/python3; do
+    [ -n "$p" ] && [ -x "$p" ] && CANDIDATES="$CANDIDATES $p"
+done
+
+# 1) already-working interpreter?  launch straight away, no setup at all
+for p in $CANDIDATES; do
+    if "$p" -c "$NEEDS" >/dev/null 2>&1; then
+        exec "$p" -m meteorprep.gui
+    fi
+done
+
+# 2) nothing ready: install into the best candidate we have
+PY=""
+for p in $CANDIDATES; do PY="$p"; break; done
+if [ -z "$PY" ]; then
+    say_alert "Python not found" \
+        "Install Python 3 from python.org, then double-click MeteorPrep again."
     exit 1
 fi
 
-if ! "$PY" -c "import PySide6, numpy, astropy, cv2, rawpy, reproject" >/dev/null 2>&1; then
-    command -v osascript >/dev/null 2>&1 && osascript -e \
-      'display dialog "First-time setup: MeteorPrep will install its components now. This takes a few minutes — press OK and wait for the window to appear." buttons {"OK"} default button 1' >/dev/null 2>&1
-    if ! "$PY" -m pip install ".[gui]" > /tmp/meteorprep_setup.log 2>&1; then
-        command -v osascript >/dev/null 2>&1 && osascript -e \
-          'display alert "Setup did not finish" message "The install log is in /tmp/meteorprep_setup.log — send it to Claude and it will sort it out."'
-        exit 1
-    fi
+command -v osascript >/dev/null 2>&1 && osascript -e \
+  'display dialog "First-time setup: MeteorPrep will install its components now. This takes a few minutes — press OK, then wait for the window to appear." buttons {"OK"} default button 1' >/dev/null 2>&1
+
+{ echo "=== using: $PY"; "$PY" --version; echo "=== folder: $HERE"; } \
+    > "$LOG" 2>&1
+if "$PY" -m pip install --upgrade pip >> "$LOG" 2>&1; then :; fi
+if ! "$PY" -m pip install ".[gui]" >> "$LOG" 2>&1; then
+    # retry once for the classic macOS case: system-managed Python that
+    # refuses to install into itself
+    "$PY" -m pip install --user ".[gui]" >> "$LOG" 2>&1 || true
 fi
 
-exec "$PY" -m meteorprep.gui
+if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
+    exec "$PY" -m meteorprep.gui
+fi
+
+# still not working: show the tail of the log right in the dialog and
+# open the full log, so the problem is visible instead of cryptic
+tail -n 14 "$LOG" 2>/dev/null | tr '"' "'" > /tmp/meteorprep_setup_tail.txt
+command -v osascript >/dev/null 2>&1 && osascript -e \
+  'display alert "Setup did not finish" message (read POSIX file "/tmp/meteorprep_setup_tail.txt")' >/dev/null 2>&1
+open -e "$LOG" 2>/dev/null
+exit 1
