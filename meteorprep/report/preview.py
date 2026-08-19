@@ -19,16 +19,29 @@ log = logging.getLogger("meteorprep")
 
 
 def _asinh_stretch(img: np.ndarray, black_pct: float = 22.0,
-                   soft: float = 120.0, white_pct: float = 99.85) -> np.ndarray:
+                   soft: float = 120.0, white_pct: float = 99.85,
+                   sky: np.ndarray | None = None) -> np.ndarray:
+    """Stretch for viewing.  ``sky`` (1 = sky) restricts the black-point
+    measurement to the sky: with a dark foreground in frame the whole-
+    image percentile lands ON the foreground and crushes it to featureless
+    black, which is exactly what the layered file is not supposed to be."""
     x = img.astype(np.float32).copy()
     # percentiles estimated on a 1/16 subsample: indistinguishable on a
     # 20 MP canvas and several seconds cheaper
     sub = x[::4, ::4]
+    sel = None
+    if sky is not None and sky.shape[:2] == x.shape[:2]:
+        m = sky[::4, ::4] > 0.5
+        if m.sum() > 1000:
+            sel = m
     for c in range(x.shape[2]):
-        x[:, :, c] -= np.percentile(sub[:, :, c], black_pct)
+        s_c = sub[:, :, c][sel] if sel is not None else sub[:, :, c]
+        x[:, :, c] -= np.percentile(s_c, black_pct)
     x = np.maximum(x, 0)
     d = np.arcsinh(x / soft)
-    hi = max(float(np.percentile(d[::4, ::4], white_pct)), 1e-6)
+    dsub = d[::4, ::4]
+    hi = max(float(np.percentile(dsub[sel] if sel is not None else dsub,
+                                 white_pct)), 1e-6)
     return np.clip(d / hi, 0.0, 1.0)
 
 
@@ -156,11 +169,10 @@ def render_preview(base_img: np.ndarray,
         if (fg_img is not None and sky_mask is not None
                 and fg_img.shape[:2] == lin.shape[:2]
                 and sky_mask.shape[:2] == lin.shape[:2]):
-            from meteorprep.segment.silhouette import match_sky_level
-            # a single frame's sky sits at a different level than the
-            # night-average stack; match it or the join glows
-            fgl = match_sky_level(fg_img.astype(np.float32),
-                                  base_img.astype(np.float32), sky_mask)
+            # NOTE: the caller matches the foreground's sky level to the
+            # stack before handing it over.  Matching again here made the
+            # preview and the PSD disagree by 3.3x on canopy brightness.
+            fgl = np.asarray(fg_img, np.float32)
             if wb is not None:
                 fgl = fgl * wb
             a = (1.0 - np.clip(sky_mask.astype(np.float32), 0, 1))[..., None]
@@ -173,7 +185,14 @@ def render_preview(base_img: np.ndarray,
         if s < 1.0:
             lin = cv2.resize(lin, (max_width, int(round(h0 * s))),
                              interpolation=cv2.INTER_AREA)
-        disp = _asinh_stretch(lin)
+        sky_s = None
+        if sky_mask is not None:
+            sky_s = (cv2.resize(np.asarray(sky_mask, np.float32),
+                                (lin.shape[1], lin.shape[0]),
+                                interpolation=cv2.INTER_LINEAR)
+                     if sky_mask.shape[:2] != lin.shape[:2] else
+                     np.asarray(sky_mask, np.float32))
+        disp = _asinh_stretch(lin, sky=sky_s)
         del lin
 
         want_all = bool(flagged_layers) and all_trails_path is not None

@@ -1501,10 +1501,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             sky_mask = sky_mask[y0c:y1c, x0c:x1c]
             h, w = base_img.shape[:2]
 
-    # written AFTER the seam crop so it overlays the shipped canvas 1:1
-    from PIL import Image
-    Image.fromarray((sky_mask * 255).astype(np.uint8)).save(
-        out_dir / "skymask.png")
+    # written AFTER the seam crop so it overlays the shipped canvas 1:1.
+    # Deferred until the foreground matte exists, so this file shows the
+    # mask the FOREGROUND layers were actually cut with — the report
+    # describes it as "your treeline's silhouette", and it must be.
+    _skymask_path = out_dir / "skymask.png"
 
     def _fit_output(arr):
         """Bring a camera-sized array onto the (possibly cropped) canvas."""
@@ -1528,8 +1529,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # picture when used as a cutout.
     from meteorprep.segment.silhouette import foreground_sky_mask
     fg_ref = _fit_output(base_rgb_final)
-    sky_cam = foreground_sky_mask(fg_stack if fg_stack is not None
-                                  else base_rgb_final)
+    try:
+        sky_cam = foreground_sky_mask(fg_stack if fg_stack is not None
+                                      else base_rgb_final)
+    except Exception as exc:      # 90% into a long run: never lose it
+        log.warning("foreground segmentation failed (%s); falling back to "
+                    "the alignment mask", exc)
+        sky_cam = None
     sky_fg = _fit_output(sky_cam) if sky_cam is not None else sky_mask
     sky_fg = np.clip(sky_fg, 0.0, 1.0)
     fg_alpha = 1.0 - sky_fg
@@ -1539,6 +1545,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # most jarring thing to open in Photoshop
     from meteorprep.segment.silhouette import match_sky_level
     fg_ref = match_sky_level(fg_ref, base_img, sky_fg)
+    from PIL import Image
+    Image.fromarray((np.clip(sky_fg, 0, 1) * 255).astype(np.uint8)).save(
+        _skymask_path)
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
     if fg_stack is not None:
@@ -1652,8 +1661,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             grad_arr = lyr.rgb
     gains = (np.asarray(color_cal["gains"], np.float32)
              if color_cal else None)
-    fg_for_preview = fg_stack if fg_stack is not None \
-        else _fit_output(base_rgb_final)
+    # both are already level-matched to BASE_SKY above; preview must not
+    # match a second time (that made the preview and the PSD disagree)
+    fg_for_preview = fg_stack if fg_stack is not None else fg_ref
     pv = render_preview(base_img, fg_for_preview, sky_fg, grad_arr,
                         gains, meteor_layers, out_dir / "preview.jpg",
                         flagged_layers=flagged_layers,

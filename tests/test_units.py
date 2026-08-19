@@ -469,3 +469,34 @@ def test_foreground_mask_from_frozen_stack():
     fg = np.full((h, w, 3), 2600.0, np.float32)
     matched = match_sky_level(fg, base, sky)
     assert abs(float(np.median(matched)) - 800.0) < 5.0
+
+
+def test_foreground_matte_hard_cases():
+    """Cases an earlier matte got wrong, each verified numerically:
+    a tall object filling most of its own columns must not erase itself
+    from the matte; an object reaching high in the frame must not be
+    sliced along a horizontal line; and a bright (moonlit) foreground
+    must still come out solid, not half-transparent."""
+    from meteorprep.segment.silhouette import foreground_sky_mask
+
+    h, w = 800, 1200
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    sky = 300 + 500 * (xx / w) + 300 * (yy / h)      # vignette + glow
+
+    img = sky.copy()
+    img[560:, :] = 60
+    img[80:, 300:440] = 60                            # tall, wide tree
+    a = 1.0 - foreground_sky_mask(np.dstack([img] * 3))
+    assert a[300:500, 320:420].mean() > 0.85          # not erased
+    assert a[:60, 600:1100].max() < 0.1               # sky still clear
+
+    img2 = sky.copy()
+    img2[560:, :] = 60
+    img2[40:, 900:930] = 60                           # thin mast to row 40
+    a2 = 1.0 - foreground_sky_mask(np.dstack([img2] * 3))
+    assert a2[60, 900:930].mean() > 0.8               # top not sliced off
+
+    img3 = sky.copy()
+    img3[560:, :] = 0.45 * sky[560:, :]               # bright moonlit ridge
+    a3 = 1.0 - foreground_sky_mask(np.dstack([img3] * 3))
+    assert a3[650:780, 200:1000].mean() > 0.9         # solid, not 0.79

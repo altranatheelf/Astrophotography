@@ -6,8 +6,8 @@
     <key>CFBundleName</key><string>MeteorPrep</string>
     <key>CFBundleDisplayName</key><string>MeteorPrep</string>
     <key>CFBundleIdentifier</key><string>com.meteorprep.launcher</string>
-    <key>CFBundleVersion</key><string>1.13.6</string>
-    <key>CFBundleShortVersionString</key><string>1.13.6</string>
+    <key>CFBundleVersion</key><string>1.13.7</string>
+    <key>CFBundleShortVersionString</key><string>1.13.7</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>MeteorPrep</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
