@@ -43,7 +43,14 @@ def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
                  "lon": (site or {}).get("lon"),
                  "source": (site or {}).get("source"),
                  "solver_seed_lat": cfg.site_lat,
-                 "solver_seed_lon": cfg.site_lon},
+                 "solver_seed_lon": cfg.site_lon,
+                 # EXIF stamps the camera's own clock with no timezone.
+                 # Everything that needs an absolute moment — elevation,
+                 # and the range and duration that follow from it — reads
+                 # it as UTC.  A camera set to local time shifts those
+                 # numbers; the sky positions and the visibility check do
+                 # not depend on the clock at all.
+                 "time_basis": "camera clock read as UTC"},
         "base_frame": base_frame,
         "base_wcs_fits_header": (base_wcs.to_header(relax=True).tostring(sep="\n")
                                  if base_wcs is not None else None),

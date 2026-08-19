@@ -772,3 +772,30 @@ def test_gps_parsing_and_site_resolution():
                site_explicit=True), with_gps)
     assert (round(lat, 1), round(lon, 1)) == (60.2, 11.3)
     assert "GPS" in src
+
+
+def test_below_horizon_solves_are_rejected_without_needing_the_clock():
+    """A mirrored star match fits its own wrong stars tightly, so no RMS
+    gate can catch it — but it lands on sky that never rises from the
+    photographer's latitude, and that test needs no timezone."""
+    from meteorprep.pipeline import _reject_below_horizon
+
+    class R:
+        def __init__(self, name):
+            self.wcs = name
+
+    seen = {}
+
+    def possible(w):
+        seen[w] = True
+        return (w != "mirrored"), (-67.4 if w == "mirrored" else 67.3)
+
+    good = R("true")
+    assert _reject_below_horizon(good, possible, "blind") is good
+    # a set-aside match is kept, so a mistyped latitude costs the user a
+    # warning and a "degraded" label — never their whole night
+    stash = {"result": None, "dec": None}
+    bad = R("mirrored")
+    assert _reject_below_horizon(bad, possible, "blind", stash) is None
+    assert stash["result"] is bad and round(stash["dec"]) == -67
+    assert _reject_below_horizon(None, possible, "blind") is None

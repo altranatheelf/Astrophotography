@@ -122,7 +122,10 @@ def write_report_html(out_dir: Path, group_result: dict,
         "distance &mdash; these follow from the measured sky position "
         "plus two stated assumptions (meteors of this shower burn near "
         "95&nbsp;km up and arrive at about 59&nbsp;km/s), and both "
-        "assumptions travel with the numbers in meteorprep.json.</p>"
+        "assumptions travel with the numbers in meteorprep.json. The "
+        "camera's clock is read as UTC, so a camera set to local time "
+        "shifts these three numbers &mdash; the sky positions and "
+        "verdicts do not depend on the clock.</p>"
         if any_physics else "")
 
     capsule_html = ""

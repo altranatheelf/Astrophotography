@@ -598,6 +598,29 @@ def _save_candidates(cache, candidates) -> None:
          "candidates": [_dc.asdict(c) for c in candidates]}, default=_plain))
 
 
+def _reject_below_horizon(result, possible, label, stash=None):
+    """Set aside a star match that lands on sky which never rises from
+    the photographer's latitude, so the search keeps looking for one that
+    does.  The rejected match is kept in ``stash``: if nothing better
+    turns up it is used anyway (with the alignment marked degraded),
+    because the only thing worse than a suspect solve is no picture at
+    all — and a mistyped latitude must never cost the user their night."""
+    if result is None:
+        return None
+    ok, dec_c = possible(result.wcs)
+    if ok:
+        return result
+    log.warning("setting aside the %s star match: it centres your frame "
+                "on declination %+.0f deg, which never rises above the "
+                "horizon from your latitude — so it cannot be the sky in "
+                "these photos (unless the location is wrong). Looking for "
+                "another match", label, dec_c)
+    if stash is not None and stash.get("result") is None:
+        stash["result"] = result
+        stash["dec"] = dec_c
+    return None
+
+
 def _observing_site(cfg, frames):
     """Where the camera actually stood: (lat, lon, how we know).
 
@@ -858,6 +881,45 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     undistort = None if dist.identity() else dist.undistort
 
     det_wcs: list = [None] * n   # per-frame WCS in detection space
+    site_lat, site_lon, site_source = _observing_site(cfg, frames)
+    if site_lat is None:
+        log.info("no observing location (no GPS in the photos, none "
+                 "entered): the height/distance estimates and the "
+                 "below-the-horizon check on the star match are both "
+                 "skipped — type your latitude, longitude in the app to "
+                 "switch them on")
+
+    def _pointing_possible(wcs_try):
+        """A star match that lands on sky which never rises at all from
+        the photographer's latitude is provably false — the failure mode
+        an RMS gate cannot see, because a mirrored pattern still fits its
+        own wrong stars tightly.
+
+        Deliberately a visibility test, not an altitude test: EXIF stamps
+        the camera's local clock with no timezone, so "how high was it at
+        that moment" can be a whole hemisphere out.  Declination against
+        latitude needs no clock at all — a field centred below
+        (latitude - 90) deg is under the horizon every hour of every
+        night, whatever the camera thought the time was.
+        """
+        if site_lat is None or wcs_try is None:
+            return True, None
+        try:
+            _ra_c, dec_c = wcs_try.pixel_to_world_values(wd / 2.0, hd / 2.0)
+            dec_c = float(dec_c)
+        except Exception:
+            return True, None
+        # The test is on the field CENTRE, so the margin covers pointing
+        # and fit error only — not half the field.  A centre below
+        # (latitude - 90) deg is sky that is under the horizon at every
+        # hour, so the middle of the photograph cannot be showing it,
+        # however the camera was aimed.
+        margin = 5.0
+        never_up = (dec_c < (site_lat - 90.0) - margin
+                    or dec_c > (site_lat + 90.0) + margin)
+        return (not never_up), dec_c
+
+    below_horizon: dict = {"result": None, "dec": None}
     solver_used = "none"
     alignment_quality = "nominal"
     solve_files: list[str] = []
@@ -893,6 +955,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         result = (solve_frame(base_det_lum, seed, catalog, cfg,
                               undistort=undistort)
                   if seed is not None else None)
+        result = _reject_below_horizon(result, _pointing_possible, "seeded",
+                                          below_horizon)
         if result is None:
             # fully automatic: search every plausible pointing against the
             # bundled naked-eye catalog — no hints, no network
@@ -900,6 +964,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             result = blind_solve(base_det_lum, det_scale_deg,
                                  catalog_radec=blind_catalog,
                                  undistort=undistort)
+            result = _reject_below_horizon(result, _pointing_possible,
+                                           "blind", below_horizon)
         if result is None:
             # the pair-distance gate is only as good as the assumed plate
             # scale; sweep plausible crop/zoom factors before giving up
@@ -911,12 +977,27 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 result = blind_solve(base_det_lum, det_scale_deg * mult,
                                      catalog_radec=blind_catalog,
                                      undistort=undistort)
+                result = _reject_below_horizon(result, _pointing_possible,
+                                               f"blind at {mult:.2f}x",
+                                               below_horizon)
                 if result is not None:
                     det_scale_deg *= mult
                     log.info("star match locked at %.2fx the assumed field "
                              "of view — the lens/sensor guess was off; "
                              "solved scale is now trusted instead", mult)
                     break
+        if result is None and below_horizon["result"] is not None:
+            result = below_horizon["result"]
+            alignment_quality = "degraded"
+            log.warning(
+                "the only star match I can find is for sky that never "
+                "rises from the latitude on record (%+.0f deg "
+                "declination). Using it so you still get your picture, "
+                "but treat the sky coordinates and the meteor "
+                "height/distance estimates as unreliable: check the "
+                "location you entered (a missing minus sign is the usual "
+                "cause), or that these photos are the night you think "
+                "they are", below_horizon["dec"])
         if result is None:
             raise RuntimeError(
                 "I couldn't match the stars in your photos to the star map, "
@@ -1339,11 +1420,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                  len(candidates))
     base_mid = base_meta.epoch_mid
     file_to_idx = {m.file: i for i, m in enumerate(frames)}
-    site_lat, site_lon, site_source = _observing_site(cfg, frames)
-    if site_lat is None:
-        log.info("no observing location (no GPS in the photos, none "
-                 "entered): skipping the height/distance estimates — "
-                 "type your latitude, longitude in the app to get them")
     for c in candidates:
         i0 = file_to_idx[c.frames[0]]
         c.rotation_deg = SIDEREAL_DEG_PER_SEC * (
