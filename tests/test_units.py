@@ -419,43 +419,42 @@ def test_faint_harvest_recovers_radiant_aligned_only():
     assert out2 == []
 
 
-def test_clean_silhouette_and_level_match():
-    """The alignment mask is blocky and claims swept sky; as a foreground
-    alpha that pastes a brighter single frame over the stack (seen on a
-    real 226-frame night).  The cleaner must drop sky islands, drop
-    'ground' sitting on bright sky, keep a genuine ragged treeline, and
-    the level match must remove the brightness step."""
-    from meteorprep.segment.silhouette import clean_silhouette, match_sky_level
+def test_foreground_mask_from_frozen_stack():
+    """The foreground alpha is segmented in CAMERA space on the frozen
+    stack: trees are dark, the sky is a smooth wash with vignetting and a
+    twilight gradient.  The mask must follow the treeline across the whole
+    frame despite that gradient, refuse to climb into the top of the
+    frame, and the level match must remove the brightness step."""
+    from meteorprep.segment.silhouette import (foreground_sky_mask,
+                                               match_sky_level)
 
-    h, w = 600, 900
-    sky = np.ones((h, w), np.float32)
-    sky[430:, :] = 0.0                               # real treeline
-    for (y, x) in [(200, 300), (150, 700), (260, 500)]:
-        sky[y:y + 40, x:x + 40] = 0.0                # false blocks in sky
-    sky[380:430, ::60] = 0.0                         # blocky fringe
-    img = np.full((h, w, 3), 3000.0, np.float32)     # bright sky
-    img[430:, :] = 400.0                             # dark trees
-    c = clean_silhouette(sky, image=img)
-    assert c[140:300, 280:760].min() > 0.9           # islands gone
-    assert c[470:, :].max() < 0.1                    # trees kept
-    # a 'ground' blob sitting on bright sky is rejected by the content check
-    sky2 = np.ones((h, w), np.float32)
-    sky2[430:, :] = 0.0
-    sky2[200:330, 200:800] = 0.0                     # big blob over sky
-    c2 = clean_silhouette(sky2, image=img)
-    assert c2[210:320, 220:780].min() > 0.9
-    assert c2[470:, :].max() < 0.1
-    # genuine ragged treeline survives
-    sky3 = np.ones((h, w), np.float32)
-    img3 = np.full((h, w, 3), 3000.0, np.float32)
+    h, w = 480, 800
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    # sky: bright bottom-right glow, dark upper-left (the case a single
+    # global threshold gets wrong)
+    sky_lvl = 300 + 500 * (xx / w) + 400 * (yy / h)
+    img = sky_lvl.copy()
+    tree_top = 330 + (30 * np.sin(xx[0] / 60.0)).astype(int)
     for x in range(w):
-        top = 430 + int(25 * np.sin(x / 40.0))
-        sky3[top:, x] = 0.0
-        img3[top:, x] = 400.0
-    c3 = clean_silhouette(sky3, image=img3)
-    assert c3[500:, :].max() < 0.1 and c3[:380, :].min() > 0.9
-    # level match removes the step between a bright frame and the stack
+        img[tree_top[x]:, x] = 60                      # dark canopy
+    frozen = np.dstack([img] * 3)
+    sky = foreground_sky_mask(frozen)
+    assert sky is not None
+    got = (sky < 0.5).argmax(axis=0)
+    # the found horizon tracks the real treeline on BOTH sides (the
+    # failure this replaces put it at the top of the frame on one side)
+    for x in (40, 400, 760):
+        assert abs(int(got[x]) - int(tree_top[x])) < 0.14 * h, (x, got[x])
+    # and follows its shape, not just its average height
+    assert np.corrcoef(got[20:-20].astype(float),
+                       tree_top[20:-20].astype(float))[0, 1] > 0.8
+    assert sky[:100, :].min() > 0.9                     # top stays sky
+    assert sky[430:, :].max() < 0.1                     # trees are cut
+
+    # an all-sky frame yields no foreground at all
+    assert foreground_sky_mask(np.dstack([sky_lvl] * 3)) is None
+
     base = np.full((h, w, 3), 800.0, np.float32)
     fg = np.full((h, w, 3), 2600.0, np.float32)
-    matched = match_sky_level(fg, base, c3)
+    matched = match_sky_level(fg, base, sky)
     assert abs(float(np.median(matched)) - 800.0) < 5.0

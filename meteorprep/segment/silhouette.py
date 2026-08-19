@@ -1,21 +1,23 @@
-"""Turn a noisy ground mask into a usable foreground silhouette (§5.2).
+"""Foreground silhouette from the frozen (camera-space) stack.
 
-The alignment-physics ground mask is built from per-block statistics and
-from the union of where the ground swept during the night, so its edge is
-blocky and it can claim isolated patches of real sky.  That is fine for
-EXCLUDING ground from the meteor search (its only original job), but it
-is wrong as an alpha channel: wherever it claims sky, compositing the
-reference frame there pastes that one frame's brighter sky over the
-stack — the blocky pale patches seen on a real 226-frame night.
+Where to segment matters more than how.  The alignment ground mask is
+computed on SKY-ALIGNED frames, so over a long night it marks the whole
+band the trees swept across, on a coarse block grid.  It is the right
+tool for excluding ground from the meteor search — and the wrong thing
+entirely to cut a foreground with: wherever it claims sky, compositing
+the reference frame pastes that one frame's brighter sky over the stack
+(the blocky pale patches seen on a real 226-frame night).
 
-Two repairs, both cheap and both verifiable by eye:
+On a fixed tripod the trees are static in CAMERA coordinates, and the
+frozen-ground stack is exactly that: every frame averaged unaligned, so
+the ground is sharp and the sky is a smooth wash.  Segmenting there is
+well posed.  Measured on real frames: ground 127 ADU vs sky 433 — a
+clean 3.4x brightness separation (texture, by contrast, is *higher* in
+the sky because stars stay point-sharp, so brightness is the signal).
 
-* ``clean_silhouette`` reduces the mask to one smooth treeline per column
-  (topmost sustained ground run, median-smoothed across columns, filled
-  below, feathered) — no blocks, no islands in the sky.
-* ``match_sky_level`` shifts the foreground so its sky level equals the
-  stack's just above that treeline, so any residual disagreement blends
-  instead of glowing.
+The sky is not uniform though — vignetting and twilight glow make a
+single global threshold fail on one side of the frame — so each column
+is normalised by its own sky level first.
 """
 
 from __future__ import annotations
@@ -28,80 +30,58 @@ import numpy as np
 log = logging.getLogger("meteorprep")
 
 
-def clean_silhouette(sky_mask: np.ndarray, image: np.ndarray | None = None,
-                     min_run_frac: float = 0.015,
-                     smooth_frac: float = 0.06, keep_pct: float = 65.0,
-                     dark_frac: float = 0.62,
-                     feather_px: float = 6.0) -> np.ndarray:
-    """sky alpha (1 = sky) -> cleaned sky alpha with a smooth horizon.
+def foreground_sky_mask(frozen: np.ndarray, rel: float = 0.45,
+                        frac_need: float = 0.72, top_limit: float = 0.25,
+                        smooth_frac: float = 0.03,
+                        feather_px: float = 8.0) -> np.ndarray | None:
+    """Camera-space sky alpha (1 = sky, 0 = foreground) from the frozen
+    ground stack.  Returns None if the frame shows no distinguishable
+    foreground (an all-sky shot)."""
+    img = np.asarray(frozen, np.float32)
+    lum = img.mean(axis=2) if img.ndim == 3 else img
+    h, w = lum.shape
+    hs, ws = max(h // 8, 32), max(w // 8, 32)
+    s = cv2.resize(lum, (ws, hs), interpolation=cv2.INTER_AREA)
 
-    When ``image`` (the foreground frame this alpha will cut) is given,
-    the mask is checked against it: foreground is markedly darker than
-    sky, so a 'ground' claim sitting on bright sky is provably wrong and
-    is dropped.  This is what removes the blocky patches a swept mask
-    puts in mid-sky on a long night.
-    """
-    m = np.asarray(sky_mask, np.float32)
-    h, w = m.shape[:2]
-    ground = (m < 0.5).astype(np.uint8)
-    if ground.sum() < 16:
-        return m
+    # per-column sky level (sky fills most of every column), smoothed
+    # across columns: removes vignetting and the twilight gradient that
+    # defeat a single global threshold
+    skycol = np.percentile(s, 70, axis=0)
+    k = max(ws // 12, 5) | 1
+    skycol = np.median(np.lib.stride_tricks.sliding_window_view(
+        np.pad(skycol, k // 2, mode="edge"), k), axis=1)
+    ground = (s < rel * skycol[None, :]).astype(np.float32)
+    if ground.mean() < 0.005:
+        return None                       # nothing dark enough: all sky
 
-    if image is not None and image.shape[:2] == (h, w):
-        img = np.asarray(image, np.float32)
-        lum = img.mean(axis=2) if img.ndim == 3 else img
-        sky_px = lum[m >= 0.5]
-        if sky_px.size > 1000:
-            sky_level = float(np.median(sky_px))
-            ground &= (lum < dark_frac * sky_level).astype(np.uint8)
-            if ground.sum() < 16:      # nothing survives: trust the mask
-                ground = (m < 0.5).astype(np.uint8)
+    # a horizon is where everything BELOW is mostly foreground; this also
+    # rejects dark patches of sky, which have bright sky beneath them
+    cnt = np.cumsum(ground[::-1], axis=0)[::-1]
+    n = np.arange(hs, 0, -1, dtype=np.float32)[:, None]
+    ok = (cnt / n) >= frac_need
+    has = ok.any(axis=0)
+    horizon = np.argmax(ok, axis=0).astype(np.float32)
+    horizon[~has] = hs
+    # never let the foreground climb into the top of the frame (a dark
+    # vignetted corner is not a treeline)
+    horizon = np.maximum(horizon, top_limit * hs)
 
-    # real foreground reaches the bottom of the frame; a patch floating in
-    # the sky does not.  Keep only ground components that touch the bottom
-    # edge — this is what removes the blocks the swept/blocky mask claims
-    # in mid-sky.
-    n_lab, lab, stats, _ = cv2.connectedComponentsWithStats(ground, 8)
-    keep = np.zeros(n_lab, bool)
-    for i in range(1, n_lab):
-        top = stats[i, cv2.CC_STAT_TOP]
-        bottom = top + stats[i, cv2.CC_STAT_HEIGHT]
-        keep[i] = bottom >= h - 2
-    if keep.any():
-        ground = keep[lab].astype(np.uint8)
-
-    # a column is "ground from here down" only where a sustained vertical
-    # run of ground begins: kills blocks, speckle and thin swept fringes
-    run = max(int(h * min_run_frac), 9)
-    run += 1 - (run % 2)                      # odd, so the anchor centres
-    sustained = cv2.erode(ground, np.ones((run, 1), np.uint8))
-    has = sustained.max(axis=0) > 0
-    horizon = np.argmax(sustained, axis=0).astype(np.float32) - run // 2
-    horizon[~has] = h                          # no ground in this column
-
-    # smooth the treeline across columns (a horizon is continuous; blocky
-    # jumps and isolated columns are artefacts)
-    k = max(int(w * smooth_frac), 5)
-    k += 1 - (k % 2)
-    known = horizon < h
+    k2 = max(int(ws * smooth_frac), 5) | 1
+    xs = np.arange(ws)
+    known = horizon < hs
     if known.sum() >= 3:
-        xs = np.arange(w)
-        horizon = np.interp(xs, xs[known], horizon[known])   # bridge gaps
-        pad = k // 2
-        padded = np.pad(horizon, pad, mode="edge")
-        win = np.lib.stride_tricks.sliding_window_view(padded, k)
-        # an upper percentile, not the median: mask errors push the
-        # treeline UP (swept fringes, blocks fused to the canopy) and
-        # never down, so biasing low keeps the true silhouette
-        horizon = np.percentile(win, keep_pct, axis=1).astype(np.float32)
-    horizon = np.clip(horizon, 0, h)
+        horizon = np.interp(xs, xs[known], horizon[known])
+        horizon = np.median(np.lib.stride_tricks.sliding_window_view(
+            np.pad(horizon, k2 // 2, mode="edge"), k2), axis=1)
 
-    rows = np.arange(h, dtype=np.float32)[:, None]
-    out = (rows < horizon[None, :]).astype(np.float32)        # 1 = sky
-    if feather_px > 0:
-        kf = int(feather_px) * 2 + 1
-        out = cv2.GaussianBlur(out, (kf, kf), feather_px / 2.0)
-    return np.clip(out, 0.0, 1.0)
+    rows = np.arange(hs, dtype=np.float32)[:, None]
+    sky = cv2.resize((rows < horizon[None, :]).astype(np.float32), (w, h),
+                     interpolation=cv2.INTER_LINEAR)
+    kf = int(feather_px) * 2 + 1
+    sky = np.clip(cv2.GaussianBlur(sky, (kf, kf), feather_px / 2.0), 0, 1)
+    log.info("foreground silhouette from the frozen stack: %.0f%% of the "
+             "frame is foreground", 100.0 * (sky < 0.5).mean())
+    return sky
 
 
 def match_sky_level(fg: np.ndarray, base: np.ndarray,
@@ -113,22 +93,14 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
     sky = np.asarray(sky_alpha, np.float32)
     if fg.shape != base.shape or sky.shape[:2] != fg.shape[:2]:
         return fg
-    # sample the sky band immediately above the horizon: both images are
-    # sky there, so any difference is the level offset we must remove
     near = (cv2.dilate((sky < 0.5).astype(np.uint8),
-                       np.ones((band_px * 2 + 1, 1), np.uint8)) > 0) & (sky > 0.5)
+                       np.ones((band_px * 2 + 1, 1), np.uint8)) > 0) \
+        & (sky > 0.5)
     if near.sum() < 500:
         near = sky > 0.5
     if near.sum() < 500:
         return fg
-    step = max(int(np.sqrt(near.sum() / 20000.0)), 1)
-    sel = near[::step, ::step]
-    if sel.sum() < 200:
-        sel = near[::1, ::1]
-        sub_f, sub_b = fg[sel], base[sel]
-    else:
-        sub_f, sub_b = fg[::step, ::step][sel], base[::step, ::step][sel]
-    off = np.median(sub_b, axis=0) - np.median(sub_f, axis=0)
+    off = np.median(base[near], axis=0) - np.median(fg[near], axis=0)
     log.info("foreground level matched to the stack: %s ADU",
              np.round(off, 1).tolist())
     return fg + off[None, None, :]

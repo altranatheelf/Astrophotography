@@ -1521,9 +1521,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # reference frame's brighter sky over the stack.  Reduce it to a clean
     # treeline silhouette for compositing (the raw mask still ships as
     # skymask.png and still drives detection).
-    from meteorprep.segment.silhouette import clean_silhouette
+    # Foreground alpha comes from the FROZEN (camera-space) stack, where
+    # the trees are static and the sky is a smooth wash — not from the
+    # sky-aligned detection mask, which marks the whole swept band on a
+    # coarse block grid and pastes bright single-frame sky into the
+    # picture when used as a cutout.
+    from meteorprep.segment.silhouette import foreground_sky_mask
     fg_ref = _fit_output(base_rgb_final)
-    sky_fg = clean_silhouette(sky_mask, image=fg_ref)
+    sky_cam = foreground_sky_mask(fg_stack if fg_stack is not None
+                                  else base_rgb_final)
+    sky_fg = _fit_output(sky_cam) if sky_cam is not None else sky_mask
+    sky_fg = np.clip(sky_fg, 0.0, 1.0)
     fg_alpha = 1.0 - sky_fg
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
