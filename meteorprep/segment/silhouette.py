@@ -30,58 +30,62 @@ import numpy as np
 log = logging.getLogger("meteorprep")
 
 
-def foreground_sky_mask(frozen: np.ndarray, rel: float = 0.45,
-                        frac_need: float = 0.72, top_limit: float = 0.25,
-                        smooth_frac: float = 0.03,
-                        feather_px: float = 8.0) -> np.ndarray | None:
-    """Camera-space sky alpha (1 = sky, 0 = foreground) from the frozen
-    ground stack.  Returns None if the frame shows no distinguishable
-    foreground (an all-sky shot)."""
+def foreground_sky_mask(frozen: np.ndarray, solid: float = 0.30,
+                        gate: float = 0.55, top_limit: float = 0.22,
+                        feather_px: float = 2.0) -> np.ndarray | None:
+    """Camera-space sky alpha (1 = sky, 0 = solid foreground) from the
+    frozen ground stack.  Returns None for an all-sky frame.
+
+    Foliage is not binary: a dense canopy blocks the sky completely while
+    the outer twigs only dim it, so no hard threshold can trace them (
+    measured: raising the cut from 0.6 to 0.7 of sky level barely moves
+    the outline).  The alpha is therefore a MATTE — how much each pixel
+    darkens its own column's sky — which makes solid canopy opaque, thin
+    sprigs partly transparent, and sky clear.  A gated, bottom-connected
+    region keeps that matte from bleeding into darker patches of sky.
+    """
     img = np.asarray(frozen, np.float32)
     lum = img.mean(axis=2) if img.ndim == 3 else img
     h, w = lum.shape
-    hs, ws = max(h // 8, 32), max(w // 8, 32)
-    s = cv2.resize(lum, (ws, hs), interpolation=cv2.INTER_AREA)
+    hh, ww = max(h // 2, 32), max(w // 2, 32)
+    s = cv2.resize(lum, (ww, hh), interpolation=cv2.INTER_AREA)
 
-    # per-column sky level (sky fills most of every column), smoothed
-    # across columns: removes vignetting and the twilight gradient that
-    # defeat a single global threshold
+    # per-column sky level (sky fills most of a column), smoothed across
+    # columns: removes the vignetting and twilight tilt that defeat a
+    # single global threshold on one side of the frame
     skycol = np.percentile(s, 70, axis=0)
-    k = max(ws // 12, 5) | 1
+    k = max(ww // 12, 5) | 1
     skycol = np.median(np.lib.stride_tricks.sliding_window_view(
         np.pad(skycol, k // 2, mode="edge"), k), axis=1)
-    ground = (s < rel * skycol[None, :]).astype(np.float32)
-    if ground.mean() < 0.005:
-        return None                       # nothing dark enough: all sky
 
-    # a horizon is where everything BELOW is mostly foreground; this also
-    # rejects dark patches of sky, which have bright sky beneath them
-    cnt = np.cumsum(ground[::-1], axis=0)[::-1]
-    n = np.arange(hs, 0, -1, dtype=np.float32)[:, None]
-    ok = (cnt / n) >= frac_need
-    has = ok.any(axis=0)
-    horizon = np.argmax(ok, axis=0).astype(np.float32)
-    horizon[~has] = hs
-    # never let the foreground climb into the top of the frame (a dark
-    # vignetted corner is not a treeline)
-    horizon = np.maximum(horizon, top_limit * hs)
+    ratio = s / np.maximum(skycol[None, :], 1e-6)
+    alpha = np.clip((1.0 - ratio) / (1.0 - solid), 0.0, 1.0)
 
-    k2 = max(int(ws * smooth_frac), 5) | 1
-    xs = np.arange(ws)
-    known = horizon < hs
-    if known.sum() >= 3:
-        horizon = np.interp(xs, xs[known], horizon[known])
-        horizon = np.median(np.lib.stride_tricks.sliding_window_view(
-            np.pad(horizon, k2 // 2, mode="edge"), k2), axis=1)
+    hard = (alpha > gate).astype(np.uint8)
+    hard[:int(top_limit * hh), :] = 0          # a dark corner is not ground
+    hard = cv2.morphologyEx(hard, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    hard = cv2.morphologyEx(hard, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    n, lab, st, _ = cv2.connectedComponentsWithStats(hard, 8)
+    keep = np.zeros(n, bool)
+    for i in range(1, n):                       # real foreground reaches
+        if st[i, cv2.CC_STAT_TOP] + st[i, cv2.CC_STAT_HEIGHT] >= hh - 2:
+            keep[i] = True                      # the bottom of the frame
+    if not keep.any():
+        return None
+    hard = keep[lab].astype(np.uint8)
 
-    rows = np.arange(hs, dtype=np.float32)[:, None]
-    sky = cv2.resize((rows < horizon[None, :]).astype(np.float32), (w, h),
-                     interpolation=cv2.INTER_LINEAR)
+    # let the semi-transparent fringe just outside the solid mass through
+    region = cv2.GaussianBlur(
+        cv2.dilate(hard, np.ones((41, 41), np.uint8)).astype(np.float32),
+        (41, 41), 12)
+    a = cv2.resize(np.clip(alpha * region, 0, 1), (w, h),
+                   interpolation=cv2.INTER_LINEAR)
     kf = int(feather_px) * 2 + 1
-    sky = np.clip(cv2.GaussianBlur(sky, (kf, kf), feather_px / 2.0), 0, 1)
-    log.info("foreground silhouette from the frozen stack: %.0f%% of the "
-             "frame is foreground", 100.0 * (sky < 0.5).mean())
-    return sky
+    a = np.clip(cv2.GaussianBlur(a, (kf, kf), max(feather_px / 2.0, 0.1)),
+                0, 1)
+    log.info("foreground matte from the frozen stack: %.0f%% of the frame "
+             "is foreground", 100.0 * (a > 0.5).mean())
+    return 1.0 - a
 
 
 def match_sky_level(fg: np.ndarray, base: np.ndarray,

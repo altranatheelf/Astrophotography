@@ -420,11 +420,12 @@ def test_faint_harvest_recovers_radiant_aligned_only():
 
 
 def test_foreground_mask_from_frozen_stack():
-    """The foreground alpha is segmented in CAMERA space on the frozen
-    stack: trees are dark, the sky is a smooth wash with vignetting and a
-    twilight gradient.  The mask must follow the treeline across the whole
-    frame despite that gradient, refuse to climb into the top of the
-    frame, and the level match must remove the brightness step."""
+    """The foreground alpha is a MATTE segmented in CAMERA space on the
+    frozen stack: trees are dark, the sky is a smooth wash with vignetting
+    and a twilight gradient.  It must follow the treeline across the whole
+    frame despite that gradient, make a solid canopy opaque while leaving
+    a semi-transparent fringe, refuse to climb into the top of the frame,
+    and the level match must remove the brightness step."""
     from meteorprep.segment.silhouette import (foreground_sky_mask,
                                                match_sky_level)
 
@@ -449,7 +450,17 @@ def test_foreground_mask_from_frozen_stack():
     assert np.corrcoef(got[20:-20].astype(float),
                        tree_top[20:-20].astype(float))[0, 1] > 0.8
     assert sky[:100, :].min() > 0.9                     # top stays sky
-    assert sky[430:, :].max() < 0.1                     # trees are cut
+    assert sky[430:, :].max() < 0.1                     # canopy opaque
+
+    # a half-shaded canopy edge is PARTLY transparent, not binary
+    edge = np.dstack([np.where(np.arange(w)[None, :] < 0, 0, 0)] * 3)
+    dim = img.copy()
+    dim[tree_top.max() + 20:, :] = 60
+    dim[300:tree_top.max() + 20, :] = 0.62 * sky_lvl[300:tree_top.max() + 20, :]
+    part = foreground_sky_mask(np.dstack([dim] * 3))
+    assert part is not None
+    mid = 1.0 - part[310:tree_top.max() + 10, :]
+    assert 0.15 < float(mid.mean()) < 0.85, float(mid.mean())
 
     # an all-sky frame yields no foreground at all
     assert foreground_sky_mask(np.dstack([sky_lvl] * 3)) is None
