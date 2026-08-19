@@ -123,11 +123,18 @@ def main() -> int:
             site_row = QHBoxLayout()
             site_row.addWidget(QLabel("Where (lat, lon):"))
             self.site = QLineEdit()
-            self.site.setPlaceholderText("example: 44.3275, -72.1725  (optional)")
+            self.site.setPlaceholderText(
+                "example: 44.3275, -72.1725  (optional — adds meteor "
+                "height, distance and duration)")
             self.site.setToolTip(
                 "Find yours in Apple Maps: press and hold your spot, the "
-                "numbers appear on the place card. Rough is fine — and "
-                "leaving this empty is fine too.")
+                "numbers appear on the place card. Rough is fine.\n\n"
+                "Fill this in and each meteor also gets how high it "
+                "burned, how far away it was and how long it lasted. "
+                "Leave it empty and everything else still works — those "
+                "three numbers are simply left out rather than guessed. "
+                "(If your camera's GPS was on, they come from the photos "
+                "and you can ignore this box.)")
             site_row.addWidget(self.site)
             layout.addLayout(site_row)
 
@@ -277,8 +284,12 @@ def main() -> int:
             compass = self.compass.currentText()
             try:
                 lat, lon = (float(v) for v in self.site.text().split(","))
+                site_given = True
             except ValueError:
-                lat, lon = 44.3275, -72.1725   # blank/invalid: harmless default
+                # blank or unparseable: harmless for the solver seed, but
+                # it must not be mistaken for the real observing site
+                lat, lon = 44.3275, -72.1725
+                site_given = False
             cfg = Config(
                 input_dir=self.folder,
                 output_dir=str(self.folder) + "_meteorprep",
@@ -289,7 +300,7 @@ def main() -> int:
                 force=self.cb_force.isChecked(),
                 jobs=max((os.cpu_count() or 2) - 1, 1),
                 cleanup_cache=True,
-                site_lat=lat, site_lon=lon,
+                site_lat=lat, site_lon=lon, site_explicit=site_given,
                 pointed_compass="" if compass == "not sure" else compass,
                 pointed_elevation_deg=elev,
             )

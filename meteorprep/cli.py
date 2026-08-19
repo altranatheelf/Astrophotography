@@ -30,8 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="rough camera rotation (deg E of N)")
     p.add_argument("--catalog", default="",
                    help="local (N,2) RA/Dec .npy star catalog for offline solving")
-    p.add_argument("--site-lat", type=float, default=44.3275)
-    p.add_argument("--site-lon", type=float, default=-72.1725)
+    p.add_argument("--site-lat", type=float, default=None,
+                   help="observing latitude in degrees (also read from "
+                        "photo GPS when the camera recorded it)")
+    p.add_argument("--site-lon", type=float, default=None,
+                   help="observing longitude in degrees")
     p.add_argument("--solve-every-k", type=int, default=10)
     p.add_argument("--no-psd", action="store_true", help="skip the PSD writer")
     p.add_argument("--no-pngjsx", action="store_true",
@@ -49,7 +52,10 @@ def config_from_args(args) -> Config:
     cfg = Config(
         input_dir=args.input_dir, output_dir=args.out,
         align_mode=args.align_mode,
-        site_lat=args.site_lat, site_lon=args.site_lon,
+        **({"site_lat": args.site_lat, "site_lon": args.site_lon,
+            "site_explicit": True}
+           if args.site_lat is not None and args.site_lon is not None
+           else {}),
         catalog_file=args.catalog,
         solve_every_k=args.solve_every_k,
         emit_psd=not args.no_psd,

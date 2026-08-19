@@ -25,7 +25,8 @@ log = logging.getLogger("meteorprep")
 EXIF_TAGS = ["DateTimeOriginal", "SubSecTimeOriginal", "ExposureTime", "ISO",
              "FNumber", "FocalLength", "FocalLengthIn35mmFormat", "Model",
              "LensModel", "Orientation", "ImageWidth", "ImageHeight",
-             "FocalPlaneXResolution", "FocalPlaneResolutionUnit"]
+             "FocalPlaneXResolution", "FocalPlaneResolutionUnit",
+             "GPSLatitude", "GPSLongitude"]
 
 
 @dataclass
@@ -47,6 +48,8 @@ class FrameMeta:
     group_id: str = ""
     wcs_source: str = ""        # "solved" | "propagated" | ""
     solve_rms_px: float = float("nan")
+    gps_lat: float | None = None   # None = the camera didn't record it
+    gps_lon: float | None = None
     extra: dict = field(default_factory=dict)
 
     @property
@@ -62,6 +65,28 @@ class FrameMeta:
             "solve_rms_px": None if self.solve_rms_px != self.solve_rms_px
             else round(self.solve_rms_px, 3),
         }
+
+
+def _gps_deg(value) -> float | None:
+    """exiftool -n gives a signed decimal degree; without -n it gives
+    "44 deg 19' 39.00\" N".  Accept either, and treat anything else as
+    "the camera did not record a position" rather than guessing."""
+    if value in (None, "", 0):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    import re
+    txt = str(value)
+    nums = [float(x) for x in re.findall(r"[-+]?\d+(?:\.\d+)?", txt)]
+    if not nums:
+        return None
+    deg = nums[0] + (nums[1] / 60.0 if len(nums) > 1 else 0.0) \
+        + (nums[2] / 3600.0 if len(nums) > 2 else 0.0)
+    if re.search(r"[SW]\s*$", txt.strip(), re.I):
+        deg = -deg
+    return deg
 
 
 def _parse_dt(value: str) -> datetime:
@@ -201,6 +226,8 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
             width=int(rec.get("ImageWidth", 0) or 0),
             height=int(rec.get("ImageHeight", 0) or 0),
             subsec=str(rec.get("SubSecTimeOriginal", "")),
+            gps_lat=_gps_deg(rec.get("GPSLatitude")),
+            gps_lon=_gps_deg(rec.get("GPSLongitude")),
         ))
     if not metas:
         raise ExiftoolError(
@@ -238,6 +265,8 @@ def _from_sidecar(paths: list[Path]) -> list[FrameMeta] | None:
             lens_model=str(rec.get("LensModel", "")),
             width=int(rec.get("ImageWidth", 0)),
             height=int(rec.get("ImageHeight", 0)),
+            gps_lat=_gps_deg(rec.get("GPSLatitude")),
+            gps_lon=_gps_deg(rec.get("GPSLongitude")),
         ))
     return metas
 

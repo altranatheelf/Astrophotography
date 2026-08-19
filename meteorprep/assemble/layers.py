@@ -37,10 +37,19 @@ class LayerStack:
 
 
 def meteor_layer_name(idx: int, srcfile: str, epoch_iso: str,
-                      rotation_deg: float, confidence: float, flag: str) -> str:
+                      rotation_deg: float, confidence: float, flag: str,
+                      physics: dict | None = None) -> str:
     ts = epoch_iso.replace("+00:00", "Z")
-    return (f"M{idx:03d}_{srcfile}_{ts}_{rotation_deg:+.3f}deg_"
+    name = (f"M{idx:03d}_{srcfile}_{ts}_{rotation_deg:+.3f}deg_"
             f"c{confidence:.2f}_{flag}")
+    # one caption-sized fact on the layer itself; the assumptions behind
+    # it live in the sidecar, never abbreviated away
+    if physics and physics.get("geometry_consistent"):
+        d = physics.get("est_duration_s")
+        e = physics.get("elevation_deg")
+        if d is not None and e is not None:
+            name += f"_~{d:.2f}s_{e:.0f}deg-up"
+    return name
 
 
 def candidate_flag(cand) -> str:

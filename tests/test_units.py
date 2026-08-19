@@ -623,3 +623,152 @@ def test_meteor_layer_border_stays_zero_with_stars_on_the_rim():
     a = layer.alpha
     for edge in (a[0, :], a[-1, :], a[:, 0], a[:, -1]):
         assert float(edge.max()) == 0.0, float(edge.max())
+
+
+def test_altaz_matches_a_known_geometry():
+    """Polaris sits at (very nearly) the observer's latitude, due north,
+    at every hour of every night — the cheapest possible check that the
+    sidereal-time and precession maths is not subtly wrong."""
+    from datetime import datetime, timezone
+
+    from meteorprep.detect.physics import altaz_from_radec
+
+    for hour in (2, 8, 14, 20):
+        alt, az = altaz_from_radec(37.9529, 89.2641, 44.3275, -72.1725,
+                                   datetime(2026, 8, 16, hour,
+                                            tzinfo=timezone.utc))
+        assert abs(alt - 44.3275) < 1.0, (hour, alt)
+        assert min(az, 360 - az) < 2.0, (hour, az)
+
+
+def test_slant_range_stays_physical_near_the_horizon():
+    """h / sin(alt) runs away to thousands of km at low elevation, which
+    is exactly where meteors are most often photographed.  The spherical
+    form has to stay bounded and monotone."""
+    from meteorprep.detect.physics import slant_range_km
+
+    assert abs(slant_range_km(90, 95) - 95) < 0.5
+    r20, r5, r0 = (slant_range_km(a, 95) for a in (20, 5, 0))
+    assert r20 < r5 < r0 < 1200
+    assert slant_range_km(20, 95) > slant_range_km(45, 95)
+
+
+def test_physics_refuses_impossible_meteor_geometry():
+    """A satellite crosses far more slowly than a meteor at meteor speed
+    and height.  When the assumed geometry would need the streak to last
+    longer than the frame it appeared in, the annotation must say so
+    instead of printing a confident wrong duration."""
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from meteorprep.detect.physics import annotate
+
+    when = datetime(2026, 8, 16, 5, 0, tzinfo=timezone.utc)
+    # a short streak high overhead: fine for a 20 s frame
+    fast = SimpleNamespace(endpoints_world=[((90.0, 60.0), (91.0, 60.5))],
+                           length_deg=0.8)
+    ok = annotate(fast, 44.3275, -72.1725, when, 20.0)
+    assert ok["geometry_consistent"] is True
+    assert 0.0 < ok["est_duration_s"] <= 20.0
+    assert ok["est_range_km"] >= 95
+    # a satellite: correctly identified upstream, so the shower numbers
+    # must NOT be applied to it — direction only
+    sat = annotate(fast, 44.3275, -72.1725, when, 20.0,
+                   meteor_assumptions=False)
+    assert "est_duration_s" not in sat
+    assert sat["elevation_deg"] == ok["elevation_deg"]
+    assert "not a meteor" in sat["note"]
+    # a trail so long and so low that the assumed speed would need more
+    # time than the frame lasted: impossible, and it has to say so
+    huge = SimpleNamespace(
+        endpoints_world=[((90.0, 60.0), (91.0, 60.5))], length_deg=140.0)
+    bad = annotate(huge, 44.3275, -72.1725, when, 2.0)
+    assert bad["geometry_consistent"] is False
+    assert "exposure" in bad["note"]
+
+
+def test_evidence_ledger_classifies_by_the_weakest_claim():
+    from meteorprep.report.evidence import evidence_ledger, ledger_rgb
+
+    cov = np.full((40, 40), 100, np.uint16)
+    cov[:5, :] = 0                      # outside every footprint
+    cov[5:10, :] = 10                   # thin rim
+    rej = np.zeros((40, 40), np.uint16)
+    rej[20:24, 20:24] = 60              # a meteor was clipped out here
+    rej[6, 6] = 6                       # rejection inside the thin rim
+    rej[30, 30] = 3                     # noise-tail trimming: not a class
+    sky = np.ones((40, 40), np.float32)
+    sky[35:, :] = 0.0                   # treeline
+
+    led, legend = evidence_ledger(cov, rej, sky)
+    assert led[0, 0] == 0               # no data wins over everything
+    assert led[7, 7] == 3               # thin coverage beats rejection
+    assert led[22, 22] == 2             # outliers removed
+    assert led[38, 5] == 4              # ground
+    assert led[15, 15] == 1             # measured, full depth
+    assert led[30, 30] == 1             # a few clipped samples is normal
+    pct = {v["id"]: v["percent"] for v in legend}
+    assert abs(sum(pct.values()) - 100.0) < 1e-6
+    assert ledger_rgb(led).shape == (40, 40, 3)
+
+
+def test_capsule_text_carries_the_honesty_claims():
+    from meteorprep.report.capsule import as_text, build
+
+    sidecar = {"tool_version": "9.9.9", "params_hash": "sha256:abc",
+               "frames": [{"epoch_mid": "2026-08-16T04:55:54+00:00"}],
+               "alignment": {"solver": "blind"},
+               "color_calibration": {"gains": [1, 1, 1]},
+               "candidates": [
+                   {"label": "meteor", "physics": {"geometry_consistent": True,
+                                                   "est_duration_s": 0.4}},
+                   {"label": "meteor", "physics": {}},
+                   {"label": "satellite", "physics": {}}]}
+    cap = build({}, {"integration": "75 min of exposure",
+                     "photos stacked": "226 of 226",
+                     "star-lock accuracy": "0.9 px RMS"}, sidecar)
+    assert cap["meteors_true_position"] == 2
+    assert cap["other_trails_flagged"] == 1
+    assert cap["physics_annotated"] == 1
+    assert cap["generated_pixels"] == "none"
+    txt = as_text(cap)
+    assert "75 min of exposure" in txt
+    assert "sha256:abc" in txt
+    assert "Nothing was painted in" in txt
+
+
+def test_gps_parsing_and_site_resolution():
+    """Height and distance hang off the observing site.  A default from
+    the config file is fine as a solver seed and completely wrong as a
+    place to say a meteor burned over — so the site is only 'known' when
+    the camera recorded it or a person typed it."""
+    from types import SimpleNamespace
+
+    from meteorprep.config import Config
+    from meteorprep.ingest.exif import _gps_deg
+    from meteorprep.pipeline import _observing_site
+
+    assert _gps_deg(None) is None and _gps_deg("") is None
+    assert abs(_gps_deg(-72.1725) + 72.1725) < 1e-9
+    assert abs(_gps_deg("44 deg 19' 39.00\" N") - 44.3275) < 1e-3
+    assert abs(_gps_deg("72 deg 10' 21.00\" W") + 72.1725) < 1e-3
+
+    no_gps = [SimpleNamespace(gps_lat=None, gps_lon=None) for _ in range(3)]
+    lat, lon, src = _observing_site(Config(input_dir="."), no_gps)
+    assert (lat, lon, src) == (None, None, None)
+
+    lat, lon, src = _observing_site(
+        Config(input_dir=".", site_lat=59.9, site_lon=10.7,
+               site_explicit=True), no_gps)
+    assert (round(lat, 1), round(lon, 1)) == (59.9, 10.7)
+    assert "entered" in src
+
+    # photo GPS wins over anything typed: it is where the camera was
+    with_gps = [SimpleNamespace(gps_lat=60.1, gps_lon=11.2),
+                SimpleNamespace(gps_lat=60.3, gps_lon=11.4),
+                SimpleNamespace(gps_lat=None, gps_lon=None)]
+    lat, lon, src = _observing_site(
+        Config(input_dir=".", site_lat=59.9, site_lon=10.7,
+               site_explicit=True), with_gps)
+    assert (round(lat, 1), round(lon, 1)) == (60.2, 11.3)
+    assert "GPS" in src

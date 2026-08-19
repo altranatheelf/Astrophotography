@@ -64,17 +64,35 @@ def render_candidate_crops(candidates, layer_pairs, roi_images,
     return crops
 
 
+def _physics_cell(ph: dict) -> str:
+    """Short human summary of one candidate's physics estimates."""
+    if not ph or ph.get("est_duration_s") is None:
+        el = ph.get("elevation_deg") if ph else None
+        return f"{el:.0f}&deg; up" if el is not None else "-"
+    if ph.get("geometry_consistent") is False:
+        return (f"{ph['elevation_deg']:.0f}&deg; up &middot; too slow for "
+                "a meteor")
+    return (f"~{ph['est_duration_s']:.2f}s &middot; "
+            f"~{ph['assumed_ablation_km']:.0f} km up &middot; "
+            f"~{ph['est_range_km']:.0f} km away")
+
+
 def write_report_html(out_dir: Path, group_result: dict,
                       have_preview: bool, have_contact: bool,
                       have_psd: bool, crops: dict | None = None,
                       timings: list | None = None,
                       info: dict | None = None,
-                      looks: list | None = None) -> Path:
+                      looks: list | None = None,
+                      capsule: dict | None = None) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
     flagged = [c for c in cands if c.get("label") != "meteor"]
     crops = crops or {}
+
+    any_physics = any((c.get("physics") or {}).get("est_duration_s")
+                      for c in cands)
+    phys_head = "<th>estimated</th>" if any_physics else ""
 
     rows = []
     for c in cands:
@@ -85,8 +103,11 @@ def write_report_html(out_dir: Path, group_result: dict,
                  if crop_rel else "&mdash;")
         rows.append(
             "<tr><td>{thumb}</td><td>{id}</td><td>{label}</td>"
-            "<td>{frames}</td><td>{conf:.0%}</td><td>{miss}</td></tr>"
+            "<td>{frames}</td><td>{conf:.0%}</td><td>{miss}</td>"
+            "{phys}</tr>"
             .format(
+                phys=(f"<td>{_physics_cell(c.get('physics') or {})}</td>"
+                      if any_physics else ""),
                 thumb=thumb,
                 id=html.escape(cid),
                 label=html.escape(str(c.get("label", "?"))),
@@ -94,6 +115,24 @@ def write_report_html(out_dir: Path, group_result: dict,
                 conf=float(c.get("confidence", 0) or 0),
                 miss=(f"{c['radiant_miss_deg']:.0f}&deg;"
                       if c.get("radiant_miss_deg") is not None else "-")))
+
+    physics_note = (
+        "<p>Estimated column: how high it burned, how far away it was and "
+        "how long it lasted. A single camera measures direction, not "
+        "distance &mdash; these follow from the measured sky position "
+        "plus two stated assumptions (meteors of this shower burn near "
+        "95&nbsp;km up and arrive at about 59&nbsp;km/s), and both "
+        "assumptions travel with the numbers in meteorprep.json.</p>"
+        if any_physics else "")
+
+    capsule_html = ""
+    if capsule:
+        from meteorprep.report.capsule import as_text
+        capsule_html = (
+            "<h2>How this image was made</h2>"
+            "<p>Paste this under the photo &mdash; it is also saved as "
+            "<b>capsule.txt</b>.</p>"
+            f"<pre class=\"capsule\">{html.escape(as_text(capsule))}</pre>")
 
     timing_html = ""
     if timings:
@@ -148,6 +187,9 @@ def write_report_html(out_dir: Path, group_result: dict,
  .looks {{ display:flex; gap:12px; flex-wrap:wrap }}
  .look {{ flex:1 1 260px; background:#1e242d; border-radius:8px; padding:10px }}
  .look h3 {{ margin:8px 0 4px; font-size:15px }}
+ pre.capsule {{ background:#12161c; border:1px solid #2a323d; border-radius:8px;
+        padding:1em 1.2em; white-space:pre-wrap; font-size:13px;
+        color:#c8d3df; user-select:all }}
  .look p {{ margin:0; color:#9aa7b5; font-size:13px }}
 </style></head><body>
 <h1>Your night, processed</h1>
@@ -160,7 +202,9 @@ def write_report_html(out_dir: Path, group_result: dict,
 <h2>Every candidate</h2>
 <p>Each crop is auto-brightened for inspection — click to enlarge.</p>
 <table><tr><th></th><th>id</th><th>verdict</th><th>frame(s)</th>
-<th>confidence</th><th>radiant miss</th></tr>{''.join(rows)}</table>
+<th>confidence</th><th>radiant miss</th>{phys_head}</tr>{''.join(rows)}</table>
+{physics_note}
+{capsule_html}
 {timing_html}
 {info_html}
 <h2>What the files are</h2>
@@ -173,9 +217,14 @@ meteors brightened; share it as-is or use it as a reference</li>
 coordinates) for every candidate</li>
 <li><b>skymask.png</b> — what the tool considered ground (black); should
 look like your treeline's silhouette</li>
+<li><b>capsule.txt</b> — the caption that proves itself: integration
+time, what was calibrated, and that no pixel was generated</li>
 <li><b>evidence/</b> — the stack's own measurements: coverage.png (how
-many photos built each pixel) and noise.png (per-pixel sky noise) —
-the honest-image receipts</li>
+many photos built each pixel), noise.png (per-pixel sky noise),
+rejected.png (where outliers were thrown away), removed.png (the light
+that was thrown away — meteors, planes, satellites, cosmic rays) and
+ledger.png (every pixel colour-coded by where it came from, with
+ledger_legend.json) — the honest-image receipts</li>
 <li><b>run_log.txt</b> — the full diary; send it when something looks wrong</li>
 </ul>
 </body></html>"""

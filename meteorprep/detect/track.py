@@ -31,6 +31,7 @@ class Candidate:
     flags: dict = field(default_factory=dict)
     spans_boundary: bool = False
     rotation_deg: float = 0.0              # sky rotation vs base frame
+    physics: dict = field(default_factory=dict)   # estimates + assumptions
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +50,7 @@ class Candidate:
             "persistence": self.persistence,
             "spans_boundary": self.spans_boundary,
             "rotation_deg": round(self.rotation_deg, 4),
+            "physics": self.physics,
         }
 
 

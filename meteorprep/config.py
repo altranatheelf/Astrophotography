@@ -76,6 +76,19 @@ class Config:
     radiant_dra_deg_per_day: float = 1.40
     radiant_ddec_deg_per_day: float = 0.20
     radiant_tol_deg: float = 5.0
+    # physics annotations: the two assumptions that turn measured
+    # direction into an estimated height, range and duration.  Perseids
+    # arrive at ~59 km/s and burn around 95 km up; both are reported
+    # alongside every estimate they produce.
+    # True only when a person actually gave their location (typed into
+    # the app, or passed on the command line).  The lat/lon fields carry a
+    # default so the solver's optional alt-az seed has something to work
+    # with; physics annotations must never quietly use that default, or
+    # the report would state the height of a meteor over Vermont for a
+    # photograph taken anywhere else.
+    site_explicit: bool = False
+    shower_entry_km_s: float = 59.0
+    shower_ablation_km: float = 95.0
     # second-pass faint search against the clean stacked base (2.0 plan
     # Phase 3): lower MAD multiplier than round one's 10 because the base
     # diff is far cleaner; radiant gating protects precision
@@ -133,7 +146,8 @@ class Config:
         "classify": ["cosmic_max_px", "fwhm_sat_px", "boundary_gap_deg",
                      "radiant_ra_deg", "radiant_dec_deg", "radiant_epoch",
                      "radiant_dra_deg_per_day", "radiant_ddec_deg_per_day",
-                     "radiant_tol_deg"],
+                     "radiant_tol_deg", "shower_entry_km_s",
+                     "shower_ablation_km"],
         "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows",
                      "frame_weighting", "emit_foreground_stack"],
         "sky_ground": [],

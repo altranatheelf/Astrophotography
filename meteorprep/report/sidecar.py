@@ -26,7 +26,7 @@ def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
                   alignment_quality: str, solver: str,
                   solve_frames: list[str],
                   color_calibration: dict | None = None,
-                  crop_xy=None) -> Path:
+                  crop_xy=None, site=None) -> Path:
     doc = {
         "tool_version": __version__,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -36,7 +36,14 @@ def write_sidecar(out_path: Path, cfg, group_id: str, base_frame: str,
         # base_wcs_fits_header) are in the UNCROPPED stack canvas; the
         # shipped PSD/preview canvas starts at this offset within it
         "seam_crop_origin_xy": list(crop_xy) if crop_xy else [0, 0],
-        "site": {"lat": cfg.site_lat, "lon": cfg.site_lon},
+        # the site the physics annotations were computed from, and how
+        # it was known.  source None means it was never established, and
+        # nothing height-dependent was estimated.
+        "site": {"lat": (site or {}).get("lat"),
+                 "lon": (site or {}).get("lon"),
+                 "source": (site or {}).get("source"),
+                 "solver_seed_lat": cfg.site_lat,
+                 "solver_seed_lon": cfg.site_lon},
         "base_frame": base_frame,
         "base_wcs_fits_header": (base_wcs.to_header(relax=True).tostring(sep="\n")
                                  if base_wcs is not None else None),

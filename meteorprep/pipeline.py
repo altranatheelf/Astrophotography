@@ -278,6 +278,12 @@ def _stack_pass(args) -> dict:
         ssum = _np.zeros((h, w, 3), _np.float32)
         wsum = _np.zeros((h, w, 3), _np.float32)
         fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
+        # per-pixel count of samples the sigma clip threw away — the
+        # meteors, planes, satellites, cosmic rays and wind-shaken twigs
+        # that never reached the clean starfield.  Shipped as evidence:
+        # "show me what you removed" should be answerable with a file,
+        # not a claim.
+        rcount = _np.zeros((h, w), _np.uint16)
         fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
         trail_max = None   # camera-space lighten-max (free star trails)
@@ -387,12 +393,15 @@ def _stack_pass(args) -> dict:
             fcount += ok.astype(_np.uint16)
             wgt = float(frame_weights.get(i, 1.0))
             okf = ok.astype(_np.float32)
+            kept_all = okf.copy()
             for c in range(3):
                 keep = okf * (
                     _np.abs(arr[:, :, c] - clip_mean[:, :, c])
                     <= clip_bound[:, :, c])
                 ssum[:, :, c] += arr[:, :, c] * keep * wgt
                 wsum[:, :, c] += keep * wgt
+                kept_all *= keep
+            rcount += (okf - kept_all).astype(_np.uint16)
         del arr, foot, ok
     out = {"bg": bgs}
     if mode == "moments":
@@ -405,7 +414,7 @@ def _stack_pass(args) -> dict:
             out[name] = str(p)
     else:
         for name, a in (("csum", ssum), ("cwsum", wsum),
-                        ("fcount", fcount)):
+                        ("fcount", fcount), ("rcount", rcount)):
             p = tmp / f"{name}_{worker_id}.npy"
             _np.save(p, a)
             out[name] = str(p)
@@ -587,6 +596,27 @@ def _save_candidates(cache, candidates) -> None:
     cache.path("candidates.json").write_text(_json.dumps(
         {"tool_version": _ver,
          "candidates": [_dc.asdict(c) for c in candidates]}, default=_plain))
+
+
+def _observing_site(cfg, frames):
+    """Where the camera actually stood: (lat, lon, how we know).
+
+    Returns (None, None, None) when nobody knows.  Height, range and
+    duration all hang off the observing site, so a guess here would turn
+    into confident wrong numbers in the report — better to say nothing
+    and tell the photographer how to fill it in.
+    """
+    lats = [m.gps_lat for m in frames
+            if getattr(m, "gps_lat", None) is not None]
+    lons = [m.gps_lon for m in frames
+            if getattr(m, "gps_lon", None) is not None]
+    if lats and lons:
+        import statistics
+        return (float(statistics.median(lats)), float(statistics.median(lons)),
+                "the GPS position your camera recorded")
+    if getattr(cfg, "site_explicit", False):
+        return float(cfg.site_lat), float(cfg.site_lon), "the location you entered"
+    return None, None, None
 
 
 def _load_candidates(cache):
@@ -1309,12 +1339,30 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                  len(candidates))
     base_mid = base_meta.epoch_mid
     file_to_idx = {m.file: i for i, m in enumerate(frames)}
+    site_lat, site_lon, site_source = _observing_site(cfg, frames)
+    if site_lat is None:
+        log.info("no observing location (no GPS in the photos, none "
+                 "entered): skipping the height/distance estimates — "
+                 "type your latitude, longitude in the app to get them")
     for c in candidates:
         i0 = file_to_idx[c.frames[0]]
         c.rotation_deg = SIDEREAL_DEG_PER_SEC * (
             frames[i0].epoch_mid - base_mid).total_seconds()
         s = c.streaks[0]
         c.endpoints_pix_base = [[s.x0, s.y0], [s.x1, s.y1]]
+        # physics annotations: where in the sky it burned, and — under
+        # stated shower assumptions — how high, how far and how long
+        if base_wcs is not None and site_lat is not None:
+            try:
+                from meteorprep.detect.physics import annotate
+                c.physics = annotate(
+                    c, site_lat, site_lon, frames[i0].epoch_mid,
+                    float(frames[i0].exposure_s or 0.0),
+                    entry_km_s=cfg.shower_entry_km_s,
+                    ablation_km=cfg.shower_ablation_km,
+                    meteor_assumptions=(c.label == "meteor"))
+            except Exception as exc:
+                log.debug("physics annotation skipped for %s: %s", c.id, exc)
 
     meteor_cands = [c for c in candidates if c.label == "meteor"]
     flagged_cands = [c for c in candidates if c.label != "meteor"]
@@ -1335,7 +1383,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     if stage_fresh("base_sky"):
         mark("meteor search + classification")
         notify(0.60, "building the clean starfield from every frame")
-        base_img, fg_stack, coverage, trail_img = _stream_base(
+        (base_img, fg_stack, coverage, trail_img, rejected,
+         removed_half) = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
             corridor_segments, weights, cache, bad_pixels, notify, k1,
             sky_path)
@@ -1349,6 +1398,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                              compression="zlib")
         if coverage is not None:
             np.save(cache.path("coverage.npy"), coverage)
+        # evidence products survive cleanup and a resumed run alongside
+        # coverage, so re-opening a finished folder still has its receipts
+        if rejected is not None:
+            np.save(cache.path("rejected.npy"), rejected)
+        if removed_half is not None:
+            np.save(cache.path("removed_half.npy"), removed_half)
         if trail_img is not None:
             tifffile.imwrite(cache.path("startrail.tif"),
                              np.clip(trail_img, 0, 65535).astype(np.uint16),
@@ -1360,6 +1415,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 if cache.path("fg_stack.tif").exists() else None)
     coverage = (np.load(cache.path("coverage.npy"))
                 if cache.path("coverage.npy").exists() else None)
+    rejected = (np.load(cache.path("rejected.npy"))
+                if cache.path("rejected.npy").exists() else None)
     base_lum = raw_mod.luminance(base_img)
 
     # ------- second-pass faint-meteor harvest vs the clean base ---------
@@ -1656,7 +1713,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             name = meteor_layer_name(
                 k + 1, c.frames[min(si, len(c.frames) - 1)],
                 frames[i].epoch_mid.astimezone(timezone.utc).isoformat(),
-                c.rotation_deg, c.confidence, flag)
+                c.rotation_deg, c.confidence, flag, c.physics)
             # Screen, not Lighten: the layer holds the streak's own added
             # light, so screening it onto the sky is the physical
             # composite and leaves no box edge where the layer is zero
@@ -1778,7 +1835,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         base_wcs, pole_xy, radiant, frames, candidates,
         alignment_quality, solver_used, solve_files,
         color_calibration=color_cal,
-        crop_xy=((crop[0], crop[1]) if crop is not None else None))
+        crop_xy=((crop[0], crop[1]) if crop is not None else None),
+        site={"lat": site_lat, "lon": site_lon, "source": site_source})
     outputs["sidecar"] = str(sidecar)
     from meteorprep.report.html import (render_candidate_crops,
                                         write_report_html)
@@ -1817,6 +1875,36 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             _gray_png(nm, evd / "noise.png")
             ev_stats["sky noise per frame"] = (
                 f"~{float(np.median(nm)):.0f} ADU (median, 16-bit)")
+        rej = rejected
+        if rej is not None and crop is not None:
+            rej = rej[crop[1]:crop[3], crop[0]:crop[2]]
+        if rej is not None and rej.shape[:2] == base_img.shape[:2]:
+            _gray_png(rej, evd / "rejected.png",
+                      hi=max(float(np.percentile(rej, 99.9)), 1.0))
+            n_any = float((rej > 0).mean())
+            ev_stats["outliers removed"] = (
+                f"{n_any * 100:.1f}% of pixels had at least one frame "
+                f"clipped away (max {int(rej.max())} frames on one pixel)")
+        if cache.path("removed_half.npy").exists():
+            rem = np.load(cache.path("removed_half.npy")).astype(np.float32)
+            if crop is not None:
+                rem = rem[crop[1] // 2:crop[3] // 2,
+                          crop[0] // 2:crop[2] // 2]
+            _gray_png(rem, evd / "removed.png")
+        # ---- Evidence Ledger: per-pixel lineage, one indexed image ----
+        if rej is not None and coverage is not None:
+            cov_c = (coverage[crop[1]:crop[3], crop[0]:crop[2]]
+                     if crop is not None else coverage)
+            from meteorprep.report.evidence import (evidence_ledger,
+                                                     ledger_rgb)
+            led, legend = evidence_ledger(cov_c, rej, sky_fg)
+            _cv2.imwrite(str(evd / "ledger.png"),
+                         _cv2.cvtColor(ledger_rgb(led), _cv2.COLOR_RGB2BGR))
+            (evd / "ledger_legend.json").write_text(
+                __import__("json").dumps(legend, indent=1))
+            ev_stats["lineage"] = "; ".join(
+                f"{v['label']} {v['percent']:.1f}%" for v in legend
+                if v["percent"] >= 0.05)
     except Exception as exc:
         log.warning("evidence maps skipped: %s", exc)
         ev_stats = {}
@@ -1837,6 +1925,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             "generated pixels": "none — every trail is measured light, "
                                 "at its true sky position",
             "recipe hash": cfg.params_hash()[:23]}
+    if site_source:
+        info["observing location"] = (
+            f"{site_lat:+.4f}, {site_lon:+.4f} — from {site_source}")
+    else:
+        info["observing location"] = (
+            "not known, so no height/distance/duration estimates — type "
+            "your latitude, longitude into the app (or turn the camera's "
+            "GPS on) and they appear next run")
     info.update(ev_stats)
     if color_cal is not None:
         gn = color_cal["gains"]
@@ -1857,6 +1953,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         looks.append(("startrail.jpg", "Star trails",
                       "the whole night in one arc: stars trail, the "
                       "ground stays frozen"))
+    # the share capsule: the picture's own receipts, in a file that can
+    # be pasted under a post
+    capsule = {}
+    try:
+        import json as _json
+
+        from meteorprep.report import capsule as _cap
+        capsule = _cap.build({"n_meteors": len(meteor_cands)}, info,
+                             _json.loads(Path(sidecar).read_text()))
+        outputs["capsule"] = str(_cap.write(out_dir, capsule))
+    except Exception as exc:
+        log.warning("share capsule skipped: %s", exc)
     outputs["report"] = str(write_report_html(
         out_dir,
         {"candidates": [c.to_dict() for c in candidates],
@@ -1864,7 +1972,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_preview="preview" in outputs,
         have_contact="contact_sheet" in outputs,
         have_psd="psd" in outputs,
-        crops=crops, timings=timings, info=info, looks=looks))
+        crops=crops, timings=timings, info=info, looks=looks,
+        capsule=capsule))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
@@ -2060,8 +2169,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     unaligned "frozen ground" mean at no extra decode cost.
 
     Returns (base_rgb float32, foreground_rgb float32 | None,
-    coverage uint16): coverage counts contributing frames per pixel, for
-    the seam-removing crop.
+    coverage uint16, trail, rejected uint16, removed_half float16):
+    coverage counts contributing frames per pixel (it drives the
+    seam-removing crop), rejected counts the samples sigma clipping threw
+    away there, and removed_half is the light those samples carried.
     """
     h, w = shape_out
     tmp = cache.dir("stack_tmp")
@@ -2200,7 +2311,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     if base_wcs is None:
         return (_rotate2d_mean(cfg, frames, ok_idx, corridor_segments,
                                shape_out, bad_pixels),
-                None, None, None)
+                None, None, None, None, None)
 
     # -------- pass 1: per-pixel moments at half resolution ---------------
     import cv2 as _cv2
@@ -2254,6 +2365,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     total_sum = np.zeros((h, w, 3), np.float64)
     total_w = np.zeros((h, w, 3), np.float64)
     coverage = np.zeros((h, w), np.uint16)
+    rejected = np.zeros((h, w), np.uint16)
     p2 = {"fg_sum": None, "fg_n": 0, "trail": None}
 
     def _merge_clipped(p):
@@ -2262,6 +2374,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         np.add(total_sum, np.load(p["csum"]), out=total_sum)
         np.add(total_w, np.load(p["cwsum"]), out=total_w)
         np.add(coverage, np.load(p["fcount"]), out=coverage)
+        if "rcount" in p:
+            np.add(rejected, np.load(p["rcount"]), out=rejected)
         if want_fg and "fg" in p:
             part_fg = np.load(p["fg"])
             p2["fg_sum"] = (part_fg if p2["fg_sum"] is None
@@ -2271,7 +2385,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             part_t = np.load(p["trail"])
             p2["trail"] = (part_t if p2["trail"] is None
                            else np.maximum(p2["trail"], part_t))
-        for key in ("csum", "cwsum", "fcount", "fg", "trail"):
+        for key in ("csum", "cwsum", "fcount", "rcount", "fg", "trail"):
             if key in p:                      # merged: free the disk now
                 Path(p[key]).unlink(missing_ok=True)
 
@@ -2279,6 +2393,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         total_sum[:] = 0
         total_w[:] = 0
         coverage[:] = 0
+        rejected[:] = 0
         p2.update(fg_sum=None, fg_n=0, trail=None)
 
     run_pass("clipped", 0.70, 0.80,
@@ -2292,6 +2407,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # pixels where clipping rejected everything fall back to the plain mean
     base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
                     mean_full)
+    # "show me what you removed": the plain mean minus the clipped mean is
+    # exactly the light the rejection threw away.  Kept at half size in
+    # float16 (~1/8 the memory of the full-res float32 difference) — this
+    # is a look-at-it product, not a numeric one.
+    removed_half = None
+    try:
+        rem = np.maximum(mean_full - base, 0.0).mean(axis=2)
+        removed_half = _cv2.resize(rem, (w // 2, h // 2),
+                                   interpolation=_cv2.INTER_AREA
+                                   ).astype(np.float16)
+        del rem
+    except Exception as exc:          # never lose a finished stack to this
+        log.debug("residual map skipped: %s", exc)
     # frames were normalised against their own sky surface: restore the
     # AVERAGE surface, so the true mean sky (and its gradient) survives —
     # only the frame-to-frame differences were removed
@@ -2309,7 +2437,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
-    return base.astype(np.float32), fg, coverage, trail
+    return (base.astype(np.float32), fg, coverage, trail, rejected,
+            removed_half)
 
 
 def _rotate2d_mean(cfg, frames, ok_idx, corridor_segments, shape_out,
