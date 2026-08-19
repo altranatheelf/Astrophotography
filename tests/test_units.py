@@ -825,3 +825,127 @@ def test_the_scale_retry_ladder_starts_fine_and_leans_wide():
     for a, b in zip(up, up[1:]):
         if a < 1.6:
             assert b / a < 1.35, (a, b)
+
+
+def test_one_bright_meteor_becomes_one_candidate():
+    """A bright meteor's glow is wide, and the line finder answers a wide
+    glow with several overlapping segments — an injected fireball came
+    back as twelve candidates in one 200-pixel patch, which would mean
+    twelve layers in the PSD for one meteor."""
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate, merge_same_frame_fragments
+
+    def cand(cid, x0, y0, x1, y1, frame="A.CR2", length=1.0):
+        s = Streak(frame_index=0, x0=x0, y0=y0, x1=x1, y1=y1,
+                   length_px=float(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5),
+                   mean_intensity=500.0, peak_intensity=1000.0,
+                   fwhm_px=3.0, aspect=10.0, area_px=300, score=1.0,
+                   straightness_rms=0.4)
+        return Candidate(id=cid, streaks=[s], frames=[frame],
+                         endpoints_world=[((0.0, 0.0), (1.0, 1.0))],
+                         endpoints_pix_base=[[x0, y0], [x1, y1]],
+                         length_deg=length)
+
+    frags = [cand("C000", 1146, 1760, 1252, 1604, length=3.2),
+             cand("C001", 1200, 1750, 1294, 1588, length=3.2),
+             cand("C002", 1254, 1714, 1306, 1590, length=2.3),
+             cand("C003", 1264, 1598, 1280, 1696, length=1.7)]
+    far = cand("C004", 4200, 700, 4300, 800, length=1.5)      # elsewhere
+    other = cand("C005", 1150, 1700, 1250, 1650, frame="B.CR2", length=1.0)
+
+    out = merge_same_frame_fragments(frags + [far, other])
+    ids = {c.id for c in out}
+    assert len(ids & {"C000", "C001", "C002", "C003"}) == 1, ids
+    assert "C004" in ids and "C005" in ids       # untouched
+    merged = next(c for c in out if c.id in {"C000", "C001", "C002", "C003"})
+    assert merged.flags.get("merged_fragments") == 4
+    # the surviving segment spans the whole group
+    s = merged.streaks[0]
+    span = ((s.x1 - s.x0) ** 2 + (s.y1 - s.y0) ** 2) ** 0.5
+    assert span > 190, span
+
+
+def test_two_real_meteors_are_not_demoted_to_one_satellite():
+    """Every meteor in a shower points away from the same radiant, so
+    'parallel, and lying along their own direction' describes ordinary
+    pairs of real meteors — the pair rule was demoting them to satellite
+    and hiding them in FLAGGED.  A satellite has to hop by roughly the
+    length it draws, once per frame; two meteors far apart do not."""
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep.pipeline import _absorb_track_fragments
+
+    def cand(cid, x0, y0, x1, y1, frame):
+        s = Streak(frame_index=0, x0=x0, y0=y0, x1=x1, y1=y1,
+                   length_px=float(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5),
+                   mean_intensity=500.0, peak_intensity=1000.0, fwhm_px=3.0,
+                   aspect=10.0, area_px=300, score=1.0, straightness_rms=0.4)
+        return Candidate(id=cid, streaks=[s], frames=[frame],
+                         endpoints_world=[((0.0, 0.0), (1.0, 1.0))],
+                         endpoints_pix_base=[[x0, y0], [x1, y1]],
+                         length_deg=1.0, label="meteor", confidence=0.8)
+
+    idx = {"A.CR2": 0, "B.CR2": 1}
+    # two 100 px radiant-parallel meteors 900 px apart in adjacent frames
+    far = [cand("C0", 100, 100, 180, 180, "A.CR2"),
+           cand("C1", 1000, 1000, 1080, 1080, "B.CR2")]
+    _absorb_track_fragments(far, idx)
+    assert [c.label for c in far] == ["meteor", "meteor"]
+
+    # the same geometry at a satellite's own rate: it hops by about the
+    # length it drew, so these two ARE one object
+    sat = [cand("C0", 100, 100, 180, 180, "A.CR2"),
+           cand("C1", 200, 200, 280, 280, "B.CR2")]
+    _absorb_track_fragments(sat, idx)
+    assert [c.label for c in sat] == ["satellite", "satellite"]
+
+
+def test_three_evenly_spaced_dashes_are_one_glinting_satellite():
+    """A satellite that only glints leaves a short dash per frame, far
+    apart — the steady-motion test rightly refuses that pair, so what
+    identifies it is repetition: three or more dashes on one line, evenly
+    spaced in time.  Two parallel meteors must survive; three regular
+    dashes must not."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep.pipeline import _demote_regular_sequences
+
+    t0 = datetime(2026, 8, 16, 4, 0, tzinfo=timezone.utc)
+
+    def cand(cid, x, y, frame):
+        s = Streak(frame_index=0, x0=x, y0=y, x1=x, y1=y + 34,
+                   length_px=34.0, mean_intensity=500.0,
+                   peak_intensity=1000.0, fwhm_px=3.0, aspect=10.0,
+                   area_px=100, score=1.0, straightness_rms=0.4)
+        return Candidate(id=cid, streaks=[s], frames=[frame],
+                         endpoints_world=[((0.0, 0.0), (1.0, 1.0))],
+                         endpoints_pix_base=[[x, y], [x, y + 34]],
+                         length_deg=0.6, label="meteor", confidence=0.7)
+
+    files = [f"F{i}.CR2" for i in range(4)]
+    idx = {f: i for i, f in enumerate(files)}
+    frames = [SimpleNamespace(epoch_mid=t0 + timedelta(seconds=26 * i),
+                              exposure_s=20.0) for i in range(4)]
+
+    # three dashes, same line, 400 px apart per frame: one glinting satellite
+    sat = [cand("C0", 4500, 1300, files[0]),
+           cand("C1", 4500, 1700, files[1]),
+           cand("C2", 4500, 2100, files[2])]
+    _demote_regular_sequences(sat, idx, frames)
+    assert [c.label for c in sat] == ["satellite"] * 3
+
+    # two parallel meteors on a shared line: not enough evidence, kept
+    pair = [cand("C0", 4500, 1300, files[0]),
+            cand("C1", 4500, 1700, files[1])]
+    _demote_regular_sequences(pair, idx, frames)
+    assert [c.label for c in pair] == ["meteor", "meteor"]
+
+    # three on a line but NOT evenly spaced in time: unrelated meteors
+    ragged = [cand("C0", 4500, 1300, files[0]),
+              cand("C1", 4500, 1360, files[1]),
+              cand("C2", 4500, 2600, files[2])]
+    _demote_regular_sequences(ragged, idx, frames)
+    assert [c.label for c in ragged] == ["meteor"] * 3

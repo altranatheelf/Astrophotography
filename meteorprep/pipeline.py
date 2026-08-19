@@ -1418,12 +1418,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     candidates = build_tracks(streaks_per_frame, world_endpoints,
                               [m.file for m in frames])
+    from meteorprep.detect.track import merge_same_frame_fragments
+    candidates = merge_same_frame_fragments(candidates, world_endpoints)
     _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
                               (hd, wd), S, bad_pixels, k1)
     radiant = radiant_at_epoch(cfg, base_meta.epoch_mid)
     candidates = classify(candidates, cfg, radiant)
     _absorb_track_fragments(candidates,
-                            {m.file: i for i, m in enumerate(frames)})
+                            {m.file: i for i, m in enumerate(frames)},
+                            frames)
     if detect_cached:
         candidates = _load_candidates(cache)
         log.info("restored %d candidate(s) from the previous run",
@@ -1546,7 +1549,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 # faint single-frame fragment collinear with a known
                 # satellite track gets demoted here, not shipped as a
                 # meteor
-                _absorb_track_fragments(candidates, file_to_idx)
+                # the harvest adds candidates that never went through
+                # fragment merging, and a bright meteor answers the faint
+                # pass more than once too
+                candidates = merge_same_frame_fragments(candidates,
+                                                        world_endpoints)
+                _absorb_track_fragments(candidates, file_to_idx, frames)
                 meteor_cands = [c for c in candidates
                                 if c.label == "meteor"]
                 flagged_cands = [c for c in candidates
@@ -1579,28 +1587,58 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     notify(0.82, "cutting each meteor onto its own layer")
     star_cat_xy = detect_stars(base_img, max_stars=500)
 
-    _full_cache: dict[int, tuple] = {}
+    _dec_cache: dict[int, np.ndarray] = {}
 
-    def full_aligned(i):
-        if i not in _full_cache:
-            if len(_full_cache) > 2:
-                _full_cache.pop(next(iter(_full_cache)))
-            rgb = raw_mod.decode(frames[i].path, "final", bad_pixels,
-                                 half_size=cfg.half_size)
-            if cfg.align_mode == "reproject_tan":
-                distort_full = (Poly3Distortion(k1, rgb.shape[:2]).distort
-                                if abs(k1) > 1e-9 else None)
-                arr, foot = reproject_frame(
-                    rgb, scale_wcs(det_wcs[i], 1 if cfg.half_size else 2),
-                    base_wcs, (h, w),
-                    quality=True, distort=distort_full)
-            else:
-                from meteorprep.astrometry.reproject_frames import rotate2d_frame
-                dt = (frames[i].epoch_mid - base_meta.epoch_mid).total_seconds()
-                arr, foot = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
-                                           (w / 2.0, h / 2.0))
-            _full_cache[i] = (arr.astype(np.float32), foot)
-        return _full_cache[i]
+    def decoded_full(i):
+        """Full-quality decode of one frame, cached one at a time."""
+        if i not in _dec_cache:
+            _dec_cache.clear()
+            _dec_cache[i] = raw_mod.decode(frames[i].path, "final",
+                                           bad_pixels,
+                                           half_size=cfg.half_size)
+        return _dec_cache[i]
+
+    # A streak occupies a few hundred pixels of a twenty-megapixel frame,
+    # and the extractor never looks more than ~250 px beyond its endpoints
+    # (it grows along the axis and measures the halo out to 200 px).
+    # Resampling the whole frame to cut that one box was most of this
+    # stage's time; a window is the same pixels for a fraction of the work.
+    _WIN_MARGIN = 480
+    _rot_cache: dict = {}
+
+    def aligned_window(i, seg):
+        """Reproject just the neighbourhood of one streak.  Returns
+        (rgb_win float32, foot_win, x0, y0) in output-canvas pixels."""
+        x0 = int(max(min(seg.x0, seg.x1) - _WIN_MARGIN, 0))
+        y0 = int(max(min(seg.y0, seg.y1) - _WIN_MARGIN, 0))
+        x1 = int(min(max(seg.x0, seg.x1) + _WIN_MARGIN, w))
+        y1 = int(min(max(seg.y0, seg.y1) + _WIN_MARGIN, h))
+        rgb = decoded_full(i)
+        if cfg.align_mode == "reproject_tan":
+            distort_full = (Poly3Distortion(k1, rgb.shape[:2]).distort
+                            if abs(k1) > 1e-9 else None)
+            win_wcs = base_wcs.deepcopy()
+            win_wcs.wcs.crpix = [base_wcs.wcs.crpix[0] - x0,
+                                 base_wcs.wcs.crpix[1] - y0]
+            arr, foot = reproject_frame(
+                rgb, scale_wcs(det_wcs[i], 1 if cfg.half_size else 2),
+                win_wcs, (y1 - y0, x1 - x0),
+                quality=True, distort=distort_full)
+        else:
+            # the plain-rotation fallback has no per-window shortcut, so
+            # the rotated frame is cached whole and sliced per candidate
+            if _rot_cache.get("i") != i:
+                from meteorprep.astrometry.reproject_frames import \
+                    rotate2d_frame
+                dt = (frames[i].epoch_mid
+                      - base_meta.epoch_mid).total_seconds()
+                a_, f_ = rotate2d_frame(rgb, SIDEREAL_DEG_PER_SEC * dt,
+                                        (w / 2.0, h / 2.0))
+                _rot_cache.clear()
+                _rot_cache.update(i=i, arr=a_, foot=f_)
+            arr = _rot_cache["arr"][y0:y1, x0:x1]
+            foot = _rot_cache["foot"][y0:y1, x0:x1]
+        return arr.astype(np.float32), foot, x0, y0
 
     meteor_layers, flagged_layers = [], []
     roi_images = {}
@@ -1623,25 +1661,36 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     arr = None
     for (i, kind, c, si, seg_streak) in work_items:
         if i != cur_i:
-            arr, foot = full_aligned(i)
-            d_full = difference(raw_mod.luminance(arr), base_lum, foot)
             cur_i = i
             done_ex += 1
             notify(0.82 + 0.06 * done_ex / max(n_extract, 1),
                    f"cutting candidate layers (photo {done_ex}/{n_extract})")
+        arr, foot, wx, wy = aligned_window(i, seg_streak)
+        wh, ww = arr.shape[:2]
+        d_win = difference(raw_mod.luminance(arr),
+                           base_lum[wy:wy + wh, wx:wx + ww], foot)
+        stars_win = None
+        if star_cat_xy is not None and len(star_cat_xy):
+            sx = star_cat_xy[:, 0] - wx
+            sy = star_cat_xy[:, 1] - wy
+            keep = ((sx > -10) & (sx < ww + 10)
+                    & (sy > -10) & (sy < wh + 10))
+            stars_win = np.column_stack([sx[keep], sy[keep]])
         layer = extract_meteor(
-            d_full, arr,
-            ((seg_streak.x0, seg_streak.y0),
-             (seg_streak.x1, seg_streak.y1)),
-            seg_streak.fwhm_px, star_xy=star_cat_xy,
-            base_rgb=base_img)
+            d_win, arr,
+            ((seg_streak.x0 - wx, seg_streak.y0 - wy),
+             (seg_streak.x1 - wx, seg_streak.y1 - wy)),
+            seg_streak.fwhm_px, star_xy=stars_win,
+            base_rgb=base_img[wy:wy + wh, wx:wx + ww])
         if layer is None:
             continue
         x0, y0, x1, y1 = layer.bbox
-        roi_images.setdefault(c.id, d_full[y0:y1, x0:x1].copy())
+        roi_images.setdefault(c.id, d_win[y0:y1, x0:x1].copy())
+        # the layer was cut in window coordinates: put it back on the canvas
+        layer.bbox = (x0 + wx, y0 + wy, x1 + wx, y1 + wy)
         (meteor_layers if kind == "m" else flagged_layers).append(
             (c, layer, i, si))
-    _full_cache.clear()
+    _dec_cache.clear()
 
     # contact-sheet ROIs for candidates whose extraction produced nothing:
     # fall back to the detection-space difference crop
@@ -2084,7 +2133,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 # helpers
 # ----------------------------------------------------------------------
 
-def _absorb_track_fragments(candidates, file_to_idx) -> None:
+def _absorb_track_fragments(candidates, file_to_idx, frames=None) -> None:
     """A short detection that escaped track-linking shows up as a
     single-frame "meteor" even though it is really a piece of a satellite
     or aircraft pass.  Absorb any single-frame meteor that is collinear
@@ -2153,6 +2202,35 @@ def _absorb_track_fragments(candidates, file_to_idx) -> None:
             da /= np.linalg.norm(da) + 1e-9
             db = np.array([sb.x1 - sb.x0, sb.y1 - sb.y0], float)
             db /= np.linalg.norm(db) + 1e-9
+            # During a shower every meteor is radiant-aligned, so
+            # "parallel and along the line" is true of ordinary pairs of
+            # real meteors — this rule was quietly demoting them to
+            # satellites and hiding them in FLAGGED.  A satellite is not
+            # just parallel: it draws its whole exposure's worth of
+            # motion, so between frames it must hop by about the length
+            # it drew, once per frame gap.  A pair whose separation does
+            # not match its own trail length is two objects, not one.
+            la = float(np.hypot(sa.x1 - sa.x0, sa.y1 - sa.y0))
+            lb = float(np.hypot(sb.x1 - sb.x0, sb.y1 - sb.y0))
+            if max(la, lb) > 2.5 * max(min(la, lb), 1e-6):
+                continue                  # different-length trails
+            # How far a steadily moving object travels between two frames
+            # is not a guess: it is the trail it drew during one exposure,
+            # times the ratio of the frame interval to that exposure.  The
+            # camera's own clock supplies both numbers.
+            ratio = float(max(abs(ia - ib), 1))
+            if frames is not None:
+                try:
+                    dt = abs((frames[ib].epoch_mid
+                              - frames[ia].epoch_mid).total_seconds())
+                    exp = float(frames[ia].exposure_s or 0.0)
+                    if exp > 0 and dt > 0:
+                        ratio = dt / exp
+                except Exception:
+                    pass
+            expect = 0.5 * (la + lb) * ratio
+            if not (0.6 * expect <= hop_n <= 1.7 * expect):
+                continue                  # not steady motion at its own rate
             lim = np.cos(np.deg2rad(12.0))
             if (abs(float(da @ db)) >= lim and abs(float(da @ hop)) >= lim
                     and abs(float(db @ hop)) >= lim):
@@ -2161,6 +2239,87 @@ def _absorb_track_fragments(candidates, file_to_idx) -> None:
                              "across frames — satellite, not meteor", c.id)
                     c.label = "satellite"
                     c.confidence = max(ca.confidence, cb.confidence)
+    _demote_regular_sequences(candidates, file_to_idx, frames)
+
+
+def _demote_regular_sequences(candidates, file_to_idx, frames=None,
+                              perp_tol=70.0, min_members=3) -> None:
+    """A satellite that only glints does not draw its whole path: it
+    leaves a short dash in each frame, far apart, so the steady-motion
+    test above (hop must match the trail it drew) correctly refuses it.
+    What gives it away instead is repetition — three or more short
+    streaks on one line, evenly spaced in time.  Two are not enough: on a
+    shower night two real meteors are parallel by definition and land on
+    a common line often enough to matter, and demoting them hides real
+    meteors in FLAGGED, which is the more expensive mistake.
+    """
+    singles = [c for c in candidates
+               if c.label == "meteor" and len(set(c.frames)) == 1]
+    if len(singles) < min_members:
+        return
+
+    def mid(c):
+        s = c.streaks[0]
+        return np.array([(s.x0 + s.x1) / 2.0, (s.y0 + s.y1) / 2.0])
+
+    def when(c):
+        i = file_to_idx.get(c.frames[0])
+        if frames is not None and i is not None:
+            try:
+                return frames[i].epoch_mid.timestamp()
+            except Exception:
+                pass
+        return float(i if i is not None else 0)
+
+    used = set()
+    for ai, ca in enumerate(singles):
+        if id(ca) in used:
+            continue
+        a0 = mid(ca)
+        sa = ca.streaks[0]
+        d = np.array([sa.x1 - sa.x0, sa.y1 - sa.y0], float)
+        n = np.linalg.norm(d)
+        if n < 1e-6:
+            continue
+        d /= n
+        perp = np.array([-d[1], d[0]])
+        group = [ca]
+        for cb in singles[ai + 1:]:
+            if id(cb) in used or cb is ca:
+                continue
+            sb = cb.streaks[0]
+            db = np.array([sb.x1 - sb.x0, sb.y1 - sb.y0], float)
+            nb = np.linalg.norm(db)
+            if nb < 1e-6:
+                continue
+            db /= nb
+            if abs(float(d @ db)) < np.cos(np.deg2rad(12.0)):
+                continue
+            off = mid(cb) - a0
+            if abs(float(off @ perp)) > perp_tol:
+                continue
+            group.append(cb)
+        if len(group) < min_members:
+            continue
+        # evenly spaced in TIME along the line?  A satellite's speed is
+        # constant; unrelated meteors on a shared line are not.
+        group.sort(key=when)
+        t = np.array([when(c) for c in group], float)
+        along = np.array([float((mid(c) - a0) @ d) for c in group], float)
+        if np.ptp(t) <= 0 or np.ptp(along) <= 0:
+            continue
+        A = np.vstack([t - t[0], np.ones_like(t)]).T
+        coef, *_ = np.linalg.lstsq(A, along, rcond=None)
+        resid = float(np.max(np.abs(A @ coef - along)))
+        if resid > 0.15 * float(np.ptp(along)):
+            continue
+        for c in group:
+            used.add(id(c))
+            log.info("candidate %s reclassified: one of %d evenly spaced "
+                     "streaks on a single line — a glinting satellite, "
+                     "not %d separate meteors", c.id, len(group), len(group))
+            c.label = "satellite"
+            c.confidence = 0.6
 
 
 def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,

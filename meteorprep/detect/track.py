@@ -126,3 +126,113 @@ def build_tracks(streaks_per_frame: dict[int, list[Streak]],
             persistence=len(set(fis)),
         ))
     return out
+
+
+def _seg_box(s, pad=0.0):
+    return (min(s.x0, s.x1) - pad, min(s.y0, s.y1) - pad,
+            max(s.x0, s.x1) + pad, max(s.y0, s.y1) + pad)
+
+
+def _boxes_touch(a, b) -> bool:
+    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
+
+def _seg_angle_deg(s) -> float:
+    return float(np.rad2deg(np.arctan2(s.y1 - s.y0, s.x1 - s.x0)) % 180.0)
+
+
+def merge_same_frame_fragments(candidates: list[Candidate],
+                               world_endpoints=None,
+                               pad: float = 25.0,
+                               ang_tol_deg: float = 45.0) -> list[Candidate]:
+    """One streak, one candidate.
+
+    A bright meteor is not a thin line: its glow spreads far past the
+    core, and the line finder answers a broad glowing smear with a
+    handful of overlapping line segments.  Measured on an injected
+    fireball, a single meteor came back as twelve candidates inside one
+    200-pixel patch — twelve layers in the PSD for one meteor, and twelve
+    rows in the report.
+
+    Candidates from the SAME single frame whose segments overlap and run
+    in roughly the same direction are therefore folded into one, keeping
+    the longest as the representative and stretching its endpoints to the
+    extremes of the group.  Multi-frame tracks (satellites, aircraft) are
+    left alone: their identity comes from motion across frames, which
+    this cannot improve on.
+    """
+    singles = [k for k, c in enumerate(candidates)
+               if len(set(c.frames)) == 1 and len(c.streaks) == 1]
+    parent = {k: k for k in singles}
+
+    def find(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    by_frame: dict[str, list[int]] = {}
+    for k in singles:
+        by_frame.setdefault(candidates[k].frames[0], []).append(k)
+    for _f, ks in by_frame.items():
+        for ii, ka in enumerate(ks):
+            sa = candidates[ka].streaks[0]
+            for kb in ks[ii + 1:]:
+                sb = candidates[kb].streaks[0]
+                if not _boxes_touch(_seg_box(sa, pad), _seg_box(sb, pad)):
+                    continue
+                d = abs(_seg_angle_deg(sa) - _seg_angle_deg(sb))
+                if min(d, 180.0 - d) > ang_tol_deg:
+                    continue
+                ra, rb = find(ka), find(kb)
+                if ra != rb:
+                    parent[rb] = ra
+
+    groups: dict[int, list[int]] = {}
+    for k in singles:
+        groups.setdefault(find(k), []).append(k)
+
+    drop = set()
+    for root, members in groups.items():
+        if len(members) < 2:
+            continue
+        best = max(members, key=lambda k: candidates[k].length_deg)
+        keep = candidates[best]
+        pts = []
+        for k in members:
+            s = candidates[k].streaks[0]
+            pts += [(s.x0, s.y0), (s.x1, s.y1)]
+            if k != best:
+                drop.add(k)
+        # the two endpoints furthest apart describe the whole streak
+        far = max(((p, q) for i, p in enumerate(pts) for q in pts[i + 1:]),
+                  key=lambda pq: (pq[0][0] - pq[1][0]) ** 2
+                  + (pq[0][1] - pq[1][1]) ** 2)
+        s = keep.streaks[0]
+        s.x0, s.y0 = float(far[0][0]), float(far[0][1])
+        s.x1, s.y1 = float(far[1][0]), float(far[1][1])
+        keep.endpoints_pix_base = [[s.x0, s.y0], [s.x1, s.y1]]
+        keep.peak_adu = max(candidates[k].peak_adu for k in members)
+        keep.confidence = max(candidates[k].confidence for k in members)
+        keep.fwhm_px = max(candidates[k].fwhm_px for k in members)
+        keep.flags = dict(keep.flags)
+        keep.flags["merged_fragments"] = len(members)
+        # the segment changed, so its sky coordinates and angular length
+        # have to change with it — everything downstream (the radiant
+        # test, the physics estimates) reads those, not the pixels
+        if world_endpoints is not None:
+            try:
+                seg = world_endpoints(s.frame_index, s)
+                keep.endpoints_world = [[list(seg[0]), list(seg[1])]]
+                keep.length_deg = float(np.rad2deg(np.arccos(np.clip(
+                    np.asarray(_unit(*seg[0])) @ np.asarray(_unit(*seg[1])),
+                    -1, 1))))
+            except Exception:
+                pass
+    if drop:
+        import logging
+        logging.getLogger("meteorprep").info(
+            "merged %d overlapping detection(s) into %d streak(s) — a "
+            "bright meteor's glow answers the line finder more than once",
+            len(drop), sum(1 for g in groups.values() if len(g) > 1))
+    return [c for k, c in enumerate(candidates) if k not in drop]
