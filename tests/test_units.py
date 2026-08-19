@@ -582,3 +582,44 @@ def test_meteor_layer_has_no_hard_edges():
     #    it where there is no streak changes nothing
     corner = layer.rgb[:20, :20]
     assert float(np.median(corner)) < 0.15 * sky
+
+
+def test_meteor_layer_border_stays_zero_with_stars_on_the_rim():
+    """Star holes are inpainted so the streak stays continuous where a
+    star sat on it.  That inpaint used to run AFTER the border was pinned
+    to zero, so a star near the box rim wrote alpha back onto the border
+    row (3/255, measured on a real layer) — a faint straight edge in the
+    composite.  The pin has to be the last thing that touches alpha."""
+    import cv2
+    from meteorprep.mask.extract import extract_meteor
+
+    rng = np.random.default_rng(11)
+    h, w = 700, 900
+    base = np.full((h, w, 3), 800.0, np.float32)
+    core = np.zeros((h, w), np.float32)
+    cv2.line(core, (250, 300), (650, 420), 1.0, thickness=3)
+    streak = (cv2.GaussianBlur(core, (0, 0), 18.0) * 9000.0
+              + cv2.GaussianBlur(core, (0, 0), 1.6) * 45000.0)
+    frame = base + streak[:, :, None] + rng.normal(0, 40, (h, w, 3)).astype(np.float32)
+    diff = streak + rng.normal(0, 40, (h, w)).astype(np.float32)
+
+    probe = extract_meteor(diff, frame, ((250, 300), (650, 420)), 4.0,
+                           base_rgb=base)
+    assert probe is not None
+    x0, y0, x1, y1 = probe.bbox
+    a0 = probe.alpha
+    # a star on the rim only writes alpha back onto the border when the
+    # pixels around the hole still carry haze — put the holes where the
+    # near-border signal is strongest, which is what a real frame does
+    stars = np.array([
+        [x0 + int(a0[6, :].argmax()), y0],
+        [x0 + int(a0[-7, :].argmax()), y1 - 1],
+        [x0, y0 + int(a0[:, 6].argmax())],
+        [x1 - 1, y0 + int(a0[:, -7].argmax())],
+    ], float)
+    layer = extract_meteor(diff, frame, ((250, 300), (650, 420)), 4.0,
+                           star_xy=stars, star_fwhm=6.0, base_rgb=base)
+    assert layer is not None
+    a = layer.alpha
+    for edge in (a[0, :], a[-1, :], a[:, 0], a[:, -1]):
+        assert float(edge.max()) == 0.0, float(edge.max())

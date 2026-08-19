@@ -242,9 +242,20 @@ def blind_solve(image: np.ndarray, pixel_scale_deg: float,
         log.info("blind solve (best effort): %d stars, rms %.2f px",
                  best_result.n_matched, best_result.rms_px)
         return best_result
-    log.warning("blind solve: no attitude hypothesis survived (best got "
-                "%d votes of the %d needed) — the reference frame may show "
-                "too little clear sky", best_votes, min_votes)
+    # Report the number that actually decided the outcome.  Quoting the
+    # coarse vote count here read as "best got 15 votes of the 10 needed"
+    # followed by a failure, which is nonsense to anyone reading the log:
+    # the votes only pick hypotheses, the tight star matches decide.
+    if best_result is not None:
+        log.warning("blind solve: the best fit matched only %d stars "
+                    "tightly (%d needed, rms %.2f px) — the reference "
+                    "frame may show too little clear sky",
+                    best_result.n_matched, min_votes, best_result.rms_px)
+    else:
+        log.warning("blind solve: no attitude hypothesis reached the vote "
+                    "threshold (best got %d of the %d needed) — the "
+                    "reference frame may show too little clear sky",
+                    best_votes, min_votes)
     return None
 
 

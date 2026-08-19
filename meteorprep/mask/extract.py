@@ -177,13 +177,7 @@ def extract_meteor(diff: np.ndarray, rgb_full: np.ndarray,
         return None
     if feather_px > 0:
         alpha = cv2.GaussianBlur(alpha, (0, 0), feather_px)
-    # guarantee: zero at the border, so the layer cannot end on an edge
-    alpha = np.clip(alpha, 0, 1) * _apodize(alpha.shape,
-                                            max(int(pad * 0.35), 8))
-    # exact zero on the border: the guarantee should be absolute, not
-    # "one 8-bit level"
-    alpha[0, :] = alpha[-1, :] = 0.0
-    alpha[:, 0] = alpha[:, -1] = 0.0
+    alpha = np.clip(alpha, 0, 1)
 
     # star exclusion: circular holes at known stars, alpha inpainted along
     # the streak so it stays continuous (§6.2)
@@ -198,8 +192,19 @@ def extract_meteor(diff: np.ndarray, rgb_full: np.ndarray,
                 cv2.circle(hole, (int(round(x)), int(round(y))), r, 1, -1)
             if hole.any():
                 filled = cv2.inpaint(
-                    (alpha * 255).astype(np.uint8), hole, 3, cv2.INPAINT_TELEA)
+                    np.clip(alpha * 255 + 0.5, 0, 255).astype(np.uint8),
+                    hole, 3, cv2.INPAINT_TELEA)
                 alpha = np.where(hole > 0, filled.astype(np.float32) / 255.0, alpha)
+
+    # Border guarantee, applied LAST.  It used to run before the star
+    # holes were inpainted, and a star sitting on the rim let the inpaint
+    # write alpha back onto the border row — measured at 3/255 on a real
+    # layer, which is exactly the faint straight edge this is meant to
+    # rule out.  Nothing may touch alpha after this point.
+    alpha = np.clip(alpha, 0, 1) * _apodize(alpha.shape,
+                                            max(int(pad * 0.35), 8))
+    alpha[0, :] = alpha[-1, :] = 0.0
+    alpha[:, 0] = alpha[:, -1] = 0.0
 
     # The layer carries the meteor's OWN light (this frame minus the
     # stacked sky), not the whole frame.  Composited with Screen that is
