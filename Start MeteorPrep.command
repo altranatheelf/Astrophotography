@@ -5,6 +5,12 @@ set -u
 cd "$(dirname "$0")" || exit 1
 NEEDS="import PySide6, meteorprep.pipeline"
 
+# clear the download quarantine on this folder so double-clicking
+# MeteorPrep.app afterwards runs in place (macOS otherwise relaunches
+# downloaded apps from a read-only temporary copy that cannot see these
+# files — "App Translocation")
+xattr -dr com.apple.quarantine "$(pwd)" 2>/dev/null || true
+
 CANDIDATES=""
 for v in 3.13 3.12 3.11 3.14; do
     p="/Library/Frameworks/Python.framework/Versions/$v/bin/python3"
