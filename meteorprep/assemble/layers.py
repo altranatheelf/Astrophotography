@@ -36,6 +36,40 @@ class LayerStack:
     groups: list[LayerGroup] = field(default_factory=list)
 
 
+def crop_layers_to_alpha(layers: list[Layer], alpha: np.ndarray,
+                         margin: int = 4, min_saving: float = 0.15) -> None:
+    """Trim layers that share an alpha channel to where that alpha is
+    non-zero, in place.
+
+    A foreground layer is transparent everywhere above the treeline, and
+    a transparent pixel composites to nothing — but it is still stored,
+    compressed and written.  On a real night the ground reaches less than
+    half the canvas, so keeping the sky half of every foreground layer
+    costs a fifth of the whole document for pixels Photoshop will never
+    show.  Left alone when the saving would be small, so nothing is
+    cropped for the sake of a few rows.
+    """
+    if not layers or alpha is None:
+        return
+    ys, xs = np.nonzero(np.asarray(alpha) > 0.002)
+    if not len(ys):
+        return
+    h, w = alpha.shape[:2]
+    y0 = max(int(ys.min()) - margin, 0)
+    y1 = min(int(ys.max()) + 1 + margin, h)
+    x0 = max(int(xs.min()) - margin, 0)
+    x1 = min(int(xs.max()) + 1 + margin, w)
+    if (y1 - y0) * (x1 - x0) > (1.0 - min_saving) * h * w:
+        return
+    for lyr in layers:
+        if lyr.bbox is not None or lyr.rgb.shape[:2] != (h, w):
+            continue
+        lyr.rgb = lyr.rgb[y0:y1, x0:x1]
+        if lyr.alpha is not None and lyr.alpha.shape[:2] == (h, w):
+            lyr.alpha = lyr.alpha[y0:y1, x0:x1]
+        lyr.bbox = (x0, y0, x1, y1)
+
+
 def meteor_layer_name(idx: int, srcfile: str, epoch_iso: str,
                       rotation_deg: float, confidence: float, flag: str,
                       physics: dict | None = None) -> str:

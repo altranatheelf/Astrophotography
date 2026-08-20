@@ -90,13 +90,21 @@ def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
     h, w = rgb.shape[:2]
     ys = np.linspace(0, h, grid + 1, dtype=int)
     xs = np.linspace(0, w, grid + 1, dtype=int)
+    # sample each cell on a stride that leaves ~4000 pixels to sort
+    step = max(int(round(np.sqrt((h * w) / (grid * grid * 4000.0)))), 1)
     pts, vals = [], []
     for gy in range(grid):
         for gx in range(grid):
             cell_sky = sky_mask[ys[gy]:ys[gy + 1], xs[gx]:xs[gx + 1]]
             if cell_sky.mean() < 0.8:      # touches ground: skip
                 continue
-            cell = rgb[ys[gy]:ys[gy + 1], xs[gx]:xs[gx + 1]]
+            # A cell of a 20 MP frame holds ~35 000 pixels per channel,
+            # and sorting all of them to read one percentile off a smooth
+            # background is 12 seconds of the run for a number that does
+            # not move: a few thousand samples give the same answer.
+            cell = rgb[ys[gy]:ys[gy + 1]:step, xs[gx]:xs[gx + 1]:step]
+            if cell.size < 3:
+                continue
             pts.append(((xs[gx] + xs[gx + 1]) / 2.0,
                         (ys[gy] + ys[gy + 1]) / 2.0))
             vals.append(np.percentile(cell.reshape(-1, cell.shape[-1]),
@@ -114,16 +122,28 @@ def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
     A = np.column_stack(cols)
     coeffs, *_ = np.linalg.lstsq(A, vals, rcond=None)
 
-    yy, xx = np.mgrid[0:h, 0:w]
-    uu = xx / w - 0.5
-    vv = yy / h - 0.5
-    out = np.zeros((h, w, vals.shape[1]), np.float32)
-    k = 0
-    for i in range(order + 1):
-        for j in range(order + 1 - i):
-            basis = (uu ** i * vv ** j).astype(np.float32)
-            for c in range(vals.shape[1]):
-                out[:, :, c] += coeffs[k, c] * basis
-            k += 1
+    # Evaluate separably.  The old form built two full-frame coordinate
+    # grids in int64, two more in float64 and a fresh full-frame basis
+    # image per term — over two gigabytes of temporaries to draw a smooth
+    # surface, and eleven seconds of every run.  Grouping the polynomial
+    # as sum_i u^i * g_i(v) leaves one (h,) vector per power of u and
+    # three broadcasts per channel.
+    uu = (np.arange(w, dtype=np.float32) / w - 0.5)
+    vv = (np.arange(h, dtype=np.float32) / h - 0.5)
+    nch = vals.shape[1]
+    out = np.empty((h, w, nch), np.float32)
+    for c in range(nch):
+        g = []                       # g[i] = sum_j coeff * v^j, shape (h,)
+        k = 0
+        for i in range(order + 1):
+            gi = np.zeros(h, np.float32)
+            for j in range(order + 1 - i):
+                gi += np.float32(coeffs[k, c]) * (vv ** j)
+                k += 1
+            g.append(gi)
+        plane = out[:, :, c]
+        plane[:] = g[0][:, None]
+        for i in range(1, order + 1):
+            plane += (uu ** i)[None, :] * g[i][:, None]
     out -= out.min(axis=(0, 1), keepdims=True)   # Subtract must not darken
-    return np.clip(out, 0, 65535)
+    return np.clip(out, 0, 65535, out=out)

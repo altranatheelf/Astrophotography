@@ -1947,6 +1947,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             extra_layers.append(Layer(
                 name="SKY_GRADIENT_set_to_Subtract_to_flatten",
                 rgb=grad, blend="subtract", visible=False))
+    # the foreground layers are transparent above the treeline; storing
+    # and compressing that half of the canvas helps nobody
+    from meteorprep.assemble.layers import crop_layers_to_alpha
+    crop_layers_to_alpha(fg_layers, fg_alpha)
     stack = LayerStack(
         width=w, height=h,
         base=Layer(name="BASE_SKY", rgb=base_img, blend="normal", visible=True),

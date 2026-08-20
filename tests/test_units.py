@@ -1040,3 +1040,58 @@ def test_clip_band_upsample_matches_the_whole_frame_one():
                                   for r in range(0, h, band)])
         assert rebuilt.shape == full.shape
         assert np.array_equal(rebuilt, full), band
+
+
+def test_foreground_layers_are_trimmed_to_the_ground():
+    """A foreground layer is transparent above the treeline, and a
+    transparent pixel composites to nothing — but it is still stored,
+    compressed and written.  Trimming to where the alpha lives has to
+    keep every visible pixel exactly where it was."""
+    from meteorprep.assemble.layers import Layer, crop_layers_to_alpha
+
+    h, w = 400, 600
+    alpha = np.zeros((h, w), np.float32)
+    alpha[300:, 50:550] = 1.0                    # ground band
+    rgb = (np.arange(h * w * 3, dtype=np.float32).reshape(h, w, 3))
+    layers = [Layer(name="FG_a", rgb=rgb.copy(), alpha=alpha.copy()),
+              Layer(name="FG_b", rgb=rgb.copy(), alpha=alpha.copy())]
+    crop_layers_to_alpha(layers, alpha)
+
+    for lyr in layers:
+        x0, y0, x1, y1 = lyr.bbox
+        assert (y0, y1) == (296, 400) and (x0, x1) == (46, 554)
+        assert lyr.rgb.shape[:2] == (y1 - y0, x1 - x0)
+        # the pixels that survived are the same pixels, in place
+        assert np.array_equal(lyr.rgb, rgb[y0:y1, x0:x1])
+        assert np.array_equal(lyr.alpha, alpha[y0:y1, x0:x1])
+
+    # an alpha that covers nearly everything is left alone
+    full = np.ones((h, w), np.float32)
+    keep = [Layer(name="FG", rgb=rgb.copy(), alpha=full.copy())]
+    crop_layers_to_alpha(keep, full)
+    assert keep[0].bbox is None and keep[0].rgb.shape[:2] == (h, w)
+
+
+def test_sky_gradient_surface_matches_the_direct_evaluation():
+    """The gradient layer is evaluated separably now — one vector per
+    power instead of a full-frame basis image per term.  It has to be the
+    same surface: this layer is set to Subtract in Photoshop, so an error
+    in it is an error in the user's sky."""
+    from meteorprep.stack.gradient import fit_sky_gradient
+
+    h, w = 240, 360
+    yy, xx = np.mgrid[0:h, 0:w]
+    u, v = xx / w - 0.5, yy / h - 0.5
+    truth = (800 + 300 * u + 200 * v - 150 * u * u + 90 * u * v
+             + 40 * v * v).astype(np.float32)
+    rgb = np.dstack([truth, truth * 0.9, truth * 1.1]).astype(np.float32)
+    rgb += np.random.default_rng(2).normal(0, 3, rgb.shape).astype(np.float32)
+    sky = np.ones((h, w), np.float32)
+
+    got = fit_sky_gradient(rgb, sky)
+    assert got is not None and got.shape == rgb.shape
+    # the fit reproduces the planted surface up to its own offset removal
+    for c, scale in enumerate((1.0, 0.9, 1.1)):
+        ref = truth * scale
+        ref = ref - ref.min()
+        assert np.abs(got[:, :, c] - ref).max() < 6.0, c
