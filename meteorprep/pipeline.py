@@ -241,6 +241,7 @@ def _disk_full(exc) -> bool:
 _CLIP_BAND = 512
 
 
+
 def _stack_pass(args) -> dict:
     """One streaming pass over a subset of frames.
 
@@ -285,11 +286,32 @@ def _stack_pass(args) -> dict:
         stat_wcs = base_wcs
         clip_mean = _np.load(tmp / "clip_mean.npy")
         clip_bound = _np.load(tmp / "clip_bound.npy")
-        if clip_mean.shape[:2] != (h, w):     # stored half-size: upsample
+        # The clip statistics are measured at half resolution and were
+        # then blown up to the full canvas and held there — half a
+        # gigabyte per worker, a quarter of its whole footprint, to store
+        # numbers that carry no detail above half resolution.  When the
+        # canvas is exactly twice the statistics (the normal case) each
+        # band is upsampled as it is used instead, which is the same
+        # bilinear result to the last bit for a fortieth of the memory.
+        clip_half = (clip_mean.shape[:2] != (h, w)
+                     and clip_mean.shape[0] * 2 == h
+                     and clip_mean.shape[1] * 2 == w)
+        if clip_mean.shape[:2] != (h, w) and not clip_half:
             clip_mean = _cv2.resize(clip_mean, (w, h),
                                     interpolation=_cv2.INTER_LINEAR)
             clip_bound = _cv2.resize(clip_bound, (w, h),
                                      interpolation=_cv2.INTER_LINEAR)
+
+        def _clip_rows(arr_half, r0, r1):
+            """Rows [r0, r1) of the full-resolution upsample, built from
+            just the half-resolution rows that feed them."""
+            hh = arr_half.shape[0]
+            s0 = max((r0 // 2) - 1, 0)
+            s1 = min(((r1 - 1) // 2) + 2, hh)
+            blk = _cv2.resize(arr_half[s0:s1], (w, (s1 - s0) * 2),
+                              interpolation=_cv2.INTER_LINEAR)
+            off = r0 - s0 * 2
+            return blk[off:off + (r1 - r0)]
         try:
             norm_coef = {int(k): _np.asarray(v, _np.float32) for k, v in
                          _json.loads((tmp / "norm_coef.json")
@@ -361,12 +383,18 @@ def _stack_pass(args) -> dict:
         if mode != "moments" and want_fg:
             if fg_sum is None:
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
-            fg_sum += rgb.astype(_np.float32)
+            # The frozen-ground sum was the most expensive thing in the
+            # whole pass — not the decode, not the resample.  "fg_sum +=
+            # rgb.astype(float32)" builds a 242 MB temporary per frame,
+            # and under this worker's memory pressure that cost 2.4s of
+            # the 7s each frame took.  cv2.accumulate adds a uint16 image
+            # into a float32 one directly, with no temporary at all.
+            _cv2.accumulate(rgb, fg_sum)
             fg_n += 1
         if mode != "moments" and want_trail:
             if trail_max is None:
                 trail_max = _np.zeros(rgb.shape, _np.uint16)
-            _np.maximum(trail_max, rgb, out=trail_max)
+            _cv2.max(trail_max, rgb, dst=trail_max)
         distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
                    else None)
         src_wcs = _wcs_from_str(wstr)
@@ -424,8 +452,12 @@ def _stack_pass(args) -> dict:
                 r1 = min(r0 + _CLIP_BAND, hs)
                 a_b = arr[r0:r1]
                 ok_b = ok_u8[r0:r1]
-                d_b = _cv2.absdiff(a_b, clip_mean[r0:r1])
-                keep = _cv2.compare(d_b, clip_bound[r0:r1], _cv2.CMP_LE)
+                cm_b = (_clip_rows(clip_mean, r0, r1) if clip_half
+                        else clip_mean[r0:r1])
+                cb_b = (_clip_rows(clip_bound, r0, r1) if clip_half
+                        else clip_bound[r0:r1])
+                d_b = _cv2.absdiff(a_b, cm_b)
+                keep = _cv2.compare(d_b, cb_b, _cv2.CMP_LE)
                 _cv2.bitwise_and(keep, _cv2.merge([ok_b] * 3), dst=keep)
                 all_k = _cv2.min(_cv2.min(keep[:, :, 0], keep[:, :, 1]),
                                  keep[:, :, 2])
@@ -2476,7 +2508,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
                 cfg.stack_sigma, want_fg, want_trail, k1, sky_path)
 
-    # each pass-2 worker peaks around ~1.5 GB at full 20 MP resolution
+    # each pass-2 worker peaks around 3 GB at full 20 MP resolution
     ram = _available_ram_gb()
     n_workers = (1 if ram < 7.5 else
                  2 if ram < 14 else max(min(cfg.jobs, 4), 1))

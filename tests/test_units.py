@@ -1011,3 +1011,32 @@ def test_hot_pixel_mask_matches_the_reference_rule():
 
     assert np.array_equal(got, want)
     assert got[10, 20] == 1 and got[30, 40] == 1
+
+
+def test_clip_band_upsample_matches_the_whole_frame_one():
+    """The stack compares each frame against half-resolution statistics.
+    Blowing those up to the full canvas and holding them there cost half
+    a gigabyte per worker; building each band as it is used has to give
+    exactly the same numbers, or the sigma clip would reject different
+    samples near band edges."""
+    import cv2
+
+    rng = np.random.default_rng(9)
+    hh, ww = 231, 349
+    half = (rng.random((hh, ww, 3), np.float32) * 1000)
+    h, w = hh * 2, ww * 2
+    full = cv2.resize(half, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    def clip_rows(arr_half, r0, r1):
+        s0 = max((r0 // 2) - 1, 0)
+        s1 = min(((r1 - 1) // 2) + 2, arr_half.shape[0])
+        blk = cv2.resize(arr_half[s0:s1], (w, (s1 - s0) * 2),
+                         interpolation=cv2.INTER_LINEAR)
+        off = r0 - s0 * 2
+        return blk[off:off + (r1 - r0)]
+
+    for band in (64, 128, 512):
+        rebuilt = np.concatenate([clip_rows(half, r, min(r + band, h))
+                                  for r in range(0, h, band)])
+        assert rebuilt.shape == full.shape
+        assert np.array_equal(rebuilt, full), band
