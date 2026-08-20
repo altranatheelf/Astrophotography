@@ -85,7 +85,8 @@ def _perpendicular_fwhm(diff: np.ndarray, p0, p1) -> float:
 
 def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
                    rgb_diff: np.ndarray | None = None,
-                   bin_factor: int = 1, mad_k: float = 10.0) -> list[Streak]:
+                   bin_factor: int = 1, mad_k: float = 10.0,
+                   min_thresh: float = 3.0 * 256.0) -> list[Streak]:
     """Detect streaks in a (binned) luminance difference image.
 
     ``diff`` is `current_reprojected - reference`, negatives clipped, in
@@ -104,8 +105,16 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
     if len(finite) > 1000:
         med = float(np.median(finite))
         mad = 1.4826 * float(np.median(np.abs(finite - med))) + 1e-3
+        # ``min_thresh`` is a guard against a degenerate MAD (a diff that
+        # is almost all zeros would otherwise threshold at nothing), not a
+        # sensitivity setting.  Against the rolling reference of the first
+        # pass it stays at 3 ADU-8bit; the second pass, which works
+        # against the clean stacked base and is gated on the radiant, is
+        # allowed much lower — measured, that floor alone was the whole
+        # detection limit: an injected meteor peaking at 713 ADU was
+        # missed and one at 1034 found, with the floor sitting at 768.
         thresh = min(cfg.diff_threshold * scale,
-                     max(med + mad_k * mad, 3.0 * scale))
+                     max(med + mad_k * mad, min_thresh))
     else:
         thresh = cfg.diff_threshold * scale
     mask = (diff > thresh).astype(np.uint8)

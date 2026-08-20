@@ -94,6 +94,23 @@ class Config:
     # diff is far cleaner; radiant gating protects precision
     faint_harvest: bool = True
     faint_mad_k: float = 6.0
+    # Absolute floor on the second pass's threshold, in 16-bit ADU — the
+    # tool's faint-meteor sensitivity limit, and a measured one.  Dropping
+    # it to 256 does find fainter meteors (injected recall 2/12 -> 5/12 on
+    # a real night), but it also produced five detections on the real
+    # frames whose crops are blank sky, because at that level the thing
+    # being detected is the sky itself, not a meteor.  The three gates
+    # below claw most of that back; the floor stays where measurement
+    # says it belongs.  Lower it if you would rather vet junk than miss
+    # anything.
+    faint_min_thresh: float = 768.0
+    # widest a second-pass detection may be (detection-scale pixels) and
+    # still be a meteor: stars are 2-4 px here, cloud and twilight glow
+    # come out at 10-20
+    faint_max_fwhm_px: float = 6.0
+    # how much brighter the streak has to be than the sky beside it,
+    # in robust sigmas, before the second pass will believe it
+    faint_min_line_snr: float = 4.0
 
     # --- stacking ---
     stack_sigma: float = 2.5
@@ -142,7 +159,9 @@ class Config:
         "detect": ["bin_factor", "ref_window", "ref_sigma", "diff_threshold",
                    "min_area", "min_aspect_ratio", "hough_threshold",
                    "hough_min_line_length", "hough_max_line_gap",
-                   "min_line_score"],
+                   "min_line_score", "faint_harvest", "faint_mad_k",
+                   "faint_min_thresh", "faint_max_fwhm_px",
+                   "faint_min_line_snr"],
         "classify": ["cosmic_max_px", "fwhm_sat_px", "boundary_gap_deg",
                      "radiant_ra_deg", "radiant_dec_deg", "radiant_epoch",
                      "radiant_dra_deg_per_day", "radiant_ddec_deg_per_day",

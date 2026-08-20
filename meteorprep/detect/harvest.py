@@ -39,6 +39,43 @@ def _mask_corridors(mask: np.ndarray, segments, scale: float) -> None:
                  0, thickness=max(int(round(2.0 * width / scale)), 5))
 
 
+def line_snr(diff: np.ndarray, s, samples: int = 64,
+             offsets=(9, 14, 20, 27)) -> float:
+    """How much brighter the streak is than the sky beside it.
+
+    The Hough pass answers noise with lines: at a low threshold a handful
+    of unrelated bright pixels line up often enough to look like a
+    meteor.  A real streak is bright ALONG its whole length compared with
+    parallel lines a few pixels to either side, and that is a direct
+    measurement rather than a threshold — looked at by eye, the false
+    ones were blank sky and the true ones were unmistakable.
+    """
+    p0 = np.array([s.x0, s.y0], float)
+    p1 = np.array([s.x1, s.y1], float)
+    d = p1 - p0
+    n = float(np.linalg.norm(d))
+    if n < 4.0:
+        return 0.0
+    u = d / n
+    perp = np.array([-u[1], u[0]])
+    h, w = diff.shape[:2]
+    t = np.linspace(0.05, 0.95, samples)[:, None]
+    base = p0[None, :] + t * d[None, :]
+
+    def sample(off):
+        q = base + off * perp[None, :]
+        xi = np.clip(np.round(q[:, 0]).astype(int), 0, w - 1)
+        yi = np.clip(np.round(q[:, 1]).astype(int), 0, h - 1)
+        return diff[yi, xi].astype(np.float32)
+
+    on = np.maximum.reduce([sample(o) for o in (-1.0, 0.0, 1.0)])
+    side = np.concatenate([sample(o) for o in offsets]
+                          + [sample(-o) for o in offsets])
+    med = float(np.median(side))
+    mad = 1.4826 * float(np.median(np.abs(side - med))) + 1e-3
+    return float((np.median(on) - med) / mad)
+
+
 def harvest_faint_meteors(load_lum, load_foot, base_lum_det: np.ndarray,
                           n: int, exclude: set, sky_bin,
                           known_segments: list, cfg, S: float,
@@ -79,12 +116,27 @@ def harvest_faint_meteors(load_lum, load_foot, base_lum_det: np.ndarray,
         sub = d[::8, ::8][ok[::8, ::8]]
         if sub.size > 100:
             d -= float(np.median(sub))
+        # A scalar offset is not enough near dawn: the last frames of a
+        # night sit under a twilight gradient that the night-average base
+        # does not have, and at this pass's low threshold that gradient
+        # IS the detection — measured, it produced ten fat "meteors" with
+        # 10-20 px widths in the twilight frames.  Removing everything
+        # smoother than a streak leaves the streaks and nothing else.
+        import cv2 as _cv2
+        d -= _cv2.GaussianBlur(d, (0, 0), 40.0)
         np.clip(d, 0, None, out=d)
         d[~ok] = 0
         d *= keep_mask
-        streaks = detect_streaks(d, i, cfg, bin_factor=S, mad_k=mad_k)
+        streaks = detect_streaks(d, i, cfg, bin_factor=S, mad_k=mad_k,
+                                 min_thresh=cfg.faint_min_thresh)
         kept = []
         for s in streaks:
+            # a meteor is a line the width of a star, not a smudge: at
+            # this sensitivity the fat detections are cloud and glow
+            if s.fwhm_px > cfg.faint_max_fwhm_px:
+                continue
+            if line_snr(d, s) < cfg.faint_min_line_snr:
+                continue
             e0, e1 = world_endpoints(i, s)
             if radiant_miss_deg(e0, e1, radiant) < cfg.radiant_tol_deg:
                 kept.append(s)

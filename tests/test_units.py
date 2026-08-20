@@ -949,3 +949,29 @@ def test_three_evenly_spaced_dashes_are_one_glinting_satellite():
               cand("C2", 4500, 2600, files[2])]
     _demote_regular_sequences(ragged, idx, frames)
     assert [c.label for c in ragged] == ["meteor"] * 3
+
+
+def test_line_snr_separates_a_real_streak_from_a_lucky_line():
+    """At a low threshold the Hough pass answers noise with lines: five
+    of them on a real night, whose crops were blank sky.  A real streak
+    is brighter along its whole length than the sky a few pixels beside
+    it, which is a measurement, not a threshold."""
+    import cv2
+
+    from meteorprep.detect.harvest import line_snr
+
+    class S:
+        def __init__(s_, x0, y0, x1, y1):
+            s_.x0, s_.y0, s_.x1, s_.y1 = x0, y0, x1, y1
+
+    rng = np.random.default_rng(7)
+    sky = np.abs(rng.normal(0, 30, (600, 600))).astype(np.float32)
+
+    real = sky.copy()
+    cv2.line(real, (100, 100), (480, 430), 900.0, thickness=2,
+             lineType=cv2.LINE_AA)
+    real = cv2.GaussianBlur(real, (0, 0), 1.2)
+    assert line_snr(real, S(100, 100, 480, 430)) > 8.0
+
+    # the same line drawn nowhere: pure sky along the same path
+    assert line_snr(sky, S(100, 100, 480, 430)) < 3.0
