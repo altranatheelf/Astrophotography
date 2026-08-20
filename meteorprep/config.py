@@ -59,6 +59,22 @@ class Config:
     ref_window: int = 7
     ref_sigma: float = 3.0
     diff_threshold: float = 8.0     # ADU over reference, in 8-bit-equivalent units
+    # Absolute floor under the first pass's adaptive threshold, 16-bit
+    # ADU.  It guards against a degenerate noise estimate, and on a clean
+    # night it is also the sensitivity limit: the statistics asked for 254
+    # and got 768.  Lowering it to 512 was measured — injected recall rose
+    # from 11/12 to 12/12, and the dawn twilight frames, whose noise is
+    # several times the rest of the night's, produced three false meteors
+    # on real data.  A per-frame noise-scaled floor would beat both; until
+    # that exists the default is the conservative one.
+    detect_min_thresh: float = 768.0
+    # Remove everything smoother than a streak from the difference before
+    # looking for lines (Gaussian sigma in detection pixels, 0 = off).
+    # Twilight, moonrise and thin cloud are large-scale; a meteor is not.
+    # Measured at a lowered threshold it halves the spurious detections
+    # while keeping every real streak — worth switching on with
+    # detect_min_thresh, and inert at the default one.
+    detect_highpass_sigma: float = 0.0
     min_area: int = 10
     min_aspect_ratio: float = 3.0
     hough_threshold: int = 10
@@ -159,7 +175,9 @@ class Config:
         "detect": ["bin_factor", "ref_window", "ref_sigma", "diff_threshold",
                    "min_area", "min_aspect_ratio", "hough_threshold",
                    "hough_min_line_length", "hough_max_line_gap",
-                   "min_line_score", "faint_harvest", "faint_mad_k",
+                   "min_line_score", "detect_min_thresh",
+                   "detect_highpass_sigma",
+                   "faint_harvest", "faint_mad_k",
                    "faint_min_thresh", "faint_max_fwhm_px",
                    "faint_min_line_snr"],
         "classify": ["cosmic_max_px", "fwhm_sat_px", "boundary_gap_deg",

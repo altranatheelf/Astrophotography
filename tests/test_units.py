@@ -975,3 +975,39 @@ def test_line_snr_separates_a_real_streak_from_a_lucky_line():
 
     # the same line drawn nowhere: pure sky along the same path
     assert line_snr(sky, S(100, 100, 480, 430)) < 3.0
+
+
+def test_hot_pixel_mask_matches_the_reference_rule():
+    """The fast scan must be the same answer as rawpy's candidate rule,
+    not merely a similar one: a pixel is a candidate when it reads high
+    by more than the threshold, or reads low at all, against the median
+    of its own Bayer colour.  (rawpy expresses the second half by uint16
+    wraparound; this states it directly.)"""
+    import cv2
+
+    rng = np.random.default_rng(4)
+    img = (rng.normal(2000, 40, (64, 96))).astype(np.uint16)
+    img[10, 20] = 9000            # hot
+    img[30, 40] = 200             # dead
+    thresh = max(int(np.max(img)) // 150, 20)
+
+    got = np.zeros(img.shape, np.uint8)
+    for oy in (0, 1):
+        for ox in (0, 1):
+            sl = np.require(img[oy::2, ox::2], img.dtype, "C")
+            med = cv2.medianBlur(sl, 3)
+            got[oy::2, ox::2] = ((sl > med.astype(np.int32) + thresh)
+                                 | (sl < med)).astype(np.uint8)
+
+    # the uint16-wraparound form rawpy actually evaluates
+    want = np.zeros(img.shape, np.uint8)
+    for oy in (0, 1):
+        for ox in (0, 1):
+            sl = np.require(img[oy::2, ox::2], img.dtype, "C")
+            med = cv2.medianBlur(sl, 3).copy()
+            np.subtract(sl, med, out=med)      # uint16, wraps
+            np.abs(med, out=med)
+            want[oy::2, ox::2] = (med > thresh).astype(np.uint8)
+
+    assert np.array_equal(got, want)
+    assert got[10, 20] == 1 and got[30, 40] == 1

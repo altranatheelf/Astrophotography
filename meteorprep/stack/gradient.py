@@ -58,10 +58,23 @@ def eval_frame_sky(coef: np.ndarray, h: int, w: int) -> np.ndarray:
     coef = np.asarray(coef, np.float32)
     u = (np.arange(w, dtype=np.float32) + 0.5) / w - 0.5
     v = (np.arange(h, dtype=np.float32) + 0.5) / h - 0.5
-    uu, vv = np.meshgrid(u, v)
-    basis = np.stack([np.ones_like(uu), uu, vv, uu * uu, uu * vv, vv * vv])
-    out = np.tensordot(coef, basis, axes=([1], [0]))   # (C, h, w)
-    return np.moveaxis(out, 0, -1)
+    # Separable evaluation: a quadratic in (u, v) regroups as
+    #   (c0 + c1 u + c3 u^2) + v (c2 + c4 u) + v^2 c5
+    # so each channel costs three broadcasts over the frame instead of
+    # six full-size basis images and a tensordot — the old form built
+    # half a gigabyte of temporaries per frame at 20 MP.
+    nch = coef.shape[0]
+    out = np.empty((h, w, nch), np.float32)
+    v2 = v * v
+    for c in range(nch):
+        c0, c1, c2, c3, c4, c5 = [float(x) for x in coef[c]]
+        row = c0 + c1 * u + c3 * u * u          # (w,)
+        slope = c2 + c4 * u                     # (w,)
+        plane = out[:, :, c]
+        np.multiply(v[:, None], slope[None, :], out=plane)
+        plane += row[None, :]
+        plane += (c5 * v2)[:, None]
+    return out
 
 
 def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
