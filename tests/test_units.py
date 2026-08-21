@@ -1095,3 +1095,40 @@ def test_sky_gradient_surface_matches_the_direct_evaluation():
         ref = truth * scale
         ref = ref - ref.min()
         assert np.abs(got[:, :, c] - ref).max() < 6.0, c
+
+
+def test_moment_merging_is_order_sensitive_which_is_why_it_is_ordered():
+    """Combining the statistics partials is floating-point addition, so
+    the answer depends on the order they arrive in — and downstream that
+    order moved the clip bounds enough to flip the keep/reject decision
+    on a thousand pixels, making two runs of the same folder produce
+    different files.  The pass merges by worker number for that reason;
+    this pins the reason itself."""
+    from meteorprep.stack.streaming import RunningMoments
+
+    rng = np.random.default_rng(12)
+    parts = []
+    for _ in range(4):
+        m = RunningMoments((8, 8, 3))
+        for _ in range(5):
+            m.add((rng.random((8, 8, 3), np.float32) * 3000
+                   + 1e5).astype(np.float32),
+                  np.ones((8, 8), bool))
+        parts.append(m)
+
+    def combined(order):
+        total = RunningMoments((8, 8, 3))
+        for k in order:
+            p = parts[k]
+            clone = RunningMoments((8, 8, 3))
+            clone.count, clone.mean, clone.m2 = (p.count.copy(),
+                                                 p.mean.copy(),
+                                                 p.m2.copy())
+            total.combine(clone)
+        return total.std()
+
+    a = combined([0, 1, 2, 3])
+    b = combined([3, 1, 0, 2])
+    assert not np.array_equal(a, b), (
+        "if this ever becomes exact the ordering could be relaxed")
+    assert np.allclose(a, b, rtol=1e-4)      # tiny, but not nothing

@@ -242,6 +242,65 @@ _CLIP_BAND = 512
 
 
 
+class _SharedAccums:
+    """One worker's big accumulators, shared with the parent as memory
+    maps instead of being serialised through files.
+
+    Each worker used to np.save ~0.6 GB of sums for the parent to np.load
+    straight back — 2 GB of round-trip per run that never needed to
+    exist.  A shared mapping is the same memory on both sides: the worker
+    writes into it, the parent adds from it, and the pages are dropped
+    unwritten when the scratch directory goes.
+
+    (multiprocessing.shared_memory would do the same thing, and was tried
+    first: attaching in a child double-registers the segment with the
+    resource tracker, and cleaning that up printed a KeyError traceback
+    per block into the user's run log.  A mapping needs no tracker.)
+    """
+
+    KEYS = (("csum", 3, "<f4"), ("cwsum", 3, "<f4"),
+            ("fcount", 0, "<u2"), ("rcount", 0, "<u2"))
+
+    def __init__(self, shape_hw, tmp_dir, worker_id):
+        h, w = shape_hw
+        self.arrays, self.spec, self._paths = {}, {}, []
+        for name, nch, dt in self.KEYS:
+            shape = (h, w, nch) if nch else (h, w)
+            path = Path(tmp_dir) / f"shm_{name}_{worker_id}.dat"
+            arr = np.memmap(path, dtype=dt, mode="w+", shape=shape)
+            arr[:] = 0
+            self.arrays[name] = arr
+            self.spec[name] = (str(path), list(shape), dt)
+            self._paths.append(path)
+
+    def zero(self):
+        for a in self.arrays.values():
+            a[:] = 0
+
+    def close(self):
+        self.arrays.clear()
+        for path in self._paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._paths.clear()
+
+
+def _attach_shared(spec):
+    """Worker side: map the parent's blocks and view them as arrays."""
+    import numpy as _np
+    return {name: _np.memmap(path, dtype=dt, mode="r+", shape=tuple(shape))
+            for name, (path, shape, dt) in spec.items()}, []
+
+
+def _release_shared(arrays, _blocks):
+    """Detach.  The mapping is coherent between processes, so there is
+    nothing to flush and nothing to hand back — the parent already has
+    every byte the worker wrote."""
+    arrays.clear()
+
+
 def _stack_pass(args) -> dict:
     """One streaming pass over a subset of frames.
 
@@ -254,7 +313,8 @@ def _stack_pass(args) -> dict:
     """
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
-     bad_pixels, sigma, want_fg, want_trail, k1, sky_path) = args
+     bad_pixels, sigma, want_fg, want_trail, k1, sky_path,
+     shared_spec) = args
     import json as _json
 
     import cv2 as _cv2
@@ -318,15 +378,32 @@ def _stack_pass(args) -> dict:
                                      .read_text()).items()}
         except (OSError, ValueError):
             norm_coef = {}
-        ssum = _np.zeros((h, w, 3), _np.float32)
-        wsum = _np.zeros((h, w, 3), _np.float32)
-        fcount = _np.zeros((h, w), _np.uint16)   # coverage for the crop
+        shm_arrays, shm_blocks = ({}, [])
+        if shared_spec:
+            try:
+                shm_arrays, shm_blocks = _attach_shared(shared_spec)
+            except Exception as exc:   # fall back to private arrays + files
+                log.warning("could not attach the shared accumulators "
+                            "(%s); using this worker's own memory", exc)
+                shm_arrays, shm_blocks = {}, []
+                shared_spec = None
+        ssum = shm_arrays.get("csum")
+        if ssum is None:
+            ssum = _np.zeros((h, w, 3), _np.float32)
+        wsum = shm_arrays.get("cwsum")
+        if wsum is None:
+            wsum = _np.zeros((h, w, 3), _np.float32)
+        fcount = shm_arrays.get("fcount")     # coverage for the crop
+        if fcount is None:
+            fcount = _np.zeros((h, w), _np.uint16)
         # per-pixel count of samples the sigma clip threw away — the
         # meteors, planes, satellites, cosmic rays and wind-shaken twigs
         # that never reached the clean starfield.  Shipped as evidence:
         # "show me what you removed" should be answerable with a file,
         # not a claim.
-        rcount = _np.zeros((h, w), _np.uint16)
+        rcount = shm_arrays.get("rcount")
+        if rcount is None:
+            rcount = _np.zeros((h, w), _np.uint16)
         fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
         trail_max = None   # camera-space lighten-max (free star trails)
@@ -478,11 +555,16 @@ def _stack_pass(args) -> dict:
             _np.save(p, a)
             out[name] = str(p)
     else:
-        for name, a in (("csum", ssum), ("cwsum", wsum),
-                        ("fcount", fcount), ("rcount", rcount)):
-            p = tmp / f"{name}_{worker_id}.npy"
-            _np.save(p, a)
-            out[name] = str(p)
+        out["worker_id"] = worker_id
+        if shared_spec:
+            out["shared"] = True
+            _release_shared(shm_arrays, shm_blocks)
+        else:
+            for name, a in (("csum", ssum), ("cwsum", wsum),
+                            ("fcount", fcount), ("rcount", rcount)):
+                p = tmp / f"{name}_{worker_id}.npy"
+                _np.save(p, a)
+                out[name] = str(p)
         if fg_sum is not None:
             p = tmp / f"fg_{worker_id}.npy"
             _np.save(p, fg_sum)
@@ -2492,10 +2574,36 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     tmp = cache.dir("stack_tmp")
     # a crashed or interrupted earlier run leaves ~GB of stale part files
     # here — never let them eat the disk a second time
-    for stale in tmp.glob("*.npy"):
-        stale.unlink(missing_ok=True)
+    for pattern in ("*.npy", "*.dat"):
+        for stale in tmp.glob(pattern):
+            stale.unlink(missing_ok=True)
     for stale in tmp.glob("prog_*.txt"):
         stale.unlink(missing_ok=True)
+
+    shared_sets: dict = {}
+
+    def shared_for(mode, worker_id):
+        """A worker's shared accumulator block, created on first use.
+        Only the full-resolution pass uses them: the statistics pass's
+        parts are a fraction of the size and are left on disk."""
+        if mode == "moments":
+            return None
+        if worker_id not in shared_sets:
+            try:
+                shared_sets[worker_id] = _SharedAccums((h, w), tmp,
+                                                       worker_id)
+            except Exception as exc:      # no /dev/shm, tiny box, sandbox
+                log.info("shared memory unavailable (%s); the stack will "
+                         "hand its parts over as files", exc)
+                shared_sets[worker_id] = None
+        st = shared_sets[worker_id]
+        return None if st is None else st.spec
+
+    def free_shared():
+        for st in shared_sets.values():
+            if st is not None:
+                st.close()
+        shared_sets.clear()
 
     def frame_args(mode, indices, worker_id, want_fg=False,
                    want_trail=False):
@@ -2510,7 +2618,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  if i in corridor_segments},
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
-                cfg.stack_sigma, want_fg, want_trail, k1, sky_path)
+                cfg.stack_sigma, want_fg, want_trail, k1, sky_path,
+                shared_for(mode, worker_id))
 
     # each pass-2 worker peaks around 3 GB at full 20 MP resolution
     ram = _available_ram_gb()
@@ -2542,7 +2651,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     def run_pass(mode, frac0, frac1, label, want_fg=False,
                  want_trail=False, indices=None, on_result=None,
-                 on_reset=None):
+                 on_reset=None, in_order=False):
         """on_result(part) merges each worker's result AS IT LANDS, so the
         parent's ~GB of part loading/adding overlaps the slowest worker
         instead of running serially after every worker is done.  If the
@@ -2572,11 +2681,23 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 finished_frames = 0
                 last_seen = -1
                 deadline = _time.time() + 600 + 300 * len(idx)
+                held = {}
                 while pending:
                     done_set, pending = wait(pending, timeout=2,
                                              return_when=FIRST_COMPLETED)
                     for fut in done_set:
-                        on_result(fut.result())
+                        if in_order:
+                            # merging in completion order makes the result
+                            # depend on which worker happened to finish
+                            # first: floating-point addition is not
+                            # associative, and downstream that moved the
+                            # clip bounds enough to flip the keep/reject
+                            # decision on a thousand pixels.  The parts
+                            # are small here, so hold them and merge by
+                            # worker number — same file every time.
+                            held[futures[fut]] = fut.result()
+                        else:
+                            on_result(fut.result())
                         merged += 1
                         finished_frames += chunk_len[futures[fut]]
                     in_flight = 0
@@ -2598,6 +2719,8 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                                f"{label} (photo {seen}/{len(idx)})")
                     if _time.time() > deadline:
                         raise TimeoutError(f"{label} timed out")
+                for k in sorted(held):
+                    on_result(held[k])
             except Exception as exc:
                 close_pool()
                 if _disk_full(exc):
@@ -2657,7 +2780,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     run_pass("moments", 0.60, 0.70, "measuring the sky (pass 1 of 2)",
              indices=stat_idx, on_result=_merge_moments,
-             on_reset=_reset_moments)
+             on_reset=_reset_moments, in_order=True)
     all_coef = _fill_norm_coef(all_coef, ok_idx)
     import json as _json
     (tmp / "norm_coef.json").write_text(_json.dumps(
@@ -2684,12 +2807,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     def _merge_clipped(p):
         all_bgs.update(p.get("bg", {}))
+        st = shared_sets.get(p.get("worker_id")) if p.get("shared") else None
         # in-place adds (+= would rebind the closed-over names)
-        np.add(total_sum, np.load(p["csum"]), out=total_sum)
-        np.add(total_w, np.load(p["cwsum"]), out=total_w)
-        np.add(coverage, np.load(p["fcount"]), out=coverage)
-        if "rcount" in p:
-            np.add(rejected, np.load(p["rcount"]), out=rejected)
+        if st is not None:
+            np.add(total_sum, st.arrays["csum"], out=total_sum)
+            np.add(total_w, st.arrays["cwsum"], out=total_w)
+            np.add(coverage, st.arrays["fcount"], out=coverage)
+            np.add(rejected, st.arrays["rcount"], out=rejected)
+        else:
+            np.add(total_sum, np.load(p["csum"]), out=total_sum)
+            np.add(total_w, np.load(p["cwsum"]), out=total_w)
+            np.add(coverage, np.load(p["fcount"]), out=coverage)
+            if "rcount" in p:
+                np.add(rejected, np.load(p["rcount"]), out=rejected)
         if want_fg and "fg" in p:
             part_fg = np.load(p["fg"])
             p2["fg_sum"] = (part_fg if p2["fg_sum"] is None
@@ -2708,12 +2838,21 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         total_w[:] = 0
         coverage[:] = 0
         rejected[:] = 0
+        # a worker that died mid-pass leaves half-written shared blocks;
+        # the one-core retry has to start from zero in them too
+        for st in shared_sets.values():
+            if st is not None:
+                st.zero()
         p2.update(fg_sum=None, fg_n=0, trail=None)
 
-    run_pass("clipped", 0.70, 0.80,
-             "building the clean starfield (pass 2 of 2)", want_fg,
-             want_trail, on_result=_merge_clipped, on_reset=_reset_clipped)
-    close_pool()
+    try:
+        run_pass("clipped", 0.70, 0.80,
+                 "building the clean starfield (pass 2 of 2)", want_fg,
+                 want_trail, on_result=_merge_clipped,
+                 on_reset=_reset_clipped)
+    finally:
+        close_pool()
+        free_shared()
     fg = ((p2["fg_sum"] / max(p2["fg_n"], 1))
           if want_fg and p2["fg_n"] else None)
     trail = p2["trail"]
