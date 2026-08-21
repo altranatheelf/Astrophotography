@@ -185,14 +185,16 @@ def write_report_html(out_dir: Path, group_result: dict,
         draft_banner = (
             '<div class="card" style="background:#3a2c12;'
             'border:1px solid #7a5c20">'
-            '<b>This is a draft.</b> Half-resolution picture, no layered '
-            'Photoshop file, and the slower second look for faint meteors '
-            'was skipped. Everything that decides <i>what</i> is in the '
-            'picture — which photos, where the sky is, which streaks are '
-            'meteors — is exactly what the full run does, so the verdicts '
-            'below are the real ones. Run it again without draft mode for '
-            'the full-resolution layered file; the scan, the star lock and '
-            'the meteor search are already done and will be reused.</div>')
+            '<b>This is the quick look.</b> A half-size picture, no '
+            'layered Photoshop file, and the slower second pass for the '
+            'faintest meteors was skipped. Everything that decides '
+            '<i>what</i> is in the picture — which photos, where the sky '
+            'is, which streaks are meteors — is exactly what Full quality '
+            'does, so the verdicts below are the real ones. Run the same '
+            'folder again on <b>Full quality</b> for the layered file: the '
+            'scan, the star lock and the whole meteor search are already '
+            'done and will be reused, so it starts most of the way in.'
+            '</div>')
 
     open_line = (
         "<b>meteorprep.psd</b> — the layered Photoshop file (drag it in)"
@@ -200,8 +202,9 @@ def write_report_html(out_dir: Path, group_result: dict,
         "<b>assemble.jsx</b> — in Photoshop: File &gt; Scripts &gt; "
         "Browse&hellip; and pick this file; it builds the layered document")
     if draft:
-        open_line = ("<b>preview.jpg</b> — the whole point of a draft: "
-                     "look at it, then decide whether to run the full pass")
+        open_line = ("<b>preview.jpg</b> — the whole point of a quick "
+                     "look: open it, then decide whether the night is "
+                     "worth the full run")
 
     body = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>METEORPREP run report</title>
@@ -222,7 +225,7 @@ def write_report_html(out_dir: Path, group_result: dict,
         color:#c8d3df; user-select:all }}
  .look p {{ margin:0; color:#9aa7b5; font-size:13px }}
 </style></head><body>
-<h1>{"Your night, in draft" if draft else "Your night, processed"}</h1>
+<h1>{"Your night, a quick look" if draft else "Your night, processed"}</h1>
 {draft_banner}
 <div class="card"><span class="big">{len(meteors)}</span> meteor(s)
  &nbsp;&middot;&nbsp; {len(flagged)} plane/satellite trail(s) flagged
@@ -256,7 +259,7 @@ that was thrown away — meteors, planes, satellites, cosmic rays) and
 ledger.png (every pixel colour-coded by where it came from, with
 ledger_legend.json) — the honest-image receipts</li>
 <li><b>run_log.txt</b> — the full diary; send it when something looks wrong</li>
-{'<li><i>Not in a draft:</i> the layered Photoshop file, the per-layer PNGs, the star-trail render and the contact sheet. Run again with draft mode off and they are built from the search this draft already did.</li>' if draft else ''}
+{'<li><i>Not in a quick look:</i> the layered Photoshop file, the per-layer PNGs, the star-trail photo and the contact sheet. Run the folder again on Full quality and they are built from the search this run already did.</li>' if draft else ''}
 </ul>
 </body></html>"""
     p = out_dir / "report.html"

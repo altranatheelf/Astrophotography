@@ -10,7 +10,10 @@ Double-click **MeteorPrep.app** (or **Start MeteorPrep.command**) in this
 folder.  The first time, macOS may warn about an unidentified developer:
 right-click the app, choose **Open**, then **Open** again — only needed
 once.  First launch installs the components by itself if they're missing.
-Then drop your photo folder into the window and press **Prepare**.
+Then drop your photo folder into the window, pick one of the three
+choices — **Quick look**, **Full quality**, or **Full quality, half
+size** — and press **Find my meteors**.  All three find the same
+meteors; they differ only in what they hand you and how long they take.
 
 Every mechanical/geometric step is automated — decode, timing, plate solve,
 TAN reprojection, meteor detection, aircraft/satellite rejection, alpha
@@ -53,8 +56,9 @@ meteorprep /path/to/frames -o out \
     --seed-ra 48 --seed-dec 58        # rough pointing seed for the solver
 ```
 
-or launch the GUI (`python -m meteorprep.gui`): drop the folder, press
-**Prepare**.
+or launch the GUI (`python -m meteorprep.gui`): drop the folder, pick a
+mode, press **Find my meteors**.  On the command line the same choice is
+`--mode quick` / `--mode full` / `--mode smaller`.
 
 Outputs per shooting group:
 

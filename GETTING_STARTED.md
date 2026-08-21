@@ -78,35 +78,63 @@ color — all still done by you in Photoshop, non-destructively.
 
 ## Every time after that
 
-1. Put all the frames from one night/one tripod position in one folder
+1. Put all the frames from one night, one tripod position, in one folder
    (subfolders are fine; don't mix in shots from a different composition).
 2. Run: `python3 -m meteorprep.gui` (or make a shortcut for it once).
-3. Drag your folder onto the window. Press **Prepare**. Go make coffee —
-   a few hundred 20-megapixel RAWs take a while (up to ~an hour), and the
-   working folder needs a good chunk of free disk (tens of GB for ~200
-   frames; you can delete the `cache` folder afterwards).
-4. When it's done, look at **contact_sheet.png** in the output folder:
-   every candidate it found, one thumbnail each, labeled meteor / plane /
-   satellite with a confidence score. This is your 30-second sanity check.
+3. Drag your folder onto the window. It counts your photos and tells you
+   roughly how long each choice will take on *your* Mac.
+4. Pick one of the three, press **Find my meteors**, go make coffee.
+5. It opens the report by itself when it's done. Start there.
 
-## In a hurry: tick "Quick draft first"
+## The three choices, and the difference between them
 
-A draft searches every photo exactly the way the full run does, so the
-meteors it reports are the real answer. What it skips is the expensive
-half — the picture comes out at half resolution, there is no layered
-Photoshop file, the second look for the very faintest meteors is left
-out, and on a long night the background sky is built from a few dozen
-photos instead of all of them. On a short test night that is about half
-the time; on a long one, rather less than half.
+They all read every photo and search every one of them the same way, so
+**they all find the same meteors**. What changes is what you get out.
 
-The draft lands in a **draft/** folder of its own, so it can never be
-confused with the real files. Look at its `preview.jpg` and its
-`report.html`, then — if the night is worth it — press Prepare again
-with the box unticked. The second run reuses everything the draft
-worked out: the folder scan, the star lock and the whole meteor search
-are already done, so it goes almost straight to building the picture.
+| | you get | roughly |
+|---|---|---|
+| **Quick look** | a half-size JPEG and the report — no Photoshop file | a third of the time |
+| **Full quality** | the layered Photoshop file at full size | the whole run |
+| **Full quality, half size** | the same layers, half as wide and tall | about half |
 
-From the command line the same thing is `--draft`.
+**Quick look** is for "did I catch anything, and does it look good?" It
+lands in a folder of its own called `quick-look`, so it can never be
+mixed up with the real files. It also skips the slower second pass that
+hunts the very faintest meteors, and on a long night it builds the
+background sky from a few dozen photos instead of all of them — the sky
+is a touch noisier, the meteors are all there.
+
+The good part: **a quick look is not wasted work.** Run the same folder
+again on Full quality and it reuses everything — the folder scan, the
+star lock and the whole meteor search are already done, so it starts
+most of the way in.
+
+**Full quality, half size** is the one to pick if your disk is nearly
+full or a full-size run was more than your Mac wanted to do. Same
+layers, same meteors, quarter-size files.
+
+From the command line: `--mode quick`, `--mode full`, `--mode smaller`.
+
+## Where the files land
+
+Everything goes in a folder next to your photos called
+`<your folder>_meteorprep`:
+
+- **report.html** — opens by itself; every candidate with a thumbnail and
+  a verdict. Your 30-second check of its work.
+- **meteorprep.psd** — the layered file (not in a quick look).
+- **preview.jpg** — the finished picture, ready to share as-is.
+- **preview_all_trails.jpg** — the same sky with the planes and
+  satellites composited too.
+- **contact_sheet.png** — one thumbnail of every candidate, side by side.
+- **startrail.tif / .jpg** — the classic circular trails, if you asked.
+- **meteorprep.json** — every measurement, for the record.
+- **evidence/** — the stack's own receipts: how many photos built each
+  pixel, where outliers were thrown away, what light was removed.
+- **run_log.txt** — the full diary. This is the file to send if
+  something looks wrong.
+- **cache/** — working files. Safe to delete once you're happy; keeping
+  it is what makes a second run on the same folder fast.
 
 ## Getting it into Photoshop
 

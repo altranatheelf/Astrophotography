@@ -150,7 +150,7 @@ class Config:
     force: bool = False
     cleanup_cache: bool = False  # delete the big reprojection cache when done
 
-    # --- draft mode ---
+    # --- quick look (Mode 'quick'; the field kept its old name) ---
     # A look-at-it-now run: half-resolution canvas, no editable files, no
     # second look for faint meteors.  Everything that decides WHAT is in
     # the picture — which frames, where the sky is, which streaks are

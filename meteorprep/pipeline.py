@@ -213,8 +213,9 @@ def _paint_segments(mask: np.ndarray, segments) -> None:
 _DISK_FULL_MSG = (
     "Your disk is full — METEORPREP ran out of space for its working "
     "files. Free up several GB (empty the Trash, delete old *_meteorprep "
-    "folders), then press Prepare again with 'Force re-run' UNCHECKED — "
-    "it will resume from where it stopped instead of starting over.")
+    "folders), then press Find my meteors again, leaving 'Start over' "
+    "unticked — it will pick up where it stopped rather than beginning "
+    "again.")
 
 
 # zlib's cheapest setting.  On smooth 16-bit sky data level 1 lands
@@ -1029,7 +1030,49 @@ def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors,
             errors.append(group.group_id)
 
 
-def _save_candidates(cache, candidates, name="candidates.json") -> None:
+# Streak coordinates are stored in OUTPUT-canvas pixels, and the output
+# canvas is half as wide at half size — so the same night saved from a
+# quick look and from a full run holds numbers that differ by a factor
+# of two.  The saved file records which scale it is in, and _load
+# rescales.  Without this the quick-look-then-full-quality handoff (the
+# whole point of sharing the search between modes) silently placed every
+# meteor at half its true position: the corridors masked the wrong part
+# of the sky and the layer windows cut blank sky, while the report still
+# counted the right number of meteors.
+_COORD_SCALED = ("x0", "y0", "x1", "y1", "length_px", "fwhm_px")
+
+
+def _angsep_deg(a, b) -> float:
+    """Angle between two (ra, dec) points, in degrees."""
+    ra0, de0 = np.deg2rad(a[0]), np.deg2rad(a[1])
+    ra1, de1 = np.deg2rad(b[0]), np.deg2rad(b[1])
+    u = np.array([np.cos(de0) * np.cos(ra0), np.cos(de0) * np.sin(ra0),
+                  np.sin(de0)])
+    v = np.array([np.cos(de1) * np.cos(ra1), np.cos(de1) * np.sin(ra1),
+                  np.sin(de1)])
+    return float(np.rad2deg(np.arccos(np.clip(u @ v, -1.0, 1.0))))
+
+
+def _candidates_scale(cache, name="candidates.json"):
+    """The output scale a saved detection is in, or None when the file
+    does not say — in which case it cannot safely be reused, because
+    there is no way to tell which canvas its numbers describe."""
+    import json as _json
+    try:
+        doc = _json.loads(cache.path(name).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    try:
+        v = float(doc.get("coord_scale") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _save_candidates(cache, candidates, name="candidates.json",
+                     scale=1.0) -> None:
     """Persist the detection result so a re-run resumes instead of
     repeating the search (the expensive half of a long night)."""
     import dataclasses as _dc
@@ -1044,7 +1087,7 @@ def _save_candidates(cache, candidates, name="candidates.json") -> None:
 
     from meteorprep import __version__ as _ver
     cache.path(name).write_text(_json.dumps(
-        {"tool_version": _ver,
+        {"tool_version": _ver, "coord_scale": float(scale),
          "candidates": [_dc.asdict(c) for c in candidates]}, default=_plain))
 
 
@@ -1092,7 +1135,7 @@ def _observing_site(cfg, frames):
     return None, None, None
 
 
-def _load_candidates(cache, name: str = "candidates.json"):
+def _load_candidates(cache, name: str = "candidates.json", scale=1.0):
     import json as _json
 
     from meteorprep.detect.hough import Streak
@@ -1105,11 +1148,29 @@ def _load_candidates(cache, name: str = "candidates.json"):
         log.info("the saved detection was made by METEORPREP %s; reusing it "
                  "(tick 'Force re-run' to search again from scratch)",
                  doc.get("tool_version"))
+    # bring the coordinates onto THIS run's canvas (see _COORD_SCALED)
+    saved = float(doc.get("coord_scale") or 0.0)
+    ratio = (float(scale) / saved) if saved > 0 else 1.0
     out = []
     for cd in doc.get("candidates", []):
         cd = dict(cd)
-        streaks = [Streak(**s) for s in cd.pop("streaks", [])]
+        streaks = [Streak(**st) for st in cd.pop("streaks", [])]
+        if abs(ratio - 1.0) > 1e-9:
+            for st in streaks:
+                for f_ in _COORD_SCALED:
+                    setattr(st, f_, getattr(st, f_) * ratio)
+                st.area_px = int(round(st.area_px * ratio * ratio))
+            cd.pop("endpoints_pix_base", None)   # rebuilt from the streaks
+            # the candidate's own summary of its streaks' width is in
+            # pixels too, and the classifier reads it (a cosmic-ray hit
+            # and a saturated star are both width judgements)
+            if cd.get("fwhm_px"):
+                cd["fwhm_px"] = float(cd["fwhm_px"]) * ratio
         out.append(Candidate(streaks=streaks, **cd))
+    if abs(ratio - 1.0) > 1e-9:
+        log.info("the saved detection was measured on a %s canvas; its "
+                 "coordinates were rescaled by %.3g for this one",
+                 "half-size" if ratio > 1 else "full-size", ratio)
     return out
 
 
@@ -1117,12 +1178,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                pre_timings=None) -> dict:
     frames = group.frames
     n = len(frames)
-    # a draft is a look-at-it-now picture, not the deliverable: it goes
-    # in its own folder so it can never be mistaken for the real files,
-    # and so a later full run does not have to overwrite it
+    # a quick look is a look-at-it-now picture, not the deliverable: it
+    # goes in its own folder so it can never be mistaken for the real
+    # files, and so a later full run does not have to overwrite it
     out_dir = cfg.output_path / group.group_id
     if cfg.draft:
-        out_dir = out_dir / "draft"
+        out_dir = out_dir / "quick-look"
     out_dir.mkdir(parents=True, exist_ok=True)
     cache = CacheStore(cfg.cache_path / group.group_id)
     skipped = 0
@@ -1287,7 +1348,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 f"{need_mb / 1000:.0f} GB of working room and the drive "
                 f"holding {out_dir.name} has only {free_mb / 1000:.1f} GB "
                 f"free. Free up space (empty the Trash, delete old "
-                f"*_meteorprep folders), then press Prepare again — or "
+                f"*_meteorprep folders), then press Find my meteors again — or "
                 f"tick 'Fast mode: half-resolution result', which needs "
                 f"about a quarter of the room.")
         if free_mb < 1.5 * need_mb:
@@ -1659,7 +1720,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     detect_cached = bool(
         not cfg.force
         and cache.path("candidates.json").exists()
-        and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp))
+        and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp)
+        # a file that does not record which canvas its coordinates are on
+        # (written before that was stored) cannot be moved onto this one
+        and _candidates_scale(cache) is not None)
     # The second look is cached separately, because it is the one part of
     # the search a draft leaves out: a draft and the full run share the
     # first pass exactly, and the full run afterwards has only the faint
@@ -1668,7 +1732,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         detect_cached
         and cache.path("candidates_faint.json").exists()
         and cache.is_done("faint",
-                          cfg.stage_hash("faint") + ":" + frames_fp))
+                          cfg.stage_hash("faint") + ":" + frames_fp)
+        and _candidates_scale(cache, "candidates_faint.json") is not None)
     want_faint = bool(cfg.faint_harvest) and not faint_cached
     # the aligned small previews feed the first pass AND the second look
     need_det_dir = (not detect_cached) or want_faint
@@ -1890,9 +1955,34 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                             {m.file: i for i, m in enumerate(frames)},
                             frames)
     if detect_cached:
-        candidates = _load_candidates(
-            cache, "candidates_faint.json" if faint_cached
-            else "candidates.json")
+        _cand_file = ("candidates_faint.json" if faint_cached
+                      else "candidates.json")
+        _saved_scale = _candidates_scale(cache, _cand_file)
+        candidates = _load_candidates(cache, _cand_file, scale=S)
+        if _saved_scale and abs(_saved_scale - S) > 1e-9:
+            # Sky positions were read off the other canvas.  They agree
+            # to about ten arcseconds, which is close enough for the eye
+            # and not close enough for a file that claims to be a
+            # measurement — so they are read again from the pixels that
+            # were just rescaled onto this one.
+            for c in candidates:
+                c.endpoints_world = [
+                    [list(w) for w in world_endpoints(0, st)]
+                    for st in c.streaks]
+                c.length_deg = float(max(
+                    _angsep_deg(seg[0], seg[1])
+                    for seg in c.endpoints_world))
+        # The saved file holds the measurements, not the verdicts.  What
+        # counts as a meteor is a judgement made from settings the user
+        # can change — the radiant tolerance, the cosmic-ray size, the
+        # frame-edge gap — and those settings live in the "classify"
+        # stage, which has no saved artifact of its own.  Reloading the
+        # old labels meant widening the radiant tolerance re-stacked the
+        # entire night (classify is upstream of the stack) and then
+        # showed the same verdicts it had before.
+        candidates = classify(candidates, cfg, radiant)
+        _absorb_track_fragments(candidates, {m.file: i for i, m
+                                             in enumerate(frames)}, frames)
         log.info("restored %d candidate(s) from the previous run%s",
                  len(candidates),
                  "" if faint_cached else " (the second look still to do)")
@@ -1919,9 +2009,23 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 log.debug("physics annotation skipped for %s: %s", c.id, exc)
 
     if not detect_cached:      # the first pass is complete and reusable
-        _save_candidates(cache, candidates)
+        _save_candidates(cache, candidates, scale=S)
+        # The per-frame noise the search measured is what weights the
+        # stack.  It was not saved, so a resumed run re-stacked the whole
+        # night with every frame weighted equally — a slightly different,
+        # slightly worse picture than the same folder produced the first
+        # time, for no reason anyone could see.  It is a float per photo.
+        cache.write_json("frame_noise.json",
+                         {str(k): float(v) for k, v in noise_sigmas.items()})
         stage_done("detect")
         detect_cached = True
+    elif not noise_sigmas:
+        try:
+            noise_sigmas = {int(k): float(v) for k, v in
+                            cache.read_json("frame_noise.json").items()}
+        except (OSError, ValueError, AttributeError):
+            log.info("the saved run did not record its per-photo noise; "
+                     "this stack weights every photo equally")
 
     meteor_cands = [c for c in candidates if c.label == "meteor"]
     flagged_cands = [c for c in candidates if c.label != "meteor"]
@@ -2022,6 +2126,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     mark("building the clean starfield")
 
     # ------- second-pass faint-meteor harvest vs the clean base ---------
+    faint_ran = False
     if (want_faint and base_wcs is not None
             and (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists()):
         try:
@@ -2076,13 +2181,22 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 log.info("faint harvest added %d meteor(s) "
                          "(%d demoted by the track gauntlet)",
                          n_kept, len(new_cands) - n_kept)
+            faint_ran = True          # reached the end without raising
         except Exception as exc:
             log.warning("faint harvest skipped (%s); first-pass results "
                         "are unaffected", exc)
 
-    if want_faint:             # the second look is complete too
-        _save_candidates(cache, candidates, "candidates_faint.json")
+    # Only when it actually ran: writing the marker on the skip path (no
+    # plate solve, no aligned cache) or after the except below meant one
+    # failed second look suppressed it for that folder for ever, and
+    # nothing told the user why their faint meteors never appeared.
+    if want_faint and faint_ran:
+        _save_candidates(cache, candidates, "candidates_faint.json",
+                         scale=S)
         stage_done("faint")
+    elif want_faint:
+        log.info("the second look for faint meteors did not run this "
+                 "time; it will be tried again on the next run")
 
     if cfg.cleanup_cache and not cfg.draft:
         # the aligned-luminance cache is now truly done (first pass AND
@@ -2528,7 +2642,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             real data (same number to three figures) and the arithmetic
             happens after the shrink."""
             a = np.asarray(arr, np.float32)
-            if hi is None:
+            if not hi:          # None, or a max of zero on an empty map
                 hi = max(float(np.percentile(a[::4, ::4], 99.5)), 1e-6)
             hh, ww2 = a.shape[:2]
             if ww2 > 1400:

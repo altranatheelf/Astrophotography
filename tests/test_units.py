@@ -1097,6 +1097,106 @@ def test_sky_gradient_surface_matches_the_direct_evaluation():
         assert np.abs(got[:, :, c] - ref).max() < 6.0, c
 
 
+def test_saved_detection_moves_between_canvas_sizes(tmp_path):
+    """A quick look measures on a half-size canvas and the full run on a
+    full-size one, and the two share the saved search.  The file has to
+    say which canvas its numbers are in, or the handoff silently puts
+    every meteor at half its true position — which is exactly what
+    happened: the corridors masked the wrong sky, the layer windows cut
+    blank sky, and the report still counted the right number of meteors,
+    so nothing looked wrong."""
+    from meteorprep.cache.store import CacheStore
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep.pipeline import (_candidates_scale, _load_candidates,
+                                     _save_candidates)
+
+    st = Streak(frame_index=3, x0=100.0, y0=200.0, x1=140.0, y1=260.0,
+                length_px=72.1, mean_intensity=900.0, peak_intensity=4000.0,
+                fwhm_px=3.5, aspect=9.0, area_px=250, score=140.0,
+                straightness_rms=0.4)
+    cand = Candidate(id="C000", streaks=[st], frames=["IMG_1.CR2"],
+                     endpoints_world=[(10.0, 20.0), (10.1, 20.1)],
+                     dash_pattern=[], flags={}, physics={},
+                     label="meteor", confidence=0.9)
+    cache = CacheStore(tmp_path)
+
+    _save_candidates(cache, [cand], scale=1.0)          # a quick look
+    assert _candidates_scale(cache) == 1.0
+    back = _load_candidates(cache, scale=2.0)           # read by a full run
+    g = back[0].streaks[0]
+    assert (g.x0, g.y0, g.x1, g.y1) == (200.0, 400.0, 280.0, 520.0)
+    assert abs(g.length_px - 144.2) < 1e-6
+    assert abs(g.fwhm_px - 7.0) < 1e-6
+    assert g.area_px == 1000                            # area goes as S^2
+    assert g.frame_index == 3 and g.aspect == 9.0       # untouched
+
+    same = _load_candidates(cache, scale=1.0)           # same canvas
+    assert same[0].streaks[0].x0 == 100.0
+
+    # a file that does not say which canvas it is in must not be reused
+    import json
+    doc = json.loads((tmp_path / "candidates.json").read_text())
+    doc.pop("coord_scale")
+    (tmp_path / "candidates.json").write_text(json.dumps(doc))
+    assert _candidates_scale(cache) is None
+
+
+def test_resume_keeps_the_per_photo_noise_weights():
+    """The search measures each photo's noise and the stack weights by
+    it.  A resumed run does not search, so unless the numbers were
+    written down it re-stacks the night with every photo weighted the
+    same — a different picture from the one the same folder produced the
+    first time, with nothing to show why."""
+    import inspect
+
+    from meteorprep import pipeline as pl
+
+    src = inspect.getsource(pl._run_group)
+    assert 'cache.write_json("frame_noise.json"' in src
+    assert 'cache.read_json("frame_noise.json")' in src
+    # and it has to be read before the weights are worked out
+    assert (src.index('read_json("frame_noise.json")')
+            < src.index("frame_noise_weights(noise_sigmas)"))
+
+
+def test_second_look_marker_is_only_written_when_it_actually_ran():
+    """The faint pass is allowed to fail — it is a bonus, and the
+    first-pass results stand without it.  What it must not do is leave a
+    marker saying it is done, because then it never runs again for that
+    folder and nothing says why."""
+    import inspect
+
+    from meteorprep import pipeline as pl
+
+    src = inspect.getsource(pl._run_group)
+    assert "faint_ran = False" in src
+    assert "if want_faint and faint_ran:" in src, (
+        "the second-look marker must be gated on the pass having run")
+    # the flag is set inside the try, after the work, not beside it
+    tail = src[src.index("faint_ran = True"):]
+    assert tail.lstrip().startswith("faint_ran = True")
+    assert "except Exception" in tail[:400], (
+        "faint_ran must be set on the last line of the try block")
+
+
+def test_resumed_run_reapplies_the_verdicts():
+    """A resumed run reloads measurements, not judgements: the labels
+    have to be decided again from the current settings, or changing the
+    radiant tolerance re-stacks the whole night and then reports exactly
+    what it reported before."""
+    import inspect
+
+    from meteorprep import pipeline as pl
+
+    src = inspect.getsource(pl._run_group)
+    block = src[src.index("if detect_cached:"):]
+    block = block[:block.index("base_mid = base_meta.epoch_mid")]
+    assert "_load_candidates(" in block
+    assert "classify(candidates, cfg, radiant)" in block, (
+        "loaded candidates must be re-classified with this run's settings")
+
+
 def test_draft_mode_keeps_the_verdicts_and_drops_only_the_expensive_half():
     """A draft has to be worth trusting: it must search exactly what the
     full run searches, so the meteors it reports are the real answer.

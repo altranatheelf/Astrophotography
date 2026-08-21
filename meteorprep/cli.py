@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from meteorprep import modes as _M
 from meteorprep.config import Config
 
 
@@ -36,16 +37,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--site-lon", type=float, default=None,
                    help="observing longitude in degrees")
     p.add_argument("--solve-every-k", type=int, default=10)
-    p.add_argument("--no-psd", action="store_true", help="skip the PSD writer")
+    p.add_argument("--no-psd", action="store_true",
+                   help="do not write the layered Photoshop file")
     p.add_argument("--no-pngjsx", action="store_true",
-                   help="skip the PNG + Photoshop-JSX fallback output")
-    p.add_argument("--no-contact-sheet", action="store_true")
-    p.add_argument("--emit-startrail", action="store_true",
-                   help="also emit a lighten-stack star-trail render")
+                   help="do not write the PNG + Photoshop-script rescue "
+                        "copy (it is written automatically anyway if the "
+                        ".psd cannot be produced)")
+    p.add_argument("--no-contact-sheet", action="store_true",
+                   help="do not write the sheet of candidate thumbnails")
+    p.add_argument("--startrail", "--emit-startrail", action="store_true",
+                   dest="emit_startrail",
+                   help="also write the classic star-trail photo")
+    p.add_argument("--mode", choices=[m.key for m in _M.MODES],
+                   default=_M.DEFAULT,
+                   help="what to produce; "
+                        + " | ".join(f"'{m.key}' = {m.blurb}"
+                                     for m in _M.MODES))
     p.add_argument("--draft", action="store_true",
-                   help="fast look-at-it-now run: half-resolution picture, "
-                        "no layered file, no second look for faint "
-                        "meteors — same verdicts, into a draft/ folder")
+                   help=argparse.SUPPRESS)      # the old name for --mode quick
     p.add_argument("--jobs", type=int, default=1)
     p.add_argument("--force", action="store_true",
                    help="re-run all stages even when cached results match")
@@ -68,7 +77,8 @@ def config_from_args(args) -> Config:
         emit_startrail=args.emit_startrail,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,
-        draft=getattr(args, "draft", False),
+        **_M.config_kwargs("quick" if getattr(args, "draft", False)
+                           else getattr(args, "mode", _M.DEFAULT)),
     )
     if args.seed_ra is not None:
         cfg.seed_ra_deg = args.seed_ra
