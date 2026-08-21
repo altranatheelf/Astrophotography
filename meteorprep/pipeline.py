@@ -3,11 +3,16 @@
 Every mechanical/geometric step is automated; every aesthetic decision is
 surfaced as a PSD layer toggle and never baked in (§8).
 
-Disk strategy: the *search* for meteors runs on half-size decodes and only
-caches small binned luminance images (~3 GB for a 226-frame night); the
-clean starfield is a *streaming* masked mean at full resolution that never
-touches the disk; only the handful of frames containing meteors are ever
-reprojected at full quality, on demand.
+Disk strategy: the *search* for meteors runs on half-size decodes and
+caches only small binned luminance images; only the handful of frames that
+turned out to contain a meteor are ever reprojected at full quality, and
+that happens on demand at the end.
+
+The clean starfield is built in two streaming passes over the night — one
+to measure each pixel's mean and spread, one to average what falls inside
+the clip bounds — so no pass ever holds more than a band of one frame.
+The passes exchange per-worker moment arrays through the scratch folder;
+everything else lives in shared memory and is freed as it is merged.
 """
 
 from __future__ import annotations
@@ -503,8 +508,13 @@ def _stack_pass(args) -> dict:
     the sigma-clip bounds, and optionally an *unaligned* foreground sum (the
     ground is static on a fixed tripod, so the frozen-ground stack costs no
     extra decodes).  mode "clipped": accumulate the frame-weighted mean of
-    samples within sigma of the pass-1 mean.  Returns saved .npy paths.
-    Memory-conscious (float32, in-place); unreadable frames are skipped.
+    samples within sigma of the pass-1 mean.
+
+    Returns a dict of .npy paths for whatever this worker accumulated,
+    except when the parent handed it shared-memory accumulators to add
+    into directly, in which case there is nothing to hand back but
+    ``{"shared": True}``.  Memory-conscious (float32, in place);
+    unreadable frames are skipped rather than failing the night.
     """
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
@@ -1161,6 +1171,53 @@ def _reject_below_horizon(result, possible, label, stash=None):
     return None
 
 
+def _detect_tripod_bump(wcs_list, frames, bump_px: float):
+    """Find the photo where the tripod was knocked, or None.
+
+    A fixed tripod's pointing changes only by the sky's own rotation, so
+    each frame's WCS should match its predecessor's advanced by the
+    sidereal rate.  Anything left over is the camera itself moving.  The
+    comparison is between NEIGHBOURS, never against the first frame of the
+    night: propagation over ten seconds is exact, propagation over five
+    hours accumulates model error and would report a bump on a tripod that
+    never moved.
+
+    A bump is a STEP that stays.  One frame alone out of place is a bad
+    solve, so a jump only counts when the frame after it sits still again.
+
+    Returns {"index", "file", "shift_px", "n_after"} in detection pixels,
+    or None.
+    """
+    n = len(frames)
+    if n < 6:
+        return None
+    steps = np.full(n, np.nan)
+    for i in range(1, n):
+        a, b = wcs_list[i - 1], wcs_list[i]
+        if a is None or b is None:
+            continue
+        dt = (frames[i].epoch_mid
+              - frames[i - 1].epoch_mid).total_seconds()
+        pred = propagate_wcs(a, dt)
+        cx = float(pred.wcs.crpix[0]) - 1.0
+        cy = float(pred.wcs.crpix[1]) - 1.0
+        ra, dec = pred.pixel_to_world_values(cx, cy)
+        px, py = b.world_to_pixel_values(ra, dec)
+        if not (np.isfinite(px) and np.isfinite(py)):
+            continue
+        steps[i] = float(np.hypot(float(px) - cx, float(py) - cy))
+    if not np.isfinite(steps).any():
+        return None
+    i = int(np.nanargmax(steps))
+    if not (steps[i] > bump_px) or i >= n - 2:
+        return None
+    after = steps[i + 1]
+    if np.isfinite(after) and after > bump_px * 0.5:
+        return None          # still moving: one bad solve, not a bump
+    return {"index": i, "file": frames[i].file,
+            "shift_px": float(steps[i]), "n_after": int(n - i)}
+
+
 def _observing_site(cfg, frames):
     """Where the camera actually stood: (lat, lon, how we know).
 
@@ -1760,6 +1817,30 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                     "mis-register by up to ~720 px/hr and meteors will not "
                     "radiate correctly from the true radiant")
 
+    # ---- did the tripod get knocked?  The sky survives one: every frame
+    # is solved or verified against the catalogue and reprojected to where
+    # it really pointed, so the stars and the meteors still land in the
+    # right places.  What does not survive is the averaged frozen ground,
+    # which stacks the frames in CAMERA space and comes out with two
+    # horizons on top of each other, so that layer is dropped instead.
+    tripod_bump = None
+    if base_det_wcs is not None:
+        try:
+            tripod_bump = _detect_tripod_bump(det_wcs, frames,
+                                              float(cfg.bump_px))
+        except Exception as exc:
+            log.debug("tripod-bump check skipped (%s)", exc)
+        if tripod_bump:
+            log.warning(
+                "the camera moved during the night: at %s the pointing "
+                "jumped %.0f px beyond the sky's own drift, and the %d "
+                "photos from there on are framed differently.  Every star "
+                "and every meteor is still placed correctly.  The "
+                "low-noise averaged foreground would show two horizons, "
+                "so it is left out of this run — use the FOREGROUND layer "
+                "that comes from a single photo.",
+                tripod_bump["file"], tripod_bump["shift_px"],
+                tripod_bump["n_after"])
     mark("star lock (solve + verify)")
     # ---- can this run resume?  the search is the expensive half of a
     # night, and its result is a few kB of JSON: reuse it when the frame
@@ -2006,7 +2087,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     candidates = build_tracks(streaks_per_frame, world_endpoints,
                               [m.file for m in frames])
     from meteorprep.detect.track import merge_same_frame_fragments
-    candidates = merge_same_frame_fragments(candidates, world_endpoints)
+    candidates = merge_same_frame_fragments(candidates, world_endpoints,
+                                            pad=25.0 * S / _TUNED_SCALE)
     _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
                               (hd, wd), S, bad_pixels, k1)
     sw("detect: candidate colours")
@@ -2015,7 +2097,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     sw("detect: classify")
     _absorb_track_fragments(candidates,
                             {m.file: i for i, m in enumerate(frames)},
-                            frames)
+                            frames, scale=S)
     if detect_cached:
         _cand_file = ("candidates_faint.json" if faint_cached
                       else "candidates.json")
@@ -2044,7 +2126,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         # showed the same verdicts it had before.
         candidates = classify(candidates, cfg, radiant)
         _absorb_track_fragments(candidates, {m.file: i for i, m
-                                             in enumerate(frames)}, frames)
+                                             in enumerate(frames)}, frames,
+                                scale=S)
         log.info("restored %d candidate(s) from the previous run%s",
                  len(candidates),
                  "" if faint_cached else " (the second look still to do)")
@@ -2239,9 +2322,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 # the harvest adds candidates that never went through
                 # fragment merging, and a bright meteor answers the faint
                 # pass more than once too
-                candidates = merge_same_frame_fragments(candidates,
-                                                        world_endpoints)
-                _absorb_track_fragments(candidates, file_to_idx, frames)
+                candidates = merge_same_frame_fragments(
+                    candidates, world_endpoints,
+                    pad=25.0 * S / _TUNED_SCALE)
+                _absorb_track_fragments(candidates, file_to_idx, frames,
+                                        scale=S)
                 meteor_cands = [c for c in candidates
                                 if c.label == "meteor"]
                 flagged_cands = [c for c in candidates
@@ -2514,6 +2599,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         _skymask_path)
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
+    if fg_stack is not None and tripod_bump:
+        # the camera moved partway through the night, so this average is
+        # two horizons on top of each other.  Dropping it also drops it
+        # out of preview.jpg, which prefers it when it exists.
+        log.info("frozen-ground stack dropped: the tripod moved at %s",
+                 tripod_bump["file"])
+        fg_stack = None
     if fg_stack is not None:
         fg_stack = match_sky_level(_fit_output(fg_stack), base_img, sky_fg,
                                    ctx=lvl_ctx)
@@ -2532,7 +2624,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                                alpha=fg_alpha, blend="normal",
                                visible=False))
 
-    def to_layers(pairs, visible):
+    def to_layers(pairs, visible, start=0):
+        # ``start`` continues the M-numbering across the two groups.
+        # Restarting it inside FLAGGED put a second M001 in the same
+        # document, and dragging a mislabelled layer from FLAGGED into
+        # METEORS — the one repair the guide tells people to make —
+        # then produced two layers with the same number.
         out = []
         for k, (c, layer, i, si) in enumerate(pairs):
             rgb_l, alpha_l, bbox_l = layer.rgb, layer.alpha, layer.bbox
@@ -2551,7 +2648,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 bbox_l = (nx0, ny0, nx1, ny1)
             flag = candidate_flag(c)
             name = meteor_layer_name(
-                k + 1, c.frames[min(si, len(c.frames) - 1)],
+                start + k + 1, c.frames[min(si, len(c.frames) - 1)],
                 frames[i].epoch_mid.astimezone(timezone.utc).isoformat(),
                 c.rotation_deg, c.confidence, flag, c.physics)
             # Screen, not Lighten: the layer holds the streak's own added
@@ -2604,8 +2701,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             LayerGroup("SKY_TOOLS", extra_layers, visible=False)
             if extra_layers else LayerGroup("SKY_TOOLS", [], visible=False),
             LayerGroup("FOREGROUND", fg_layers, visible=True),
-            LayerGroup("METEORS", to_layers(meteor_layers, True), visible=True),
-            LayerGroup("FLAGGED", to_layers(flagged_layers, False), visible=False),
+            LayerGroup("METEORS", to_layers(meteor_layers, True),
+                       visible=True),
+            LayerGroup("FLAGGED",
+                       to_layers(flagged_layers, False,
+                                 start=len(meteor_layers)),
+                       visible=False),
         ])
 
     outputs = {}
@@ -2635,16 +2736,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     mark("assembling the layered files")
     notify(0.96, "rendering the preview")
     from meteorprep.report.preview import render_preview
-    grad_arr = None
-    for lyr in extra_layers:
-        if lyr.blend == "subtract":
-            grad_arr = lyr.rgb
     gains = (np.asarray(color_cal["gains"], np.float32)
              if color_cal else None)
     # both are already level-matched to BASE_SKY above; preview must not
     # match a second time (that made the preview and the PSD disagree)
     fg_for_preview = fg_stack if fg_stack is not None else fg_ref
-    pv = render_preview(base_img, fg_for_preview, sky_fg, grad_arr,
+    pv = render_preview(base_img, fg_for_preview, sky_fg,
                         gains, meteor_layers, out_dir / "preview.jpg",
                         flagged_layers=flagged_layers,
                         all_trails_path=out_dir / "preview_all_trails.jpg",
@@ -2794,6 +2891,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     if cfg.draft:
         info["mode"] = ("draft — half-resolution picture, no layered file, "
                         "no second look for faint meteors")
+    if tripod_bump:
+        info["camera moved"] = (
+            f"the tripod was knocked at {tripod_bump['file']} "
+            f"({tripod_bump['shift_px']:.0f} px) — the stars and meteors "
+            f"are unaffected, but the low-noise averaged foreground was "
+            f"left out; use the single-photo FOREGROUND layer")
     if site_source:
         info["observing location"] = (
             f"{site_lat:+.4f}, {site_lon:+.4f} — from {site_source}")
@@ -2843,7 +2946,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_contact="contact_sheet" in outputs,
         have_psd="psd" in outputs,
         crops=crops, timings=timings, info=info, looks=looks,
-        capsule=capsule, draft=cfg.draft))
+        capsule=capsule, draft=cfg.draft,
+        have_pngjsx="jsx" in outputs))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
@@ -2869,13 +2973,25 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 # helpers
 # ----------------------------------------------------------------------
 
-def _absorb_track_fragments(candidates, file_to_idx, frames=None) -> None:
+# Every geometry tolerance in the gauntlet below is a distance in pixels
+# ON THE OUTPUT CANVAS, and that canvas is half as wide at half size.
+# The numbers were tuned against full-size runs, so they are stated
+# relative to that canvas and scaled to whichever one is being built —
+# without this a Quick look ran every one of these tests at twice the
+# permissiveness of a Full quality run of the same night, which is
+# exactly the promise the window makes and would have been breaking.
+_TUNED_SCALE = 2.0
+
+
+def _absorb_track_fragments(candidates, file_to_idx, frames=None,
+                            scale=_TUNED_SCALE) -> None:
     """A short detection that escaped track-linking shows up as a
     single-frame "meteor" even though it is really a piece of a satellite
     or aircraft pass.  Absorb any single-frame meteor that is collinear
     with a multi-frame track and sits where that track's motion says it
     should be at the fragment's frame time: it inherits the track's label
     (so it lands in FLAGGED, not METEORS)."""
+    px = float(scale) / _TUNED_SCALE       # canvas-relative tolerances
     multi = [c for c in candidates
              if c.label != "meteor" and len(set(c.frames)) >= 2]
     for c in (candidates if multi else []):
@@ -2900,12 +3016,12 @@ def _absorb_track_fragments(candidates, file_to_idx, frames=None) -> None:
             if abs(float(d_c @ d_t)) < np.cos(np.deg2rad(15.0)):
                 continue
             perp = abs(float((mid - a) @ np.array([-d_t[1], d_t[0]])))
-            if perp > 60.0:
+            if perp > 60.0 * px:
                 continue
             # where the track's own motion puts it at the fragment's time
             along = float((mid - a) @ d_t)
             expect = span * (fi - i0) / float(i1 - i0)
-            if abs(along - expect) > max(1.0 * span, 150.0):
+            if abs(along - expect) > max(1.0 * span, 150.0 * px):
                 continue
             log.info("candidate %s reclassified: fragment of a %s track",
                      c.id, t.label)
@@ -2931,7 +3047,7 @@ def _absorb_track_fragments(candidates, file_to_idx, frames=None) -> None:
             mid_b = np.array([(sb.x0 + sb.x1) / 2.0, (sb.y0 + sb.y1) / 2.0])
             hop = mid_b - mid_a
             hop_n = np.linalg.norm(hop)
-            if hop_n < 20.0:
+            if hop_n < 20.0 * px:
                 continue
             hop = hop / hop_n
             da = np.array([sa.x1 - sa.x0, sa.y1 - sa.y0], float)
@@ -2975,11 +3091,13 @@ def _absorb_track_fragments(candidates, file_to_idx, frames=None) -> None:
                              "across frames — satellite, not meteor", c.id)
                     c.label = "satellite"
                     c.confidence = max(ca.confidence, cb.confidence)
-    _demote_regular_sequences(candidates, file_to_idx, frames)
+    _demote_regular_sequences(candidates, file_to_idx, frames,
+                              scale=scale)
 
 
 def _demote_regular_sequences(candidates, file_to_idx, frames=None,
-                              perp_tol=70.0, min_members=3) -> None:
+                              perp_tol=70.0, min_members=3,
+                              scale=_TUNED_SCALE) -> None:
     """A satellite that only glints does not draw its whole path: it
     leaves a short dash in each frame, far apart, so the steady-motion
     test above (hop must match the trail it drew) correctly refuses it.
@@ -2989,6 +3107,7 @@ def _demote_regular_sequences(candidates, file_to_idx, frames=None,
     a common line often enough to matter, and demoting them hides real
     meteors in FLAGGED, which is the more expensive mistake.
     """
+    px = float(scale) / _TUNED_SCALE       # canvas-relative tolerances
     singles = [c for c in candidates
                if c.label == "meteor" and len(set(c.frames)) == 1]
     if len(singles) < min_members:
@@ -3032,7 +3151,7 @@ def _demote_regular_sequences(candidates, file_to_idx, frames=None,
             if abs(float(d @ db)) < np.cos(np.deg2rad(12.0)):
                 continue
             off = mid(cb) - a0
-            if abs(float(off @ perp)) > perp_tol:
+            if abs(float(off @ perp)) > perp_tol * px:
                 continue
             group.append(cb)
         if len(group) < min_members:

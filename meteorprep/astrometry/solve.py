@@ -1,21 +1,31 @@
-"""Plate solving: twirl primary, astrometry.net fallback, seeded refinement,
-and timestamp propagation (§4.3-§4.4).
+"""Plate solving and timestamp propagation (§4.3-§4.4).
 
-The solver chain for a frame is:
+Given a seed WCS — which every frame after the first has, because the
+previous solve propagated by the sidereal rotation is one — the chain is:
 
-1. **twirl** (MIT, pure Python, Gaia asterisms) seeded from EXIF + site.
-2. **local astrometry.net** ``solve-field`` (GPL — invoked as a subprocess,
-   never linked), scale-bracketed around the known plate scale.
-3. **Seeded refinement**: when a seed WCS is available (previous solve
-   propagated by the sidereal rotation), match detected stars to a catalog
-   and least-squares fit a fresh TAN(+SIP) WCS with
-   ``astropy.wcs.utils.fit_wcs_from_points``.
-4. **Propagation**: copy the nearest solved WCS and advance CRVAL1 by the
-   sidereal rate times the time difference (exact for a fixed tripod),
-   marking ``wcs_source="propagated"``.
+1. **Seeded refinement against the bundled catalogue**: match detected
+   stars to the local star map and least-squares fit a fresh TAN(+SIP)
+   WCS with ``astropy.wcs.utils.fit_wcs_from_points``.  Offline, fast,
+   and empirically the strongest on the ultra-wide fields this tool is
+   for, so it goes first rather than last.
+2. **twirl** (MIT, pure Python, Gaia asterisms), seeded from that same
+   centre and field of view.  Needs the network.
+3. **local astrometry.net** ``solve-field`` (GPL — invoked as a
+   subprocess, never linked), scale-bracketed around the known plate
+   scale, and only when the caller passed a file to hand it.
 
-Only a sparse subset (every K-th frame) is fully solved; intermediate
-frames are propagated and verified against a star-residual check.
+With no seed at all — the first frame of a folder — the blind search in
+``blind.py`` establishes one from the bundled bright-star catalogue,
+and the chain above takes over from there.
+
+**Propagation** (``propagate_wcs``) copies a solved WCS and advances
+CRVAL1 by the sidereal rate times the time difference, which is exact for
+a fixed tripod; those frames are marked ``wcs_source="propagated"``.
+
+Only a sparse subset (every K-th frame) is fully solved.  The rest are
+propagated from the nearest solved frame and then verified against a
+star-residual check, and any frame that fails the check is solved
+properly after all.
 """
 
 from __future__ import annotations

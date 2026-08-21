@@ -1,9 +1,15 @@
 """Folder auto-segmentation into contiguous shooting groups (§2.3).
 
 A new group starts on: a time gap > max_gap_factor x median interval, a
-focal-length change, or a lens change.  Tripod bumps are detected later
-(after solving) as residual star shift beyond the sidereal prediction and
-split groups via ``split_group_at``.
+focal-length change, or a lens change.
+
+A tripod bump does NOT start a new group.  It used to say here that one
+did; nothing ever called ``split_group_at``, and splitting on a bump
+would be the wrong cure anyway — every frame is solved against the star
+catalogue and reprojected to where it really pointed, so one night that
+got knocked still stacks into one correct sky.  What a bump does ruin is
+the frozen-ground average (see ``_detect_tripod_bump`` in the pipeline,
+which finds it, says so, and drops that one layer).
 """
 
 from __future__ import annotations
@@ -60,12 +66,3 @@ def segment_folder(metas: list[FrameMeta], max_gap_factor: float = 5.0) -> list[
         if len(models) > 1:
             log.warning("group %s mixes camera models: %s", gid, models)
     return out
-
-
-def split_group_at(group: Group, index: int) -> list[Group]:
-    """Split at a tripod-bump boundary (frame ``index`` starts the new group)."""
-    a = Group(group_id=group.group_id, frames=group.frames[:index])
-    b = Group(group_id=group.group_id + "b", frames=group.frames[index:])
-    for m in b.frames:
-        m.group_id = b.group_id
-    return [a, b]

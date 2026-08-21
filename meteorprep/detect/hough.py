@@ -94,6 +94,7 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
     (detect_meteors heritage) and scaled to the 16-bit range here.
     ``bin_factor`` maps endpoints back to full resolution.
     """
+    b = float(bin_factor)      # detection pixels -> output canvas
     scale = 256.0  # 8-bit-equivalent -> 16-bit ADU
     # adaptive: the configured threshold is a CEILING, but on a clean sky
     # the frame's own residual noise sets the floor — a satellite or faint
@@ -233,7 +234,6 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
         head_tail = float(max(e0, e1) / max(min(e0, e1), 1.0))
 
         fwhm = _perpendicular_fwhm(diff, (x0, y0), (x1, y1))
-        b = float(bin_factor)
         streaks.append(Streak(
             frame_index=frame_index,
             x0=float(x0) * b, y0=float(y0) * b,
@@ -244,7 +244,11 @@ def detect_streaks(diff: np.ndarray, frame_index: int, cfg,
             dash_score=float(dash_score), color_rg=rg, color_bg=bg,
             head_tail_ratio=head_tail))
         kept_support.append(sup_idx)
-    return _merge_same_frame(streaks)
+    # The merge tolerance is a distance on the OUTPUT canvas, because the
+    # coordinates above were just scaled onto it.  Stated relative to the
+    # full-size canvas it was tuned against, so a half-size run merges
+    # the same pairs rather than twice as many.
+    return _merge_same_frame(streaks, tol_px=20.0 * b / 2.0)
 
 
 def _merge_same_frame(streaks: list[Streak], tol_px: float = 20.0,

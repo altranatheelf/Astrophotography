@@ -130,8 +130,6 @@ class Config:
 
     # --- stacking ---
     stack_sigma: float = 2.5
-    stack_maxiters: int = 5
-    stack_band_rows: int = 512
     frame_weighting: bool = True      # noise-weighted integration
     emit_foreground_stack: bool = True  # Sequator-style frozen ground
     emit_gradient_layer: bool = True    # sky-gradient layer (Subtract blend)
@@ -206,9 +204,12 @@ class Config:
         # lets a draft and the full run share everything up to the stack,
         # so the full run after a draft skips straight to the stacking.
         "ingest": ["input_dir", "raw_extensions"],
-        "segment_folder": ["max_gap_factor", "bump_px"],
+        "segment_folder": ["max_gap_factor"],
         "lightpaint": ["lp_sigma", "lp_window"],
-        "solve": ["align_mode", "solve_every_k", "solve_min_stars",
+        # bump_px is read at the end of the solve: a tripod bump shows up
+        # as pointing that jumped beyond the sky's own drift, which is
+        # only measurable once every frame has a WCS.
+        "solve": ["align_mode", "bump_px", "solve_every_k", "solve_min_stars",
                   "solve_rms_max_px", "sip_order", "lens_model", "lens_k1",
                   "site_lat", "site_lon", "pixel_pitch_um", "catalog_file",
                   "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg",
@@ -236,7 +237,7 @@ class Config:
         # decode.  Left out, turning it on skipped the stage that makes
         # it and the assembly fell back to re-decoding every photo of the
         # night to build it a second way.
-        "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows",
+        "base_sky": ["stack_sigma",
                      "frame_weighting", "emit_foreground_stack",
                      "emit_startrail", "half_size", "super_sample",
                      "draft", "draft_stack_max"],

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meteorprep"
-version = "1.23.0"
+version = "1.24.0"
 description = "Turn a folder of fixed-tripod RAW meteor-shower frames into a layered, geometry-corrected PSD"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -19,8 +19,6 @@ dependencies = [
     "rawpy>=0.19",
     "tifffile>=2023.1",
     "pillow>=10.0",
-    "pandas>=2.0",
-    "pyarrow>=14.0",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +31,7 @@ dev = ["pytest>=7.4"]
 [project.scripts]
 meteorprep = "meteorprep.cli:main"
 meteorprep-phone = "meteorprep.webapp:main"
+meteorprep-cloud = "meteorprep.cloudrun:main"
 
 [tool.setuptools.packages.find]
 include = ["meteorprep*"]

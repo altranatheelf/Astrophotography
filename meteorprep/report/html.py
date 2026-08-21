@@ -97,7 +97,8 @@ def write_report_html(out_dir: Path, group_result: dict,
                       info: dict | None = None,
                       looks: list | None = None,
                       capsule: dict | None = None,
-                      draft: bool = False) -> Path:
+                      draft: bool = False,
+                      have_pngjsx: bool = False) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
@@ -248,8 +249,8 @@ def write_report_html(out_dir: Path, group_result: dict,
 <h2>What the files are</h2>
 <ul>
 <li>{open_line}</li>
-{'' if draft else "<li><b>preview.jpg</b> — this page's picture: stretched, gradient-flattened, meteors brightened; share it as-is or use it as a reference</li>"}
-{'' if draft else '<li><b>layers/</b> — every layer as PNG (base sky, foreground, each meteor)</li>'}
+{'' if draft else "<li><b>preview.jpg</b> — this page's picture: star-calibrated colour, stretched for viewing, each meteor brightened; share it as-is or use it as a reference. The sky gradient is left in — that one is a layer in the Photoshop file, to apply with your eyes on it</li>"}
+{'<li><b>layers/</b> — every layer as PNG (base sky, foreground, each meteor)</li>' if have_pngjsx else ''}
 <li><b>meteorprep.json</b> — all measurements (positions, times, sky
 coordinates) for every candidate</li>
 <li><b>skymask.png</b> — what the tool considered ground (black); should

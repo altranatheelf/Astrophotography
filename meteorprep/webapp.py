@@ -67,27 +67,21 @@ class AppState:
 
 
 def _friendly(msg: str) -> str:
-    """Translate pipeline progress lines into photographer language."""
-    table = {
-        "scanning input folder": "Looking through your photos…",
-        "flagging light-painted frames": "Spotting any light-painted shots…",
-        "plate solving (sparse subset)": "Matching your stars to the star map…",
-        "detecting meteors": "Hunting for meteors…",
-        "classifying candidates": "Telling meteors from planes and satellites…",
-        "extracting meteor layers": "Cutting each meteor onto its own layer…",
-        "stacking point-star base (meteors excluded)":
-            "Averaging all frames into one clean starfield…",
-        "segmenting sky/ground": "Finding the horizon…",
-        "assembling layers": "Building your Photoshop file…",
-    }
-    for key, friendly in table.items():
-        if msg.startswith(key):
-            return friendly
-    if msg.startswith("reprojecting frames"):
-        return "Aligning every frame to the sky… " + msg.split("(")[-1].rstrip(")")
+    """Dress a pipeline progress line up for the phone.
+
+    The pipeline's own messages are already written for a photographer
+    ("building the clean starfield from every frame"), so there is no
+    translation table here any more — there was one, and every key in it
+    named a stage message the pipeline had stopped emitting years of
+    commits ago, so it translated nothing.  All this does now is
+    capitalise the line and give it an ellipsis.
+    """
     if msg.startswith("done:"):
         return "Done! " + msg[5:].strip()
-    return msg
+    if not msg:
+        return msg
+    out = msg[0].upper() + msg[1:]
+    return out if out.endswith(("…", ".", ")")) else out + "…"
 
 
 def _system_checks() -> dict:

@@ -324,7 +324,7 @@ def test_preview_downscaled_bbox_blend_and_all_trails(tmp_path):
     f = Layer(name="f", rgb=np.full((40, 400, 3), 15000.0, np.float32),
               alpha=np.ones((40, 400), np.float32),
               bbox=(300, 900, 700, 940), blend="lighten", visible=True)
-    out = render_preview(base, None, None, None, [0.9, 1.0, 1.1],
+    out = render_preview(base, None, None, [0.9, 1.0, 1.1],
                          [(None, m, 0, 0)], tmp_path / "p.jpg",
                          max_width=1000,
                          flagged_layers=[(None, f, 0, 0)],
@@ -343,7 +343,7 @@ def test_preview_downscaled_bbox_blend_and_all_trails(tmp_path):
 
     # seam crop: bboxes are uncropped-canvas coords, so with a crop
     # origin of (100, 60) the meteor must shift by exactly that much
-    out_c = render_preview(base[60:, 100:], None, None, None, None,
+    out_c = render_preview(base[60:, 100:], None, None, None,
                            [(None, m, 0, 0)], tmp_path / "pc.jpg",
                            max_width=950, crop_xy=(100, 60))
     pc = cv2.imread(str(tmp_path / "pc.jpg")).mean(axis=2)
@@ -1142,6 +1142,53 @@ def test_saved_detection_moves_between_canvas_sizes(tmp_path):
     assert _candidates_scale(cache) is None
 
 
+def test_the_gauntlet_judges_the_same_at_either_canvas_size():
+    """Every run mode is promised to find the same meteors — the window
+    says so, the docs say so, the report says so.  The fragment gauntlet
+    measures in pixels ON THE OUTPUT CANVAS, and that canvas is half as
+    wide at half size, so fixed tolerances made a Quick look twice as
+    permissive as a Full quality run of the same night.  The same
+    geometry, expressed on either canvas, has to get the same verdict."""
+    from meteorprep.detect.hough import Streak
+    from meteorprep.detect.track import Candidate
+    from meteorprep.pipeline import _absorb_track_fragments
+
+    def scene(sc):
+        """One satellite track over two frames, plus a fragment sitting
+        just off its line — far enough out to be a separate thing."""
+        def st(fi, x0, y0, x1, y1):
+            return Streak(frame_index=fi, x0=x0 * sc, y0=y0 * sc,
+                          x1=x1 * sc, y1=y1 * sc,
+                          length_px=100.0 * sc, mean_intensity=800.0,
+                          peak_intensity=3000.0, fwhm_px=2.5 * sc,
+                          aspect=30.0, area_px=int(300 * sc * sc),
+                          score=200.0, straightness_rms=0.3)
+
+        def cand(cid, streaks, frames, label):
+            return Candidate(id=cid, streaks=streaks, frames=frames,
+                             endpoints_world=[[(0.0, 0.0), (0.1, 0.1)]],
+                             dash_pattern=[0.0], flags={}, physics={},
+                             label=label, confidence=0.5)
+
+        track = cand("C000", [st(0, 100, 100, 200, 200),
+                              st(2, 500, 500, 600, 600)],
+                     ["a.CR2", "c.CR2"], "satellite")
+        # collinear with the track and where it should be at frame 1,
+        # but 45 detection-pixels off to the side
+        frag = cand("C001", [st(1, 300 + 45, 300, 400 + 45, 400)],
+                    ["b.CR2"], "meteor")
+        return [track, frag]
+
+    idx = {"a.CR2": 0, "b.CR2": 1, "c.CR2": 2}
+    labels = {}
+    for sc in (1.0, 2.0):
+        cands = scene(sc)
+        _absorb_track_fragments(cands, idx, None, scale=sc)
+        labels[sc] = [c.label for c in cands]
+    assert labels[1.0] == labels[2.0], (
+        f"half size said {labels[1.0]}, full size said {labels[2.0]}")
+
+
 def test_streak_endpoints_walk_through_a_gap_in_the_tail():
     """The endpoint walk is documented to stop after five dim pixels in a
     row.  Stepping from the last ACCEPTED point instead of the current
@@ -1373,3 +1420,72 @@ def test_moment_merging_is_order_sensitive_which_is_why_it_is_ordered():
     assert not np.array_equal(a, b), (
         "if this ever becomes exact the ordering could be relaxed")
     assert np.allclose(a, b, rtol=1e-4)      # tiny, but not nothing
+
+
+def _bump_wcs(crval_ra: float, crval_dec: float, rot_shift_px: float = 0.0):
+    """A plain TAN WCS; ``rot_shift_px`` slides CRPIX to fake the camera
+    itself having been nudged."""
+    from astropy.wcs import WCS
+    w = WCS(naxis=2)
+    w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    w.wcs.crpix = [1000.0 + rot_shift_px, 700.0]
+    w.wcs.crval = [crval_ra, crval_dec]
+    w.wcs.cdelt = [-0.005, 0.005]
+    return w
+
+
+def _bump_frames(n: int):
+    from datetime import datetime, timedelta, timezone
+
+    class _F:
+        def __init__(self, i):
+            self.file = f"IMG_{i:03d}.CR2"
+            self.epoch_mid = (datetime(2026, 8, 12, 2, 0, tzinfo=timezone.utc)
+                              + timedelta(seconds=30 * i))
+    return [_F(i) for i in range(n)]
+
+
+def test_a_still_tripod_is_never_reported_as_bumped():
+    """Every frame's WCS is its predecessor's advanced by the sidereal
+    rate — which is exactly what a tripod that did not move looks like."""
+    from meteorprep.astrometry.solve import SIDEREAL_DEG_PER_SEC
+    from meteorprep.pipeline import _detect_tripod_bump
+
+    frames = _bump_frames(20)
+    ra0 = 45.0
+    wcs = [_bump_wcs(ra0 + SIDEREAL_DEG_PER_SEC * 30 * i, 40.0)
+           for i in range(20)]
+    assert _detect_tripod_bump(wcs, frames, 50.0) is None
+
+
+def test_a_knocked_tripod_is_found_at_the_photo_it_happened():
+    from meteorprep.astrometry.solve import SIDEREAL_DEG_PER_SEC
+    from meteorprep.pipeline import _detect_tripod_bump
+
+    frames = _bump_frames(20)
+    ra0 = 45.0
+    # the camera is shoved 120 px sideways at frame 12 and stays there
+    wcs = [_bump_wcs(ra0 + SIDEREAL_DEG_PER_SEC * 30 * i, 40.0,
+                     rot_shift_px=(120.0 if i >= 12 else 0.0))
+           for i in range(20)]
+    hit = _detect_tripod_bump(wcs, frames, 50.0)
+    assert hit is not None
+    assert hit["index"] == 12 and hit["file"] == "IMG_012.CR2"
+    assert 110 < hit["shift_px"] < 130
+    assert hit["n_after"] == 8
+    # a threshold above the shove sees a tripod that never moved
+    assert _detect_tripod_bump(wcs, frames, 200.0) is None
+
+
+def test_one_bad_solve_is_not_mistaken_for_a_bump():
+    """A single frame whose WCS is wrong jumps away and straight back;
+    that is a bad solve, and splitting the night on it would be wrong."""
+    from meteorprep.astrometry.solve import SIDEREAL_DEG_PER_SEC
+    from meteorprep.pipeline import _detect_tripod_bump
+
+    frames = _bump_frames(20)
+    ra0 = 45.0
+    wcs = [_bump_wcs(ra0 + SIDEREAL_DEG_PER_SEC * 30 * i, 40.0,
+                     rot_shift_px=(300.0 if i == 9 else 0.0))
+           for i in range(20)]
+    assert _detect_tripod_bump(wcs, frames, 50.0) is None

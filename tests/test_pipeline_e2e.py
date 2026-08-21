@@ -129,6 +129,13 @@ def test_outputs_exist_and_sidecar_valid(pipeline_result, synth_config):
     assert all(not m["visible"] for m in flagged_layers)
     for m in meteor_layers + flagged_layers:
         assert (out / "layers" / m["file"]).exists()
+    # One number per candidate across the WHOLE document.  FLAGGED used to
+    # restart at M001, so the repair the guide tells people to make —
+    # dragging a mislabelled trail up into METEORS — landed a second M001
+    # next to the first.
+    numbers = [m["name"].split("_")[0]
+               for m in meteor_layers + flagged_layers]
+    assert len(set(numbers)) == len(numbers), numbers
 
 
 def test_rerun_uses_cache(pipeline_result, synth_config, caplog):

@@ -3,9 +3,15 @@
 The layered outputs stay linear and untouched (the whole point of the
 tool), but nobody should need a Photoshop session just to SEE their
 night: this renders one JPEG the way a person would build it by hand —
-gradient wash subtracted, star-calibrated colour, sharp foreground over
-the smeared one, each meteor auto-brightened to a visible level — and
-writes it next to the layered files as a preview, never a replacement.
+star-calibrated colour, the sharp frozen foreground over the smeared
+one, an arcsinh stretch, each meteor auto-brightened to a visible level
+— and writes it next to the layered files as a preview, never a
+replacement.
+
+The sky gradient is deliberately NOT subtracted here.  Flattening it
+blindly produced a maroon sky and daylight-bright ground blocks (seen,
+not theorized), so it ships as a layer in the Photoshop file for a
+person to apply with their eyes on it.
 """
 
 from __future__ import annotations
@@ -141,7 +147,6 @@ def render_startrail(trail_img: np.ndarray, color_gains,
 def render_preview(base_img: np.ndarray,
                    fg_img: np.ndarray | None,
                    sky_mask: np.ndarray | None,
-                   gradient: np.ndarray | None,
                    color_gains,
                    meteor_layers,
                    out_path: Path,

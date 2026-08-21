@@ -37,17 +37,22 @@ first-principles gnomonic oracle.
 
 ```bash
 pip install -e .                 # core (numpy, astropy, reproject, opencv, rawpy, …)
-pip install -e ".[solve]"        # + twirl/astroquery (online Gaia solving)
-pip install -e ".[psd]"          # + pytoshop/psd-tools (native PSD writing)
+pip install -e ".[solve]"        # optional: online Gaia as a solver fallback
+                                 # (the built-in star map works offline)
+pip install -e ".[psd]"          # optional: psd-tools (checks the written
+                                 # .psd reads back) + pytoshop (a second
+                                 # writer used only if the built-in fails)
 pip install -e ".[gui]"          # + PySide6 drag-and-drop GUI
 pip install -e ".[dev]"          # + pytest
 ```
 
 `exiftool` on the PATH is recommended for RAW metadata (a
-`frames_meta.json` sidecar works as an offline fallback).  Without pytoshop
-the tool still emits the full **PNG-per-layer + `assemble.jsx`** output —
-run it from Photoshop's *File ▸ Scripts ▸ Browse…* to rebuild the identical
-layer stack, no terminal required.
+`frames_meta.json` sidecar works as an offline fallback).  The `.psd` is
+written by METEORPREP's own writer with no third-party dependency; if it
+ever cannot be produced, the tool falls back by itself to
+**PNG-per-layer + `assemble.jsx`** — run that from Photoshop's
+*File ▸ Scripts ▸ Browse…* to rebuild the identical layer stack, no
+terminal required.
 
 ## Use
 
@@ -63,10 +68,12 @@ mode, press **Find my meteors**.  On the command line the same choice is
 Outputs per shooting group:
 
 - `meteorprep.psd` — 16-bit layered PSD: `BASE_SKY` (sigma-clipped point-star
-  base), `FOREGROUND` group, `METEORS` group (Lighten, one layer per meteor,
+  base), `FOREGROUND` group, `METEORS` group (Screen, one layer per meteor,
   named `M007_IMG_4123.CR2_2026-08-13T02:14:07Z_+3.142deg_c0.94_perseid`),
   hidden `FLAGGED` group (aircraft / satellites / beams — inspectable, off).
-- `layers/*.png` + `assemble.jsx` — the always-emitted fallback.
+- `layers/*.png` + `assemble.jsx` — the rescue copy: written on request
+  (`--pngjsx`, or the checkbox in the window) and automatically whenever
+  the `.psd` itself cannot be produced.
 - `contact_sheet.png` — one-glance human verification of every candidate.
 - `meteorprep.json` — full provenance: WCS, pole pixel, radiant, per-frame
   solve state, per-candidate classification, all parameters + hash.

@@ -7,7 +7,8 @@ already the app: Claude's cloud computer has METEORPREP installed.
 
 1. **Let the cloud reach the star map** (one-time): in your Claude Code
    settings on claude.ai, open your environment's **network settings** and
-   allow internet access (or add the host `gea.esac.esa.int`). The solver
+   allow internet access (only needed for the OPTIONAL online star
+   catalogue; the built-in star map works offline). The solver
    needs it to look up the stars in your photos.
 2. **Get your frames to the cloud**, either way works:
    - *Small batch:* attach 10–20 RAW files straight to a message.
@@ -45,7 +46,7 @@ identical starfields. METEORPREP:
 
 1. Reads every RAW file and its capture time.
 2. Works out the exact sky position of every frame (it matches your stars
-   to a star map — this is why it needs internet or a star database once).
+   to a star map — it carries its own, so this works offline).
 3. Undoes the sky's rotation **correctly**. Simply rotating the images
    looks fine in the middle but is off by *hundreds of pixels* in the
    corners of a wide lens over a night — this tool does the real map
@@ -72,7 +73,8 @@ color — all still done by you in Photoshop, non-destructively.
 
    ```
    pip3 install meteorprep-folder-path-here   # or: pip3 install -e /path/to/this/folder
-   pip3 install twirl astroquery              # the star-matching add-on
+   pip3 install twirl astroquery              # optional: online star
+                                              # catalogue as a fallback
    pip3 install PySide6                       # the drag-and-drop window
    ```
 
@@ -84,6 +86,9 @@ color — all still done by you in Photoshop, non-destructively.
 3. Drag your folder onto the window. It counts your photos and tells you
    roughly how long each choice will take on *your* Mac.
 4. Pick one of the three, press **Find my meteors**, go make coffee.
+   (The same button turns into **Stop** while it's working. Stopping is
+   safe — everything worked out so far is kept, and running the same
+   folder again picks up from there.)
 5. It opens the report by itself when it's done. Start there.
 
 ## The three choices, and the difference between them
@@ -118,7 +123,11 @@ From the command line: `--mode quick`, `--mode full`, `--mode smaller`.
 ## Where the files land
 
 Everything goes in a folder next to your photos called
-`<your folder>_meteorprep`:
+`<your folder>_meteorprep`. Inside it there is one folder per shooting
+sequence — usually just **g01** — and that is where your files are:
+
+`<your folder>_meteorprep/g01/…` (and `g01/quick-look/…` for a Quick
+look). Only `run_log.txt` and `cache/` sit at the top level.
 
 - **report.html** — opens by itself; every candidate with a thumbnail and
   a verdict. Your 30-second check of its work.
@@ -129,10 +138,15 @@ Everything goes in a folder next to your photos called
 - **contact_sheet.png** — one thumbnail of every candidate, side by side.
 - **startrail.tif / .jpg** — the classic circular trails, if you asked.
 - **meteorprep.json** — every measurement, for the record.
+- **capsule.txt** — a caption you can paste under a post: integration
+  time, what was calibrated, and that no pixel was invented.
+- **skymask.png** — what the tool decided was ground. It should look
+  like your treeline's silhouette.
 - **evidence/** — the stack's own receipts: how many photos built each
   pixel, where outliers were thrown away, what light was removed.
-- **run_log.txt** — the full diary. This is the file to send if
-  something looks wrong.
+- **run_log.txt** — the full diary (one level up, next to `g01`). This
+  is the file to send if something looks wrong. A Quick look writes its
+  own as `run_log_quick.txt` so the two never overwrite each other.
 - **cache/** — working files. Safe to delete once you're happy; keeping
   it is what makes a second run on the same folder fast.
 
@@ -148,13 +162,19 @@ What you'll see in the Layers panel:
 - **BASE_SKY** — the clean averaged starfield. Bottom layer.
 - **FOREGROUND** — your foreground options (the normal one is on; any
   light-painted versions are there too, turned off — pick your favorite).
-- **METEORS** — one layer per meteor, already in Lighten mode, named with
+- **METEORS** — one layer per meteor, already in Screen mode, named with
   its source file, time, and a `perseid`/`sporadic` tag. Turn them on and
   off to taste. That's the whole game.
 - **FLAGGED** (hidden) — the planes/satellites/searchlight frames, in case
   the tool got one wrong. Peek if a meteor you remember is missing.
 
-Layer names in **METEORS** are already in Lighten/Screen mode and carry
+Every layer is numbered once across both groups — there is no second
+M001 hiding in FLAGGED — so dragging one from FLAGGED up into METEORS
+never gives you two layers with the same name.
+
+Layers in **METEORS** are set to Screen — the layer holds the streak's
+own added light, so screening it onto the sky is the physical
+composite and leaves no box edge. Their names carry
 the source file, the time, a `perseid`/`sporadic` tag and — if the tool
 knows where you were standing — roughly how long that meteor lasted and
 how high above the horizon it burned.
@@ -192,10 +212,17 @@ records GPS, the tool reads it from the photos and you can ignore the box.
 ## If something goes wrong
 
 - **"couldn't read the capture times"** → install exiftool (step 2 above).
-- **"couldn't match the stars"** → you need to be online the first time
+- **"couldn't match the stars"** → this does NOT need the internet;
+  the star map is built in. Check the pointing hints instead
   (it downloads a star map for your patch of sky), and the middle frame of
   your sequence needs a reasonable amount of visible sky. Frames ruined by
   clouds or car headlights are fine elsewhere in the folder — the tool
   skips them for matching.
 - **A plane got labeled as a meteor (or vice versa)** → nothing is lost;
   drag the layer between the METEORS and FLAGGED groups in Photoshop.
+- **"the camera moved during the night"** → you knocked the tripod. The
+  stars and the meteors are fine: every frame is matched to the star map
+  on its own and put back where it really pointed. The one casualty is
+  the extra-clean averaged foreground, which would show two horizons, so
+  the tool leaves it out and says so in the report. Use the FOREGROUND
+  layer that comes from a single photo.

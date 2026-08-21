@@ -377,7 +377,7 @@ def main() -> int:
             self.button = QPushButton("Find my meteors")
             self.button.setObjectName("primary")
             self.button.setEnabled(False)
-            self.button.clicked.connect(self._start)
+            self.button.clicked.connect(self._primary_clicked)
             layout.addWidget(self.button)
 
             self.bar = QProgressBar()
@@ -495,8 +495,8 @@ def main() -> int:
                 self.summary.setText(
                     f"{n} photo{'s' if n != 1 else ''} · results go to "
                     f"{self._out_name()}")
-            self.button.setEnabled(n > 0 and (self.worker is None
-                                              or not self.worker.isRunning()))
+            if self.worker is None or not self.worker.isRunning():
+                self.button.setEnabled(n > 0)
             self._mode_changed()
 
         def _out_dir(self):
@@ -596,6 +596,25 @@ def main() -> int:
 
         # ---------------- the run ---------------------------------------
 
+        def _primary_clicked(self):
+            """One big button, two jobs.  While a run is going it says
+            Stop, because the only way to change your mind used to be
+            closing the window twice — an affordance nobody finds."""
+            if self.worker is not None and self.worker.isRunning():
+                self._stop()
+            else:
+                self._start()
+
+        def _stop(self):
+            if self.worker is None or not self.worker.isRunning():
+                return
+            self.button.setEnabled(False)
+            self.button.setText("Stopping…")
+            self.status.setText(
+                "Stopping — finishing the photo it is on. Everything "
+                "worked out so far is kept.")
+            self.worker.cancel()
+
         def _start(self):
             import os
             # Replacing self.worker while the old one runs drops the only
@@ -651,9 +670,13 @@ def main() -> int:
             self.worker.start()
 
         def _set_running(self, running):
-            self.button.setEnabled(not running and bool(self.folder)
-                                   and self.n_photos > 0)
-            self.button.setText("Working…" if running else "Find my meteors")
+            if running:
+                self.button.setEnabled(True)
+                self.button.setText("Stop")
+            else:
+                self.button.setEnabled(bool(self.folder)
+                                       and self.n_photos > 0)
+                self.button.setText("Find my meteors")
             self.test_button.setEnabled(not running)
             self.bar.setVisible(running)
             for wdg in (self.cb_trail, self.cb_sheet, self.cb_png,
@@ -826,9 +849,10 @@ def main() -> int:
                 if not getattr(self, "_quit_asked", False):
                     self._quit_asked = True
                     self.status.setText(
-                        "Still working — close again to stop the run. "
-                        "Whatever it has finished is kept, and running "
-                        "the folder again picks up from there.")
+                        "Still working — press Stop, or close this window "
+                        "again, to end the run. Whatever it has finished "
+                        "is kept, and running the folder again picks up "
+                        "from there.")
                     event.ignore()
                     return
                 # Second ask: stop for real.  Letting the window close

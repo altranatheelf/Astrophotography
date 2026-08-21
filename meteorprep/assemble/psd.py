@@ -71,12 +71,24 @@ def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
 
     w, h = stack.width, stack.height
 
+    # Read the blend names off the native writer rather than repeating
+    # them here: this map used to list "lighten" and "subtract" only, so
+    # every meteor layer (blend "screen") came out of the fallback writer
+    # as Normal — a black rectangle pasted over the sky.
+    from meteorprep.assemble.psdwrite import _BLEND_KEYS
+    blend_map = {}
+    for name in _BLEND_KEYS:
+        mode = getattr(enums.BlendMode, name, None)
+        if mode is None:
+            log.warning("pytoshop has no blend mode %r — layers using it "
+                        "will be written as Normal", name)
+        else:
+            blend_map[name] = mode
+
     def make_image(layer: Layer):
         rgb, alpha, top, left = _layer_channels(layer, w, h)
         channels = {0: rgb[:, :, 0], 1: rgb[:, :, 1], 2: rgb[:, :, 2], -1: alpha}
-        blend = {"lighten": enums.BlendMode.lighten,
-                 "subtract": enums.BlendMode.subtract}.get(
-                     layer.blend, enums.BlendMode.normal)
+        blend = blend_map.get(layer.blend, enums.BlendMode.normal)
         return nested_layers.Image(
             name=layer.name, channels=channels, visible=layer.visible,
             blend_mode=blend, top=top, left=left)
