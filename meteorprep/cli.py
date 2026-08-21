@@ -42,6 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-contact-sheet", action="store_true")
     p.add_argument("--emit-startrail", action="store_true",
                    help="also emit a lighten-stack star-trail render")
+    p.add_argument("--draft", action="store_true",
+                   help="fast look-at-it-now run: half-resolution picture, "
+                        "no layered file, no second look for faint "
+                        "meteors — same verdicts, into a draft/ folder")
     p.add_argument("--jobs", type=int, default=1)
     p.add_argument("--force", action="store_true",
                    help="re-run all stages even when cached results match")
@@ -64,6 +68,7 @@ def config_from_args(args) -> Config:
         emit_startrail=args.emit_startrail,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,
+        draft=getattr(args, "draft", False),
     )
     if args.seed_ra is not None:
         cfg.seed_ra_deg = args.seed_ra

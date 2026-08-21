@@ -150,6 +150,37 @@ class Config:
     force: bool = False
     cleanup_cache: bool = False  # delete the big reprojection cache when done
 
+    # --- draft mode ---
+    # A look-at-it-now run: half-resolution canvas, no editable files, no
+    # second look for faint meteors.  Everything that decides WHAT is in
+    # the picture — which frames, where the sky is, which streaks are
+    # meteors — is exactly what the full run does, so a draft's verdict
+    # is the full run's verdict.  Only the resolution of the picture and
+    # the file formats it comes in are reduced.  The overrides are
+    # applied in __post_init__ so the stage hashes describe what actually
+    # ran, and draft output lands in its own folder.
+    draft: bool = False
+    # How many photos a draft stacks for the background sky.  The sky's
+    # noise falls as the square root of the count, so past a few dozen
+    # frames a look-at-it-now picture gains almost nothing — and the
+    # meteors are unaffected either way, because every meteor layer is
+    # cut from the frames that meteor actually appears in, not from the
+    # stack.  A 226-frame night stacks 40 for a draft and all 226 for the
+    # real file.
+    draft_stack_max: int = 40
+
+    def __post_init__(self):
+        if not self.draft:
+            return
+        self.half_size = True        # half-res decode and canvas: ~4x less
+        self.super_sample = 1.0
+        self.emit_psd = False
+        self.emit_pngjsx = False
+        self.emit_startrail = False
+        self.emit_contact_sheet = False
+        self.faint_harvest = False   # the slow second look, by definition
+        self.crop_coverage_frac = 0.0
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["raw_extensions"] = list(d["raw_extensions"])
@@ -163,7 +194,13 @@ class Config:
     STAGE_PARAMS: dict = field(default=None, repr=False)
 
     _STAGE_PARAMS = {
-        "ingest": ["input_dir", "raw_extensions", "half_size", "super_sample"],
+        # half_size / super_sample describe the OUTPUT canvas, not the
+        # reading of the folder: the scan, the plate solve and the meteor
+        # search all work at their own fixed detection scale and give the
+        # same answers either way.  Keeping them out of "ingest" is what
+        # lets a draft and the full run share everything up to the stack,
+        # so the full run after a draft skips straight to the stacking.
+        "ingest": ["input_dir", "raw_extensions"],
         "segment_folder": ["max_gap_factor", "bump_px"],
         "lightpaint": ["lp_sigma", "lp_window"],
         "solve": ["align_mode", "solve_every_k", "solve_min_stars",
@@ -176,19 +213,25 @@ class Config:
                    "min_area", "min_aspect_ratio", "hough_threshold",
                    "hough_min_line_length", "hough_max_line_gap",
                    "min_line_score", "detect_min_thresh",
-                   "detect_highpass_sigma",
-                   "faint_harvest", "faint_mad_k",
-                   "faint_min_thresh", "faint_max_fwhm_px",
-                   "faint_min_line_snr"],
+                   "detect_highpass_sigma"],
+        # The second look for faint meteors is its own cached step: it
+        # needs the finished starfield, and it is the one part of the
+        # search a draft leaves out.  Keeping its settings out of
+        # "detect" is what lets the full run reuse a draft's search
+        # instead of repeating the expensive half of the night.
+        "faint": ["faint_harvest", "faint_mad_k", "faint_min_thresh",
+                  "faint_max_fwhm_px", "faint_min_line_snr"],
         "classify": ["cosmic_max_px", "fwhm_sat_px", "boundary_gap_deg",
                      "radiant_ra_deg", "radiant_dec_deg", "radiant_epoch",
                      "radiant_dra_deg_per_day", "radiant_ddec_deg_per_day",
                      "radiant_tol_deg", "shower_entry_km_s",
                      "shower_ablation_km"],
         "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows",
-                     "frame_weighting", "emit_foreground_stack"],
+                     "frame_weighting", "emit_foreground_stack",
+                     "half_size", "super_sample", "draft",
+                     "draft_stack_max"],
         "sky_ground": [],
-        "extract": [],
+        "extract": ["half_size", "super_sample"],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",
                      "emit_contact_sheet", "crop_coverage_frac"],
     }
@@ -202,6 +245,7 @@ class Config:
         "detect": ["reproject", "lightpaint"],
         "classify": ["detect"],
         "base_sky": ["reproject", "classify", "lightpaint"],
+        "faint": ["detect", "base_sky"],
         "sky_ground": ["base_sky"],
         "extract": ["classify", "reproject"],
         "assemble": ["base_sky", "sky_ground", "extract"],

@@ -83,7 +83,8 @@ def write_report_html(out_dir: Path, group_result: dict,
                       timings: list | None = None,
                       info: dict | None = None,
                       looks: list | None = None,
-                      capsule: dict | None = None) -> Path:
+                      capsule: dict | None = None,
+                      draft: bool = False) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
@@ -170,11 +171,28 @@ def write_report_html(out_dir: Path, group_result: dict,
             "build any of them (and more) yourself.</p>"
             f'<div class="looks">{cards}</div>')
 
+    draft_banner = ""
+    if draft:
+        draft_banner = (
+            '<div class="card" style="background:#3a2c12;'
+            'border:1px solid #7a5c20">'
+            '<b>This is a draft.</b> Half-resolution picture, no layered '
+            'Photoshop file, and the slower second look for faint meteors '
+            'was skipped. Everything that decides <i>what</i> is in the '
+            'picture — which photos, where the sky is, which streaks are '
+            'meteors — is exactly what the full run does, so the verdicts '
+            'below are the real ones. Run it again without draft mode for '
+            'the full-resolution layered file; the scan, the star lock and '
+            'the meteor search are already done and will be reused.</div>')
+
     open_line = (
         "<b>meteorprep.psd</b> — the layered Photoshop file (drag it in)"
         if have_psd else
         "<b>assemble.jsx</b> — in Photoshop: File &gt; Scripts &gt; "
         "Browse&hellip; and pick this file; it builds the layered document")
+    if draft:
+        open_line = ("<b>preview.jpg</b> — the whole point of a draft: "
+                     "look at it, then decide whether to run the full pass")
 
     body = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>METEORPREP run report</title>
@@ -195,7 +213,8 @@ def write_report_html(out_dir: Path, group_result: dict,
         color:#c8d3df; user-select:all }}
  .look p {{ margin:0; color:#9aa7b5; font-size:13px }}
 </style></head><body>
-<h1>Your night, processed</h1>
+<h1>{"Your night, in draft" if draft else "Your night, processed"}</h1>
+{draft_banner}
 <div class="card"><span class="big">{len(meteors)}</span> meteor(s)
  &nbsp;&middot;&nbsp; {len(flagged)} plane/satellite trail(s) flagged
  &nbsp;&middot;&nbsp; alignment {html.escape(str(g.get('alignment_quality', '?')))}</div>
@@ -213,9 +232,8 @@ def write_report_html(out_dir: Path, group_result: dict,
 <h2>What the files are</h2>
 <ul>
 <li>{open_line}</li>
-<li><b>preview.jpg</b> — this page's picture: stretched, gradient-flattened,
-meteors brightened; share it as-is or use it as a reference</li>
-<li><b>layers/</b> — every layer as PNG (base sky, foreground, each meteor)</li>
+{'' if draft else "<li><b>preview.jpg</b> — this page's picture: stretched, gradient-flattened, meteors brightened; share it as-is or use it as a reference</li>"}
+{'' if draft else '<li><b>layers/</b> — every layer as PNG (base sky, foreground, each meteor)</li>'}
 <li><b>meteorprep.json</b> — all measurements (positions, times, sky
 coordinates) for every candidate</li>
 <li><b>skymask.png</b> — what the tool considered ground (black); should
@@ -229,6 +247,7 @@ that was thrown away — meteors, planes, satellites, cosmic rays) and
 ledger.png (every pixel colour-coded by where it came from, with
 ledger_legend.json) — the honest-image receipts</li>
 <li><b>run_log.txt</b> — the full diary; send it when something looks wrong</li>
+{'<li><i>Not in a draft:</i> the layered Photoshop file, the per-layer PNGs, the star-trail render and the contact sheet. Run again with draft mode off and they are built from the search this draft already did.</li>' if draft else ''}
 </ul>
 </body></html>"""
     p = out_dir / "report.html"

@@ -138,6 +138,19 @@ def main() -> int:
             site_row.addWidget(self.site)
             layout.addLayout(site_row)
 
+            self.cb_draft = QCheckBox(
+                "Quick draft first (about half the time; a look-at-it "
+                "picture, no Photoshop file)")
+            self.cb_draft.setToolTip(
+                "A draft searches every photo exactly as the full run "
+                "does, so the meteors it finds are the real answer. What "
+                "it skips is the expensive half: the picture comes out at "
+                "half resolution, there is no layered Photoshop file, the "
+                "second look for the very faintest meteors is left out, "
+                "and on a long night the background sky is built from a "
+                "few dozen photos instead of all of them. It lands in a "
+                "draft/ folder of its own, and running again without this "
+                "box ticked reuses everything it worked out.")
             self.cb_png = QCheckBox("Also emit PNG + Photoshop script "
                                     "(auto if the .psd fails; ~0.5 GB extra)")
             self.cb_png.setChecked(False)
@@ -147,8 +160,8 @@ def main() -> int:
             self.cb_half = QCheckBox(
                 "Fast mode: half-resolution result (quicker; smaller file)")
             self.cb_force = QCheckBox("Force re-run (ignore cache)")
-            for cb in (self.cb_png, self.cb_trail, self.cb_sheet,
-                       self.cb_half, self.cb_force):
+            for cb in (self.cb_draft, self.cb_png, self.cb_trail,
+                       self.cb_sheet, self.cb_half, self.cb_force):
                 layout.addWidget(cb)
 
             self.button = QPushButton("Prepare")
@@ -215,7 +228,8 @@ def main() -> int:
                 if os.path.isdir(folder):
                     self._set_folder(folder)
             for cb, key in ((self.cb_png, "png"), (self.cb_trail, "trail"),
-                            (self.cb_sheet, "sheet"), (self.cb_half, "half")):
+                            (self.cb_sheet, "sheet"), (self.cb_half, "half"),
+                            (self.cb_draft, "draft")):
                 v = s.value(key)
                 if v is not None:
                     cb.setChecked(v in (True, "true", "1"))
@@ -230,7 +244,8 @@ def main() -> int:
             s = self._settings
             s.setValue("folder", self.folder or "")
             for cb, key in ((self.cb_png, "png"), (self.cb_trail, "trail"),
-                            (self.cb_sheet, "sheet"), (self.cb_half, "half")):
+                            (self.cb_sheet, "sheet"), (self.cb_half, "half"),
+                            (self.cb_draft, "draft")):
                 s.setValue(key, cb.isChecked())
             s.setValue("site", self.site.text())
             s.setValue("compass", self.compass.currentText())
@@ -297,6 +312,7 @@ def main() -> int:
                 emit_startrail=self.cb_trail.isChecked(),
                 emit_contact_sheet=self.cb_sheet.isChecked(),
                 half_size=self.cb_half.isChecked(),
+                draft=self.cb_draft.isChecked(),
                 force=self.cb_force.isChecked(),
                 jobs=max((os.cpu_count() or 2) - 1, 1),
                 cleanup_cache=True,
@@ -320,9 +336,9 @@ def main() -> int:
             self.button.setEnabled(not running and self.folder is not None)
             self.button.setText("Working…" if running else "Prepare")
             self.test_button.setEnabled(not running)
-            for wdg in (self.cb_png, self.cb_trail, self.cb_sheet,
-                        self.cb_half, self.cb_force, self.site,
-                        self.compass, self.elevation):
+            for wdg in (self.cb_draft, self.cb_png, self.cb_trail,
+                        self.cb_sheet, self.cb_half, self.cb_force,
+                        self.site, self.compass, self.elevation):
                 wdg.setEnabled(not running)
             if running:
                 self.open_report_btn.setVisible(False)

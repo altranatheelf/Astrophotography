@@ -89,6 +89,25 @@ color — all still done by you in Photoshop, non-destructively.
    every candidate it found, one thumbnail each, labeled meteor / plane /
    satellite with a confidence score. This is your 30-second sanity check.
 
+## In a hurry: tick "Quick draft first"
+
+A draft searches every photo exactly the way the full run does, so the
+meteors it reports are the real answer. What it skips is the expensive
+half — the picture comes out at half resolution, there is no layered
+Photoshop file, the second look for the very faintest meteors is left
+out, and on a long night the background sky is built from a few dozen
+photos instead of all of them. On a short test night that is about half
+the time; on a long one, rather less than half.
+
+The draft lands in a **draft/** folder of its own, so it can never be
+confused with the real files. Look at its `preview.jpg` and its
+`report.html`, then — if the night is worth it — press Prepare again
+with the box unticked. The second run reuses everything the draft
+worked out: the folder scan, the star lock and the whole meteor search
+are already done, so it goes almost straight to building the picture.
+
+From the command line the same thing is `--draft`.
+
 ## Getting it into Photoshop
 
 - If a `meteorprep.psd` file was written: just open it.

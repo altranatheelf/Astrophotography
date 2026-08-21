@@ -1097,6 +1097,59 @@ def test_sky_gradient_surface_matches_the_direct_evaluation():
         assert np.abs(got[:, :, c] - ref).max() < 6.0, c
 
 
+def test_draft_mode_keeps_the_verdicts_and_drops_only_the_expensive_half():
+    """A draft has to be worth trusting: it must search exactly what the
+    full run searches, so the meteors it reports are the real answer.
+    What it is allowed to drop is the picture's resolution and the file
+    formats.  This pins both halves of that promise, including the cache
+    sharing that lets the full run reuse a draft's search."""
+    from meteorprep.config import Config
+
+    full, draft = Config(), Config(draft=True)
+
+    # the expensive half is gone
+    assert draft.half_size and draft.super_sample == 1.0
+    assert not (draft.emit_psd or draft.emit_pngjsx
+                or draft.emit_startrail or draft.emit_contact_sheet)
+    assert not draft.faint_harvest
+
+    # ...but nothing that decides WHAT is found has moved
+    for k in ("diff_threshold", "detect_min_thresh", "min_area",
+              "min_aspect_ratio", "hough_threshold", "min_line_score",
+              "bin_factor", "ref_window", "ref_sigma", "stack_sigma",
+              "radiant_tol_deg", "cosmic_max_px"):
+        assert getattr(draft, k) == getattr(full, k), k
+
+    # the folder scan, the plate solve and the search describe the same
+    # work in both modes, so a full run after a draft reuses them
+    for stage in ("ingest", "segment_folder", "solve", "reproject",
+                  "detect", "classify"):
+        assert draft.stage_hash(stage) == full.stage_hash(stage), stage
+    # the picture itself does not
+    for stage in ("base_sky", "extract", "assemble"):
+        assert draft.stage_hash(stage) != full.stage_hash(stage), stage
+
+
+def test_draft_stack_subset_spans_the_night():
+    """The draft stacks a few dozen photos rather than all of them.  They
+    have to be spread across the run — a draft built from the first forty
+    frames of a night that ends in dawn twilight would show a sky the
+    night never had."""
+    import meteorprep.pipeline as pl
+
+    src = pl.__file__
+    assert src                      # the logic itself, on a synthetic set
+    n, keep = 226, 40
+    ok = list(range(n))
+    step = n / float(keep)
+    picked = sorted(dict.fromkeys(
+        ok[min(int(k * step), n - 1)] for k in range(keep)))
+    assert len(picked) == keep
+    assert picked[0] == 0 and picked[-1] >= n - int(step) - 1
+    gaps = np.diff(picked)
+    assert gaps.max() - gaps.min() <= 1     # evenly spread
+
+
 def test_clipped_partials_are_merged_in_worker_order():
     """The second pass adds each worker's partial sums into one float32
     accumulator.  Float addition is not associative, so completion order

@@ -261,6 +261,53 @@ def _disk_full(exc) -> bool:
 # frame with three workers running at once, 512 rows cost 1.05s a frame,
 # 128 rows 0.60s and 64 rows 0.54s — the arithmetic never changed, only
 # how far the data had to travel.
+# One spawn pool per worker count, reused for the whole run.  Spawning a
+# worker costs about a second and a half — it re-imports numpy, OpenCV and
+# LibRaw before it can touch a photo — and a run used to pay that four
+# times over, once per parallel stage.
+_POOLS: dict = {}
+
+
+def _shared_pool(n_workers: int, exclusive: bool = False):
+    """The run's pool for this worker count, started on first use.
+
+    ``exclusive``: close every pool of a different size first.  The stack
+    asks for this — its workers are the memory-hungry ones, and idle
+    workers left over from the search would be holding a few hundred
+    megabytes each on a machine that is about to need all of it.
+    """
+    n = max(int(n_workers), 1)
+    if exclusive:
+        for other in [k for k in _POOLS if k != n]:
+            _drop_shared_pool(other)
+    pool = _POOLS.get(n)
+    if pool is None:
+        import multiprocessing as _mp
+        from concurrent.futures import ProcessPoolExecutor
+        # spawn (not fork): forking a process that already ran threaded
+        # numeric code can deadlock the children on Linux; macOS spawns
+        # by default anyway
+        pool = ProcessPoolExecutor(max_workers=n,
+                                   mp_context=_mp.get_context("spawn"))
+        _POOLS[n] = pool
+    return pool
+
+
+def _drop_shared_pool(n_workers: int) -> None:
+    """Discard a pool — after a failure, or to free its workers."""
+    pool = _POOLS.pop(max(int(n_workers), 1), None)
+    if pool is not None:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+
+def _close_shared_pools() -> None:
+    for n in list(_POOLS):
+        _drop_shared_pool(n)
+
+
 def _stopwatch():
     """Returns a tick(label) that logs elapsed time when METEORPREP_PROF
     is set, and does nothing otherwise."""
@@ -583,7 +630,10 @@ def _stack_pass(args) -> dict:
     # sum.  Queue depth 1 caps extra memory at one frame.
     from queue import Queue
     from threading import Thread
-    _q: Queue = Queue(maxsize=1)
+    # depth 1 at full resolution (a frame in the queue is 120 MB); at
+    # half size the maths finishes as fast as LibRaw does, so one more
+    # frame in hand — 30 MB — keeps the decoder from becoming the wall
+    _q: Queue = Queue(maxsize=2 if half_size else 1)
 
     def _producer():
         for i_, path_, wstr_ in zip(indices, paths, wcs_strs):
@@ -948,6 +998,7 @@ def run(cfg: Config, progress=None) -> dict:
             raise RuntimeError(_DISK_FULL_MSG) from exc
         raise
     finally:
+        _close_shared_pools()
         logging.getLogger("meteorprep").removeHandler(_fh)
         _fh.close()
     if errors and not results["groups"]:
@@ -969,7 +1020,7 @@ def _run_groups(cfg, real_groups, bad_pixels, notify, results, errors,
             errors.append(group.group_id)
 
 
-def _save_candidates(cache, candidates) -> None:
+def _save_candidates(cache, candidates, name="candidates.json") -> None:
     """Persist the detection result so a re-run resumes instead of
     repeating the search (the expensive half of a long night)."""
     import dataclasses as _dc
@@ -983,7 +1034,7 @@ def _save_candidates(cache, candidates) -> None:
         return str(o)
 
     from meteorprep import __version__ as _ver
-    cache.path("candidates.json").write_text(_json.dumps(
+    cache.path(name).write_text(_json.dumps(
         {"tool_version": _ver,
          "candidates": [_dc.asdict(c) for c in candidates]}, default=_plain))
 
@@ -1032,13 +1083,13 @@ def _observing_site(cfg, frames):
     return None, None, None
 
 
-def _load_candidates(cache):
+def _load_candidates(cache, name: str = "candidates.json"):
     import json as _json
 
     from meteorprep.detect.hough import Streak
     from meteorprep.detect.track import Candidate
     from meteorprep import __version__ as _ver
-    doc = _json.loads(cache.path("candidates.json").read_text())
+    doc = _json.loads(cache.path(name).read_text())
     if isinstance(doc, list):            # pre-1.14 cache
         doc = {"tool_version": "older", "candidates": doc}
     if doc.get("tool_version") != _ver:
@@ -1057,7 +1108,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                pre_timings=None) -> dict:
     frames = group.frames
     n = len(frames)
+    # a draft is a look-at-it-now picture, not the deliverable: it goes
+    # in its own folder so it can never be mistaken for the real files,
+    # and so a later full run does not have to overwrite it
     out_dir = cfg.output_path / group.group_id
+    if cfg.draft:
+        out_dir = out_dir / "draft"
     out_dir.mkdir(parents=True, exist_ok=True)
     cache = CacheStore(cfg.cache_path / group.group_id)
     skipped = 0
@@ -1115,21 +1171,20 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                    for i in missing]
         done_dl = 0
         if cfg.jobs > 1 and len(dl_work) > 3:
-            import multiprocessing as _mp
-            from concurrent.futures import ProcessPoolExecutor, as_completed
+            from concurrent.futures import as_completed
+            n_dl = max(min(cfg.jobs, 6), 1)
             try:
-                with ProcessPoolExecutor(
-                        max_workers=max(min(cfg.jobs, 6), 1),
-                        mp_context=_mp.get_context("spawn")) as pool:
-                    futs = [pool.submit(_det_lum_one, a) for a in dl_work]
-                    for fut in as_completed(futs,
-                                            timeout=120 + 30 * len(dl_work)):
-                        fut.result()
-                        done_dl += 1
-                        notify(0.05 + 0.04 * done_dl / len(dl_work),
-                               f"reading every photo once "
-                               f"({done_dl}/{len(dl_work)})")
+                pool = _shared_pool(n_dl)
+                futs = [pool.submit(_det_lum_one, a) for a in dl_work]
+                for fut in as_completed(futs,
+                                        timeout=120 + 30 * len(dl_work)):
+                    fut.result()
+                    done_dl += 1
+                    notify(0.05 + 0.04 * done_dl / len(dl_work),
+                           f"reading every photo once "
+                           f"({done_dl}/{len(dl_work)})")
             except Exception as exc:
+                _drop_shared_pool(n_dl)
                 log.warning("parallel decode failed (%s); one core", exc)
         for a in dl_work:
             if not Path(a[1]).exists():
@@ -1593,18 +1648,27 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     detect_cached = bool(
         not cfg.force
         and cache.path("candidates.json").exists()
-        and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp)
-        and cache.path("base.tif").exists()
-        and cache.is_done("base_sky",
-                          cfg.stage_hash("base_sky") + ":" + frames_fp))
+        and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp))
+    # The second look is cached separately, because it is the one part of
+    # the search a draft leaves out: a draft and the full run share the
+    # first pass exactly, and the full run afterwards has only the faint
+    # pass left to do.
+    faint_cached = bool(
+        detect_cached
+        and cache.path("candidates_faint.json").exists()
+        and cache.is_done("faint",
+                          cfg.stage_hash("faint") + ":" + frames_fp))
+    want_faint = bool(cfg.faint_harvest) and not faint_cached
+    # the aligned small previews feed the first pass AND the second look
+    need_det_dir = (not detect_cached) or want_faint
     if detect_cached:
-        log.info("meteor search and starfield are up to date — resuming "
-                 "from the saved result instead of re-running them")
+        log.info("meteor search is up to date — resuming from the saved "
+                 "result instead of searching every photo again")
         skipped += 1
 
     # ------- detection-space alignment cache (small: ~12 MB/frame) -------
     det_dir = cache.dir("detect_aligned")
-    if not detect_cached and stage_fresh("reproject"):
+    if need_det_dir and stage_fresh("reproject"):
         notify(0.25, "aligning small previews to search for meteors")
         if cfg.align_mode == "reproject_tan":
             det_str = _wcs_to_str(base_det_wcs)
@@ -1617,32 +1681,28 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             jobs_eff = max(cfg.jobs, 1)
             failed: list = []
             if jobs_eff > 1:
-                import multiprocessing as _mp
-                from concurrent.futures import ProcessPoolExecutor, as_completed
+                from concurrent.futures import as_completed
                 pending: dict = {}
                 try:
-                    # spawn (not fork): forking a process that already ran
-                    # threaded numeric code can deadlock the children on
-                    # Linux; macOS spawns by default.  The timeout turns a
-                    # silent hang into a clean single-core fallback.
-                    with ProcessPoolExecutor(
-                            max_workers=jobs_eff,
-                            mp_context=_mp.get_context("spawn")) as pool:
-                        futs = {pool.submit(_detect_reproject_one, a): a
-                                for a in work}
-                        done = 0
-                        pending.update(futs)
-                        for fut in as_completed(
-                                futs, timeout=600 + 240 * len(work)):
-                            done += 1
-                            pending.pop(fut, None)
-                            try:
-                                fut.result()
-                            except Exception as exc:
-                                failed.append((futs[fut], exc))
-                            notify(0.25 + 0.15 * done / n,
-                                   f"searching preparation ({done}/{n})")
+                    # the timeout turns a silent hang into a clean
+                    # single-core fallback
+                    pool = _shared_pool(jobs_eff)
+                    futs = {pool.submit(_detect_reproject_one, a): a
+                            for a in work}
+                    done = 0
+                    pending.update(futs)
+                    for fut in as_completed(
+                            futs, timeout=600 + 240 * len(work)):
+                        done += 1
+                        pending.pop(fut, None)
+                        try:
+                            fut.result()
+                        except Exception as exc:
+                            failed.append((futs[fut], exc))
+                        notify(0.25 + 0.15 * done / n,
+                               f"searching preparation ({done}/{n})")
                 except Exception as exc:
+                    _drop_shared_pool(jobs_eff)
                     log.warning("parallel alignment failed (%s); finishing "
                                 "the remaining frames on one core", exc)
                     failed.extend((a, None) for a in
@@ -1704,7 +1764,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # become an "aircraft"
     from meteorprep.segment.sky_ground import ground_from_alignment
     sky_det = None
-    if detect_cached and cache.path("sky_det.npy").exists():
+    if cache.path("sky_det.npy").exists():
         sky_det = np.load(cache.path("sky_det.npy"))
     elif base_wcs is not None:
         sky_det = ground_from_alignment(load_det_lum, load_det_foot, n,
@@ -1731,52 +1791,49 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         sr_chunks = [search_idx[k:k + chunk_sz]
                      for k in range(0, len(search_idx), chunk_sz)]
         import time as _time
-        import multiprocessing as _mp
-        from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
-                                        wait)
+        from concurrent.futures import FIRST_COMPLETED, wait
         prog_paths = [cache.path(f"prog_sr_{k}.txt")
                       for k in range(len(sr_chunks))]
         try:
-            with ProcessPoolExecutor(
-                    max_workers=len(sr_chunks),
-                    mp_context=_mp.get_context("spawn")) as pool:
-                futs = [pool.submit(
-                    _streak_search_chunk,
-                    (ch, n, str(det_dir), sky_path, cfg, S, exclude_lp,
-                     str(diff_dir), str(prog_paths[k])))
-                    for k, ch in enumerate(sr_chunks)]
-                pending = set(futs)
-                finished_frames = 0
-                last_seen = -1
-                deadline = _time.time() + 300 + 60 * len(search_idx)
-                while pending:
-                    done_set, pending = wait(pending, timeout=2,
-                                             return_when=FIRST_COMPLETED)
-                    for fut in done_set:
-                        part = fut.result()
-                        results_sr.extend(part)
-                        finished_frames += len(part)
-                    # live count: finished chunks + each worker's counter
-                    in_flight = 0
-                    for k, fut in enumerate(futs):
-                        if not fut.done():
-                            try:
-                                in_flight += int(
-                                    prog_paths[k].read_text() or 0)
-                            except (OSError, ValueError):
-                                pass
-                    # max(): a counter read can race its writer and come
-                    # back empty — progress must never appear to go back
-                    seen = max(min(finished_frames + in_flight,
-                                   len(search_idx)), last_seen)
-                    if seen != last_seen:
-                        last_seen = seen
-                        notify(0.45 + 0.08 * seen / len(search_idx),
-                               f"searching every frame for meteors "
-                               f"(photo {seen}/{len(search_idx)})")
-                    if _time.time() > deadline:
-                        raise TimeoutError("meteor search timed out")
+            pool = _shared_pool(len(sr_chunks))
+            futs = [pool.submit(
+                _streak_search_chunk,
+                (ch, n, str(det_dir), sky_path, cfg, S, exclude_lp,
+                 str(diff_dir), str(prog_paths[k])))
+                for k, ch in enumerate(sr_chunks)]
+            pending = set(futs)
+            finished_frames = 0
+            last_seen = -1
+            deadline = _time.time() + 300 + 60 * len(search_idx)
+            while pending:
+                done_set, pending = wait(pending, timeout=2,
+                                         return_when=FIRST_COMPLETED)
+                for fut in done_set:
+                    part = fut.result()
+                    results_sr.extend(part)
+                    finished_frames += len(part)
+                # live count: finished chunks + each worker's counter
+                in_flight = 0
+                for k, fut in enumerate(futs):
+                    if not fut.done():
+                        try:
+                            in_flight += int(
+                                prog_paths[k].read_text() or 0)
+                        except (OSError, ValueError):
+                            pass
+                # max(): a counter read can race its writer and come
+                # back empty — progress must never appear to go back
+                seen = max(min(finished_frames + in_flight,
+                               len(search_idx)), last_seen)
+                if seen != last_seen:
+                    last_seen = seen
+                    notify(0.45 + 0.08 * seen / len(search_idx),
+                           f"searching every frame for meteors "
+                           f"(photo {seen}/{len(search_idx)})")
+                if _time.time() > deadline:
+                    raise TimeoutError("meteor search timed out")
         except Exception as exc:
+            _drop_shared_pool(len(sr_chunks))
             log.warning("parallel meteor search failed (%s); one core", exc)
             results_sr = []
         finally:
@@ -1818,9 +1875,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                             {m.file: i for i, m in enumerate(frames)},
                             frames)
     if detect_cached:
-        candidates = _load_candidates(cache)
-        log.info("restored %d candidate(s) from the previous run",
-                 len(candidates))
+        candidates = _load_candidates(
+            cache, "candidates_faint.json" if faint_cached
+            else "candidates.json")
+        log.info("restored %d candidate(s) from the previous run%s",
+                 len(candidates),
+                 "" if faint_cached else " (the second look still to do)")
     base_mid = base_meta.epoch_mid
     file_to_idx = {m.file: i for i, m in enumerate(frames)}
     for c in candidates:
@@ -1842,6 +1902,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                     meteor_assumptions=(c.label == "meteor"))
             except Exception as exc:
                 log.debug("physics annotation skipped for %s: %s", c.id, exc)
+
+    if not detect_cached:      # the first pass is complete and reusable
+        _save_candidates(cache, candidates)
+        stage_done("detect")
+        detect_cached = True
 
     meteor_cands = [c for c in candidates if c.label == "meteor"]
     flagged_cands = [c for c in candidates if c.label != "meteor"]
@@ -1938,8 +2003,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     mark("building the clean starfield")
 
     # ------- second-pass faint-meteor harvest vs the clean base ---------
-    if (cfg.faint_harvest and not detect_cached
-            and base_wcs is not None
+    if (want_faint and base_wcs is not None
             and (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists()):
         try:
             import cv2 as _cv2
@@ -1997,15 +2061,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             log.warning("faint harvest skipped (%s); first-pass results "
                         "are unaffected", exc)
 
-    if not detect_cached:      # detection is complete (search + harvest)
-        _save_candidates(cache, candidates)
-        stage_done("detect")
+    if want_faint:             # the second look is complete too
+        _save_candidates(cache, candidates, "candidates_faint.json")
+        stage_done("faint")
 
-    if cfg.cleanup_cache:
+    if cfg.cleanup_cache and not cfg.draft:
         # the aligned-luminance cache is now truly done (first pass AND
         # harvest): free its GBs before assembly.  Invalidate the
         # alignment stage so a later resume rebuilds rather than trusting
-        # missing files.
+        # missing files.  A draft keeps it: the whole point of a draft is
+        # that a full run usually follows, and that run's second look
+        # reads exactly these files.
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
         cache.invalidate("reproject")
@@ -2493,6 +2559,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             "generated pixels": "none — every trail is measured light, "
                                 "at its true sky position",
             "recipe hash": cfg.params_hash()[:23]}
+    if cfg.draft:
+        info["mode"] = ("draft — half-resolution picture, no layered file, "
+                        "no second look for faint meteors")
     if site_source:
         info["observing location"] = (
             f"{site_lat:+.4f}, {site_lon:+.4f} — from {site_source}")
@@ -2541,7 +2610,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_contact="contact_sheet" in outputs,
         have_psd="psd" in outputs,
         crops=crops, timings=timings, info=info, looks=looks,
-        capsule=capsule))
+        capsule=capsule, draft=cfg.draft))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_dir, ignore_errors=True)
@@ -2854,6 +2923,17 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     away there, and removed_half is the light those samples carried.
     """
     h, w = shape_out
+    if cfg.draft and len(ok_idx) > max(int(cfg.draft_stack_max), 4):
+        keep = max(int(cfg.draft_stack_max), 4)
+        step = len(ok_idx) / float(keep)
+        ok_idx = [ok_idx[min(int(k * step), len(ok_idx) - 1)]
+                  for k in range(keep)]
+        # spread across the night, so twilight and the darkest hour both
+        # get a say in the sky the draft shows
+        ok_idx = sorted(dict.fromkeys(ok_idx))
+        log.info("draft: the background sky is stacked from %d photos "
+                 "spread across the night (every meteor still comes from "
+                 "its own photo)", len(ok_idx))
     tmp = cache.dir("stack_tmp")
     # a crashed or interrupted earlier run leaves ~GB of stale part files
     # here — never let them eat the disk a second time
@@ -2904,10 +2984,17 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 cfg.stack_sigma, want_fg, want_trail, k1, sky_path,
                 shared_for(mode, worker_id), cv_threads)
 
-    # each pass-2 worker peaks around 3 GB at full 20 MP resolution
-    ram = _available_ram_gb()
-    n_workers = (1 if ram < 7.5 else
-                 2 if ram < 14 else max(min(cfg.jobs, 4), 1))
+    # How many workers fit is a question about the canvas, not about the
+    # machine alone: a worker's peak scales with the output resolution
+    # (measured 0.76 GB on a 5 MP draft canvas and 2.05 GB on the full
+    # 20 MP one), and so does what the parent holds while merging.  The
+    # old fixed tiers were written for the full-resolution case and gave
+    # a draft on an 8 GB laptop two workers when six would fit.
+    mp_out = (h * w) / 1e6
+    peak_gb = 0.30 + 0.09 * mp_out
+    reserve_gb = 2.0 + 0.07 * mp_out          # the OS, and this process
+    budget = max(_available_ram_gb() - reserve_gb, 1.0)
+    n_workers = max(min(int(budget // peak_gb), max(cfg.jobs, 1), 4), 1)
 
     import os as _os
     cv_threads = max((_os.cpu_count() or 4) // max(n_workers, 1), 1)
@@ -2919,25 +3006,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     def get_pool():
         if _pool_holder["pool"] is None:
-            import multiprocessing as _mp
-            from concurrent.futures import ProcessPoolExecutor
-            # No warm-up submission here: forcing the imports before the
-            # first real task was measured at 0.85s of pure barrier.  The
-            # workers spawn as their frames are handed to them, and the
-            # imports overlap each other and the parent's own setup.
-            _pool_holder["pool"] = ProcessPoolExecutor(
-                max_workers=n_workers,
-                mp_context=_mp.get_context("spawn"))
+            # exclusive: these are the memory-hungry workers, and the
+            # search's idle ones would be holding memory this stage is
+            # about to want.  No warm-up submission — forcing the imports
+            # before the first real task was measured at 0.85s of pure
+            # barrier; the workers spawn as their frames reach them.
+            _pool_holder["pool"] = _shared_pool(n_workers, exclusive=True)
         return _pool_holder["pool"]
 
     def close_pool():
         p = _pool_holder["pool"]
         _pool_holder["pool"] = None
         if p is not None:
-            try:
-                p.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
+            _drop_shared_pool(n_workers)
 
     def run_pass(mode, frac0, frac1, label, want_fg=False,
                  want_trail=False, indices=None, on_result=None,
