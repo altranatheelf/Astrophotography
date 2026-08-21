@@ -34,15 +34,26 @@ class RunningMoments:
         self.m2 += delta * delta2
 
     def combine(self, other: "RunningMoments") -> None:
-        """Chan et al. parallel combination of two partials, in place."""
+        """Chan et al. parallel combination of two partials, in place.
+
+        Written as in-place ufunc calls rather than the arithmetic it
+        reads as: at 20 MP the expression form built a third of a
+        gigabyte of temporaries per merge.  The operation order is
+        unchanged, so the result is bit-for-bit what the plain form
+        produced.
+        """
         n = self.count + other.count
         nz = np.maximum(n, 1.0)
         delta = other.mean - self.mean
         w_other = (other.count / nz)[:, :, None]
-        mean = self.mean + delta * w_other
         cross = (self.count * other.count / nz)[:, :, None]
-        self.m2 = self.m2 + other.m2 + delta * delta * cross
-        self.mean = mean
+        scratch = delta * delta
+        scratch *= cross
+        self.m2 += other.m2
+        self.m2 += scratch
+        del scratch
+        delta *= w_other
+        self.mean += delta
         self.count = n
 
     def std(self, floor: float = 2.0) -> np.ndarray:

@@ -20,9 +20,16 @@ def _plain_tan(wcs) -> bool:
         return False
 
 
+def plain_tan_pair(src_wcs, dst_wcs) -> bool:
+    """True when both ends are plain TAN, so the closed-form pixel map
+    applies and a caller may drive the resample itself."""
+    return _plain_tan(src_wcs) and _plain_tan(dst_wcs)
+
+
 def reproject_frame(data: np.ndarray, src_wcs, dst_wcs,
                     shape_out: tuple[int, int], quality: bool = False,
-                    distort=None):
+                    distort=None, src_buf=None, out=None, foot_buf=None,
+                    maps=None):
     """Reproject (H, W) or (H, W, C) data from src_wcs onto dst_wcs.
 
     Returns (array, footprint); pixels with no source coverage have
@@ -34,11 +41,12 @@ def reproject_frame(data: np.ndarray, src_wcs, dst_wcs,
     (``distort``: ideal->observed coords, Poly3Distortion.distort) into
     the same single resample.
     """
-    if _plain_tan(src_wcs) and _plain_tan(dst_wcs):
+    if plain_tan_pair(src_wcs, dst_wcs):
         from meteorprep.astrometry.tanmap import remap_frame, tan_to_tan_maps
         mapx, mapy = tan_to_tan_maps(src_wcs, dst_wcs, shape_out,
-                                     distort=distort)
-        return remap_frame(data, mapx, mapy, quality=quality)
+                                     distort=distort, out=maps)
+        return remap_frame(data, mapx, mapy, quality=quality,
+                           src_buf=src_buf, out=out, foot_buf=foot_buf)
 
     from reproject import reproject_adaptive, reproject_interp
 

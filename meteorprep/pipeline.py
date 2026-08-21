@@ -217,6 +217,23 @@ _DISK_FULL_MSG = (
     "it will resume from where it stopped instead of starting over.")
 
 
+# zlib's cheapest setting.  On smooth 16-bit sky data level 1 lands
+# within 4% of the default's file size (73.0 MB vs 75.7 MB measured on a
+# 20 MP frame) for a fifth of the time (6.2s -> 1.2s), and the file is
+# ordinary zlib-compressed TIFF either way.
+_TIF_LEVEL = 1
+
+
+def _write_cache_tif(path, arr_u16) -> None:
+    """Write one of the big cache images as fast as zlib allows."""
+    import tifffile
+    try:
+        tifffile.imwrite(path, arr_u16, compression="zlib",
+                         compressionargs={"level": _TIF_LEVEL})
+    except TypeError:              # very old tifffile: no compressionargs
+        tifffile.imwrite(path, arr_u16, compression="zlib")
+
+
 def _disk_full(exc) -> bool:
     """True when an exception chain smells like an out-of-space write.
     numpy's tofile raises a bare OSError('N requested and M written')
@@ -238,7 +255,32 @@ def _disk_full(exc) -> bool:
 # row band for the clip-and-accumulate inner loop: big enough that the
 # per-call overhead disappears, small enough that its temporaries stay in
 # cache instead of streaming a quarter-gigabyte through memory
-_CLIP_BAND = 512
+# Row band for the stack's clip-and-accumulate (and for the finalise).
+# The loop touches eight 20 MP-shaped arrays per band, so the band height
+# decides whether that working set stays in cache: measured on a 20 MP
+# frame with three workers running at once, 512 rows cost 1.05s a frame,
+# 128 rows 0.60s and 64 rows 0.54s — the arithmetic never changed, only
+# how far the data had to travel.
+def _stopwatch():
+    """Returns a tick(label) that logs elapsed time when METEORPREP_PROF
+    is set, and does nothing otherwise."""
+    import os
+    import time as _t
+    if not os.environ.get("METEORPREP_PROF"):
+        return lambda label: None
+    last = [_t.perf_counter()]
+
+    def tick(label):
+        now = _t.perf_counter()
+        log.info("PROF-STAGE %-28s %6.2fs", label, now - last[0])
+        last[0] = now
+    return tick
+
+
+_CLIP_BAND = 64
+# The frozen-ground sum and the star-trail maximum read the same decoded
+# frame; a band of it feeds both while it is still in cache.
+_FG_BAND = 256
 
 
 
@@ -267,8 +309,11 @@ class _SharedAccums:
         for name, nch, dt in self.KEYS:
             shape = (h, w, nch) if nch else (h, w)
             path = Path(tmp_dir) / f"shm_{name}_{worker_id}.dat"
+            # mode "w+" makes a sparse file that reads back as zeros;
+            # writing the zeros explicitly would push 1.6 GB (four blocks
+            # x three workers at 20 MP) through the disk between the two
+            # passes, for pages most frames never touch anyway
             arr = np.memmap(path, dtype=dt, mode="w+", shape=shape)
-            arr[:] = 0
             self.arrays[name] = arr
             self.spec[name] = (str(path), list(shape), dt)
             self._paths.append(path)
@@ -314,18 +359,30 @@ def _stack_pass(args) -> dict:
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
      bad_pixels, sigma, want_fg, want_trail, k1, sky_path,
-     shared_spec) = args
+     shared_spec, cv_threads) = args
     import json as _json
 
     import cv2 as _cv2
     import numpy as _np
     from meteorprep.astrometry.lensdistort import Poly3Distortion as _P3
-    from meteorprep.astrometry.reproject_frames import reproject_frame as _rp
+    from meteorprep.astrometry.reproject_frames import (
+        plain_tan_pair as _tan_pair, reproject_frame as _rp)
+    from meteorprep.astrometry.tanmap import (
+        footprint_from_maps as _foot_from_maps, remap_band as _rb,
+        tan_to_tan_maps as _tan_maps)
     from meteorprep.ingest import raw as _raw
     from meteorprep.stack.gradient import eval_frame_sky, fit_frame_sky
     from meteorprep.stack.streaming import RunningMoments
 
     h, w = shape_hw
+    # OpenCV threads every elementwise op it runs.  With one worker that
+    # is free speed; with four workers on four cores it is four processes
+    # each asking for four threads, and they spend the difference
+    # fighting over cache.  The parent decides the split.
+    try:
+        _cv2.setNumThreads(int(cv_threads))
+    except Exception:
+        pass
     tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
     bgs = {}
@@ -404,6 +461,21 @@ def _stack_pass(args) -> dict:
         rcount = shm_arrays.get("rcount")
         if rcount is None:
             rcount = _np.zeros((h, w), _np.uint16)
+        # Buffers the resample needs for every frame, allocated once.
+        # They were being created and thrown away per frame — 650 MB of
+        # allocator and page-fault churn each time round, which in a
+        # worker that already holds two gigabytes cost more than the
+        # arithmetic did.
+        map_buf = (_np.empty((h, w), _np.float32),
+                   _np.empty((h, w), _np.float32))
+        foot_buf = _np.empty((h, w), _np.uint8)
+        # one band of the resampled frame, raw and developed.  The whole
+        # frame used to be built at 20 MP and then read back a band at a
+        # time; a band is 4 MB and never leaves cache.
+        band_u16 = _np.empty((_CLIP_BAND, w, 3), _np.uint16)
+        band_f32 = _np.empty((_CLIP_BAND, w, 3), _np.float32)
+        out_buf = None            # only the whole-frame fallback needs it
+        src_buf = None            # camera-sized; made on the first decode
         fg_sum = None      # allocated at camera size on the first decode
         fg_n = 0
         trail_max = None   # camera-space lighten-max (free star trails)
@@ -447,8 +519,19 @@ def _stack_pass(args) -> dict:
 
     Thread(target=_producer, daemon=True).start()
     n_done = 0
+    import os as _os_prof
+    import time as _tprof
+    _prof = {} if _os_prof.environ.get("METEORPREP_PROF") else None
+
+    def _tick(key, t0):
+        if _prof is not None:
+            _prof[key] = _prof.get(key, 0.0) + _tprof.perf_counter() - t0
+        return _tprof.perf_counter()
+
     while True:
+        _t = _tprof.perf_counter()
         item = _q.get()
+        _t = _tick("wait_decode", _t)
         if item is None:
             break
         i, wstr, rgb = item
@@ -457,8 +540,13 @@ def _stack_pass(args) -> dict:
         except OSError:
             pass
         n_done += 1
-        if mode != "moments" and want_fg:
-            if fg_sum is None:
+        if mode != "moments" and (want_fg or want_trail):
+            if want_fg and fg_sum is None:
+                # deliberately NOT one of the shared mappings: this one is
+                # read-modify-written over its whole extent every frame,
+                # and backing that with a file makes the kernel write the
+                # dirty pages back again and again — measured at 64.4s
+                # against 54.9s for the same night.
                 fg_sum = _np.zeros(rgb.shape, _np.float32)
             # The frozen-ground sum was the most expensive thing in the
             # whole pass — not the decode, not the resample.  "fg_sum +=
@@ -466,12 +554,20 @@ def _stack_pass(args) -> dict:
             # and under this worker's memory pressure that cost 2.4s of
             # the 7s each frame took.  cv2.accumulate adds a uint16 image
             # into a float32 one directly, with no temporary at all.
-            _cv2.accumulate(rgb, fg_sum)
-            fg_n += 1
-        if mode != "moments" and want_trail:
-            if trail_max is None:
+            if want_trail and trail_max is None:
                 trail_max = _np.zeros(rgb.shape, _np.uint16)
-            _cv2.max(trail_max, rgb, dst=trail_max)
+            # both walk the same undeveloped frame, so they walk it
+            # together: one band of the decode feeds the running sum and
+            # the running maximum while it is still in cache
+            for r0 in range(0, rgb.shape[0], _FG_BAND):
+                r1 = min(r0 + _FG_BAND, rgb.shape[0])
+                blk = rgb[r0:r1]
+                if want_fg:
+                    _cv2.accumulate(blk, fg_sum[r0:r1])
+                if want_trail:
+                    _cv2.max(trail_max[r0:r1], blk, dst=trail_max[r0:r1])
+            fg_n += 1 if want_fg else 0
+        _t = _tick("fg_trail", _t)
         distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
                    else None)
         src_wcs = _wcs_from_str(wstr)
@@ -480,9 +576,36 @@ def _stack_pass(args) -> dict:
             # supplied WCS describes the full-size frame — rescale it or
             # the resample reads only the top-left quarter of the data
             src_wcs = scale_wcs(src_wcs, 0.5)
-        arr, foot = _rp(rgb, src_wcs, stat_wcs, (hs, ws),
-                        quality=True, distort=distort)
-        del rgb
+        # The full-resolution pass resamples band by band inside the
+        # accumulate loop below (arr stays None): only the maps and the
+        # footprint are built whole-frame, and the frame itself is never
+        # assembled at 20 MP.  Anything that is not a plain TAN pair, or
+        # that has no pass-1 sky fit to replay, falls back to building
+        # the whole frame the ordinary way.
+        arr = None
+        band_src = None
+        if mode != "moments" and _tan_pair(src_wcs, stat_wcs) \
+                and norm_coef.get(i) is not None:
+            mapx, mapy = _tan_maps(src_wcs, stat_wcs, (hs, ws),
+                                   distort=distort, out=map_buf)
+            foot = _foot_from_maps(mapx, mapy, rgb.shape[:2],
+                                   foot_buf=foot_buf)
+            band_src = rgb
+        elif mode != "moments":
+            if src_buf is None or src_buf.shape != rgb.shape:
+                src_buf = _np.empty(rgb.shape, _np.float32)
+            if out_buf is None:
+                out_buf = _np.empty((hs, ws, 3), _np.float32)
+            arr, foot = _rp(rgb, src_wcs, stat_wcs, (hs, ws),
+                            quality=True, distort=distort,
+                            src_buf=src_buf, out=out_buf,
+                            foot_buf=foot_buf, maps=map_buf)
+        else:
+            arr, foot = _rp(rgb, src_wcs, stat_wcs, (hs, ws),
+                            quality=True, distort=distort)
+        if band_src is None:
+            del rgb
+        _t = _tick("reproject", _t)
         ok = foot.astype(bool)
         segs = segments_per_frame.get(i)
         if segs:
@@ -506,8 +629,16 @@ def _stack_pass(args) -> dict:
                 norm_coef[i] = coef
         else:
             coef = norm_coef.get(i)
+            if coef is None and band_src is not None:
+                raise AssertionError("banded path without a sky fit")
+        band_sky = None
         if coef is not None:
-            arr -= eval_frame_sky(coef, hs, ws)
+            if mode == "moments":
+                arr -= eval_frame_sky(coef, hs, ws)
+            else:
+                # subtracted band by band below, so the surface is never
+                # built at full size just to be used once
+                band_sky = coef
             bgs[i] = [float(v) for v in coef[:, 0]]
         else:
             bg = _frame_background(arr, foot.astype(bool))
@@ -527,7 +658,20 @@ def _stack_pass(args) -> dict:
             ok_u8 = _np.where(ok, _np.uint8(255), _np.uint8(0))
             for r0 in range(0, hs, _CLIP_BAND):
                 r1 = min(r0 + _CLIP_BAND, hs)
-                a_b = arr[r0:r1]
+                if band_src is not None:
+                    # resample straight into the band, then develop it to
+                    # float in place.  Cubic on uint16 rounds the sample
+                    # to the nearest ADU, which the float path threw away
+                    # anyway: the stack is written as 16-bit, and across
+                    # N frames that rounding averages down by sqrt(N).
+                    _rb(band_src, mapx, mapy, r0, r1,
+                        out=band_u16[:r1 - r0])
+                    a_b = band_f32[:r1 - r0]
+                    _np.copyto(a_b, band_u16[:r1 - r0])
+                else:
+                    a_b = arr[r0:r1]
+                if band_sky is not None:
+                    a_b -= eval_frame_sky(band_sky, hs, ws, r0, r1)
                 ok_b = ok_u8[r0:r1]
                 cm_b = (_clip_rows(clip_mean, r0, r1) if clip_half
                         else clip_mean[r0:r1])
@@ -544,7 +688,21 @@ def _stack_pass(args) -> dict:
                 _cv2.add(wsum[r0:r1], kf, dst=wsum[r0:r1])
                 _cv2.multiply(kf, a_b, dst=kf)
                 _cv2.add(ssum[r0:r1], kf, dst=ssum[r0:r1])
-        del arr, foot, ok
+        _t = _tick("accumulate", _t)
+        del arr, foot, ok, band_src
+        rgb = None
+    if _prof is not None:
+        from meteorprep.astrometry.tanmap import prof_dump
+        prof_dump(f"{mode} w{worker_id}")
+        import resource as _res
+        _rss = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss / 1e6
+        line = (f"PROF {mode} w{worker_id} n={n_done} peakGB={_rss:.2f} "
+                + " ".join(f"{k}={v:.2f}" for k, v in sorted(_prof.items())))
+        try:
+            with open(_os_prof.environ["METEORPREP_PROF"], "a") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
     out = {"bg": bgs}
     if mode == "moments":
         out["coef"] = {int(k): _np.asarray(v).tolist()
@@ -1624,14 +1782,26 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
             corridor_segments, weights, cache, bad_pixels, notify, k1,
             sky_path)
-        import tifffile
-        tifffile.imwrite(cache.path("base.tif"),
-                         np.clip(base_img, 0, 65535).astype(np.uint16),
-                         compression="zlib")
+        # the three big cache images are ~120 MB each before compression
+        # and they are written back to back.  zlib releases the GIL, so
+        # three threads finish in roughly the time of the slowest one
+        # instead of the sum (measured 18.5s serial -> 9.5s threaded at
+        # the default level, and level 1 turns 6.2s per image into 1.2s
+        # for 4% more disk).
+        tick = _stopwatch()
+        jobs = [("base.tif", base_img)]
         if fg_stack is not None:
-            tifffile.imwrite(cache.path("fg_stack.tif"),
-                             np.clip(fg_stack, 0, 65535).astype(np.uint16),
-                             compression="zlib")
+            jobs.append(("fg_stack.tif", fg_stack))
+        if trail_img is not None:
+            jobs.append(("startrail.tif", trail_img))
+        u16 = {name: np.clip(arr, 0, 65535).astype(np.uint16)
+               for name, arr in jobs}
+        from concurrent.futures import ThreadPoolExecutor
+        _tif_pool = ThreadPoolExecutor(max_workers=len(u16))
+        _tif_futures = [_tif_pool.submit(_write_cache_tif,
+                                         cache.path(nm), u16[nm])
+                        for nm in u16]
+        tick("cache tiffs submitted")
         if coverage is not None:
             np.save(cache.path("coverage.npy"), coverage)
         # evidence products survive cleanup and a resumed run alongside
@@ -1640,15 +1810,39 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             np.save(cache.path("rejected.npy"), rejected)
         if removed_half is not None:
             np.save(cache.path("removed_half.npy"), removed_half)
-        if trail_img is not None:
-            tifffile.imwrite(cache.path("startrail.tif"),
-                             np.clip(trail_img, 0, 65535).astype(np.uint16),
-                             compression="zlib")
-        stage_done("base_sky")
-    import tifffile
-    base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
-    fg_stack = (tifffile.imread(cache.path("fg_stack.tif")).astype(np.float32)
-                if cache.path("fg_stack.tif").exists() else None)
+        # already in hand: reading 240 MB of TIFF straight back would only
+        # reproduce the uint16 rounding, which is one astype away
+        base_img = u16["base.tif"].astype(np.float32)
+        fg_stack = (u16["fg_stack.tif"].astype(np.float32)
+                    if "fg_stack.tif" in u16 else None)
+        del jobs, trail_img
+        tick("evidence npy + rehydrate")
+
+        def _finish_cache_writes():
+            """Wait for the deferred cache images, then mark the stage
+            done.  zlib runs with the GIL released, so the ~3s of
+            compression overlaps the faint-meteor harvest that follows;
+            nothing reads these files before the join, and the stage is
+            only marked complete once every byte is on disk."""
+            if not _tif_futures:
+                return
+            try:
+                for fut in _tif_futures:
+                    fut.result()
+            finally:
+                _tif_pool.shutdown(wait=True)
+            _tif_futures.clear()
+            u16.clear()
+            tick("cache tiffs joined")
+            stage_done("base_sky")
+    else:
+        import tifffile
+        base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
+        fg_stack = (tifffile.imread(
+            cache.path("fg_stack.tif")).astype(np.float32)
+            if cache.path("fg_stack.tif").exists() else None)
+        def _finish_cache_writes():
+            return
     coverage = (np.load(cache.path("coverage.npy"))
                 if cache.path("coverage.npy").exists() else None)
     rejected = (np.load(cache.path("rejected.npy"))
@@ -1730,6 +1924,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         log.info("freed the alignment cache (%s)", det_dir.name)
 
     # ---------------- extraction (full quality, meteor frames only) -----
+    _finish_cache_writes()
     mark("building the clean starfield")
     notify(0.82, "cutting each meteor onto its own layer")
     star_cat_xy = detect_stars(base_img, max_stars=500)
@@ -2100,9 +2295,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                                          bad_pixels,
                                          half_size=cfg.half_size)
                 .astype(np.float32), n)
-            tifffile.imwrite(out_dir / "startrail.tif",
-                             np.clip(trail, 0, 65535).astype(np.uint16),
-                             compression="zlib")
+            _write_cache_tif(out_dir / "startrail.tif",
+                             np.clip(trail, 0, 65535).astype(np.uint16))
         outputs["startrail"] = str(out_dir / "startrail.tif")
         # ready-to-share star-trail JPG next to the editable TIFF
         try:
@@ -2277,6 +2471,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     return {"group": group.group_id, "outputs": outputs,
             "n_meteors": len(meteor_cands), "n_flagged": len(flagged_cands),
             "alignment_quality": alignment_quality,
+            "timings": [(lbl, round(secs, 2)) for lbl, secs in timings],
             "candidates": [c.to_dict() for c in candidates]}
 
 
@@ -2619,12 +2814,15 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
                 cfg.stack_sigma, want_fg, want_trail, k1, sky_path,
-                shared_for(mode, worker_id))
+                shared_for(mode, worker_id), cv_threads)
 
     # each pass-2 worker peaks around 3 GB at full 20 MP resolution
     ram = _available_ram_gb()
     n_workers = (1 if ram < 7.5 else
                  2 if ram < 14 else max(min(cfg.jobs, 4), 1))
+
+    import os as _os
+    cv_threads = max((_os.cpu_count() or 4) // max(n_workers, 1), 1)
 
     # ONE spawn pool serves both passes: spawn startup re-imports the
     # numeric stack in every worker (seconds each), so pass 2 reuses the
@@ -2681,7 +2879,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 finished_frames = 0
                 last_seen = -1
                 deadline = _time.time() + 600 + 300 * len(idx)
-                held = {}
+                held, next_k = {}, 0
                 while pending:
                     done_set, pending = wait(pending, timeout=2,
                                              return_when=FIRST_COMPLETED)
@@ -2696,6 +2894,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                             # are small here, so hold them and merge by
                             # worker number — same file every time.
                             held[futures[fut]] = fut.result()
+                            # merge everything that is now contiguous from
+                            # the front: worker 0's part can be folded in
+                            # while workers 1 and 2 are still running, and
+                            # the sum still lands in worker order
+                            while next_k in held:
+                                on_result(held.pop(next_k))
+                                next_k += 1
                         else:
                             on_result(fut.result())
                         merged += 1
@@ -2719,7 +2924,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                                f"{label} (photo {seen}/{len(idx)})")
                     if _time.time() > deadline:
                         raise TimeoutError(f"{label} timed out")
-                for k in sorted(held):
+                for k in sorted(held):        # any stragglers
                     on_result(held[k])
             except Exception as exc:
                 close_pool()
@@ -2799,8 +3004,13 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
     want_trail = bool(cfg.emit_startrail)
-    total_sum = np.zeros((h, w, 3), np.float64)
-    total_w = np.zeros((h, w, 3), np.float64)
+    # float32, not float64: every worker already accumulates its own
+    # partial sums in float32, so the parent's only job is to add at most
+    # four of them together — float64 here would double 0.5 GB of
+    # accumulator to 1 GB and quadruple the cost of the finalise
+    # arithmetic without recovering a single bit the workers kept.
+    total_sum = np.zeros((h, w, 3), np.float32)
+    total_w = np.zeros((h, w, 3), np.float32)
     coverage = np.zeros((h, w), np.uint16)
     rejected = np.zeros((h, w), np.uint16)
     p2 = {"fg_sum": None, "fg_n": 0, "trail": None}
@@ -2822,16 +3032,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 np.add(rejected, np.load(p["rcount"]), out=rejected)
         if want_fg and "fg" in p:
             part_fg = np.load(p["fg"])
-            p2["fg_sum"] = (part_fg if p2["fg_sum"] is None
-                            else p2["fg_sum"] + part_fg)
+            if p2["fg_sum"] is None:
+                p2["fg_sum"] = part_fg
+            else:
+                np.add(p2["fg_sum"], part_fg, out=p2["fg_sum"])
             p2["fg_n"] += p["fg_n"]
         if want_trail and "trail" in p:
             part_t = np.load(p["trail"])
             p2["trail"] = (part_t if p2["trail"] is None
-                           else np.maximum(p2["trail"], part_t))
+                           else np.maximum(p2["trail"], part_t,
+                                           out=p2["trail"]))
         for key in ("csum", "cwsum", "fcount", "rcount", "fg", "trail"):
-            if key in p:                      # merged: free the disk now
-                Path(p[key]).unlink(missing_ok=True)
+            if key in p and isinstance(p[key], str):
+                Path(p[key]).unlink(missing_ok=True)   # merged: free it
 
     def _reset_clipped():
         total_sum[:] = 0
@@ -2845,6 +3058,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 st.zero()
         p2.update(fg_sum=None, fg_n=0, trail=None)
 
+    tick = _stopwatch()
     try:
         run_pass("clipped", 0.70, 0.80,
                  "building the clean starfield (pass 2 of 2)", want_fg,
@@ -2852,32 +3066,18 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                  on_reset=_reset_clipped)
     finally:
         close_pool()
+        tick("pass2 + merge")
         free_shared()
+        tick("free shared")
     fg = ((p2["fg_sum"] / max(p2["fg_n"], 1))
           if want_fg and p2["fg_n"] else None)
     trail = p2["trail"]
     p2["fg_sum"] = None
-    # pixels where clipping rejected everything fall back to the plain mean
-    base = np.where(total_w > 0, total_sum / np.maximum(total_w, 1e-6),
-                    mean_full)
-    # "show me what you removed": the plain mean minus the clipped mean is
-    # exactly the light the rejection threw away.  Kept at half size in
-    # float16 (~1/8 the memory of the full-res float32 difference) — this
-    # is a look-at-it product, not a numeric one.
-    removed_half = None
-    try:
-        rem = np.maximum(mean_full - base, 0.0).mean(axis=2)
-        removed_half = _cv2.resize(rem, (w // 2, h // 2),
-                                   interpolation=_cv2.INTER_AREA
-                                   ).astype(np.float16)
-        del rem
-    except Exception as exc:          # never lose a finished stack to this
-        log.debug("residual map skipped: %s", exc)
-    # frames were normalised against their own sky surface: restore the
-    # AVERAGE surface, so the true mean sky (and its gradient) survives —
-    # only the frame-to-frame differences were removed
+    # frames were normalised against their own sky surface: the AVERAGE
+    # surface goes back on, so the true mean sky (and its gradient)
+    # survives — only the frame-to-frame differences were removed
+    mean_sky = None
     if all_bgs or all_coef:
-        from meteorprep.stack.gradient import eval_frame_sky
         eff = []
         for i, bgv in all_bgs.items():
             c = np.zeros((3, 6), np.float32)
@@ -2887,11 +3087,52 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
             else:
                 c[:, 0] = np.asarray(bgv, np.float32)
             eff.append(c)
-        base = base + eval_frame_sky(np.mean(eff, axis=0), h, w)
+        mean_sky = np.mean(eff, axis=0)
+
+    # ---- finalise in row bands ----------------------------------------
+    # The whole-array form of this (divide, np.where, a full-frame
+    # difference, then a separate sky add) built six 0.5 GB temporaries
+    # and took 7s of the stage; one banded pass writes each output pixel
+    # once and never allocates more than a band.
+    from meteorprep.stack.gradient import eval_frame_sky
+    base = np.empty((h, w, 3), np.float32)
+    rem_full = np.empty((h, w), np.float32)
+    scratch = np.empty((_CLIP_BAND, w, 3), np.float32)
+    for r0 in range(0, h, _CLIP_BAND):
+        r1 = min(r0 + _CLIP_BAND, h)
+        b = base[r0:r1]
+        wb = total_w[r0:r1]
+        mb = mean_full[r0:r1]
+        d = scratch[:r1 - r0]
+        np.maximum(wb, 1e-6, out=d)
+        np.divide(total_sum[r0:r1], d, out=b)
+        # pixels where clipping rejected everything fall back to the mean
+        np.copyto(b, mb, where=(wb <= 0))
+        # "show me what you removed": the plain mean minus the clipped
+        # mean is exactly the light the rejection threw away
+        np.subtract(mb, b, out=d)
+        np.maximum(d, 0.0, out=d)
+        np.mean(d, axis=2, out=rem_full[r0:r1])
+        if mean_sky is not None:
+            b += eval_frame_sky(mean_sky, h, w, r0, r1)
+    del total_sum, total_w, mean_full, scratch
+    tick("banded finalise")
+
+    # Kept at half size in float16 (~1/8 the memory of the full-res
+    # float32 difference) — this is a look-at-it product, not a numeric
+    # one.
+    removed_half = None
+    try:
+        removed_half = _cv2.resize(rem_full, (w // 2, h // 2),
+                                   interpolation=_cv2.INTER_AREA
+                                   ).astype(np.float16)
+    except Exception as exc:          # never lose a finished stack to this
+        log.debug("residual map skipped: %s", exc)
+    del rem_full
     import shutil as _shutil
     _shutil.rmtree(tmp, ignore_errors=True)
-    return (base.astype(np.float32), fg, coverage, trail, rejected,
-            removed_half)
+    tick("scratch cleanup")
+    return (base, fg, coverage, trail, rejected, removed_half)
 
 
 def _rotate2d_mean(cfg, frames, ok_idx, corridor_segments, shape_out,
