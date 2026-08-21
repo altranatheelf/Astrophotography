@@ -285,19 +285,23 @@ _FG_BAND = 256
 
 
 class _SharedAccums:
-    """One worker's big accumulators, shared with the parent as memory
-    maps instead of being serialised through files.
+    """One worker's big accumulators, shared with the parent.
 
     Each worker used to np.save ~0.6 GB of sums for the parent to np.load
     straight back — 2 GB of round-trip per run that never needed to
-    exist.  A shared mapping is the same memory on both sides: the worker
-    writes into it, the parent adds from it, and the pages are dropped
-    unwritten when the scratch directory goes.
+    exist.  Shared memory is the same bytes on both sides: the worker
+    writes into it, the parent adds from it, and nothing is serialised.
 
-    (multiprocessing.shared_memory would do the same thing, and was tried
-    first: attaching in a child double-registers the segment with the
-    resource tracker, and cleaning that up printed a KeyError traceback
-    per block into the user's run log.  A mapping needs no tracker.)
+    POSIX shared memory first, a file mapping in the scratch directory
+    as the fallback.  Both work; the difference is that a file mapping's
+    dirty pages get written back to the disk, and the stack rewrites
+    every byte of these blocks once per photo, so the kernel ends up
+    pushing gigabytes to the SSD that nothing will ever read.  (POSIX
+    shared memory was tried once before and reverted: attaching in a
+    child registers the segment with the resource tracker a second time,
+    and the cleanup printed a KeyError traceback per block into the
+    user's run log.  The child now says up front that it does not own
+    the segment, which is what that needed.)
     """
 
     KEYS = (("csum", 3, "<f4"), ("cwsum", 3, "<f4"),
@@ -305,17 +309,35 @@ class _SharedAccums:
 
     def __init__(self, shape_hw, tmp_dir, worker_id):
         h, w = shape_hw
-        self.arrays, self.spec, self._paths = {}, {}, []
+        self.arrays, self.spec, self._paths, self._blocks = {}, {}, [], []
         for name, nch, dt in self.KEYS:
             shape = (h, w, nch) if nch else (h, w)
+            nbytes = int(np.prod(shape)) * np.dtype(dt).itemsize
+            blk = None
+            try:
+                from multiprocessing import shared_memory
+                blk = shared_memory.SharedMemory(create=True, size=nbytes)
+                # a fresh segment is zero-filled by the kernel
+                self.arrays[name] = np.ndarray(shape, dtype=dt,
+                                               buffer=blk.buf)
+                self.spec[name] = ("shm", blk.name, list(shape), dt)
+                self._blocks.append(blk)
+                continue
+            except Exception:
+                if blk is not None:
+                    try:
+                        blk.close()
+                        blk.unlink()
+                    except Exception:
+                        pass
             path = Path(tmp_dir) / f"shm_{name}_{worker_id}.dat"
             # mode "w+" makes a sparse file that reads back as zeros;
             # writing the zeros explicitly would push 1.6 GB (four blocks
             # x three workers at 20 MP) through the disk between the two
             # passes, for pages most frames never touch anyway
-            arr = np.memmap(path, dtype=dt, mode="w+", shape=shape)
-            self.arrays[name] = arr
-            self.spec[name] = (str(path), list(shape), dt)
+            self.arrays[name] = np.memmap(path, dtype=dt, mode="w+",
+                                          shape=shape)
+            self.spec[name] = ("map", str(path), list(shape), dt)
             self._paths.append(path)
 
     def zero(self):
@@ -324,6 +346,13 @@ class _SharedAccums:
 
     def close(self):
         self.arrays.clear()
+        for blk in self._blocks:
+            try:
+                blk.close()
+                blk.unlink()
+            except Exception:
+                pass
+        self._blocks.clear()
         for path in self._paths:
             try:
                 path.unlink(missing_ok=True)
@@ -332,18 +361,69 @@ class _SharedAccums:
         self._paths.clear()
 
 
+def _dont_track_shm() -> None:
+    """Before 3.13 there is no ``track=False``: a child that attaches to
+    a segment registers it with the resource tracker as if it owned it.
+    Unregistering afterwards is worse than not registering — the tracker
+    keeps one set of names, so the child's unregister removes the
+    parent's entry and the parent's own unlink then fails with a
+    KeyError traceback in the run log.  Decline the registration
+    instead; the parent still owns, and still unlinks, every segment.
+    """
+    from multiprocessing import resource_tracker
+    if getattr(resource_tracker.register, "_meteorprep", False):
+        return
+    _orig = resource_tracker.register
+
+    def register(name, rtype):
+        if rtype == "shared_memory":
+            return
+        _orig(name, rtype)
+
+    register._meteorprep = True
+    resource_tracker.register = register
+
+
 def _attach_shared(spec):
-    """Worker side: map the parent's blocks and view them as arrays."""
+    """Worker side: attach the parent's blocks and view them as arrays.
+
+    A segment attached here belongs to the parent.  Saying so — via
+    ``track=False`` where the interpreter offers it, or by declining to
+    register at all — is what keeps the resource tracker from trying to
+    clean up a segment it does not own.
+    """
     import numpy as _np
-    return {name: _np.memmap(path, dtype=dt, mode="r+", shape=tuple(shape))
-            for name, (path, shape, dt) in spec.items()}, []
+    arrays, blocks = {}, []
+    for name, ent in spec.items():
+        kind, where, shape, dt = ent
+        if kind == "shm":
+            from multiprocessing import shared_memory
+            try:
+                blk = shared_memory.SharedMemory(name=where, track=False)
+            except TypeError:          # before 3.13: say it up front
+                _dont_track_shm()
+                blk = shared_memory.SharedMemory(name=where)
+            arrays[name] = _np.ndarray(tuple(shape), dtype=dt,
+                                       buffer=blk.buf)
+            blocks.append(blk)
+        else:
+            arrays[name] = _np.memmap(where, dtype=dt, mode="r+",
+                                      shape=tuple(shape))
+    return arrays, blocks
 
 
-def _release_shared(arrays, _blocks):
-    """Detach.  The mapping is coherent between processes, so there is
+def _release_shared(arrays, blocks):
+    """Detach.  Shared memory is coherent between processes, so there is
     nothing to flush and nothing to hand back — the parent already has
-    every byte the worker wrote."""
+    every byte the worker wrote.  The array views have to go before the
+    blocks, or the buffer is still exported and will not close."""
     arrays.clear()
+    for blk in blocks:
+        try:
+            blk.close()
+        except Exception:
+            pass
+    blocks.clear()
 
 
 def _stack_pass(args) -> dict:
@@ -474,6 +554,7 @@ def _stack_pass(args) -> dict:
         # time; a band is 4 MB and never leaves cache.
         band_u16 = _np.empty((_CLIP_BAND, w, 3), _np.uint16)
         band_f32 = _np.empty((_CLIP_BAND, w, 3), _np.float32)
+        band_sky_buf = _np.empty((_CLIP_BAND, w, 3), _np.float32)
         out_buf = None            # only the whole-frame fallback needs it
         src_buf = None            # camera-sized; made on the first decode
         fg_sum = None      # allocated at camera size on the first decode
@@ -671,7 +752,8 @@ def _stack_pass(args) -> dict:
                 else:
                     a_b = arr[r0:r1]
                 if band_sky is not None:
-                    a_b -= eval_frame_sky(band_sky, hs, ws, r0, r1)
+                    a_b -= eval_frame_sky(band_sky, hs, ws, r0, r1,
+                                          out=band_sky_buf[:r1 - r0])
                 ok_b = ok_u8[r0:r1]
                 cm_b = (_clip_rows(clip_mean, r0, r1) if clip_half
                         else clip_mean[r0:r1])
@@ -716,6 +798,9 @@ def _stack_pass(args) -> dict:
         out["worker_id"] = worker_id
         if shared_spec:
             out["shared"] = True
+            # the last references to the shared buffers, or close() will
+            # refuse (see _release_shared)
+            ssum = wsum = fcount = rcount = None
             _release_shared(shm_arrays, shm_blocks)
         else:
             for name, a in (("csum", ssum), ("cwsum", wsum),
@@ -2833,6 +2918,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         if _pool_holder["pool"] is None:
             import multiprocessing as _mp
             from concurrent.futures import ProcessPoolExecutor
+            # No warm-up submission here: forcing the imports before the
+            # first real task was measured at 0.85s of pure barrier.  The
+            # workers spawn as their frames are handed to them, and the
+            # imports overlap each other and the parent's own setup.
             _pool_holder["pool"] = ProcessPoolExecutor(
                 max_workers=n_workers,
                 mp_context=_mp.get_context("spawn"))

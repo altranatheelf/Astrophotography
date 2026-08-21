@@ -21,17 +21,34 @@ class RunningMoments:
         self.count = np.zeros(shape[:2], np.float32)
         self.mean = np.zeros(shape, np.float32)
         self.m2 = np.zeros(shape, np.float32)
+        self._s1 = None
+        self._s2 = None
 
     def add(self, value: np.ndarray, ok: np.ndarray) -> None:
-        """value (H,W,C) float32; ok (H,W) bool — masked pixels ignored."""
+        """value (H,W,C) float32; ok (H,W) bool — masked pixels ignored.
+
+        Written as in-place ufunc calls over two scratch buffers rather
+        than the arithmetic it reads as: the expression form built seven
+        frame-sized temporaries per photo, and this runs once for every
+        frame of the statistics pass.  Operation order is unchanged, so
+        the result is bit-for-bit what the plain form produced.
+        """
+        if self._s1 is None or self._s1.shape != value.shape:
+            self._s1 = np.empty(value.shape, np.float32)
+            self._s2 = np.empty(value.shape, np.float32)
+        d, d2 = self._s1, self._s2
         okf = ok.astype(np.float32)
         self.count += okf
         cnt = np.maximum(self.count, 1.0)[:, :, None]
         okc = okf[:, :, None]
-        delta = (value - self.mean) * okc
-        self.mean += delta / cnt
-        delta2 = (value - self.mean) * okc
-        self.m2 += delta * delta2
+        np.subtract(value, self.mean, out=d)      # delta
+        d *= okc
+        np.divide(d, cnt, out=d2)
+        self.mean += d2
+        np.subtract(value, self.mean, out=d2)     # delta2
+        d2 *= okc
+        d *= d2
+        self.m2 += d
 
     def combine(self, other: "RunningMoments") -> None:
         """Chan et al. parallel combination of two partials, in place.

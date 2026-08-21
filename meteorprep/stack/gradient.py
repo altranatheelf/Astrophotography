@@ -54,14 +54,16 @@ def fit_frame_sky(arr: np.ndarray, ok: np.ndarray,
 
 
 def eval_frame_sky(coef: np.ndarray, h: int, w: int,
-                   row0: int = 0, row1: int | None = None) -> np.ndarray:
+                   row0: int = 0, row1: int | None = None,
+                   out: np.ndarray | None = None) -> np.ndarray:
     """Evaluate fit_frame_sky coefficients on an (h, w) grid -> (h, w, C).
 
     ``row0``/``row1`` return just those rows of the same surface, so the
     stack can subtract it band by band instead of building a quarter of a
     gigabyte of surface per frame to use once.  The coordinates stay
     normalised against the full height, so a banded evaluation and a
-    whole-frame one agree exactly.
+    whole-frame one agree exactly.  ``out``: a band-shaped buffer to
+    write into, so a loop over bands allocates nothing.
     """
     coef = np.asarray(coef, np.float32)
     row1 = h if row1 is None else row1
@@ -73,7 +75,8 @@ def eval_frame_sky(coef: np.ndarray, h: int, w: int,
     # six full-size basis images and a tensordot — the old form built
     # half a gigabyte of temporaries per frame at 20 MP.
     nch = coef.shape[0]
-    out = np.empty((len(v), w, nch), np.float32)
+    if out is None or out.shape != (len(v), w, nch):
+        out = np.empty((len(v), w, nch), np.float32)
     v2 = v * v
     for c in range(nch):
         c0, c1, c2, c3, c4, c5 = [float(x) for x in coef[c]]
