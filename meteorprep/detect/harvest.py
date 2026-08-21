@@ -40,7 +40,7 @@ def _mask_corridors(mask: np.ndarray, segments, scale: float) -> None:
 
 
 def line_snr(diff: np.ndarray, s, samples: int = 64,
-             offsets=(9, 14, 20, 27)) -> float:
+             offsets=(9, 14, 20, 27), scale: float = 1.0) -> float:
     """How much brighter the streak is than the sky beside it.
 
     The Hough pass answers noise with lines: at a low threshold a handful
@@ -49,9 +49,15 @@ def line_snr(diff: np.ndarray, s, samples: int = 64,
     parallel lines a few pixels to either side, and that is a direct
     measurement rather than a threshold — looked at by eye, the false
     ones were blank sky and the true ones were unmistakable.
+
+    ``scale``: detect_streaks reports its geometry on the OUTPUT canvas,
+    which at full size is twice the detection image this measures on.
+    Passing the wrong one does not fail loudly — every sample simply
+    clamps to the right-hand edge of the frame, and the gate quietly
+    measures the border instead of the streak.
     """
-    p0 = np.array([s.x0, s.y0], float)
-    p1 = np.array([s.x1, s.y1], float)
+    p0 = np.array([s.x0, s.y0], float) / scale
+    p1 = np.array([s.x1, s.y1], float) / scale
     d = p1 - p0
     n = float(np.linalg.norm(d))
     if n < 4.0:
@@ -72,7 +78,13 @@ def line_snr(diff: np.ndarray, s, samples: int = 64,
     side = np.concatenate([sample(o) for o in offsets]
                           + [sample(-o) for o in offsets])
     med = float(np.median(side))
-    mad = 1.4826 * float(np.median(np.abs(side - med))) + 1e-3
+    # The difference image is high-passed and clipped at zero, so a clean
+    # patch of sky beside a streak is mostly exact zeros and its MAD is
+    # exactly zero.  The floor is what the ratio is divided by in that
+    # case, so at 1e-3 ADU on a 16-bit scale it made the gate meaningless
+    # — one ADU of anything scored a thousand sigma.  One ADU is the
+    # smallest difference the data can actually express.
+    mad = 1.4826 * float(np.median(np.abs(side - med))) + 1.0
     return float((np.median(on) - med) / mad)
 
 
@@ -131,11 +143,15 @@ def harvest_faint_meteors(load_lum, load_foot, base_lum_det: np.ndarray,
                                  min_thresh=cfg.faint_min_thresh)
         kept = []
         for s in streaks:
-            # a meteor is a line the width of a star, not a smudge: at
-            # this sensitivity the fat detections are cloud and glow
-            if s.fwhm_px > cfg.faint_max_fwhm_px:
+            # detect_streaks reports on the output canvas; both gates
+            # below are measurements on the detection-scale difference,
+            # so the geometry comes back to that scale first.  (The width
+            # limit is documented in detection pixels — "stars are 2-4 px
+            # here" — and was being compared against a number twice that
+            # size, which threw away real meteors.)
+            if s.fwhm_px / max(float(S), 1e-6) > cfg.faint_max_fwhm_px:
                 continue
-            if line_snr(d, s) < cfg.faint_min_line_snr:
+            if line_snr(d, s, scale=S) < cfg.faint_min_line_snr:
                 continue
             e0, e1 = world_endpoints(i, s)
             if radiant_miss_deg(e0, e1, radiant) < cfg.radiant_tol_deg:

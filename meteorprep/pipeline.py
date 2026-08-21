@@ -1840,8 +1840,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # become an "aircraft"
     from meteorprep.segment.sky_ground import ground_from_alignment
     sky_det = None
+    have_aligned = (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists() \
+        if ok_idx else False
     if cache.path("sky_det.npy").exists():
         sky_det = np.load(cache.path("sky_det.npy"))
+    elif base_wcs is not None and not have_aligned:
+        # A night with no ground in frame (pointed straight up) never
+        # writes a mask, so there is nothing to reload — and by the
+        # second run the aligned previews it would be measured from have
+        # been cleaned up.  Finding no ground is the right answer here,
+        # not a reason to fall over on a missing file.
+        log.info("no ground mask saved and the aligned previews are gone; "
+                 "carrying on with the whole frame as sky")
     elif base_wcs is not None:
         sky_det = ground_from_alignment(load_det_lum, load_det_foot, n,
                                         exclude=set(np.nonzero(lp)[0]))

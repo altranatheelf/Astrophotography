@@ -19,9 +19,20 @@ from __future__ import annotations
 import numpy as np
 
 
+def _float(a: np.ndarray) -> np.ndarray:
+    """np.median promotes integers to float before averaging the two
+    middle values; these have to as well, or an even-length uint16 stack
+    either wraps around (65000 + 65100 in 16 bits is 564) or refuses to
+    hold the halved result at all.  Every caller in this pipeline passes
+    float32 today — this is so the next one does not have to know that."""
+    a = np.asarray(a)
+    return a if a.dtype.kind == "f" else a.astype(np.float64)
+
+
 def median_axis0(a: np.ndarray) -> np.ndarray:
     """Median along axis 0 of a stack — same result as
     ``np.median(a, axis=0)``."""
+    a = _float(a)
     n = a.shape[0]
     k = n // 2
     if n % 2:
@@ -35,7 +46,7 @@ def median_axis0(a: np.ndarray) -> np.ndarray:
 def median_flat(a: np.ndarray) -> float:
     """Median of a flat (or flattened) array — same result as
     ``float(np.median(a))``."""
-    v = np.asarray(a).ravel()
+    v = _float(a).ravel()
     n = v.size
     if n == 0:
         return float("nan")
@@ -49,7 +60,7 @@ def median_flat(a: np.ndarray) -> float:
 def mad_sigma(a: np.ndarray, floor: float = 0.0) -> tuple:
     """(median, robust sigma) of a flat array: 1.4826 x the median
     absolute deviation, the estimator used all through the detector."""
-    v = np.asarray(a).ravel()
+    v = _float(a).ravel()
     med = median_flat(v)
     dev = np.abs(v - med)
     return med, 1.4826 * median_flat(dev) + floor

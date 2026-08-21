@@ -1142,6 +1142,36 @@ def test_saved_detection_moves_between_canvas_sizes(tmp_path):
     assert _candidates_scale(cache) is None
 
 
+def test_line_snr_needs_the_scale_its_streak_was_measured_on():
+    """detect_streaks reports geometry on the output canvas; the faint
+    pass measures on the detection-scale difference.  Handing it the
+    wrong one does not raise — every sample clamps to the frame edge and
+    the gate measures the border instead of the streak, which is how a
+    gate meant to reject noise ended up rejecting everything."""
+    import cv2
+
+    from meteorprep.detect.harvest import line_snr
+    from meteorprep.detect.hough import Streak
+
+    hd, wd = 400, 600
+    diff = np.random.default_rng(4).normal(0, 3, (hd, wd)).astype(np.float32)
+    np.clip(diff, 0, None, out=diff)
+    cv2.line(diff, (120, 90), (330, 250), 600.0, 2)     # detection scale
+
+    def streak(sc):                       # as detect_streaks would report
+        return Streak(frame_index=0, x0=120.0 * sc, y0=90.0 * sc,
+                      x1=330.0 * sc, y1=250.0 * sc, length_px=265.0 * sc,
+                      mean_intensity=600.0, peak_intensity=600.0,
+                      fwhm_px=2.0 * sc, aspect=80.0, area_px=500,
+                      score=300.0, straightness_rms=0.2)
+
+    good = line_snr(diff, streak(2.0), scale=2.0)
+    wrong = line_snr(diff, streak(2.0))                 # scale left at 1
+    assert good > 20.0, good
+    assert wrong < 4.0, wrong                           # the old behaviour
+    assert line_snr(diff, streak(1.0)) > 20.0           # unscaled still fine
+
+
 def test_resume_keeps_the_per_photo_noise_weights():
     """The search measures each photo's noise and the stack weights by
     it.  A resumed run does not search, so unless the numbers were
