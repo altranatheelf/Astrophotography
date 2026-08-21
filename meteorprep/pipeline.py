@@ -365,8 +365,18 @@ class _SharedAccums:
             ("fcount", 0, "<u2"), ("rcount", 0, "<u2"))
 
     def __init__(self, shape_hw, tmp_dir, worker_id):
-        h, w = shape_hw
         self.arrays, self.spec, self._paths, self._blocks = {}, {}, [], []
+        try:
+            self._build(shape_hw, tmp_dir, worker_id)
+        except BaseException:
+            # half a gigabyte of POSIX shared memory does not go away by
+            # itself: whatever was allocated before the failure has to be
+            # unlinked here, because the caller only ever sees the raise
+            self.close()
+            raise
+
+    def _build(self, shape_hw, tmp_dir, worker_id):
+        h, w = shape_hw
         for name, nch, dt in self.KEYS:
             shape = (h, w, nch) if nch else (h, w)
             nbytes = int(np.prod(shape)) * np.dtype(dt).itemsize
@@ -427,7 +437,10 @@ def _dont_track_shm() -> None:
     KeyError traceback in the run log.  Decline the registration
     instead; the parent still owns, and still unlinks, every segment.
     """
+    import multiprocessing as _mp
     from multiprocessing import resource_tracker
+    if _mp.parent_process() is None:
+        return          # the parent owns these segments and must unlink
     if getattr(resource_tracker.register, "_meteorprep", False):
         return
     _orig = resource_tracker.register
@@ -512,21 +525,32 @@ def _stack_pass(args) -> dict:
     from meteorprep.stack.streaming import RunningMoments
 
     h, w = shape_hw
-    # OpenCV threads every elementwise op it runs.  With one worker that
-    # is free speed; with four workers on four cores it is four processes
-    # each asking for four threads, and they spend the difference
-    # fighting over cache.  The parent decides the split.
-    try:
-        _cv2.setNumThreads(int(cv_threads))
-    except Exception:
-        pass
+    # This function runs in a spawned worker normally, and IN THE PARENT
+    # on the one-core fallback.  Everything below that changes state for
+    # a whole process — the OpenCV thread count, the resource tracker —
+    # is therefore conditional: doing it in the parent left every later
+    # stage of the run single-threaded, and broke the parent's own
+    # shared-memory bookkeeping.
+    import multiprocessing as _mp_ctx
+    in_child = _mp_ctx.parent_process() is not None
+    if in_child:
+        # OpenCV threads every elementwise op it runs.  With one worker
+        # that is free speed; with four workers on four cores it is four
+        # processes each asking for four threads, and they spend the
+        # difference fighting over cache.  The parent decides the split.
+        try:
+            _cv2.setNumThreads(int(cv_threads))
+        except Exception:
+            pass
     tmp = Path(tmp_dir_str)
     base_wcs = _wcs_from_str(base_wcs_str)
     bgs = {}
     sky_half = None
-    if sky_path:
-        sky_full = _np.load(sky_path)         # detection-scale sky mask
-        sky_half = sky_full
+    # only the statistics pass fits a per-frame sky surface, and only it
+    # needs the mask; the full-resolution pass was loading and later
+    # upsampling 20 MB per worker that nothing read
+    if sky_path and mode == "moments":
+        sky_half = _np.load(sky_path)         # detection-scale sky mask
     if mode == "moments":
         # statistics pass at half resolution: the clip bounds don't need
         # 20 MP, and the half-size decode + resample is ~4x cheaper
@@ -3224,7 +3248,12 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         pass reruns on one core (the proven fallback)."""
         idx = ok_idx if indices is None else list(indices)
         merged = 0
-        if base_wcs is not None and n_workers > 1 and len(idx) >= n_workers:
+        # Even with a single worker the pass goes through the pool: the
+        # per-photo counter, the deadline and the clean fallback all live
+        # on that path, and a machine small enough to get one worker is
+        # exactly the one that sits longest on this stage.  Running it in
+        # the parent used to mean no progress at all for the whole stack.
+        if base_wcs is not None and n_workers >= 1 and len(idx) >= n_workers:
             # one chunk per worker: each part on disk costs up to ~0.9 GB
             # at 20 MP, so more chunks than workers once filled a laptop
             # drive mid-run.  Per-photo progress comes from the counter
