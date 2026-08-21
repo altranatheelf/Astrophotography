@@ -1933,6 +1933,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     rejected = (np.load(cache.path("rejected.npy"))
                 if cache.path("rejected.npy").exists() else None)
     base_lum = raw_mod.luminance(base_img)
+    # the starfield is finished here; what follows is a different job
+    # (searching it), and lumping the two together hid which was slow
+    mark("building the clean starfield")
 
     # ------- second-pass faint-meteor harvest vs the clean base ---------
     if (cfg.faint_harvest and not detect_cached
@@ -2010,7 +2013,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     # ---------------- extraction (full quality, meteor frames only) -----
     _finish_cache_writes()
-    mark("building the clean starfield")
+    mark("second look for fainter meteors")
     notify(0.82, "cutting each meteor onto its own layer")
     star_cat_xy = detect_stars(base_img, max_stars=500)
 
@@ -3149,10 +3152,18 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
 
     tick = _stopwatch()
     try:
+        # in_order: the parent adds each worker's partial sums into one
+        # float32 accumulator, and float addition is not associative, so
+        # merging in completion order made the finished stack depend on
+        # which worker happened to finish first.  (It was hidden while
+        # the parent accumulated in float64 — wide enough to absorb the
+        # difference before it was rounded back down.)  The merge drains
+        # the contiguous prefix as it lands, so worker 0 still folds in
+        # while 1 and 2 are running; only the order is pinned.
         run_pass("clipped", 0.70, 0.80,
                  "building the clean starfield (pass 2 of 2)", want_fg,
                  want_trail, on_result=_merge_clipped,
-                 on_reset=_reset_clipped)
+                 on_reset=_reset_clipped, in_order=True)
     finally:
         close_pool()
         tick("pass2 + merge")

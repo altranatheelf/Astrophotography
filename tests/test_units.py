@@ -1097,6 +1097,39 @@ def test_sky_gradient_surface_matches_the_direct_evaluation():
         assert np.abs(got[:, :, c] - ref).max() < 6.0, c
 
 
+def test_clipped_partials_are_merged_in_worker_order():
+    """The second pass adds each worker's partial sums into one float32
+    accumulator.  Float addition is not associative, so completion order
+    would decide the last bit of every pixel — invisible, but enough to
+    make two runs of the same folder produce different files.  (It was
+    masked while the parent accumulated in float64, and reappeared the
+    day that became float32.)  This pins both halves: that the order
+    matters, and that the pass asks for it to be fixed."""
+    import inspect
+
+    from meteorprep import pipeline as pl
+
+    rng = np.random.default_rng(5)
+    parts = [rng.random((6, 6, 3), np.float32) * 4000 for _ in range(4)]
+
+    def summed(order):
+        acc = np.zeros((6, 6, 3), np.float32)
+        for k in order:
+            np.add(acc, parts[k], out=acc)
+        return acc
+
+    assert not np.array_equal(summed([0, 1, 2, 3]), summed([3, 1, 0, 2])), (
+        "if float32 accumulation ever becomes exact the ordering could "
+        "be relaxed")
+
+    src = inspect.getsource(pl._stream_base)
+    call = src[src.index('run_pass("clipped"'):]
+    call = call[:call.index(")\n")]
+    assert "in_order=True" in call, (
+        "the full-resolution pass must merge its partials in worker "
+        "order or the finished stack stops being reproducible")
+
+
 def test_moment_merging_is_order_sensitive_which_is_why_it_is_ordered():
     """Combining the statistics partials is floating-point addition, so
     the answer depends on the order they arrive in — and downstream that
