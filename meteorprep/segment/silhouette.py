@@ -118,8 +118,13 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
     sky = np.asarray(sky_alpha, np.float32)
     if fg.shape != base.shape or sky.shape[:2] != fg.shape[:2]:
         return fg
+    # keyed on the base and the mask it was measured from, not just on
+    # the shape: two foreground layers of the same size against a
+    # different base would otherwise silently reuse the first one's
+    # numbers
+    key = (fg.shape, id(base), id(sky))
     cached = ctx.get("band") if isinstance(ctx, dict) else None
-    if cached is not None and cached[0] == fg.shape:
+    if cached is not None and cached[0] == key:
         _, idx, med_base = cached
     else:
         near = (cv2.dilate((sky < 0.5).astype(np.uint8),
@@ -141,7 +146,8 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
             idx = idx[::idx.size // 200_000]
         med_base = np.median(base.reshape(-1, base.shape[2])[idx], axis=0)
         if isinstance(ctx, dict):
-            ctx["band"] = (fg.shape, idx, med_base)
+            ctx["band"] = (key, idx, med_base)
+            ctx["_keep"] = (base, sky)     # ids stay valid while cached
     off = med_base - np.median(fg.reshape(-1, fg.shape[2])[idx], axis=0)
     # apply the offset in FULL — throttling it (an earlier attempt capped
     # it against the silhouette's own near-black level) leaves exactly the

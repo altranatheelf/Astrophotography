@@ -1142,6 +1142,31 @@ def test_saved_detection_moves_between_canvas_sizes(tmp_path):
     assert _candidates_scale(cache) is None
 
 
+def test_streak_endpoints_walk_through_a_gap_in_the_tail():
+    """The endpoint walk is documented to stop after five dim pixels in a
+    row.  Stepping from the last ACCEPTED point instead of the current
+    one re-tested the same pixel five times and stopped at the FIRST dim
+    one — so the run length never happened and a meteor tail was cut at
+    its first flicker, which is where the interesting part of a tail
+    starts."""
+    from meteorprep.mask.extract import _grow_along_axis
+
+    diff = np.zeros((60, 200), np.float32)
+    diff[30, 40:120] = 500.0          # the streak
+    diff[30, 100] = 0.0               # one dim pixel partway along it
+    diff[30, 121:126] = 0.0           # the real end: five in a row
+
+    p0, p1 = _grow_along_axis(diff, (60.0, 30.0), (90.0, 30.0), 100.0)
+    assert p1[0] >= 119, f"tail cut short at {p1[0]}"
+    assert p0[0] <= 40, f"head cut short at {p0[0]}"
+
+    # and a clean streak still ends where it ends
+    clean = np.zeros((60, 200), np.float32)
+    clean[30, 40:120] = 500.0
+    q0, q1 = _grow_along_axis(clean, (60.0, 30.0), (90.0, 30.0), 100.0)
+    assert (q0[0], q1[0]) == (40.0, 119.0)
+
+
 def test_line_snr_needs_the_scale_its_streak_was_measured_on():
     """detect_streaks reports geometry on the output canvas; the faint
     pass measures on the detection-scale difference.  Handing it the

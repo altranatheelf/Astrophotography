@@ -231,10 +231,15 @@ class Config:
                      "radiant_dra_deg_per_day", "radiant_ddec_deg_per_day",
                      "radiant_tol_deg", "shower_entry_km_s",
                      "shower_ablation_km"],
+        # emit_startrail belongs here, not only in "assemble": the
+        # star-trail image is accumulated INSIDE the stack, at no extra
+        # decode.  Left out, turning it on skipped the stage that makes
+        # it and the assembly fell back to re-decoding every photo of the
+        # night to build it a second way.
         "base_sky": ["stack_sigma", "stack_maxiters", "stack_band_rows",
                      "frame_weighting", "emit_foreground_stack",
-                     "half_size", "super_sample", "draft",
-                     "draft_stack_max"],
+                     "emit_startrail", "half_size", "super_sample",
+                     "draft", "draft_stack_max"],
         "sky_ground": [],
         "extract": ["half_size", "super_sample"],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",

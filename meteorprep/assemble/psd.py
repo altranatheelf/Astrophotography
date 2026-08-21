@@ -55,7 +55,8 @@ def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
     try:
         from meteorprep.assemble.psdwrite import write_psd_native
         p = write_psd_native(stack, out_path)
-        validate_psd(p, stack)
+        if not validate_psd(p, stack):
+            raise ValueError("the written PSD did not read back correctly")
         return p
     except Exception as exc:
         log.warning("native PSD writer failed (%s); trying pytoshop", exc)
@@ -107,7 +108,13 @@ def write_psd(stack: LayerStack, out_path: Path) -> Path | None:
         log.error("pytoshop PSD write failed (%s) — rely on PNG+JSX fallback", exc)
         return None
 
-    validate_psd(out_path, stack)
+    if not validate_psd(out_path, stack):
+        # the file exists but does not read back as the document that was
+        # asked for; saying so is what makes the caller fall back to the
+        # PNG + script rescue copy instead of shipping it as a success
+        log.error("the written PSD did not read back correctly — "
+                  "falling back to the PNG + script copy")
+        return None
     return out_path
 
 

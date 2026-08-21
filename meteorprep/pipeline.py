@@ -926,7 +926,10 @@ def run(cfg: Config, progress=None) -> dict:
     # flight recorder: everything the run says, in one plain file the user
     # can send when something looks wrong
     cfg.output_path.mkdir(parents=True, exist_ok=True)
-    _fh = logging.FileHandler(cfg.output_path / "run_log.txt",
+    # a quick look and the full run share an output folder, and the log
+    # is the file support asks for — one must not erase the other
+    _log_name = "run_log_quick.txt" if cfg.draft else "run_log.txt"
+    _fh = logging.FileHandler(cfg.output_path / _log_name,
                               mode="w", encoding="utf-8")
     _fh.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)s %(message)s"))
@@ -1886,6 +1889,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     sky_det = None
     have_aligned = (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists() \
         if ok_idx else False
+    if cfg.force:
+        # "Start over" has to mean it: the ground mask is measured from
+        # the photos like everything else, and a saved one quietly
+        # survived the one option whose whole job is to trust nothing.
+        cache.path("sky_det.npy").unlink(missing_ok=True)
     if cache.path("sky_det.npy").exists():
         sky_det = np.load(cache.path("sky_det.npy"))
     elif base_wcs is not None and not have_aligned:
@@ -2117,6 +2125,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             jobs.append(("fg_stack.tif", fg_stack))
         if trail_img is not None:
             jobs.append(("startrail.tif", trail_img))
+        # Anything this run did NOT produce must not survive from the
+        # last one: turning the frozen foreground off and re-running
+        # otherwise picked the previous run's fg_stack.tif back up off
+        # the disk and composited it, because the loader only asks
+        # whether the file exists.
+        for stale in ("fg_stack.tif", "startrail.tif"):
+            if stale not in dict(jobs):
+                cache.path(stale).unlink(missing_ok=True)
         u16 = {name: np.clip(arr, 0, 65535).astype(np.uint16)
                for name, arr in jobs}
         from concurrent.futures import ThreadPoolExecutor
@@ -2545,6 +2561,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                              bbox=bbox_l, blend="screen", visible=visible))
         return out
 
+    # The sky-tools layers are two more full-canvas images, and they
+    # exist to be toggled inside the Photoshop file.  A quick look does
+    # not write one, so it was building a quarter of a gigabyte apiece to
+    # throw away unwritten.  (The colour calibration itself is kept — the
+    # preview uses its gains.)
+    want_layers = bool(cfg.emit_psd or cfg.emit_pngjsx)
     extra_layers = []
     color_cal = None
     if base_wcs is not None:
@@ -2558,13 +2580,13 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             color_cal = star_white_balance(base_img, canvas_wcs, blind_catalog)
         except Exception as exc:
             log.warning("star colour calibration failed: %s", exc)
-        if color_cal is not None:
+        if color_cal is not None and want_layers:
             g_ = np.asarray(color_cal["gains"], np.float32)
             extra_layers.append(Layer(
                 name="BASE_SKY_star_calibrated_colors",
                 rgb=np.clip(base_img * g_[None, None, :], 0, 65535),
                 blend="normal", visible=False))
-    if cfg.emit_gradient_layer:
+    if cfg.emit_gradient_layer and want_layers:
         from meteorprep.stack.gradient import fit_sky_gradient
         grad = fit_sky_gradient(base_img, sky_mask)
         if grad is not None:
@@ -2636,16 +2658,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     if cfg.emit_startrail:
         # rendered for free inside stack pass 2 (camera-space lighten-max)
         if cache.path("startrail.tif").exists():
-            # hardlink, not copy: the cached file and the delivered one
-            # are the same 75 MB of bytes, and nothing rewrites either
-            dst = out_dir / "startrail.tif"
-            dst.unlink(missing_ok=True)
-            try:
-                import os as _os
-                _os.link(cache.path("startrail.tif"), dst)
-            except OSError:            # different volume, or no hardlinks
-                import shutil as _sh
-                _sh.copyfile(cache.path("startrail.tif"), dst)
+            # A copy, not a hardlink.  They are the same 75 MB of bytes
+            # and the link was free, but the delivered file is the user's
+            # to open and edit — and an editor that writes in place would
+            # have been rewriting the cache, so the next resumed run
+            # would deliver the edited file back as if the stack had
+            # produced it.
+            import shutil as _sh
+            _sh.copyfile(cache.path("startrail.tif"),
+                         out_dir / "startrail.tif")
         else:                     # cache from an older run: render classic
             trail = lighten_stack(
                 lambda i: raw_mod.decode(frames[i].path, "final",

@@ -104,8 +104,13 @@ def _blend_streaks(disp: np.ndarray, layer_pairs, s: float,
 def _save_jpg(disp: np.ndarray, out_path: Path) -> Path:
     import cv2
     out8 = (np.clip(disp, 0, 1) * 255).astype(np.uint8)
-    cv2.imwrite(str(out_path), cv2.cvtColor(out8, cv2.COLOR_RGB2BGR),
-                [cv2.IMWRITE_JPEG_QUALITY, 92])
+    # cv2.imwrite reports failure by returning False, not by raising: a
+    # full disk or an unwritable folder produced no file and no
+    # complaint, and the report then linked to a picture that was never
+    # written
+    if not cv2.imwrite(str(out_path), cv2.cvtColor(out8, cv2.COLOR_RGB2BGR),
+                       [cv2.IMWRITE_JPEG_QUALITY, 92]):
+        raise OSError(f"could not write {out_path}")
     return Path(out_path)
 
 

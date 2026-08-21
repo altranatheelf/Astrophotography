@@ -35,11 +35,22 @@ def _grow_along_axis(diff, p0, p1, background_sigma, max_extend_px=200):
     h, w = diff.shape[:2]
 
     def extend(start, direction):
-        p = start.copy()
+        """Walk outward, remembering the last bright pixel, and stop only
+        after five dim ones in a row.
+
+        The walk has to keep moving through the dim pixels or it cannot
+        count them: stepping from the last ACCEPTED point re-tested the
+        same pixel five times and stopped there, which made the run
+        length a no-op and cut the endpoint at the first dim pixel.  A
+        meteor tail fades — and flickers — so that is exactly where the
+        interesting part starts.
+        """
+        p = np.array(start, float)
+        best = np.array(start, float)
         low_run = 0
         for _ in range(max_extend_px):
-            q = p + direction
-            xi, yi = int(round(q[0])), int(round(q[1]))
+            p = p + direction
+            xi, yi = int(round(p[0])), int(round(p[1]))
             if not (0 <= xi < w and 0 <= yi < h):
                 break
             if diff[yi, xi] < background_sigma:
@@ -48,8 +59,8 @@ def _grow_along_axis(diff, p0, p1, background_sigma, max_extend_px=200):
                     break
             else:
                 low_run = 0
-                p = q
-        return p
+                best = p.copy()
+        return best
 
     return extend(p0, -d), extend(p1, d)
 

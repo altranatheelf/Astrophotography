@@ -64,9 +64,13 @@ def render_candidate_crops(candidates, layer_pairs, roi_images,
                 disp = np.dstack([mono] * 3)
             out8 = (np.clip(disp, 0, 1) * 255).astype(np.uint8)
             fname = f"cand_{c.id}.jpg"
-            cv2.imwrite(str(media / fname),
-                        cv2.cvtColor(out8, cv2.COLOR_RGB2BGR),
-                        [cv2.IMWRITE_JPEG_QUALITY, 88])
+            # only claim the crop in the report if it reached the disk;
+            # cv2.imwrite returns False rather than raising
+            if not cv2.imwrite(str(media / fname),
+                               cv2.cvtColor(out8, cv2.COLOR_RGB2BGR),
+                               [cv2.IMWRITE_JPEG_QUALITY, 88]):
+                log.warning("could not write the crop for %s", c.id)
+                continue
             crops[c.id] = f"report_media/{fname}"
         except Exception as exc:
             log.debug("crop render failed for %s: %s", c.id, exc)
