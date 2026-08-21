@@ -25,24 +25,31 @@ def _asinh_stretch(img: np.ndarray, black_pct: float = 22.0,
     measurement to the sky: with a dark foreground in frame the whole-
     image percentile lands ON the foreground and crushes it to featureless
     black, which is exactly what the layered file is not supposed to be."""
-    x = img.astype(np.float32).copy()
-    # percentiles estimated on a 1/16 subsample: indistinguishable on a
-    # 20 MP canvas and several seconds cheaper
-    sub = x[::4, ::4]
+    # Measure on a 1/16 subsample (indistinguishable on a 20 MP canvas),
+    # then do the whole stretch as in-place steps on one array.  Written
+    # as plain expressions it built six frame-sized temporaries and wrote
+    # the black point down three stride-3 channel planes; this is the
+    # same arithmetic in a single buffer.
+    sub = img[::4, ::4]
     sel = None
-    if sky is not None and sky.shape[:2] == x.shape[:2]:
+    if sky is not None and sky.shape[:2] == img.shape[:2]:
         m = sky[::4, ::4] > 0.5
         if m.sum() > 1000:
             sel = m
-    for c in range(x.shape[2]):
-        s_c = sub[:, :, c][sel] if sel is not None else sub[:, :, c]
-        x[:, :, c] -= np.percentile(s_c, black_pct)
-    x = np.maximum(x, 0)
-    d = np.arcsinh(x / soft)
-    dsub = d[::4, ::4]
+    black = np.array(
+        [np.percentile(sub[:, :, c][sel] if sel is not None
+                       else sub[:, :, c], black_pct)
+         for c in range(img.shape[2])], np.float32)
+    x = np.array(img, np.float32)          # one copy, then in place
+    x -= black[None, None, :]
+    np.maximum(x, 0, out=x)
+    x /= soft
+    np.arcsinh(x, out=x)
+    dsub = x[::4, ::4]
     hi = max(float(np.percentile(dsub[sel] if sel is not None else dsub,
                                  white_pct)), 1e-6)
-    return np.clip(d / hi, 0.0, 1.0)
+    x /= hi
+    return np.clip(x, 0.0, 1.0, out=x)
 
 
 def _blend_streaks(disp: np.ndarray, layer_pairs, s: float,
@@ -155,43 +162,53 @@ def render_preview(base_img: np.ndarray,
         # left to the layered file — composited blindly here they produced
         # a maroon sky and daylight-bright ground blocks (seen, not
         # theorized).
-        lin = base_img.astype(np.float32)
+        # Downsize FIRST, then balance, composite and stretch.  Every
+        # one of those steps used to run over the full 20 MP canvas and
+        # build a quarter-gigabyte temporary each time, to produce a
+        # 4096-wide JPEG: box-averaging down first is the same picture
+        # for a third of the work and a fraction of the memory.  (The
+        # composite is a blend through a feathered mask, so doing it
+        # after the resize differs only inside the horizon feather, at
+        # sub-pixel scale, in a file whose whole job is to be looked at.)
+        h0, w0 = base_img.shape[:2]
+        s = min(1.0, max_width / w0)
+        tw, th = (max_width, int(round(h0 * s))) if s < 1.0 else (w0, h0)
+
+        def _down(a, interp=cv2.INTER_AREA):
+            a = np.asarray(a, np.float32)
+            return (cv2.resize(a, (tw, th), interpolation=interp)
+                    if a.shape[:2] != (th, tw) else a)
+
+        lin = _down(base_img)
+        if lin is base_img:                 # never scribble on the caller
+            lin = np.array(lin, np.float32)
         wb = None
         if color_gains is not None:
             g = np.asarray(color_gains, np.float32).reshape(1, 1, 3)
             if np.all(np.isfinite(g)) and np.all((g > 0.5) & (g < 2.0)):
-                lin = lin * g
+                lin *= g
                 wb = g
+        sky_s = (_down(sky_mask, cv2.INTER_LINEAR)
+                 if sky_mask is not None else None)
         # sharp frozen foreground over the (sweep-suppressed) sky, blended
         # in LINEAR light through the feathered horizon mask — verified by
         # eye on real frames; the same composite a person would build from
         # the layers
-        if (fg_img is not None and sky_mask is not None
-                and fg_img.shape[:2] == lin.shape[:2]
-                and sky_mask.shape[:2] == lin.shape[:2]):
+        if (fg_img is not None and sky_s is not None
+                and fg_img.shape[:2] == base_img.shape[:2]):
             # NOTE: the caller matches the foreground's sky level to the
             # stack before handing it over.  Matching again here made the
             # preview and the PSD disagree by 3.3x on canopy brightness.
-            fgl = np.asarray(fg_img, np.float32)
+            fgl = _down(fg_img)
+            if fgl is fg_img:
+                fgl = np.array(fgl, np.float32)
             if wb is not None:
-                fgl = fgl * wb
-            a = (1.0 - np.clip(sky_mask.astype(np.float32), 0, 1))[..., None]
-            lin = lin * (1.0 - a) + fgl * a
-        # downsize to the output width BEFORE the stretch: INTER_AREA on
-        # linear data is a clean average, and the arcsinh + blends then
-        # touch ~2x fewer pixels
-        h0, w0 = lin.shape[:2]
-        s = min(1.0, max_width / w0)
-        if s < 1.0:
-            lin = cv2.resize(lin, (max_width, int(round(h0 * s))),
-                             interpolation=cv2.INTER_AREA)
-        sky_s = None
-        if sky_mask is not None:
-            sky_s = (cv2.resize(np.asarray(sky_mask, np.float32),
-                                (lin.shape[1], lin.shape[0]),
-                                interpolation=cv2.INTER_LINEAR)
-                     if sky_mask.shape[:2] != lin.shape[:2] else
-                     np.asarray(sky_mask, np.float32))
+                fgl *= wb
+            a = (1.0 - np.clip(sky_s, 0, 1))[..., None]
+            fgl -= lin                      # lin + a * (fg - lin)
+            fgl *= a
+            lin += fgl
+            del fgl
         disp = _asinh_stretch(lin, sky=sky_s)
         del lin
 

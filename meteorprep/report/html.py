@@ -29,14 +29,29 @@ def render_candidate_crops(candidates, layer_pairs, roi_images,
     crops = {}
     for c in candidates:
         try:
+            def _small(a_):
+                """Down to thumbnail size before the arithmetic: these
+                are a few hundred pixels wide, and a bright meteor's
+                layer can be several megapixels."""
+                hgt_, wdt_ = a_.shape[:2]
+                s_ = min(1.0, max_px / max(hgt_, wdt_, 1))
+                if s_ >= 1.0:
+                    return a_
+                return cv2.resize(a_, (max(int(wdt_ * s_), 1),
+                                       max(int(hgt_ * s_), 1)),
+                                  interpolation=cv2.INTER_AREA)
+
             lyr = best_layer.get(c.id)
             if lyr is not None:
                 rgb = np.asarray(lyr.rgb, np.float32)
                 a = (np.asarray(lyr.alpha, np.float32)
                      if lyr.alpha is not None
                      else np.ones(rgb.shape[:2], np.float32))
+                # the brightening gain is read off the full-size layer,
+                # so the thumbnail is stretched exactly as the layer is
                 peak = float((rgb.max(axis=2) * a).max())
                 gain = min(0.9 * 65535.0 / max(peak, 1.0), 60.0)
+                rgb, a = _small(rgb), _small(a)
                 lin = np.clip(rgb * gain, 0, 65535) / 65535.0
                 disp = np.sqrt(lin) * a[:, :, None]
             else:
@@ -45,14 +60,8 @@ def render_candidate_crops(candidates, layer_pairs, roi_images,
                     continue
                 roi = np.asarray(roi, np.float32)
                 hi = max(float(np.percentile(roi, 99.9)), 1.0)
-                mono = np.sqrt(np.clip(roi / hi, 0, 1))
+                mono = np.sqrt(np.clip(_small(roi) / hi, 0, 1))
                 disp = np.dstack([mono] * 3)
-            hgt, wdt = disp.shape[:2]
-            s = min(1.0, max_px / max(hgt, wdt, 1))
-            if s < 1.0:
-                disp = cv2.resize(disp, (max(int(wdt * s), 1),
-                                         max(int(hgt * s), 1)),
-                                  interpolation=cv2.INTER_AREA)
             out8 = (np.clip(disp, 0, 1) * 255).astype(np.uint8)
             fname = f"cand_{c.id}.jpg"
             cv2.imwrite(str(media / fname),

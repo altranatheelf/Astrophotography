@@ -134,6 +134,7 @@ def _streak_search_chunk(args) -> list:
     from meteorprep.detect.hough import detect_streaks
     from meteorprep.detect.reference import RunningReference
     from meteorprep.detect.diff import difference
+    from meteorprep.fastmath import mad_sigma as _mad_sigma
 
     det_dir = Path(det_dir_str)
     diff_dir = Path(diff_dir_str)
@@ -173,8 +174,7 @@ def _streak_search_chunk(args) -> list:
                 pass
         d = difference(lums[i], ref.for_frame(i), foots[i])
         d_stat = d[sky_bin] if sky_bin is not None else d
-        med = float(_np.median(d_stat))
-        noise = 1.4826 * float(_np.median(_np.abs(d_stat - med))) + 1e-3
+        med, noise = _mad_sigma(d_stat, floor=1e-3)
         if sky_bin is not None:
             d = d * sky_bin
         # Subtract everything smoother than a streak.  The reference
@@ -224,9 +224,18 @@ _DISK_FULL_MSG = (
 _TIF_LEVEL = 1
 
 
-def _write_cache_tif(path, arr_u16) -> None:
-    """Write one of the big cache images as fast as zlib allows."""
+def _write_cache_tif(path, arr_u16, compress: bool = True) -> None:
+    """Write one of the big cache images as fast as zlib allows.
+
+    ``compress=False`` for images that only ever live in the scratch
+    cache: even at level 1, zlib costs about a second per 20 MP image and
+    saves 45 MB, and the scratch directory is measured in gigabytes.  The
+    files a person keeps are still compressed.
+    """
     import tifffile
+    if not compress:
+        tifffile.imwrite(path, arr_u16)
+        return
     try:
         tifffile.imwrite(path, arr_u16, compression="zlib",
                          compressionargs={"level": _TIF_LEVEL})
@@ -1122,6 +1131,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     timings: list = list(pre_timings or [])
     _t_last = [_time.time()]
 
+    sw = _stopwatch()          # METEORPREP_PROF: fine-grained step timing
+
     def mark(label):
         now = _time.time()
         timings.append((label, now - _t_last[0]))
@@ -1773,6 +1784,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             log.info("ground found from alignment physics: %.0f%% of the "
                      "frame masked out of the meteor search",
                      100.0 * (sky_det < 0.5).mean())
+    sw("detect: ground mask")
     sky_path = ""
     if sky_det is not None:
         sky_path = str(cache.path("sky_det.npy"))
@@ -1863,14 +1875,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             return ((s.x0 * det_scale_out, s.y0 * det_scale_out),
                     (s.x1 * det_scale_out, s.y1 * det_scale_out))
 
+    sw("detect: streak search")
     candidates = build_tracks(streaks_per_frame, world_endpoints,
                               [m.file for m in frames])
     from meteorprep.detect.track import merge_same_frame_fragments
     candidates = merge_same_frame_fragments(candidates, world_endpoints)
     _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
                               (hd, wd), S, bad_pixels, k1)
+    sw("detect: candidate colours")
     radiant = radiant_at_epoch(cfg, base_meta.epoch_mid)
     candidates = classify(candidates, cfg, radiant)
+    sw("detect: classify")
     _absorb_track_fragments(candidates,
                             {m.file: i for i, m in enumerate(frames)},
                             frames)
@@ -1948,8 +1963,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                for name, arr in jobs}
         from concurrent.futures import ThreadPoolExecutor
         _tif_pool = ThreadPoolExecutor(max_workers=len(u16))
+        # startrail.tif is the one the user keeps (the delivered file is
+        # a hardlink to it), so it stays compressed; base and fg_stack
+        # exist only to let a re-run resume
         _tif_futures = [_tif_pool.submit(_write_cache_tif,
-                                         cache.path(nm), u16[nm])
+                                         cache.path(nm), u16[nm],
+                                         nm == "startrail.tif")
                         for nm in u16]
         tick("cache tiffs submitted")
         if coverage is not None:
@@ -2081,7 +2100,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     _finish_cache_writes()
     mark("second look for fainter meteors")
     notify(0.82, "cutting each meteor onto its own layer")
+    sw("harvest + cache join")
     star_cat_xy = detect_stars(base_img, max_stars=500)
+    sw("extract: detect_stars on the base")
 
     _dec_cache: dict[int, np.ndarray] = {}
 
@@ -2203,6 +2224,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             roi_images[c.id] = np.asarray(diffs_det[i][y0:y1, x0:x1]).copy()
 
     # ---------------- sky/ground segmentation ----------------
+    sw("extract: candidate layers")
     notify(0.88, "finding the horizon")
     if sky_det is not None:
         # the alignment-physics mask (already proven at detection time),
@@ -2216,6 +2238,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     # ---------------- assembly ----------------
     mark("cutting layers + horizon")
+    sw("extract: horizon")
     notify(0.92, "assembling layers")
 
     # seam-removing crop: keep the region where most frames overlap — the
@@ -2300,14 +2323,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # brightness or colour than the sky it sits against is the single
     # most jarring thing to open in Photoshop
     from meteorprep.segment.silhouette import match_sky_level
-    fg_ref = match_sky_level(fg_ref, base_img, sky_fg)
+    lvl_ctx: dict = {}      # the band above the treeline, worked out once
+    fg_ref = match_sky_level(fg_ref, base_img, sky_fg, ctx=lvl_ctx)
     from PIL import Image
     Image.fromarray((np.clip(sky_fg, 0, 1) * 255).astype(np.uint8)).save(
         _skymask_path)
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
     if fg_stack is not None:
-        fg_stack = match_sky_level(_fit_output(fg_stack), base_img, sky_fg)
+        fg_stack = match_sky_level(_fit_output(fg_stack), base_img, sky_fg,
+                                   ctx=lvl_ctx)
     if fg_stack is not None:
         # frozen-ground stack: all frames averaged in camera space — far
         # lower noise than any single frame's foreground
@@ -2395,8 +2420,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     outputs = {}
     psd_path = None
+    sw("assemble: layer stack built")
     if cfg.emit_psd:
         psd_path = write_psd(stack, out_dir / "meteorprep.psd")
+        sw("assemble: PSD written")
         if psd_path:
             outputs["psd"] = str(psd_path)
     # the PNG + script fallback duplicates the PSD's content (~0.5 GB on
@@ -2433,6 +2460,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                         all_trails_path=out_dir / "preview_all_trails.jpg",
                         crop_xy=((crop[0], crop[1]) if crop is not None
                                  else (0, 0)))
+    sw("preview: render")
     if pv:
         outputs["preview"] = str(pv["preview"])
         if pv.get("all_trails"):
@@ -2440,9 +2468,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     if cfg.emit_startrail:
         # rendered for free inside stack pass 2 (camera-space lighten-max)
         if cache.path("startrail.tif").exists():
-            import shutil as _sh
-            _sh.copyfile(cache.path("startrail.tif"),
-                         out_dir / "startrail.tif")
+            # hardlink, not copy: the cached file and the delivered one
+            # are the same 75 MB of bytes, and nothing rewrites either
+            dst = out_dir / "startrail.tif"
+            dst.unlink(missing_ok=True)
+            try:
+                import os as _os
+                _os.link(cache.path("startrail.tif"), dst)
+            except OSError:            # different volume, or no hardlinks
+                import shutil as _sh
+                _sh.copyfile(cache.path("startrail.tif"), dst)
         else:                     # cache from an older run: render classic
             trail = lighten_stack(
                 lambda i: raw_mod.decode(frames[i].path, "final",
@@ -2474,6 +2509,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     outputs["sidecar"] = str(sidecar)
     from meteorprep.report.html import (render_candidate_crops,
                                         write_report_html)
+    sw("report: sidecar + capsule")
     crops = render_candidate_crops(candidates,
                                    meteor_layers + flagged_layers,
                                    roi_images, out_dir)
@@ -2485,13 +2521,20 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         evd.mkdir(exist_ok=True)
 
         def _gray_png(arr, path, hi=None):
-            a = arr.astype(np.float32)
-            hi = hi or max(float(np.percentile(a, 99.5)), 1e-6)
-            g8 = (np.clip(a / hi, 0, 1) * 255).astype(np.uint8)
-            hh, ww2 = g8.shape[:2]
+            """These are 1400-pixel-wide look-at-it maps.  Everything used
+            to run at the full 20 MP first — a float copy, a percentile
+            over twenty million values, a clip and a cast — and only then
+            shrink.  The percentile now comes from a 1-in-16 sample of the
+            real data (same number to three figures) and the arithmetic
+            happens after the shrink."""
+            a = np.asarray(arr, np.float32)
+            if hi is None:
+                hi = max(float(np.percentile(a[::4, ::4], 99.5)), 1e-6)
+            hh, ww2 = a.shape[:2]
             if ww2 > 1400:
-                g8 = _cv2.resize(g8, (1400, int(hh * 1400 / ww2)),
-                                 interpolation=_cv2.INTER_AREA)
+                a = _cv2.resize(a, (1400, int(hh * 1400 / ww2)),
+                                interpolation=_cv2.INTER_AREA)
+            g8 = np.clip(a * (255.0 / hi), 0, 255).astype(np.uint8)
             _cv2.imwrite(str(path), g8)
 
         ev_stats = {}
@@ -2514,7 +2557,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             rej = rej[crop[1]:crop[3], crop[0]:crop[2]]
         if rej is not None and rej.shape[:2] == base_img.shape[:2]:
             _gray_png(rej, evd / "rejected.png",
-                      hi=max(float(np.percentile(rej, 99.9)), 1.0))
+                      hi=max(float(np.percentile(rej[::4, ::4], 99.9)), 1.0))
             n_any = float((rej > 0).mean())
             ev_stats["outliers removed"] = (
                 f"{n_any * 100:.1f}% of pixels had at least one frame "
@@ -2602,6 +2645,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         outputs["capsule"] = str(_cap.write(out_dir, capsule))
     except Exception as exc:
         log.warning("share capsule skipped: %s", exc)
+    sw("report: candidate crops")
     outputs["report"] = str(write_report_html(
         out_dir,
         {"candidates": [c.to_dict() for c in candidates],
@@ -2843,16 +2887,42 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
         return arr.astype(np.float32)
 
     cache: dict[int, np.ndarray] = {}
+    _CAP = 6                    # a developed frame here is ~60 MB
 
     def get(i):
         if i not in cache:
-            if len(cache) > 3:
+            while len(cache) >= _CAP:
                 cache.pop(next(iter(cache)))
             cache[i] = det_rgb(i)
         return cache[i]
 
     n = len(frames)
+
+    def _prefetch(idx):
+        """Develop the frames this candidate needs, together.  Each is a
+        RAW decode — a second apiece one at a time — and LibRaw releases
+        the GIL, so a small pool overlaps them.  Per candidate, not for
+        the whole night at once: a busy night has dozens of candidates
+        and this cache is capped for a reason."""
+        todo = [i for i in dict.fromkeys(idx) if i not in cache][:_CAP]
+        if len(todo) < 2:
+            return
+        for k in [k for k in cache if k not in idx][:len(todo)]:
+            cache.pop(k, None)              # room for the batch
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(4, len(todo))) as tp:
+                for i, arr in zip(todo, tp.map(det_rgb, todo)):
+                    cache[i] = arr
+        except Exception as exc:
+            log.debug("parallel colour decode skipped: %s", exc)
+
     for c in candidates:
+        need = []
+        for frame_file in c.frames:
+            i = file_to_idx[frame_file]
+            need += [i, i - 1 if i > 0 else min(i + 1, n - 1)]
+        _prefetch(need)
         rgs, bgs = [], []
         for frame_file, st in zip(c.frames, c.streaks):
             i = file_to_idx[frame_file]
@@ -3172,8 +3242,29 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # evidence bundle: the per-pixel temporal noise map is a kept product
     np.save(cache.path("noise_half.npy"), std_map.astype(np.float16))
     del std_map
-    mean_full = _cv2.resize(total.mean, (w, h),
-                            interpolation=_cv2.INTER_LINEAR)
+    # The plain mean is only read band by band in the finalise below (as
+    # the fallback where clipping rejected everything, and to work out
+    # what was removed).  Holding the full-size upsample cost a quarter
+    # of a gigabyte in the parent at the exact moment the workers' own
+    # blocks were live; each band is now upsampled from the half-size
+    # statistics as it is used — the same bilinear result.
+    half_mean = total.mean
+    mean_exact = (half_mean.shape[0] * 2 == h and half_mean.shape[1] * 2 == w)
+    mean_full = (None if mean_exact else
+                 _cv2.resize(half_mean, (w, h),
+                             interpolation=_cv2.INTER_LINEAR))
+
+    def _mean_rows(r0, r1):
+        """Rows [r0, r1) of the full-resolution plain mean."""
+        if mean_full is not None:
+            return mean_full[r0:r1]
+        hh = half_mean.shape[0]
+        s0 = max((r0 // 2) - 1, 0)
+        s1 = min(((r1 - 1) // 2) + 2, hh)
+        blk = _cv2.resize(half_mean[s0:s1], (w, (s1 - s0) * 2),
+                          interpolation=_cv2.INTER_LINEAR)
+        off = r0 - s0 * 2
+        return blk[off:off + (r1 - r0)]
 
     # -------- pass 2: sigma-clipped, frame-weighted mean (+ foreground) --
     want_trail = bool(cfg.emit_startrail)
@@ -3218,6 +3309,14 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         for key in ("csum", "cwsum", "fcount", "rcount", "fg", "trail"):
             if key in p and isinstance(p[key], str):
                 Path(p[key]).unlink(missing_ok=True)   # merged: free it
+        # This worker's shared block is now fully folded into the totals
+        # and nothing will read it again.  Each one is half a gigabyte at
+        # 20 MP; holding all of them until the end of the pass put three
+        # of them in the parent at once for no reason.
+        wid = p.get("worker_id")
+        if st is not None and wid in shared_sets:
+            st.close()
+            shared_sets.pop(wid, None)
 
     def _reset_clipped():
         total_sum[:] = 0
@@ -3226,7 +3325,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         rejected[:] = 0
         # a worker that died mid-pass leaves half-written shared blocks;
         # the one-core retry has to start from zero in them too
-        for st in shared_sets.values():
+        for st in list(shared_sets.values()):
             if st is not None:
                 st.zero()
         p2.update(fg_sum=None, fg_n=0, trail=None)
@@ -3283,7 +3382,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         r1 = min(r0 + _CLIP_BAND, h)
         b = base[r0:r1]
         wb = total_w[r0:r1]
-        mb = mean_full[r0:r1]
+        mb = _mean_rows(r0, r1)
         d = scratch[:r1 - r0]
         np.maximum(wb, 1e-6, out=d)
         np.divide(total_sum[r0:r1], d, out=b)
@@ -3296,7 +3395,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         np.mean(d, axis=2, out=rem_full[r0:r1])
         if mean_sky is not None:
             b += eval_frame_sky(mean_sky, h, w, r0, r1)
-    del total_sum, total_w, mean_full, scratch
+    del total_sum, total_w, mean_full, half_mean, scratch
     tick("banded finalise")
 
     # Kept at half size in float16 (~1/8 the memory of the full-res

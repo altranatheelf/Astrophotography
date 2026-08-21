@@ -144,6 +144,15 @@ def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
     vv = (np.arange(h, dtype=np.float32) / h - 0.5)
     nch = vals.shape[1]
     out = np.empty((h, w, nch), np.float32)
+    # Each channel is built in a contiguous scratch plane and written into
+    # the interleaved result once.  Accumulating directly into out[:, :, c]
+    # meant three read-modify-write passes down a stride-3 destination per
+    # channel, each with its own full-frame temporary for the outer
+    # product — and then two more whole-array passes for the minimum and
+    # the clip.  Same numbers, a third of the traffic.
+    upow = [uu ** i for i in range(order + 1)]
+    plane = np.empty((h, w), np.float32)
+    term = np.empty((h, w), np.float32)
     for c in range(nch):
         g = []                       # g[i] = sum_j coeff * v^j, shape (h,)
         k = 0
@@ -153,9 +162,11 @@ def fit_sky_gradient(rgb: np.ndarray, sky_mask: np.ndarray,
                 gi += np.float32(coeffs[k, c]) * (vv ** j)
                 k += 1
             g.append(gi)
-        plane = out[:, :, c]
         plane[:] = g[0][:, None]
         for i in range(1, order + 1):
-            plane += (uu ** i)[None, :] * g[i][:, None]
-    out -= out.min(axis=(0, 1), keepdims=True)   # Subtract must not darken
-    return np.clip(out, 0, 65535, out=out)
+            np.multiply(upow[i][None, :], g[i][:, None], out=term)
+            plane += term
+        plane -= plane.min()         # Subtract must not darken
+        np.clip(plane, 0, 65535, out=plane)
+        out[:, :, c] = plane
+    return out

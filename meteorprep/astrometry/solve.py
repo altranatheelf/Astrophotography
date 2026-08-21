@@ -64,12 +64,18 @@ def detect_stars(image: np.ndarray, max_stars: int = 200,
     >>3; sidereally-trailed stars stay below ~2)."""
     import cv2
 
-    img = image.astype(np.float32)
+    img = np.asarray(image, np.float32)
     if img.ndim == 3:
         img = img.mean(axis=2)
     bg = cv2.medianBlur(img, 5)
     resid = img - bg
-    sigma = 1.4826 * np.median(np.abs(resid - np.median(resid))) + 1e-9
+    # The noise level is one number.  Measuring it across all twenty
+    # million pixels of a full-size canvas cost 2.2s of two medians; a
+    # 1-in-16 sample of the same residual gives 24.71003 where the whole
+    # frame gives 24.710007, for 0.04s.  Kept exact on small images,
+    # where the sample would be thin and the saving would be nothing.
+    stat = resid[::4, ::4] if resid.size > 1_000_000 else resid
+    sigma = 1.4826 * np.median(np.abs(stat - np.median(stat))) + 1e-9
     mask = (resid > threshold_sigma * sigma).astype(np.uint8)
     if sky_mask is not None:
         mask &= sky_mask.astype(np.uint8)

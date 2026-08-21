@@ -45,10 +45,15 @@ def foreground_sky_mask(frozen: np.ndarray, gate: float = 0.55,
     a black treeline.
     """
     img = np.asarray(frozen, np.float32)
-    lum = img.mean(axis=2) if img.ndim == 3 else img
-    h, w = lum.shape
+    h, w = img.shape[:2]
     hh, ww = max(h // 2, 32), max(w // 2, 32)
-    s = cv2.resize(lum, (ww, hh), interpolation=cv2.INTER_AREA)
+    # box-average down first, then take the channel mean: INTER_AREA is a
+    # linear operation, so this is the same numbers as averaging twenty
+    # million pixels' channels and then shrinking, for a quarter of the
+    # work
+    s = cv2.resize(img, (ww, hh), interpolation=cv2.INTER_AREA)
+    if s.ndim == 3:
+        s = s.mean(axis=2)
 
     # Sky level per column (removes vignetting and the twilight tilt that
     # defeat one global threshold).  Take an UPPER envelope across
@@ -88,37 +93,74 @@ def foreground_sky_mask(frozen: np.ndarray, gate: float = 0.55,
     a = cv2.resize(np.clip(alpha * region, 0, 1), (w, h),
                    interpolation=cv2.INTER_LINEAR)
     kf = int(feather_px) * 2 + 1
-    a = np.clip(cv2.GaussianBlur(a, (kf, kf), max(feather_px / 2.0, 0.1)),
-                0, 1)
+    # in place from here: the whole-frame form allocated another three
+    # 80 MB arrays to blur, clip and invert one matte
+    cv2.GaussianBlur(a, (kf, kf), max(feather_px / 2.0, 0.1), dst=a)
+    np.clip(a, 0, 1, out=a)
     log.info("foreground matte from the frozen stack: %.0f%% of the frame "
              "is foreground (opaque below %.2f of sky level)",
              100.0 * (a > 0.5).mean(), solid)
-    return 1.0 - a
+    return np.subtract(1.0, a, out=a)
 
 
 def match_sky_level(fg: np.ndarray, base: np.ndarray,
-                    sky_alpha: np.ndarray, band_px: int = 120):
+                    sky_alpha: np.ndarray, band_px: int = 120, ctx=None):
     """Return ``fg`` shifted per channel so its sky matches ``base``'s just
-    above the treeline — a seamless join instead of a bright halo."""
+    above the treeline — a seamless join instead of a bright halo.
+
+    ``ctx``: a dict the caller keeps between calls.  Every foreground
+    layer is matched against the same base and the same sky mask, so the
+    band above the treeline and the base's own level inside it are worked
+    out once and reused.
+    """
     fg = np.asarray(fg, np.float32)
     base = np.asarray(base, np.float32)
     sky = np.asarray(sky_alpha, np.float32)
     if fg.shape != base.shape or sky.shape[:2] != fg.shape[:2]:
         return fg
-    near = (cv2.dilate((sky < 0.5).astype(np.uint8),
-                       np.ones((band_px * 2 + 1, 1), np.uint8)) > 0) \
-        & (sky > 0.5)
-    if near.sum() < 500:
-        near = sky > 0.5
-    if near.sum() < 500:
-        return fg
-    off = np.median(base[near], axis=0) - np.median(fg[near], axis=0)
+    cached = ctx.get("band") if isinstance(ctx, dict) else None
+    if cached is not None and cached[0] == fg.shape:
+        _, idx, med_base = cached
+    else:
+        near = (cv2.dilate((sky < 0.5).astype(np.uint8),
+                           np.ones((band_px * 2 + 1, 1), np.uint8)) > 0) \
+            & (sky > 0.5)
+        if near.sum() < 500:
+            near = sky > 0.5
+        if near.sum() < 500:
+            return fg
+        # The offset is one number per channel, read off the middle of a
+        # distribution.  Taking it from all ten million pixels in the
+        # band meant a ten-million-row gather and a median over it —
+        # 4.5s at 20 MP, twice, once per foreground layer.  An evenly
+        # strided sample of a couple of hundred thousand pins the same
+        # median to well under a tenth of an ADU, and the stride is
+        # fixed, so two runs still agree exactly.
+        idx = np.flatnonzero(near.ravel())
+        if idx.size > 200_000:
+            idx = idx[::idx.size // 200_000]
+        med_base = np.median(base.reshape(-1, base.shape[2])[idx], axis=0)
+        if isinstance(ctx, dict):
+            ctx["band"] = (fg.shape, idx, med_base)
+    off = med_base - np.median(fg.reshape(-1, fg.shape[2])[idx], axis=0)
     # apply the offset in FULL — throttling it (an earlier attempt capped
     # it against the silhouette's own near-black level) leaves exactly the
     # brightness step this exists to remove.  Detail is protected by a
     # soft floor instead of a clip, so a silhouette keeps its texture
     # without holding the sky hostage.
-    out = fg + off[None, None, :]
     log.info("foreground level matched to the stack: %s ADU",
              np.round(off, 1).tolist())
-    return np.maximum(out, 0.05 * fg)
+    # in row bands: the whole-frame form built two 240 MB temporaries to
+    # add a constant and take a maximum
+    out = np.empty_like(fg)
+    off32 = off.astype(np.float32)
+    band = 256
+    floor = np.empty((band,) + fg.shape[1:], np.float32)
+    for r0 in range(0, fg.shape[0], band):
+        r1 = min(r0 + band, fg.shape[0])
+        src, dst = fg[r0:r1], out[r0:r1]
+        np.add(src, off32, out=dst)
+        fl = floor[:r1 - r0]
+        np.multiply(src, 0.05, out=fl)
+        np.maximum(dst, fl, out=dst)
+    return out

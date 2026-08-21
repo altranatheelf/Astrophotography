@@ -27,10 +27,11 @@ def reference_model(stack_win: np.ndarray, sigma: float = 3.0,
     are excluded — only the ~0.3% partially-covered rim pixels need the
     slower nan path.
     """
+    from meteorprep.fastmath import median_axis0
     win = np.asarray(stack_win, dtype=np.float32)
     if footprints is None:
-        return np.median(win, axis=0).astype(np.float32)
-    med = np.median(win, axis=0).astype(np.float32)
+        return median_axis0(win).astype(np.float32)
+    med = median_axis0(win).astype(np.float32)
     part = ~(footprints != 0).all(axis=0)
     if part.any():
         import warnings
