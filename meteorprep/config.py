@@ -141,7 +141,12 @@ class Config:
                                       # this fraction of frames overlap
                                       # (removes stacking seams); 0 = off
     emit_psd: bool = True
-    emit_pngjsx: bool = True
+    # off by default: it duplicates the PSD's contents as loose PNGs plus
+    # a rebuild script (~0.5 GB on a full night) and exists as the rescue
+    # path for a Photoshop that will not open the .psd — which the
+    # assembly stage turns on by itself when that actually happens.  Both
+    # front ends now say the same thing about it.
+    emit_pngjsx: bool = False
     emit_startrail: bool = False
     emit_contact_sheet: bool = True
 

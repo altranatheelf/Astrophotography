@@ -930,7 +930,29 @@ def run(cfg: Config, progress=None) -> dict:
                               mode="w", encoding="utf-8")
     _fh.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)s %(message)s"))
-    logging.getLogger("meteorprep").addHandler(_fh)
+    _fh.setLevel(logging.INFO)
+    _mp_log = logging.getLogger("meteorprep")
+    # The run log is the file support asks for, so it has to be complete
+    # whatever the host application did to logging first.  basicConfig is
+    # a no-op once the root logger has handlers, and an inherited level
+    # above INFO drops the records before any handler sees them — the log
+    # then exists, is named run_log.txt, and is empty.
+    _prev_level = _mp_log.level
+    _mp_log.setLevel(logging.INFO)
+    _mp_log.addHandler(_fh)
+    try:
+        return _run(cfg, _fh, progress)
+    finally:
+        # every exit path, not just the one that reaches the end: a folder
+        # with no photos in it raised before the old cleanup and left the
+        # handler attached, so the NEXT run's lines were written into the
+        # previous run's log as well as its own
+        _mp_log.removeHandler(_fh)
+        _mp_log.setLevel(_prev_level)
+        _fh.close()
+
+
+def _run(cfg: Config, _fh, progress=None) -> dict:
     import platform
     from meteorprep import __version__ as _ver
     log.info("METEORPREP %s on %s / Python %s", _ver, platform.platform(),
@@ -1033,8 +1055,6 @@ def run(cfg: Config, progress=None) -> dict:
         raise
     finally:
         _close_shared_pools()
-        logging.getLogger("meteorprep").removeHandler(_fh)
-        _fh.close()
     if errors and not results["groups"]:
         raise RuntimeError(f"every group failed: {errors}")
     return results

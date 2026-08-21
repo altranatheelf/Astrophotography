@@ -70,12 +70,14 @@ def run_self_test(progress=None) -> dict:
                                      focal_px=2443.0 * 900 / 5472,
                                      n_stars=250, n_meteors=2,
                                      n_aircraft=1, n_satellites=0, seed=3)
-        json.dump({"catalog_file": str(src / "catalog_radec.npy"),
-                   "pixel_pitch_um": 16000.0 / gt["focal_px"],
-                   "solve_every_k": 4, "emit_psd": False,
-                   "emit_gradient_layer": False,
-                   "emit_contact_sheet": False},
-                  open(src / "meteorprep_config.json", "w"))
+        with open(src / "meteorprep_config.json", "w",
+                  encoding="utf-8") as cfg_file:
+            json.dump({"catalog_file": str(src / "catalog_radec.npy"),
+                       "pixel_pitch_um": 16000.0 / gt["focal_px"],
+                       "solve_every_k": 4, "emit_psd": False,
+                       "emit_gradient_layer": False,
+                       "emit_contact_sheet": False},
+                      cfg_file)
         notify("Running the full pipeline on it (takes a few minutes)…")
         res = run(Config(input_dir=str(src), output_dir=str(tmp / "out"),
                          cleanup_cache=True))

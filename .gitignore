@@ -8,3 +8,6 @@ meteorprep_out/
 *.psd
 *.psb
 .DS_Store
+
+# stray shell redirection typos (2>1 instead of 2>&1)
+/[0-9]

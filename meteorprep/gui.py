@@ -45,37 +45,65 @@ def main() -> int:
     from meteorprep.config import Config
     from meteorprep.pipeline import run as run_pipeline
 
+    class Cancelled(Exception):
+        """Raised out of the progress callback to unwind a run."""
+
     class Worker(QThread):
         progressed = Signal(int, str)
         finished_ok = Signal(dict)
         failed = Signal(str)
+        stopped = Signal()
 
         def __init__(self, cfg):
             super().__init__()
             self.cfg = cfg
+            self._cancel = False
+
+        def cancel(self):
+            """Ask the run to stop at its next progress report.  The
+            pipeline reports often enough that this lands within a photo
+            or two, and it unwinds through run()'s own cleanup, so the
+            worker pools and shared memory go away properly."""
+            self._cancel = True
+
+        def _progress(self, frac, msg):
+            if self._cancel:
+                raise Cancelled()
+            self.progressed.emit(int(frac * 100), msg)
 
         def run(self):
             try:
-                result = run_pipeline(
-                    self.cfg,
-                    progress=lambda f, m: self.progressed.emit(int(f * 100), m))
+                result = run_pipeline(self.cfg, progress=self._progress)
                 self.finished_ok.emit(result)
+            except Cancelled:
+                self.stopped.emit()
             except Exception:
-                self.failed.emit(traceback.format_exc())
+                if self._cancel:      # a stop can surface as anything
+                    self.stopped.emit()
+                else:
+                    self.failed.emit(traceback.format_exc())
 
     class SelfTestWorker(QThread):
         progressed = Signal(str)
+        report = Signal(str)
         done = Signal(bool, str)
 
         def run(self):
+            # Launched from the .app there is no console, so "see the
+            # lines above" pointed at nothing.  The full report goes to a
+            # file the window can open.
             try:
                 from meteorprep.selftest import format_report, run_self_test
                 result = run_self_test(progress=self.progressed.emit)
-                print(format_report(result))
+                text = format_report(result)
+                print(text)
+                self.report.emit(text)
                 self.done.emit(result["ok"], result["verdict"])
             except Exception:
-                self.done.emit(False, "Self-test crashed — see console.")
-                traceback.print_exc()
+                tb = traceback.format_exc()
+                print(tb, file=sys.stderr)
+                self.report.emit("The setup check itself crashed:\n\n" + tb)
+                self.done.emit(False, "The setup check could not finish.")
 
     class CountWorker(QThread):
         """Counting photos means walking the folder, which is instant on
@@ -426,9 +454,13 @@ def main() -> int:
             import os
             if not folder or not os.path.isdir(folder):
                 return
+            # Normalise once, here.  A path from a drag-and-drop can
+            # arrive with a trailing separator, and "/photos/" +
+            # "_meteorprep" is /photos/_meteorprep — the results written
+            # INSIDE the photo folder, where the next run would scan them.
+            folder = os.path.abspath(folder)
             self.folder = folder
-            self.drop_label.setText(os.path.basename(folder.rstrip(os.sep))
-                                    or folder)
+            self.drop_label.setText(os.path.basename(folder) or folder)
             self.summary.setText("counting the photos…")
             self.summary.setVisible(True)
             self.n_photos = 0
@@ -467,10 +499,14 @@ def main() -> int:
                                               or not self.worker.isRunning()))
             self._mode_changed()
 
+        def _out_dir(self):
+            """The one place the results folder is decided."""
+            import os
+            return os.path.abspath(str(self.folder)) + "_meteorprep"
+
         def _out_name(self):
             import os
-            return os.path.basename(str(self.folder).rstrip(os.sep)) \
-                + "_meteorprep"
+            return os.path.basename(self._out_dir())
 
         # ---------------- settings --------------------------------------
 
@@ -534,9 +570,22 @@ def main() -> int:
             self.drop_label.setStyleSheet(self._drop_css)
 
         def dropEvent(self, e):
+            import os
             self.drop_label.setStyleSheet(self._drop_css)
+            e.acceptProposedAction()
             for url in e.mimeData().urls():
-                self._set_folder(url.toLocalFile())
+                path = url.toLocalFile()
+                if os.path.isdir(path):
+                    self._set_folder(path)
+                elif os.path.isfile(path):
+                    # dropping one of the photos is an easy mistake and
+                    # the answer is obvious: use the folder it is in
+                    self._set_folder(os.path.dirname(path))
+                else:
+                    self.summary.setText(
+                        "That is not a folder I can read — drop the "
+                        "folder your photos are in.")
+                    self.summary.setVisible(True)
                 break
 
         def _browse(self, _event):
@@ -549,6 +598,18 @@ def main() -> int:
 
         def _start(self):
             import os
+            # Replacing self.worker while the old one runs drops the only
+            # Python reference to a live QThread, and Qt aborts the whole
+            # app when that gets collected.  Every path that can re-arm
+            # this button is guarded, but the guard belongs here too.
+            if self.worker is not None and self.worker.isRunning():
+                return
+            if getattr(self, "tester", None) is not None \
+                    and self.tester.isRunning():
+                self.status.setText(
+                    "Finishing the setup check first — try again in a "
+                    "moment.")
+                return
             elev = ELEV_CHOICES.get(self.elevation.currentText(), 45.0)
             compass = self.compass.currentText()
             try:
@@ -562,7 +623,7 @@ def main() -> int:
             mode = self._mode_key()
             cfg = Config(
                 input_dir=self.folder,
-                output_dir=str(self.folder) + "_meteorprep",
+                output_dir=self._out_dir(),
                 emit_pngjsx=self.cb_png.isChecked(),
                 emit_startrail=self.cb_trail.isChecked(),
                 emit_contact_sheet=self.cb_sheet.isChecked(),
@@ -575,12 +636,14 @@ def main() -> int:
                 **M.config_kwargs(mode),
             )
             self._run_mode = mode
+            self.open_report_btn.setText("Open the report")
             self._save_settings()
             self._set_running(True)
             self.worker = Worker(cfg)
             self.worker.progressed.connect(self._on_progress)
             self.worker.finished_ok.connect(self._on_done)
             self.worker.failed.connect(self._on_fail)
+            self.worker.stopped.connect(self._on_stopped)
             self._last_msg = "starting up"
             self._msg_at = self._time.time()
             self._run_t0 = self._time.time()
@@ -614,16 +677,22 @@ def main() -> int:
                     f"({m}m {s:02d}s in this step)")
 
         def _self_test(self):
+            if self.worker is not None and self.worker.isRunning():
+                return
             self.test_button.setEnabled(False)
             self.button.setEnabled(False)
             self.status.setText("checking…")
             self.tester = SelfTestWorker()
+            self.tester.report.connect(self._keep_selftest_report)
             self.tester.progressed.connect(self.status.setText)
 
             def finish(ok, verdict):
-                self.status.setText(("✓ " if ok else "✗ ") + verdict)
-                self.test_button.setEnabled(True)
-                self.button.setEnabled(bool(self.folder) and self.n_photos > 0)
+                self._show_selftest(ok, verdict)
+                running = (self.worker is not None
+                           and self.worker.isRunning())
+                self.test_button.setEnabled(not running)
+                self.button.setEnabled(not running and bool(self.folder)
+                                       and self.n_photos > 0)
             self.tester.done.connect(finish)
             self.tester.start()
 
@@ -689,30 +758,94 @@ def main() -> int:
             except Exception:
                 pass
 
+        def _keep_selftest_report(self, text):
+            """Park the setup-check report where a person can open it —
+            under the .app there is no console for it to go to."""
+            from pathlib import Path as _P
+            for folder in (_P.home() / "Desktop", _P.home(), _P(".")):
+                try:
+                    if not folder.is_dir():
+                        continue
+                    dest = folder / "MeteorPrep setup check.txt"
+                    dest.write_text(text, encoding="utf-8")
+                    self._selftest_report = str(dest)
+                    return
+                except OSError:
+                    continue
+
+        def _show_selftest(self, ok, verdict):
+            self.status.setText(("✓ " if ok else "✗ ") + verdict)
+            path = getattr(self, "_selftest_report", None)
+            if path:
+                self.status.setText(
+                    self.status.text()
+                    + f"\n\nThe details are in {path} — send that file if "
+                      "anything is missing.")
+                self._report_path = path
+                self.open_report_btn.setText("Open the setup check")
+                self.open_report_btn.setVisible(True)
+
+        def _on_stopped(self):
+            self._hb.stop()
+            self._set_running(False)
+            self.bar.setVisible(False)
+            self.status.setText(
+                "Stopped. What it had already worked out is kept — run "
+                "the same folder again and it picks up from there.")
+
         def _on_fail(self, tb):
             self._hb.stop()
             self._set_running(False)
             self.bar.setVisible(False)
-            last = [ln for ln in tb.strip().splitlines() if ln.strip()][-1]
-            last = last.split(":", 1)[-1].strip() if ":" in last else last
+            # The messages this program raises are written for a person
+            # and several of them are a paragraph long — "your disk is
+            # full, here is what to do".  Keeping only the last line of
+            # the traceback threw the explanation away and then stripped
+            # the label off what was left.
+            lines = [ln for ln in tb.strip().splitlines() if ln.strip()]
+            msg = ""
+            for k, ln in enumerate(lines):
+                if ln.startswith(("Traceback", "  ", "\t")):
+                    continue
+                msg = "\n".join(lines[k:]).strip()
+                break
+            if ":" in msg.split("\n")[0]:
+                head, rest = msg.split(":", 1)
+                if head.replace(".", "").replace("_", "").isalnum():
+                    msg = rest.strip()      # drop only the exception name
             self.status.setText(
-                (last[:600] or "The run stopped early.")
+                (msg[:1200] or "The run stopped early.")
                 + "\n\nThe full diary is in run_log.txt inside the results "
                   "folder — that is the file to send if this looks wrong.")
             print(tb, file=sys.stderr)
 
         def closeEvent(self, event):
-            # keep the worker reference alive: dropping the only Python
-            # reference to a live QThread lets GC destroy it mid-run
             for c in list(self._counters):
                 c.wait(2000)
-            if (self.worker is not None and self.worker.isRunning()
-                    and not getattr(self, "_quit_asked", False)):
-                self._quit_asked = True
-                self.status.setText(
-                    "Still working — close again to stop the run.")
-                event.ignore()
-                return
+            if self.worker is not None and self.worker.isRunning():
+                if not getattr(self, "_quit_asked", False):
+                    self._quit_asked = True
+                    self.status.setText(
+                        "Still working — close again to stop the run. "
+                        "Whatever it has finished is kept, and running "
+                        "the folder again picks up from there.")
+                    event.ignore()
+                    return
+                # Second ask: stop for real.  Letting the window close
+                # with a live QThread is not "cancel" — Qt aborts the
+                # process when the thread object is collected, which
+                # looks to a person like the app crashed on the way out.
+                # The pipeline checks the flag on its next progress
+                # report and unwinds through its own cleanup.
+                self.status.setText("Stopping…")
+                self.worker.cancel()
+                if not self.worker.wait(15000):
+                    self.status.setText(
+                        "The current step will not stop cleanly; leave "
+                        "the window open until it finishes.")
+                    self._quit_asked = False
+                    event.ignore()
+                    return
             event.accept()
 
     app = QApplication.instance() or QApplication(sys.argv)

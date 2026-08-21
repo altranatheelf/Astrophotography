@@ -155,6 +155,10 @@ EXIFTOOL_BATCH_TIMEOUT_S = 240
 
 
 def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
+    if not paths:
+        # an empty batch built a thread pool with zero workers, which
+        # raises before the "no capture times" message below ever runs
+        return []
     exe = find_exiftool()
     if exe is None:
         return None

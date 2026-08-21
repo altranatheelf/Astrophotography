@@ -186,7 +186,8 @@ def test_supersampled_pipeline(tmp_path):
                "pixel_pitch_um": 16000.0 / gt["focal_px"],
                "emit_psd": False, "emit_gradient_layer": False},
               open(src / "meteorprep_config.json", "w"))
-    res = run(Config(input_dir=str(src), output_dir=str(tmp_path / "out")))
+    res = run(Config(input_dir=str(src), output_dir=str(tmp_path / "out"),
+                     emit_pngjsx=True))
     g = res["groups"][0]
     assert g["n_meteors"] >= 1
     import tifffile

@@ -35,6 +35,11 @@ def synth_config(synth_dir, ground_truth, tmp_path_factory) -> Config:
         seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
         seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
         solve_every_k=4,
+        # the PNG + Photoshop-script rescue copy is off by default (it is
+        # half a gigabyte on a real night, and the assembly stage turns it
+        # on by itself when the .psd cannot be written); the end-to-end
+        # tests check that writer, so they ask for it
+        emit_pngjsx=True,
     )
 
 

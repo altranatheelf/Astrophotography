@@ -4,7 +4,11 @@
 # the folder that contains this app, so keep them together.
 set -u
 LOG=/tmp/meteorprep_setup.log
-NEEDS="import PySide6, meteorprep.pipeline"
+# every module a real run needs — the window, the RAW decoder, the
+# image writers.  Probing only for PySide6 and the package itself
+# passed on an install with no rawpy, and first-time setup was
+# skipped on exactly the machine that needed it.
+NEEDS="import PySide6, rawpy, cv2, tifffile, PIL, astropy, meteorprep.pipeline"
 
 say_alert() {   # title, message
     command -v osascript >/dev/null 2>&1 || return 0

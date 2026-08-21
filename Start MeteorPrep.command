@@ -3,7 +3,11 @@
 # a Terminal window, so anything that goes wrong is visible on screen.
 set -u
 cd "$(dirname "$0")" || exit 1
-NEEDS="import PySide6, meteorprep.pipeline"
+# every module a real run needs — the window, the RAW decoder, the
+# image writers.  Probing only for PySide6 and the package itself
+# passed on an install with no rawpy, and first-time setup was
+# skipped on exactly the machine that needed it.
+NEEDS="import PySide6, rawpy, cv2, tifffile, PIL, astropy, meteorprep.pipeline"
 
 # clear the download quarantine on this folder so double-clicking
 # MeteorPrep.app afterwards runs in place (macOS otherwise relaunches
