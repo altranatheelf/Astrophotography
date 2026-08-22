@@ -125,7 +125,7 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
     key = (fg.shape, id(base), id(sky))
     cached = ctx.get("band") if isinstance(ctx, dict) else None
     if cached is not None and cached[0] == key:
-        _, idx, med_base = cached
+        _, (rows, cols), med_base = cached
     else:
         near = (cv2.dilate((sky < 0.5).astype(np.uint8),
                            np.ones((band_px * 2 + 1, 1), np.uint8)) > 0) \
@@ -144,11 +144,19 @@ def match_sky_level(fg: np.ndarray, base: np.ndarray,
         idx = np.flatnonzero(near.ravel())
         if idx.size > 200_000:
             idx = idx[::idx.size // 200_000]
-        med_base = np.median(base.reshape(-1, base.shape[2])[idx], axis=0)
+        # Gather with 2-D indices rather than .reshape(-1, C)[idx].  By
+        # the time this runs the canvas has been seam-cropped, so base
+        # and fg are non-contiguous VIEWS: the flattened form cannot be a
+        # view of one, so numpy quietly copies the entire 240 MB canvas
+        # to pick 200k rows out of it — the whole-frame temporary this
+        # sampling was written to avoid, twice over, at the point in the
+        # run where the most is already resident.
+        rows, cols = np.divmod(idx, base.shape[1])
+        med_base = np.median(base[rows, cols], axis=0)
         if isinstance(ctx, dict):
-            ctx["band"] = (key, idx, med_base)
+            ctx["band"] = (key, (rows, cols), med_base)
             ctx["_keep"] = (base, sky)     # ids stay valid while cached
-    off = med_base - np.median(fg.reshape(-1, fg.shape[2])[idx], axis=0)
+    off = med_base - np.median(fg[rows, cols], axis=0)
     # apply the offset in FULL — throttling it (an earlier attempt capped
     # it against the silhouette's own near-black level) leaves exactly the
     # brightness step this exists to remove.  Detail is protected by a

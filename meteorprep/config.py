@@ -55,7 +55,11 @@ class Config:
     lens_k1: float = 0.0            # poly3 barrel term; 0 = no pre-correction
 
     # --- detection (defaults adopted from shin3tky/detect_meteors, Apache-2.0) ---
-    bin_factor: int = 2
+    # (there was a bin_factor here.  Nothing read it: the search binning
+    # is fixed by the half-size decode, and detect_streaks' own
+    # bin_factor argument is fed the derived output scale.  Changing it
+    # re-searched all 226 photos and re-stacked the night to produce
+    # byte-identical output, so it is gone rather than merely unhashed.)
     ref_window: int = 7
     ref_sigma: float = 3.0
     diff_threshold: float = 8.0     # ADU over reference, in 8-bit-equivalent units
@@ -172,6 +176,15 @@ class Config:
     # real file.
     draft_stack_max: int = 40
 
+    # Fields whose value has consequences BEYOND themselves, and so
+    # cannot be applied by setattr to a Config that is already built.
+    # "draft" is the whole list: __post_init__ below is what turns it
+    # into half_size, no editable files and no second look, and it runs
+    # only at construction.  The sidecar override file refuses these and
+    # says which knob to use instead (see meteorprep/modes.py — a run
+    # mode belongs to --mode and the window's picker, nowhere else).
+    DERIVED_ONLY = frozenset({"draft"})
+
     def __post_init__(self):
         if not self.draft:
             return
@@ -215,7 +228,7 @@ class Config:
                   "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg",
                   "pointed_compass", "pointed_elevation_deg"],
         "reproject": ["align_mode"],
-        "detect": ["bin_factor", "ref_window", "ref_sigma", "diff_threshold",
+        "detect": ["ref_window", "ref_sigma", "diff_threshold",
                    "min_area", "min_aspect_ratio", "hough_threshold",
                    "hough_min_line_length", "hough_max_line_gap",
                    "min_line_score", "detect_min_thresh",

@@ -18,6 +18,7 @@ everything else lives in shared memory and is freed as it is merged.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timezone
 from pathlib import Path
 
@@ -138,7 +139,6 @@ def _streak_search_chunk(args) -> list:
     import numpy as _np
     from meteorprep.detect.hough import detect_streaks
     from meteorprep.detect.reference import RunningReference
-    from meteorprep.detect.diff import difference
     from meteorprep.fastmath import mad_sigma as _mad_sigma
 
     det_dir = Path(det_dir_str)
@@ -177,9 +177,31 @@ def _streak_search_chunk(args) -> list:
                 Path(prog_path).write_text(str(k))
             except OSError:
                 pass
-        d = difference(lums[i], ref.for_frame(i), foots[i])
-        d_stat = d[sky_bin] if sky_bin is not None else d
-        med, noise = _mad_sigma(d_stat, floor=1e-3)
+        # The noise figure has to be measured on the UNCLIPPED residual.
+        # difference() throws the negatives away, so on any frame whose
+        # sky sits at or below its own rolling-median reference more than
+        # half the sky pixels are exactly zero: the median is 0, the
+        # median absolute deviation is 0, and the "robust sigma" comes
+        # back as the floor.  Inverse-variance weighting then handed
+        # those frames a million times the weight of the rest, and the
+        # stack ended up weighted 10:1 by which way the sky happened to
+        # drift that minute rather than by how noisy each photo was.  The
+        # MAD does not care about an offset, so measuring before the clip
+        # drops the drift and leaves the noise.
+        foot_i = foots[i]
+        d = (lums[i].astype(_np.float32)
+             - ref.for_frame(i).astype(_np.float32))
+        m = foot_i != 0
+        if sky_bin is not None:
+            m &= sky_bin
+        noise = 0.0                       # 0.0 means "could not measure"
+        if int(m.sum()) >= 1000:
+            _, noise = _mad_sigma(d[m], floor=0.0)
+            if not _np.isfinite(noise):
+                noise = 0.0
+        del m
+        _np.clip(d, 0, None, out=d)
+        d[foot_i == 0] = 0.0
         if sky_bin is not None:
             d = d * sky_bin
         # Subtract everything smoother than a streak.  The reference
@@ -343,6 +365,11 @@ _CLIP_BAND = 64
 # The frozen-ground sum and the star-trail maximum read the same decoded
 # frame; a band of it feeds both while it is still in cache.
 _FG_BAND = 256
+# The worker id the one-core retry runs under.  Deliberately not 0: a
+# worker from the attempt that just failed may still be alive and still
+# writing into block 0's shared segment and into csum_0.npy, and the
+# retry must not share either with it.
+_RETRY_WID = -1
 
 
 
@@ -411,10 +438,6 @@ class _SharedAccums:
                                           shape=shape)
             self.spec[name] = ("map", str(path), list(shape), dt)
             self._paths.append(path)
-
-    def zero(self):
-        for a in self.arrays.values():
-            a[:] = 0
 
     def close(self):
         self.arrays.clear()
@@ -982,8 +1005,22 @@ def _run(cfg: Config, _fh, progress=None) -> dict:
         import json as _json
         try:
             for k, v in _json.loads(override.read_text()).items():
-                if hasattr(cfg, k):
+                if k in Config.DERIVED_ONLY:
+                    # Setting draft here used to set draft and nothing
+                    # else: the derivation that makes a draft half-size
+                    # and file-free runs at construction, so the run
+                    # stacked forty photos, wrote a full-resolution
+                    # Photoshop file, and filed it in a folder marked
+                    # draft — a mode the program has no other way to
+                    # reach, and whose cache markers then described it.
+                    log.warning("meteorprep_config.json: ignoring %r — the "
+                                "run mode is chosen with --mode (quick / "
+                                "full / smaller) or in the window", k)
+                elif hasattr(cfg, k):
                     setattr(cfg, k, v)
+                else:
+                    log.warning("meteorprep_config.json: no such setting "
+                                "%r — ignored", k)
         except (ValueError, OSError) as exc:
             log.warning("ignoring bad meteorprep_config.json: %s", exc)
     out_root = cfg.output_path
@@ -1218,6 +1255,66 @@ def _detect_tripod_bump(wcs_list, frames, bump_px: float):
             "shift_px": float(steps[i]), "n_after": int(n - i)}
 
 
+def _save_solve(cache, frames, det_wcs, k1, solver, quality,
+                solve_files) -> None:
+    """Park the star lock so the next run does not redo it.
+
+    Deliberately NOT saved: the output-space base WCS and the pole
+    position.  Both are the detection-space solve scaled by the output
+    canvas, and the canvas is the one thing a quick look and a full run
+    disagree about — caching them would hand a half-size run's geometry
+    to the full-size one.  They are two cheap lines to recompute.
+    """
+    try:
+        cache.write_json("solve.json", {
+            "k1": float(k1), "solver": solver, "quality": quality,
+            "solve_files": list(solve_files),
+            # keyed by file name, not by position: a folder rescanned in
+            # a different order must not silently pair a photo with
+            # someone else's sky
+            "frames": [{"file": m.file,
+                        "wcs": _wcs_to_str(w) if w is not None else "",
+                        "source": getattr(m, "wcs_source", ""),
+                        "rms_px": (float(m.solve_rms_px)
+                                   if getattr(m, "solve_rms_px", None)
+                                   is not None else None)}
+                       for m, w in zip(frames, det_wcs)],
+        })
+    except (OSError, ValueError, TypeError) as exc:
+        log.debug("could not save the star lock (%s); it will be redone "
+                  "next run", exc)
+
+
+def _restore_solve(cache, frames, det_wcs):
+    """Put a saved star lock back.  Returns the run-level facts, or None
+    if there is nothing usable saved."""
+    try:
+        rec = cache.read_json("solve.json")
+    except (OSError, ValueError):     # never written, or a killed run
+        return None
+    if not isinstance(rec, dict) or not rec.get("frames"):
+        return None
+    by_file = {f.get("file"): f for f in rec["frames"]}
+    if any(m.file not in by_file for m in frames):
+        return None                       # different photos: solve again
+    try:
+        for i, m in enumerate(frames):
+            f = by_file[m.file]
+            if not f.get("wcs"):
+                return None               # a frame with no sky: solve again
+            det_wcs[i] = _wcs_from_str(f["wcs"])
+            m.wcs_source = f.get("source", "")
+            m.solve_rms_px = f.get("rms_px")
+    except Exception as exc:
+        log.info("the saved star lock would not load (%s); solving again",
+                 exc)
+        return None
+    return {"k1": float(rec.get("k1", 0.0)),
+            "solver": rec.get("solver", "cached"),
+            "quality": rec.get("quality", "nominal"),
+            "solve_files": list(rec.get("solve_files", []))}
+
+
 def _observing_site(cfg, frames):
     """Where the camera actually stood: (lat, lon, how we know).
 
@@ -1312,10 +1409,17 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             _fp.update(m.file.encode())
     frames_fp = _fp.hexdigest()[:16]
 
+    def stage_cached(stage):
+        """Is this stage's saved marker still current?  Side-effect free:
+        stage_fresh counts a skip, and asking the same question twice
+        must not count it twice."""
+        return (not cfg.force
+                and cache.is_done(stage, cfg.stage_hash(stage) + ":"
+                                  + frames_fp))
+
     def stage_fresh(stage):
         nonlocal skipped
-        h_ = cfg.stage_hash(stage) + ":" + frames_fp
-        if not cfg.force and cache.is_done(stage, h_):
+        if stage_cached(stage):
             skipped += 1
             return False
         return True
@@ -1340,7 +1444,19 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     def det_lum_file(i):
         return det_lum_dir / (Path(frames[i].file).stem + ".npy")
 
-    missing = [i for i in range(n) if not det_lum_file(i).exists()]
+    # Only three things read these small decodes: the sizing-up pass, the
+    # star lock and the alignment.  When all three are already cached —
+    # the second run on a folder, and every quick-look-then-full handoff
+    # — this prefetch used to re-read every RAW of the night to fill a
+    # cache that nothing then opened and the run deleted again.  Getting
+    # the answer wrong costs nothing but speed: decode_det_lum falls back
+    # to reading the photo.
+    needs_det_lum = (cfg.force
+                     or not stage_cached("lightpaint")
+                     or not stage_cached("solve")
+                     or not stage_cached("reproject"))
+    missing = ([i for i in range(n) if not det_lum_file(i).exists()]
+               if needs_det_lum else [])
     if missing:
         notify(0.05, "reading every photo once (small size)")
         dl_work = [(str(frames[i].path), str(det_lum_file(i)), bad_pixels)
@@ -1545,7 +1661,31 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     alignment_quality = "nominal"
     solve_files: list[str] = []
 
-    if cfg.align_mode == "reproject_tan":
+    # The star lock is minutes of work and a few kilobytes of answer, and
+    # it was the one expensive stage with no saved artifact at all: both
+    # the window and the guide promise "a second run reuses the star
+    # lock", and every single run re-solved the whole night.  Its stage
+    # hash deliberately leaves out half_size and super_sample, so a quick
+    # look and the full run that follows share this file.
+    saved_solve = (_restore_solve(cache, frames, det_wcs)
+                   if stage_cached("solve") else None)
+    if saved_solve is not None:
+        k1 = saved_solve["k1"]
+        dist = Poly3Distortion(k1, (hd, wd))
+        undistort = None if dist.identity() else dist.undistort
+        solver_used = saved_solve["solver"]
+        alignment_quality = saved_solve["quality"]
+        solve_files = saved_solve["solve_files"]
+        base_det_wcs = det_wcs[base_i]
+        # NOT restored from the file: these two are the detection solve
+        # scaled onto the output canvas, and the canvas is the one thing
+        # a quick look and a full run disagree about
+        base_wcs = scale_wcs(base_det_wcs, S)
+        pole_xy = pole_pixel_xy(base_wcs)
+        skipped += 1
+        log.info("star lock reused from the last run (%s, %s)",
+                 solver_used, alignment_quality)
+    elif cfg.align_mode == "reproject_tan":
         seed = None
         if np.isfinite(cfg.seed_ra_deg) and np.isfinite(cfg.seed_dec_deg):
             seed = build_tan_wcs(cfg.seed_ra_deg, cfg.seed_dec_deg,
@@ -1804,6 +1944,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                             frames[i].wcs_source = "solved"
                             frames[i].solve_rms_px = res_i.rms_px
                             solve_files.append(frames[i].file)
+        _save_solve(cache, frames, det_wcs, k1, solver_used,
+                    alignment_quality, solve_files)
+        # Then read it straight back and use THAT.  A WCS written to a
+        # FITS header and parsed again differs from the one in memory in
+        # about the eleventh decimal of a pixel — nothing anyone can see,
+        # but enough that the same folder run twice produced two files
+        # that were not byte-identical, which is a claim this tool makes.
+        # Taking the geometry from the file on both runs makes the claim
+        # exactly true rather than nearly.
+        _restore_solve(cache, frames, det_wcs)
+        base_det_wcs = det_wcs[base_i]
+        cache.mark_done("solve", cfg.stage_hash("solve") + ":" + frames_fp)
         base_wcs = scale_wcs(base_det_wcs, S)   # output-space base WCS
         pole_xy = pole_pixel_xy(base_wcs)
     else:
@@ -1970,14 +2122,28 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     sky_det = None
     have_aligned = (det_dir / f"lum_{ok_idx[0]:04d}.npy").exists() \
         if ok_idx else False
-    if cfg.force:
-        # "Start over" has to mean it: the ground mask is measured from
-        # the photos like everything else, and a saved one quietly
-        # survived the one option whose whole job is to trust nothing.
-        cache.path("sky_det.npy").unlink(missing_ok=True)
-    if cache.path("sky_det.npy").exists():
-        sky_det = np.load(cache.path("sky_det.npy"))
-    elif base_wcs is not None and not have_aligned:
+    sky_file = cache.path("sky_det.npy")
+    # The mask is measured in the aligned detection canvas from the
+    # photos that were NOT light-painted, so it is only valid for the
+    # alignment and the exclusion set that produced it.  Keyed on nothing
+    # but ".exists()", it outlived a changed lp_sigma, a re-solve, and a
+    # different canvas size — and "Start over", whose whole job is to
+    # trust nothing, quietly trusted it.
+    sky_key = (cfg.stage_hash("reproject") + "|"
+               + cfg.stage_hash("lightpaint") + ":" + frames_fp)
+    if cfg.force or not cache.is_done("sky_det", sky_key):
+        sky_file.unlink(missing_ok=True)
+        cache.invalidate("sky_det")
+    if sky_file.exists():
+        try:
+            sky_det = np.load(sky_file)
+        except (ValueError, OSError, EOFError):
+            # a run killed mid-save leaves a truncated .npy behind
+            sky_file.unlink(missing_ok=True)
+            sky_det = None
+        if sky_det is not None and sky_det.shape != (hd, wd):
+            sky_det = None               # different canvas: measure again
+    if sky_det is None and base_wcs is not None and not have_aligned:
         # A night with no ground in frame (pointed straight up) never
         # writes a mask, so there is nothing to reload — and by the
         # second run the aligned previews it would be measured from have
@@ -1985,7 +2151,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         # not a reason to fall over on a missing file.
         log.info("no ground mask saved and the aligned previews are gone; "
                  "carrying on with the whole frame as sky")
-    elif base_wcs is not None:
+    elif sky_det is None and base_wcs is not None:
         sky_det = ground_from_alignment(load_det_lum, load_det_foot, n,
                                         exclude=set(np.nonzero(lp)[0]))
         if sky_det is not None:
@@ -1995,8 +2161,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     sw("detect: ground mask")
     sky_path = ""
     if sky_det is not None:
-        sky_path = str(cache.path("sky_det.npy"))
-        np.save(sky_path, sky_det.astype(np.float32))
+        sky_path = str(sky_file)
+        # write-then-rename: a run killed here used to leave a half
+        # written .npy that every later run tripped over
+        # the temporary keeps the .npy suffix on purpose: np.save appends
+        # ".npy" to any name that does not already end in it
+        tmp_sky = sky_file.with_suffix(".tmp.npy")
+        np.save(tmp_sky, sky_det.astype(np.float32))
+        os.replace(tmp_sky, sky_file)
+        cache.mark_done("sky_det", sky_key)
     diff_dir = cache.dir("diffs")
     exclude_lp = [int(v) for v in np.nonzero(lp)[0]]
     search_idx = ([] if detect_cached
@@ -2191,6 +2364,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     if stage_fresh("base_sky"):
         mark("meteor search + classification")
         notify(0.60, "building the clean starfield from every frame")
+        # This stage owns every file below, and it is about to rebuild
+        # them: clear the previous configuration's first, at the TOP, so
+        # that neither the reload branch nor a run killed halfway through
+        # can find a cache describing two different runs.  Turning the
+        # frozen foreground off and running again used to leave the old
+        # fg_stack.tif on disk, and the third run — a clean cache hit —
+        # loaded it and composited the foreground the user had switched
+        # off.  A startrail.tif or a coverage map from a different canvas
+        # size is the same hazard with a worse failure.
+        for _stale in ("fg_stack.tif", "startrail.tif", "coverage.npy",
+                       "rejected.npy", "removed_half.npy"):
+            cache.path(_stale).unlink(missing_ok=True)
         (base_img, fg_stack, coverage, trail_img, rejected,
          removed_half) = _stream_base(
             cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs, (h, w), S,
@@ -2208,14 +2393,6 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             jobs.append(("fg_stack.tif", fg_stack))
         if trail_img is not None:
             jobs.append(("startrail.tif", trail_img))
-        # Anything this run did NOT produce must not survive from the
-        # last one: turning the frozen foreground off and re-running
-        # otherwise picked the previous run's fg_stack.tif back up off
-        # the disk and composited it, because the loader only asks
-        # whether the file exists.
-        for stale in ("fg_stack.tif", "startrail.tif"):
-            if stale not in dict(jobs):
-                cache.path(stale).unlink(missing_ok=True)
         u16 = {name: np.clip(arr, 0, 65535).astype(np.uint16)
                for name, arr in jobs}
         from concurrent.futures import ThreadPoolExecutor
@@ -2264,9 +2441,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     else:
         import tifffile
         base_img = tifffile.imread(cache.path("base.tif")).astype(np.float32)
+        # the setting decides, not the filesystem
         fg_stack = (tifffile.imread(
             cache.path("fg_stack.tif")).astype(np.float32)
-            if cache.path("fg_stack.tif").exists() else None)
+            if cfg.emit_foreground_stack
+            and cache.path("fg_stack.tif").exists() else None)
         def _finish_cache_writes():
             return
     coverage = (np.load(cache.path("coverage.npy"))
@@ -2859,10 +3038,12 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             cov_c = (coverage[crop[1]:crop[3], crop[0]:crop[2]]
                      if crop is not None else coverage)
             from meteorprep.report.evidence import (evidence_ledger,
-                                                     ledger_rgb)
+                                                     ledger_bgr)
             led, legend = evidence_ledger(cov_c, rej, sky_fg)
-            _cv2.imwrite(str(evd / "ledger.png"),
-                         _cv2.cvtColor(ledger_rgb(led), _cv2.COLOR_RGB2BGR))
+            # ledger_bgr, not cvtColor(ledger_rgb(...)): the palette can
+            # be taken in the byte order the writer wants, and that saves
+            # a second full-canvas copy at the tightest moment of the run
+            _cv2.imwrite(str(evd / "ledger.png"), ledger_bgr(led))
             (evd / "ledger_legend.json").write_text(
                 __import__("json").dumps(legend, indent=1))
             ev_stats["lineage"] = "; ".join(
@@ -2950,14 +3131,24 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_pngjsx="jsx" in outputs))
     if cfg.cleanup_cache:
         import shutil as _shutil
-        _shutil.rmtree(det_dir, ignore_errors=True)
         _shutil.rmtree(det_lum_dir, ignore_errors=True)
         _shutil.rmtree(diff_dir, ignore_errors=True)
-        cache.invalidate("reproject")   # its cache files are deleted;
-        # base.tif / fg_stack.tif / coverage.npy survive cleanup, so the
-        # stack stays valid — invalidating it here forced every re-run to
-        # rebuild the single most expensive stage of the night
-        log.info("freed the detection cache (%s)", det_dir)
+        if not cfg.draft:
+            # A draft keeps the aligned previews AND their stage marker.
+            # The guard exists twenty lines up, on the mid-run cleanup,
+            # with a comment explaining that the full run which usually
+            # follows reads exactly these files — and then this block
+            # deleted them anyway, ten lines from the end of the same
+            # run, so every quick look threw away the alignment it had
+            # just paid for and the promised handoff re-aligned the whole
+            # night.  Deleting without invalidating would be no better:
+            # stage_fresh("reproject") reads only the marker.
+            _shutil.rmtree(det_dir, ignore_errors=True)
+            cache.invalidate("reproject")   # its cache files are deleted;
+            # base.tif / fg_stack.tif / coverage.npy survive cleanup, so
+            # the stack stays valid — invalidating it here forced every
+            # re-run to rebuild the most expensive stage of the night
+            log.info("freed the detection cache (%s)", det_dir)
     if skipped:
         log.info("%d stage(s) up-to-date, skipped", skipped)
     notify(1.0, f"done: {len(meteor_cands)} meteor(s), "
@@ -3215,8 +3406,18 @@ def _measure_candidate_colors(candidates, frames, det_wcs, base_det_wcs,
         todo = [i for i in dict.fromkeys(idx) if i not in cache][:_CAP]
         if len(todo) < 2:
             return
-        for k in [k for k in cache if k not in idx][:len(todo)]:
-            cache.pop(k, None)              # room for the batch
+        # Make room for the whole batch, unconditionally.  Evicting only
+        # the entries this candidate does not need looks like enough
+        # until two long tracks cover the same stretch of the night:
+        # nothing is evictable, the batch is added on top, and the cap
+        # this comment is standing next to is quietly doubled — 720 MB of
+        # developed frames instead of 360 on the machine that has 8 GB.
+        room = len(cache) + len(todo) - _CAP
+        if room > 0:
+            victims = ([k for k in cache if k not in idx]     # unneeded
+                       + [k for k in cache if k in idx])      # then oldest
+            for k in victims[:room]:
+                cache.pop(k, None)
         try:
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=min(4, len(todo))) as tp:
@@ -3489,6 +3690,19 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                     # way half an hour later — stop with a human message
                     raise RuntimeError(_DISK_FULL_MSG) from exc
                 log.warning("parallel stacking failed (%s); one core", exc)
+                # Shutting the pool down cancels the tasks still QUEUED;
+                # a worker already inside its chunk keeps running, and it
+                # keeps adding frames into the shared block it was given.
+                # Zeroing those blocks and handing block 0 straight back
+                # to the retry meant the survivor's frames were counted a
+                # second time — a silent brightness and coverage error in
+                # the finished starfield, with nothing in the log but
+                # "one core".  Free every block the parallel attempt
+                # handed out (a survivor keeps its own mapping alive and
+                # scribbles into a segment nothing will read again), then
+                # give the retry a worker id of its own so it can never
+                # inherit a block or a part-file name someone else owns.
+                free_shared()
                 # reset unconditionally: an exception INSIDE the first
                 # on_result leaves half-merged accumulators with merged
                 # still 0, and the fallback must never double-count
@@ -3500,7 +3714,7 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         if not merged:
             try:
                 on_result(_stack_pass(
-                    frame_args(mode, idx, 0, want_fg, want_trail)))
+                    frame_args(mode, idx, _RETRY_WID, want_fg, want_trail)))
             except Exception as exc:
                 if _disk_full(exc):
                     raise RuntimeError(_DISK_FULL_MSG) from exc
@@ -3636,11 +3850,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
         total_w[:] = 0
         coverage[:] = 0
         rejected[:] = 0
-        # a worker that died mid-pass leaves half-written shared blocks;
-        # the one-core retry has to start from zero in them too
-        for st in list(shared_sets.values()):
-            if st is not None:
-                st.zero()
+        # No st.zero() loop here any more.  run_pass frees every shared
+        # block before it calls this, so there is nothing left to zero —
+        # and zeroing a block that a worker which outlived the shutdown
+        # is still writing into never helped anyway.
         p2.update(fg_sum=None, fg_n=0, trail=None)
 
     tick = _stopwatch()

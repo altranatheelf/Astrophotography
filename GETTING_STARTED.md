@@ -111,8 +111,10 @@ is a touch noisier, the meteors are all there.
 
 The good part: **a quick look is not wasted work.** Run the same folder
 again on Full quality and it reuses everything — the folder scan, the
-star lock and the whole meteor search are already done, so it starts
-most of the way in.
+star lock, the frame alignment and the whole meteor search are already
+done, so it starts most of the way in. (A quick look therefore leaves a
+few GB of working files in `cache/` until you run the full one; the full
+run clears them itself when it finishes.)
 
 **Full quality, half size** is the one to pick if your disk is nearly
 full or a full-size run was more than your Mac wanted to do. Same
@@ -220,6 +222,10 @@ records GPS, the tool reads it from the photos and you can ignore the box.
   skips them for matching.
 - **A plane got labeled as a meteor (or vice versa)** → nothing is lost;
   drag the layer between the METEORS and FLAGGED groups in Photoshop.
+- **A run looks wrong and you want a clean one** → tick **Start over**
+  under Advanced. That now really does mean everything: the folder scan,
+  the star lock, the horizon it found, the meteor search — all measured
+  again from the photos.
 - **"the camera moved during the night"** → you knocked the tripod. The
   stars and the meteors are fine: every frame is matched to the star map
   on its own and put back where it really pointed. The one casualty is

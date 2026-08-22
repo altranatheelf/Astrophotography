@@ -83,10 +83,23 @@ class RunningMoments:
 def frame_noise_weights(noise_sigmas: dict[int, float],
                         clip=(0.25, 4.0)) -> dict[int, float]:
     """Inverse-variance frame weights (PixInsight-style noise weighting),
-    normalised to mean 1 and clipped so no frame dominates or vanishes."""
-    if not noise_sigmas:
+    normalised to mean 1 and clipped so no frame dominates or vanishes.
+
+    A sigma of zero, a negative one or a NaN means the search could not
+    measure that frame — a photo with almost no sky in it, or one that
+    would not read.  Those frames stack at mean weight and, crucially,
+    are kept out of the mean: one unmeasurable frame used to become a
+    1e6 weight that drove every real photo of the night down onto the
+    0.25 clip floor, and one NaN made every weight NaN.
+    """
+    usable = {i: float(s) for i, s in noise_sigmas.items()
+              if np.isfinite(s) and s > 1e-3}
+    if len(usable) < 2:
         return {}
-    raw = {i: 1.0 / max(s, 1e-3) ** 2 for i, s in noise_sigmas.items()}
+    raw = {i: 1.0 / s ** 2 for i, s in usable.items()}
     mean_w = float(np.mean(list(raw.values())))
-    return {i: float(np.clip(w / mean_w, clip[0], clip[1]))
-            for i, w in raw.items()}
+    out = {i: float(np.clip(w / mean_w, clip[0], clip[1]))
+           for i, w in raw.items()}
+    for i in noise_sigmas:
+        out.setdefault(i, 1.0)
+    return out

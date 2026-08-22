@@ -364,11 +364,11 @@ def main() -> int:
                 "Start over — ignore everything the last run worked out")
             self.cb_force.setToolTip(
                 "Normally a second run on the same folder reuses the "
-                "scan, the star lock and the meteor search, which is most "
-                "of the time. Tick this to redo all of it from the "
-                "photos — worth doing if you have changed the folder's "
-                "contents, or if a run looks wrong and you want a clean "
-                "one.")
+                "scan, the star lock, the alignment, the horizon and the "
+                "meteor search — most of the time a run takes. Tick this "
+                "to measure every one of them again from the photos: "
+                "worth doing if you have changed what is in the folder, "
+                "or if a run looks wrong and you want a clean one.")
             self.advanced.add(self.cb_force)
             layout.addWidget(self.advanced)
 

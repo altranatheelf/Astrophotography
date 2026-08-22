@@ -225,3 +225,160 @@ def test_preview_and_report_emitted(pipeline_result):
     assert "report" in g["outputs"]
     text = Path(g["outputs"]["report"]).read_text()
     assert "preview.jpg" in text and "meteor" in text
+
+
+def test_a_quick_look_leaves_the_alignment_for_the_full_run(
+        synth_dir, ground_truth, tmp_path):
+    """The window runs with cleanup_cache on, and the whole promise of a
+    quick look is that the full run after it starts most of the way in.
+    The mid-run cleanup is guarded for a draft and says so in a comment;
+    the end-of-run one was not, so every quick look deleted the alignment
+    it had just paid for, ten lines from the end of the same run."""
+    import dataclasses
+
+    from meteorprep import modes as M
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    base = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "out"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, cleanup_cache=True, emit_contact_sheet=False)
+
+    run(dataclasses.replace(base, **M.config_kwargs("quick")))
+    aligned = tmp_path / "out" / "cache" / "g01" / "detect_aligned"
+    kept = sorted(aligned.glob("lum_*.npy")) if aligned.is_dir() else []
+    assert kept, "the quick look threw away the alignment the full run needs"
+
+    res = run(dataclasses.replace(base, **M.config_kwargs("full")))
+    timings = dict(res["groups"][0]["timings"])
+    realign = [v for k, v in timings.items() if "aligning" in k]
+    assert realign and realign[0] < 0.5, timings   # reused, not redone
+    # and the full run, which has no successor to hand anything to,
+    # frees it
+    assert not aligned.is_dir()
+
+
+def test_the_one_core_fallback_stacks_the_same_night(
+        synth_dir, ground_truth, tmp_path, monkeypatch):
+    """When the parallel stack dies, the run finishes on one core — and
+    the picture it produces has to be the picture the parallel pass would
+    have produced.  The retry used to be handed worker 0's accumulator
+    block back, the same block a worker that outlived the shutdown could
+    still be adding frames into, so a chunk of the night was counted
+    twice: a brightness and coverage error in the finished starfield with
+    nothing in the log but "one core"."""
+    import dataclasses
+
+    import meteorprep.pipeline as P
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    base = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "clean"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, jobs=2, emit_psd=False, emit_contact_sheet=False)
+    run(base)
+    import tifffile
+    cdir = tmp_path / "clean" / "cache" / "g01"
+    clean = tifffile.imread(cdir / "base.tif").astype(np.int32)
+    clean_cov = np.load(cdir / "coverage.npy")
+
+    real_pool = P._shared_pool
+
+    class _DyingPool:
+        """A pool that accepts the alignment work and then refuses the
+        first stack submission, the way a worker dying of memory does."""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self._n = 0
+
+        def submit(self, fn, *a, **k):
+            if fn is P._stack_pass:
+                self._n += 1
+                if self._n == 1:
+                    raise RuntimeError("simulated worker death")
+            return self._inner.submit(fn, *a, **k)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    monkeypatch.setattr(
+        P, "_shared_pool",
+        lambda n, exclusive=False: _DyingPool(real_pool(n, exclusive)))
+    fallback_cfg = dataclasses.replace(
+        base, output_dir=str(tmp_path / "fallback"))
+    run(fallback_cfg)
+    fdir = tmp_path / "fallback" / "cache" / "g01"
+    fell_back = tifffile.imread(fdir / "base.tif").astype(np.int32)
+    fell_cov = np.load(fdir / "coverage.npy")
+
+    # coverage counts photos, so it is exact: a chunk counted twice shows
+    # up here as a whole region of the canvas claiming more photos than
+    # the night had
+    assert np.array_equal(fell_cov, clean_cov)
+    assert int(fell_cov.max()) <= 12
+    # the starfield itself is summed in a different grouping (one
+    # accumulator instead of per-chunk ones) and float addition is not
+    # associative, so it may differ in the last ADU — but not more
+    assert int(np.abs(fell_back - clean).max()) <= 2
+    assert P._RETRY_WID != 0     # never the id a live worker may still own
+
+
+def test_the_star_lock_is_reused_and_gives_the_same_full_size_picture(
+        synth_dir, ground_truth, tmp_path, caplog):
+    """Both the window and the guide promise a second run reuses the star
+    lock.  It had no saved artifact at all, so every run re-solved the
+    whole night.  Now it is saved — and because a quick look solves on a
+    half-size CANVAS, the saved lock must be in detection space only: the
+    full run that follows has to rebuild its own output geometry, or it
+    inherits the draft's."""
+    import dataclasses
+    import json
+    import logging
+
+    from meteorprep import modes as M
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    base = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "clean"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, emit_psd=False, emit_contact_sheet=False)
+    run(base)
+    clean_sc = json.loads(
+        (tmp_path / "clean" / "g01" / "meteorprep.json").read_text())
+
+    after = dataclasses.replace(base, output_dir=str(tmp_path / "after"))
+    run(dataclasses.replace(after, **M.config_kwargs("quick")))
+    assert (tmp_path / "after" / "cache" / "g01" / "solve.json").exists()
+    with caplog.at_level(logging.INFO, logger="meteorprep"):
+        run(dataclasses.replace(after, **M.config_kwargs("full")))
+    assert any("star lock reused" in r.getMessage() for r in caplog.records)
+    after_sc = json.loads(
+        (tmp_path / "after" / "g01" / "meteorprep.json").read_text())
+
+    # the full-size canvas geometry has to be the full run's own, not the
+    # half-size draft's
+    assert (np.allclose(after_sc["pole_pixel_xy"],
+                        clean_sc["pole_pixel_xy"], atol=1e-6)), (
+        after_sc["pole_pixel_xy"], clean_sc["pole_pixel_xy"])
+    assert after_sc["base_wcs_fits_header"] == \
+        clean_sc["base_wcs_fits_header"]
+    assert after_sc["alignment"]["solver"] == clean_sc["alignment"]["solver"]
+
+    import tifffile
+    a = tifffile.imread(tmp_path / "after" / "cache" / "g01" / "base.tif")
+    c = tifffile.imread(tmp_path / "clean" / "cache" / "g01" / "base.tif")
+    assert a.shape == c.shape
+    assert int(np.abs(a.astype(np.int32) - c.astype(np.int32)).max()) <= 2

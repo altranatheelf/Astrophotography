@@ -50,8 +50,21 @@ def evidence_ledger(coverage: np.ndarray, rejected: np.ndarray,
     # touches nearly half the canvas at least once, which says nothing
     # about a pixel's honesty.  Only a pixel that lost a real share of its
     # samples earns the "outliers removed" class.
-    led[rej >= np.maximum(reject_frac * cov, 1.0)] = 2
-    deep = float(np.percentile(cov[cov > 0], 90)) if (cov > 0).any() else 0.0
+    # In row bands, in float32.  Written as one expression this promoted
+    # the uint16 coverage map to float64 twice — two canvas-sized planes,
+    # 320 MB at 20 MP, allocated at the very end of the run when the
+    # whole layer stack is already resident.
+    for y0 in range(0, cov.shape[0], 256):
+        y1 = min(y0 + 256, cov.shape[0])
+        thr = cov[y0:y1].astype(np.float32)
+        thr *= np.float32(reject_frac)
+        np.maximum(thr, np.float32(1.0), out=thr)
+        led[y0:y1][rej[y0:y1] >= thr] = 2
+    # the 90th percentile of a 20 MP map is the same to three decimals on
+    # every 16th pixel, and cov[cov > 0] on the whole canvas is 80 MB
+    sub = cov[::4, ::4]
+    sub = sub[sub > 0]
+    deep = float(np.percentile(sub, 90)) if sub.size else 0.0
     if deep > 0:
         led[cov < 0.5 * deep] = 3
     if sky_mask is not None and sky_mask.shape[:2] == led.shape[:2]:
@@ -60,14 +73,24 @@ def evidence_ledger(coverage: np.ndarray, rejected: np.ndarray,
     total = float(led.size)
     legend = [{"id": cid, "label": label, "color": list(color),
                "meaning": meaning,
-               "percent": float((led == cid).sum()) * 100.0 / total}
+               "percent": float(np.count_nonzero(led == cid)) * 100.0 / total}
               for cid, label, color, meaning in LEDGER_CLASSES]
     return led, legend
 
 
+_PALETTE_RGB = np.zeros((len(LEDGER_CLASSES), 3), np.uint8)
+_PALETTE_BGR = np.zeros((len(LEDGER_CLASSES), 3), np.uint8)
+for _cid, _l, (_r, _g, _b), _m in LEDGER_CLASSES:
+    _PALETTE_RGB[_cid] = (_r, _g, _b)
+    _PALETTE_BGR[_cid] = (_b, _g, _r)
+
+
 def ledger_rgb(led: np.ndarray) -> np.ndarray:
     """Paint the class map with the legend colours (RGB uint8)."""
-    out = np.zeros(led.shape[:2] + (3,), np.uint8)
-    for cid, _label, color, _meaning in LEDGER_CLASSES:
-        out[led == cid] = color
-    return out
+    return _PALETTE_RGB[led]
+
+
+def ledger_bgr(led: np.ndarray) -> np.ndarray:
+    """The same picture in the byte order cv2.imwrite wants, so writing
+    it does not need a second full-canvas copy to swap two channels."""
+    return _PALETTE_BGR[led]

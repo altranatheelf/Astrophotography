@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from meteorprep.cache.store import CacheStore
 from meteorprep.config import SIDEREAL_DEG_PER_SEC, Config
@@ -1318,7 +1319,7 @@ def test_draft_mode_keeps_the_verdicts_and_drops_only_the_expensive_half():
     # ...but nothing that decides WHAT is found has moved
     for k in ("diff_threshold", "detect_min_thresh", "min_area",
               "min_aspect_ratio", "hough_threshold", "min_line_score",
-              "bin_factor", "ref_window", "ref_sigma", "stack_sigma",
+              "ref_window", "ref_sigma", "stack_sigma",
               "radiant_tol_deg", "cosmic_max_px"):
         assert getattr(draft, k) == getattr(full, k), k
 
@@ -1489,3 +1490,261 @@ def test_one_bad_solve_is_not_mistaken_for_a_bump():
                      rot_shift_px=(300.0 if i == 9 else 0.0))
            for i in range(20)]
     assert _detect_tripod_bump(wcs, frames, 50.0) is None
+
+
+def test_frame_weight_follows_noise_not_sky_drift():
+    """The stack weights each photo by how noisy it is.  It used to weight
+    them by whether their sky happened to sit above or below the running
+    median, because the noise was measured on a residual that had already
+    had its negatives clipped away: on a frame below the reference more
+    than half the sky was exactly zero, the robust sigma collapsed to its
+    floor, and that frame arrived with a million times everyone's weight.
+    """
+    from meteorprep.detect.diff import difference
+    from meteorprep.fastmath import mad_sigma
+    from meteorprep.stack.streaming import frame_noise_weights
+
+    rng = np.random.default_rng(7)
+    h, w = 200, 300
+    ref = np.full((h, w), 1000.0, np.float32)
+    # ten photos, identical noise, skies drifting -6..+8 ADU around it
+    drifts = [-6, -4, -2, 0, 1, 2, 3, 5, 6, 8]
+    old, new = {}, {}
+    for i, dr in enumerate(drifts):
+        frame = ref + dr + rng.normal(0, 20.0, (h, w)).astype(np.float32)
+        clipped = difference(frame, ref, None)         # what it used to do
+        old[i] = mad_sigma(clipped, floor=1e-3)[1]
+        resid = frame - ref                            # what it does now
+        new[i] = mad_sigma(resid, floor=0.0)[1]
+
+    wo, wn = frame_noise_weights(old), frame_noise_weights(new)
+    # the old way: the frames that drifted low pin to the top of the clip
+    # range and everything else falls to the bottom
+    assert max(wo.values()) / min(wo.values()) > 5
+    # the new way: same noise in every photo, so near-equal weights
+    assert max(wn.values()) / min(wn.values()) < 1.2
+    assert all(abs(v - 1.0) < 0.15 for v in wn.values())
+
+    # and a genuinely noisier photo still gets weighted down
+    noisy = ref + rng.normal(0, 40.0, (h, w)).astype(np.float32)
+    new[10] = mad_sigma(noisy - ref, floor=0.0)[1]
+    w2 = frame_noise_weights(new)
+    assert w2[10] < 0.5 * min(w2[i] for i in range(10))
+
+
+def test_an_unmeasurable_frame_cannot_flatten_every_other_weight():
+    """A photo the search could not measure reports sigma 0.  That used
+    to mean weight 1e6, which pushed every real photo onto the 0.25 clip
+    floor; a NaN made every weight NaN."""
+    from meteorprep.stack.streaming import frame_noise_weights
+
+    good = {i: 20.0 for i in range(9)}
+    assert frame_noise_weights({**good, 9: 0.0})[9] == 1.0
+    assert all(abs(v - 1.0) < 1e-6
+               for i, v in frame_noise_weights({**good, 9: 0.0}).items())
+    nan = frame_noise_weights({**good, 9: float("nan")})
+    assert all(np.isfinite(v) for v in nan.values()) and nan[9] == 1.0
+    # nothing measurable at all: no weighting rather than nonsense
+    assert frame_noise_weights({0: 0.0, 1: float("nan")}) == {}
+
+
+def test_the_colour_frame_cache_never_exceeds_its_cap():
+    """Six developed frames is ~360 MB, which is why there is a cap.  The
+    batch prefetch used to evict only the frames the current candidate
+    did NOT need, so two long tracks over the same stretch of the night
+    evicted nothing and the cache grew to twelve."""
+    CAP = 6
+
+    def prefetch_old(cache, idx):
+        todo = [i for i in dict.fromkeys(idx) if i not in cache][:CAP]
+        if len(todo) < 2:
+            return
+        for k in [k for k in cache if k not in idx][:len(todo)]:
+            cache.pop(k, None)
+        for i in todo:
+            cache[i] = i
+
+    def prefetch_new(cache, idx):
+        todo = [i for i in dict.fromkeys(idx) if i not in cache][:CAP]
+        if len(todo) < 2:
+            return
+        room = len(cache) + len(todo) - CAP
+        if room > 0:
+            victims = ([k for k in cache if k not in idx]
+                       + [k for k in cache if k in idx])
+            for k in victims[:room]:
+                cache.pop(k, None)
+        for i in todo:
+            cache[i] = i
+
+    # two aircraft passes over the same stretch of the night, each frame
+    # asking for itself and its predecessor — the case the prefetch was
+    # written for
+    tracks = [[20, 21, 22, 23, 24, 25],
+              [20, 21, 22, 23, 24, 25, 26, 27],
+              [22, 23, 28, 29, 30, 31, 32, 33]]
+    for prefetch, cap_holds in ((prefetch_old, False), (prefetch_new, True)):
+        cache, peak = {}, 0
+        for t in tracks:
+            prefetch(cache, t)
+            peak = max(peak, len(cache))
+        assert (peak <= CAP) is cap_holds, (prefetch.__name__, peak)
+
+    # and it holds under random track geometry
+    rng = np.random.default_rng(11)
+    cache, peak = {}, 0
+    for _ in range(300):
+        lo = int(rng.integers(0, 40))
+        prefetch_new(cache, list(range(lo, lo + int(rng.integers(2, 9)))))
+        peak = max(peak, len(cache))
+    assert peak <= CAP, peak
+
+
+def test_evidence_ledger_matches_its_definition_without_a_float64_canvas():
+    """The ledger classifies every pixel of the shipped canvas by where it
+    came from.  It used to do the one integer comparison at its heart by
+    promoting the coverage map to float64 twice — two canvas-sized planes
+    at the very end of the run, when the whole layer stack is already in
+    memory.  This pins the answer AND the arithmetic."""
+    import tracemalloc
+
+    from meteorprep.report.evidence import (LEDGER_CLASSES, evidence_ledger,
+                                            ledger_bgr, ledger_rgb)
+
+    rng = np.random.default_rng(5)
+    h, w = 700, 900
+    cov = rng.integers(0, 60, (h, w)).astype(np.uint16)
+    cov[:60] = 0                                   # outside every frame
+    rej = rng.integers(0, 20, (h, w)).astype(np.uint16)
+    sky = np.ones((h, w), np.float32)
+    sky[int(h * 0.8):] = 0.0                       # below the treeline
+
+    led, legend = evidence_ledger(cov, rej, sky)
+
+    # the definition, written out plainly
+    want = np.ones((h, w), np.uint8)
+    want[rej >= np.maximum(0.25 * cov.astype(np.float64), 1.0)] = 2
+    deep = float(np.percentile(cov[::4, ::4][cov[::4, ::4] > 0], 90))
+    want[cov < 0.5 * deep] = 3
+    want[sky < 0.5] = 4
+    want[cov == 0] = 0
+    assert np.array_equal(led, want)
+    assert abs(sum(e["percent"] for e in legend) - 100.0) < 1e-6
+    assert [e["id"] for e in legend] == [c[0] for c in LEDGER_CLASSES]
+
+    # no canvas-sized float plane: the whole call has to fit in a few
+    # times the size of the uint8 map it returns
+    tracemalloc.start()
+    evidence_ledger(cov, rej, sky)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 8 * h * w, peak
+
+    # and the BGR palette is exactly the RGB one with the ends swapped
+    import cv2
+    assert np.array_equal(ledger_bgr(led),
+                          cv2.cvtColor(ledger_rgb(led), cv2.COLOR_RGB2BGR))
+
+
+def test_the_override_file_cannot_invent_a_half_draft(tmp_path, caplog):
+    """meteorprep_config.json is applied with setattr to a Config that is
+    already built, and __post_init__ — the thing that turns draft into
+    half-size, no editable files and no second look — only runs at
+    construction.  {"draft": true} therefore used to produce a run that
+    stacked forty photos, wrote a full-resolution Photoshop file, and
+    filed it in a folder marked draft: a mode with no other way to reach
+    it, and whose cache markers then described it."""
+    import json
+    import logging
+
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    (tmp_path / "frames").mkdir()
+    (tmp_path / "frames" / "meteorprep_config.json").write_text(json.dumps(
+        {"draft": True, "solve_every_k": 4, "nonsense_setting": 1}))
+    cfg = Config(input_dir=str(tmp_path / "frames"),
+                 output_dir=str(tmp_path / "out"))
+    with caplog.at_level(logging.WARNING, logger="meteorprep"):
+        # no photos in there, so the run stops right after the override
+        # block — which is the part under test
+        with pytest.raises(FileNotFoundError):
+            run(cfg)
+    msgs = " ".join(r.getMessage() for r in caplog.records)
+    assert "'draft'" in msgs and "--mode" in msgs
+    assert "nonsense_setting" in msgs          # typos are reported, not eaten
+    assert cfg.draft is False and cfg.half_size is False
+    assert cfg.solve_every_k == 4              # ordinary settings still apply
+
+
+def test_a_saved_star_lock_never_carries_its_canvas_across(tmp_path):
+    """The saved star lock is in DETECTION space, which a quick look and a
+    full run share; the output-space base WCS and the pole are the same
+    solve scaled onto the canvas, which they do not.  Saving those two
+    would hand a half-size run's geometry to the full-size one."""
+    import json
+
+    from astropy.wcs import WCS
+
+    from meteorprep.cache.store import CacheStore
+    from meteorprep.pipeline import _restore_solve, _save_solve
+
+    class _F:
+        def __init__(self, name):
+            self.file = name
+            self.wcs_source = "solved"
+            self.solve_rms_px = 1.25
+
+    def wcs_at(ra):
+        w = WCS(naxis=2)
+        w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+        w.wcs.crpix = [500.0, 350.0]
+        w.wcs.crval = [ra, 40.0]
+        w.wcs.cdelt = [-0.01, 0.01]
+        return w
+
+    frames = [_F(f"IMG_{i}.CR2") for i in range(4)]
+    det_wcs = [wcs_at(40.0 + i) for i in range(4)]
+    cache = CacheStore(tmp_path)
+    _save_solve(cache, frames, det_wcs, -0.017, "refine", "nominal",
+                ["IMG_0.CR2"])
+
+    saved = json.loads((tmp_path / "solve.json").read_text())
+    assert not (set(saved) & {"base_wcs", "pole_xy", "base_wcs_fits_header",
+                              "half_size", "super_sample", "S"})
+    assert [f["file"] for f in saved["frames"]] == [f.file for f in frames]
+
+    back = [None] * 4
+    frames2 = [_F(f"IMG_{i}.CR2") for i in range(4)]
+    got = _restore_solve(cache, frames2, back)
+    assert got["k1"] == -0.017 and got["solver"] == "refine"
+    assert got["quality"] == "nominal" and got["solve_files"] == ["IMG_0.CR2"]
+    for w, w2, f in zip(det_wcs, back, frames2):
+        assert np.allclose(w.wcs.crval, w2.wcs.crval)
+        assert np.allclose(w.wcs.crpix, w2.wcs.crpix)
+        assert f.wcs_source == "solved" and f.solve_rms_px == 1.25
+
+    # a different set of photos in the folder means solving again, not
+    # pairing a photo with someone else's sky
+    other = [_F("IMG_0.CR2"), _F("IMG_9.CR2")]
+    assert _restore_solve(cache, other, [None, None]) is None
+    assert _restore_solve(CacheStore(tmp_path / "empty"), frames2,
+                          [None] * 4) is None
+
+
+def test_a_frame_with_no_saved_sky_makes_the_whole_lock_be_redone(tmp_path):
+    from meteorprep.cache.store import CacheStore
+    from meteorprep.pipeline import _restore_solve
+
+    class _F:
+        def __init__(self, name):
+            self.file = name
+
+    cache = CacheStore(tmp_path)
+    cache.write_json("solve.json", {
+        "k1": 0.0, "solver": "refine", "quality": "nominal",
+        "solve_files": [],
+        "frames": [{"file": "a.CR2", "wcs": "", "source": "", "rms_px": None},
+                   {"file": "b.CR2", "wcs": "", "source": "", "rms_px": None}]})
+    assert _restore_solve(cache, [_F("a.CR2"), _F("b.CR2")],
+                          [None, None]) is None
