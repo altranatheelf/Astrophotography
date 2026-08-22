@@ -1534,7 +1534,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     _detect_saved = (stage_cached("detect")
                      and cache.path("candidates.json").exists())
     _faint_saved = (not cfg.faint_harvest) or stage_cached("faint")
-    _will_align = ((not _detect_saved or not _faint_saved)
+    _will_align = (cfg.find_meteors
+                   and (not _detect_saved or not _faint_saved)
                    and not stage_cached("reproject"))
     needs_det_lum = (cfg.force
                      or not stage_cached("lightpaint")
@@ -2111,8 +2112,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # ---- can this run resume?  the search is the expensive half of a
     # night, and its result is a few kB of JSON: reuse it when the frame
     # set and the detection parameters are unchanged
+    # A run that is not hunting meteors is a nightscape build: same
+    # aligned sky, same frozen foreground, same layers — no search.  The
+    # search cache is neither read nor written, so checking the box later
+    # searches properly rather than trusting a run that never looked.
+    want_meteors = bool(cfg.find_meteors)
     detect_cached = bool(
-        not cfg.force
+        want_meteors
+        and not cfg.force
         and cache.path("candidates.json").exists()
         and cache.is_done("detect", cfg.stage_hash("detect") + ":" + frames_fp)
         # a file that does not record which canvas its coordinates are on
@@ -2128,9 +2135,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         and cache.is_done("faint",
                           cfg.stage_hash("faint") + ":" + frames_fp)
         and _candidates_scale(cache, "candidates_faint.json") is not None)
-    want_faint = bool(cfg.faint_harvest) and not faint_cached
-    # the aligned small previews feed the first pass AND the second look
-    need_det_dir = (not detect_cached) or want_faint
+    want_faint = want_meteors and bool(cfg.faint_harvest) and not faint_cached
+    # the aligned small previews feed the first pass AND the second look;
+    # a nightscape build needs neither (its horizon matte comes from the
+    # frozen ground stack, not from the search's ground mask)
+    need_det_dir = want_meteors and ((not detect_cached) or want_faint)
     if detect_cached:
         log.info("meteor search is up to date — resuming from the saved "
                  "result instead of searching every photo again")
@@ -2242,7 +2251,10 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
 
     # ---------------- detection ----------------
     # Workers memory-map the aligned cache: RAM stays flat, never all 226.
-    notify(0.45, "searching every frame for meteors")
+    if want_meteors:
+        notify(0.45, "searching every frame for meteors")
+    else:
+        notify(0.45, "skipping the meteor hunt (not asked for this run)")
 
     # ground mask from alignment physics: static ground and flickering
     # lights deviate from the aligned-sky consensus in most frames, so
@@ -2273,7 +2285,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             sky_det = None
         if sky_det is not None and sky_det.shape != (hd, wd):
             sky_det = None               # different canvas: measure again
-    if sky_det is None and base_wcs is not None and not have_aligned:
+    if not want_meteors:
+        # this mask exists to keep porch lights and treetops out of the
+        # STREAK SEARCH; the composite's own horizon matte is measured
+        # from the frozen ground stack later.  With no search to protect
+        # there is nothing to measure here — though one saved by an
+        # earlier meteor run was loaded above and still helps the
+        # no-foreground fallback.
+        pass
+    elif sky_det is None and base_wcs is not None and not have_aligned:
         # A night with no ground in frame (pointed straight up) never
         # writes a mask, so there is nothing to reload — and by the
         # second run the aligned previews it would be measured from have
@@ -2302,7 +2322,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         cache.mark_done("sky_det", sky_key)
     diff_dir = cache.dir("diffs")
     exclude_lp = [int(v) for v in np.nonzero(lp)[0]]
-    search_idx = ([] if detect_cached
+    search_idx = ([] if (detect_cached or not want_meteors)
                   else [i for i in range(n) if not lp[i]])
     streaks_per_frame = {}
     diffs_det = {}
@@ -2456,7 +2476,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             except Exception as exc:
                 log.debug("physics annotation skipped for %s: %s", c.id, exc)
 
-    if not detect_cached:      # the first pass is complete and reusable
+    if not want_meteors:
+        # nothing was searched, so there is nothing to save — and a
+        # composite run must not leave an empty candidates file that a
+        # later meteor run could mistake for a night already searched.
+        # A saved noise measurement from an earlier meteor run, though,
+        # is still the right weighting for this stack: fall through.
+        pass
+    elif not detect_cached:    # the first pass is complete and reusable
         _save_candidates(cache, candidates, scale=S)
         # The per-frame noise the search measured is what weights the
         # stack.  It was not saved, so a resumed run re-stacked the whole
@@ -2477,7 +2504,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                                      for k, v in noise_sigmas.items()}})
         stage_done("detect")
         detect_cached = True
-    elif not noise_sigmas:
+    if not noise_sigmas and (not want_meteors or detect_cached):
         try:
             rec = cache.read_json("frame_noise.json")
             if (isinstance(rec, dict)
@@ -2488,9 +2515,14 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 log.info("the saved per-photo noise was measured a "
                          "different way; this stack weights every photo "
                          "equally (tick Start over to measure it again)")
+        except FileNotFoundError:
+            if want_meteors:
+                log.info("the saved run did not record its per-photo "
+                         "noise; this stack weights every photo equally")
+            # a fresh composite run simply has none yet — nothing to say
         except (OSError, ValueError, AttributeError, TypeError):
-            log.info("the saved run did not record its per-photo noise; "
-                     "this stack weights every photo equally")
+            log.info("the saved per-photo noise would not read; this "
+                     "stack weights every photo equally")
 
     meteor_cands = [c for c in candidates if c.label == "meteor"]
     flagged_cands = [c for c in candidates if c.label != "meteor"]
@@ -3105,13 +3137,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             LayerGroup("SKY_TOOLS", extra_layers, visible=False)
             if extra_layers else LayerGroup("SKY_TOOLS", [], visible=False),
             LayerGroup("FOREGROUND", fg_layers, visible=True),
+        ] + ([
             LayerGroup("METEORS", to_layers(meteor_layers, True),
                        visible=True),
             LayerGroup("FLAGGED",
                        to_layers(flagged_layers, False,
                                  start=len(meteor_layers)),
                        visible=False),
-        ])
+            # a nightscape build carries no empty METEORS drawer — a
+            # composite is not a meteor hunt that found nothing
+        ] if want_meteors else []))
 
     outputs = {}
     psd_path = None
@@ -3304,13 +3339,18 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             "integration": f"{total_exp / 60:.0f} min of exposure "
                            f"({len(ok_idx)} x "
                            f"{total_exp / max(len(ok_idx), 1):.0f}s)",
-            "faint-pass meteors": str(n_faint),
+            "faint-pass meteors": (str(n_faint) if want_meteors
+                                   else "the hunt was off"),
             "generated pixels": "none — every trail is measured light, "
                                 "at its true sky position",
             "recipe hash": cfg.params_hash()[:23]}
     if cfg.draft:
         info["mode"] = ("draft — half-resolution picture, no layered file, "
                         "no second look for faint meteors")
+    if not want_meteors:
+        info["meteor hunt"] = ("off — this run built the composite; tick "
+                               "'Hunt for meteors' and run the same folder "
+                               "to search it (the sky work is reused)")
     if tripod_bump:
         info["camera moved"] = (
             f"the tripod was knocked at {tripod_bump['file']} "
@@ -3367,7 +3407,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_psd="psd" in outputs,
         crops=crops, timings=timings, info=info, looks=looks,
         capsule=capsule, draft=cfg.draft,
-        have_pngjsx="jsx" in outputs))
+        have_pngjsx="jsx" in outputs, meteor_hunt=want_meteors))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_lum_dir, ignore_errors=True)
@@ -3387,8 +3427,11 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             log.info("freed the detection cache (%s)", det_dir.name)
     if skipped:
         log.info("%d stage(s) up-to-date, skipped", skipped)
-    notify(1.0, f"done: {len(meteor_cands)} meteor(s), "
-                f"{len(flagged_cands)} flagged candidate(s)")
+    if want_meteors:
+        notify(1.0, f"done: {len(meteor_cands)} meteor(s), "
+                    f"{len(flagged_cands)} flagged candidate(s)")
+    else:
+        notify(1.0, "done: your composite is ready")
     return {"group": group.group_id, "outputs": outputs,
             "n_meteors": len(meteor_cands), "n_flagged": len(flagged_cands),
             "alignment_quality": alignment_quality,

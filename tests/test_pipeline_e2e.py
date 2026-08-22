@@ -439,3 +439,56 @@ def test_a_deleted_or_damaged_cache_rebuilds_instead_of_crashing(
         if f.exists():
             f.unlink()
             _same_again(f"after deleting {name}")
+
+
+def test_a_composite_run_skips_the_hunt_and_a_later_hunt_still_searches(
+        synth_dir, ground_truth, tmp_path):
+    """With the hunt off the run is a nightscape build: same aligned
+    starfield, frozen foreground and layered file, no candidate layers,
+    no search.  Checking the box later on the SAME folder must actually
+    search — a composite run must not leave anything behind that a
+    meteor run could mistake for a night already searched."""
+    import dataclasses
+
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    cfg = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "out"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, emit_psd=False, emit_pngjsx=True,
+        find_meteors=False)
+    res = run(cfg)
+    g = res["groups"][0]
+    out = tmp_path / "out" / "g01"
+
+    # the composite is all there
+    assert (out / "preview.jpg").exists()
+    assert (out / "skymask.png").exists()
+    assert (out / "assemble.jsx").exists()
+    assert g["n_meteors"] == 0 and g["n_flagged"] == 0
+
+    # and it is a composite, not a hunt that found nothing: no candidate
+    # layers, no empty METEORS drawer, no candidates file for a later
+    # run to trust
+    manifest = json.loads((out / "layers_manifest.json").read_text())
+    groups = {m["group"] for m in manifest}
+    assert "METEORS" not in groups and "FLAGGED" not in groups
+    assert {"FOREGROUND"} <= groups
+    cdir = tmp_path / "out" / "cache" / "g01"
+    assert not (cdir / "candidates.json").exists()
+    report = (out / "report.html").read_text()
+    assert "meteor hunt was off" in report
+
+    # same folder, hunt on: the search really runs, and finds the
+    # planted meteors the composite run never looked for — while the
+    # star lock is reused across the toggle
+    res2 = run(dataclasses.replace(cfg, find_meteors=True))
+    g2 = res2["groups"][0]
+    assert g2["n_meteors"] >= 1
+    manifest2 = json.loads((out / "layers_manifest.json").read_text())
+    assert any(m["group"] == "METEORS" for m in manifest2)
+    assert (cdir / "solve.json").exists()

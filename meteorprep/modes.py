@@ -8,9 +8,9 @@ turned on the second one internally, and where the word "preview" meant
 the mode, the other mode, and an output file.
 
 A mode says what you GET.  Everything else about the run is identical:
-the same photos are read, the same sky is solved, the same search finds
-the same meteors.  A mode never changes the answer, only the picture and
-the files it comes in.
+the same photos are read, the same sky is solved, and — when the meteor
+hunt is on — the same search finds the same meteors.  A mode never
+changes the answer, only the picture and the files it comes in.
 """
 
 from __future__ import annotations
@@ -35,9 +35,9 @@ QUICK = Mode(
     title="Quick look",
     blurb="a picture to look at now — no Photoshop file",
     detail=(
-        "Reads every photo and searches every one of them exactly the "
-        "way the full run does, so the meteors it reports are the real "
-        "answer.\n\n"
+        "Reads every photo, and — when the hunt is on — searches every "
+        "one of them exactly the way the full run does, so the meteors "
+        "it reports are the real answer.\n\n"
         "What it leaves out is the expensive half: the picture comes "
         "out at half size, there is no layered Photoshop file, the "
         "second look for the very faintest meteors is skipped, and on a "
@@ -57,9 +57,10 @@ FULL = Mode(
     title="Full quality",
     blurb="the layered Photoshop file, full size",
     detail=(
-        "The whole thing: every photo stacked at full resolution, each "
-        "meteor cut onto its own layer, the frozen foreground, the sky "
-        "tools, and the second look for the faintest meteors.\n\n"
+        "The whole thing: every photo stacked at full resolution, the "
+        "frozen foreground, the sky tools — and, when the hunt is on, "
+        "each meteor cut onto its own layer plus the second look for "
+        "the faintest ones.\n\n"
         "This is the one that produces meteorprep.psd."
     ),
     per_photo=(2.5, 5.0),
@@ -103,7 +104,8 @@ def config_kwargs(key: str) -> dict:
     return {"draft": False, "half_size": False}
 
 
-def estimate(key: str, n_photos: int, measured_per_photo=None) -> str:
+def estimate(key: str, n_photos: int, measured_per_photo=None,
+             factor: float = 1.0) -> str:
     """A human sentence about how long this will take, or "" when there
     is nothing worth saying.
 
@@ -115,11 +117,15 @@ def estimate(key: str, n_photos: int, measured_per_photo=None) -> str:
         return ""
     m = by_key(key)
     if measured_per_photo:
+        # a measured rate already reflects what the run actually does
         mid = m.overhead_s + n_photos * float(measured_per_photo)
         lo, hi = mid * 0.8, mid * 1.25
     else:
-        lo = m.overhead_s + n_photos * m.per_photo[0]
-        hi = m.overhead_s + n_photos * m.per_photo[1]
+        # ``factor`` scales the guessed per-photo rates only: a composite
+        # run skips the meteor search, which is roughly a third of a
+        # night, so the window passes 0.7 until it has measured one
+        lo = m.overhead_s + n_photos * m.per_photo[0] * factor
+        hi = m.overhead_s + n_photos * m.per_photo[1] * factor
 
     def _say(sec):
         if sec < 90:

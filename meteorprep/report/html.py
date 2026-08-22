@@ -98,7 +98,8 @@ def write_report_html(out_dir: Path, group_result: dict,
                       looks: list | None = None,
                       capsule: dict | None = None,
                       draft: bool = False,
-                      have_pngjsx: bool = False) -> Path:
+                      have_pngjsx: bool = False,
+                      meteor_hunt: bool = True) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
@@ -142,6 +143,28 @@ def write_report_html(out_dir: Path, group_result: dict,
         "shifts these three numbers &mdash; the sky positions and "
         "verdicts do not depend on the clock.</p>"
         if any_physics else "")
+
+    q = html.escape(str(g.get("alignment_quality", "?")))
+    if meteor_hunt:
+        headline_card = (
+            f'<div class="card"><span class="big">{len(meteors)}</span> '
+            f'meteor(s) &nbsp;&middot;&nbsp; {len(flagged)} '
+            f'plane/satellite trail(s) flagged &nbsp;&middot;&nbsp; '
+            f'alignment {q}</div>')
+        candidate_table = (
+            "<h2>Every candidate</h2>"
+            "<p>Each crop is auto-brightened for inspection &mdash; "
+            "click to enlarge.</p>"
+            "<table><tr><th></th><th>id</th><th>verdict</th>"
+            "<th>frame(s)</th><th>confidence</th><th>radiant miss</th>"
+            f"{phys_head}</tr>{''.join(rows)}</table>{physics_note}")
+    else:
+        headline_card = (
+            '<div class="card"><span class="big">&#10003;</span> '
+            'composite built &nbsp;&middot;&nbsp; '
+            f'alignment {q} &nbsp;&middot;&nbsp; '
+            'the meteor hunt was off for this run</div>')
+        candidate_table = ""
 
     capsule_html = ""
     if capsule:
@@ -232,17 +255,11 @@ def write_report_html(out_dir: Path, group_result: dict,
 </style></head><body>
 <h1>{"Your night, a quick look" if draft else "Your night, processed"}</h1>
 {draft_banner}
-<div class="card"><span class="big">{len(meteors)}</span> meteor(s)
- &nbsp;&middot;&nbsp; {len(flagged)} plane/satellite trail(s) flagged
- &nbsp;&middot;&nbsp; alignment {html.escape(str(g.get('alignment_quality', '?')))}</div>
+{headline_card}
 {'<h2>Preview</h2><p>Auto-processed for viewing only — your layered file stays untouched and fully adjustable.</p><a href="preview.jpg"><img src="preview.jpg"></a>' if have_preview else ''}
 {looks_html}
 {'<h2>Candidate lineup</h2><a href="contact_sheet.png"><img src="contact_sheet.png"></a>' if have_contact else ''}
-<h2>Every candidate</h2>
-<p>Each crop is auto-brightened for inspection — click to enlarge.</p>
-<table><tr><th></th><th>id</th><th>verdict</th><th>frame(s)</th>
-<th>confidence</th><th>radiant miss</th>{phys_head}</tr>{''.join(rows)}</table>
-{physics_note}
+{candidate_table}
 {capsule_html}
 {timing_html}
 {info_html}

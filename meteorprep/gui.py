@@ -284,8 +284,54 @@ def main() -> int:
             layout.addWidget(self.summary)
 
             # ---- 2. what you want -----------------------------------
+            # The composite is not a choice — it is what the program IS:
+            # every run aligns the sky, stacks it clean, freezes the
+            # foreground and hands back a layered file plus a shareable
+            # picture.  The choices are the two things you can ask for
+            # ON TOP of that.
             layout.addSpacing(4)
             layout.addWidget(_heading("What do you want?"))
+            layout.addWidget(_sub(
+                "Every run builds the composite: your sharp foreground "
+                "under a clean, stacked, star-true sky — a finished "
+                "preview.jpg to share, plus the layered Photoshop file "
+                "to make your own."))
+            self.cb_meteors = QCheckBox(
+                "Hunt for meteors — each one on its own Photoshop layer")
+            self.cb_meteors.setToolTip(
+                "Searches every photo for meteor streaks, tells them "
+                "apart from planes and satellites, and cuts each meteor "
+                "onto its own toggleable layer at its true sky position. "
+                "Adds roughly a third to the run. Leave it off for a "
+                "nightscape or landscape night — the composite is "
+                "identical either way, and you can check this later and "
+                "run the same folder again: the sky work is reused.")
+            layout.addWidget(self.cb_meteors)
+            self.cb_sheet = QCheckBox(
+                "Contact sheet — one thumbnail of everything it found")
+            self.cb_sheet.setChecked(True)
+            self.cb_sheet.setToolTip(
+                "A single image with every candidate on it, labelled "
+                "meteor or plane or satellite. The quickest way to check "
+                "the hunt's work.")
+            self.cb_sheet.setContentsMargins(0, 0, 0, 0)
+            sheet_row = QHBoxLayout()
+            sheet_row.addSpacing(26)          # indented under the hunt
+            sheet_row.addWidget(self.cb_sheet)
+            layout.addLayout(sheet_row)
+            self.cb_meteors.toggled.connect(self._meteors_toggled)
+            self.cb_trail = QCheckBox(
+                "Star-trail photo — the classic circles around the pole")
+            self.cb_trail.setToolTip(
+                "Every frame's brightest pixel kept, so the stars draw "
+                "arcs around the pole while the ground stays frozen. "
+                "Built from the photos you already have, at no extra "
+                "reading cost.")
+            layout.addWidget(self.cb_trail)
+
+            # ---- 3. how far to take it ------------------------------
+            layout.addSpacing(6)
+            layout.addWidget(_heading("How far to take it?"))
             self.mode_group = QButtonGroup(self)
             self.cards = {}
             for mode in M.MODES:
@@ -293,21 +339,6 @@ def main() -> int:
                 self.cards[mode.key] = card
                 layout.addWidget(card)
 
-            # ---- 3. extras ------------------------------------------
-            layout.addSpacing(6)
-            self.extras = Disclosure("Also make… (optional)")
-            self.cb_trail = QCheckBox("Star-trail photo")
-            self.cb_trail.setToolTip(
-                "The classic one: every frame's brightest pixel kept, so "
-                "the stars draw circles around the pole. Built from the "
-                "photos you already have, at no extra reading cost.")
-            self.cb_sheet = QCheckBox(
-                "Contact sheet — one thumbnail of everything it found")
-            self.cb_sheet.setChecked(True)
-            self.cb_sheet.setToolTip(
-                "A single image with every candidate on it, labelled "
-                "meteor or plane or satellite. The quickest way to check "
-                "its work.")
             self.cb_png = QCheckBox(
                 "Photoshop rescue script (only if the .psd won't open)")
             self.cb_png.setToolTip(
@@ -316,9 +347,6 @@ def main() -> int:
                 "Photoshop that refuses the .psd, and it adds about half "
                 "a gigabyte. Normally leave this off — if the .psd fails "
                 "to write, this is produced automatically anyway.")
-            for cb in (self.cb_trail, self.cb_sheet, self.cb_png):
-                self.extras.add(cb)
-            layout.addWidget(self.extras)
 
             # ---- 4. about your night --------------------------------
             self.night = Disclosure("About your night (optional)")
@@ -370,6 +398,7 @@ def main() -> int:
                 "worth doing if you have changed what is in the folder, "
                 "or if a run looks wrong and you want a clean one.")
             self.advanced.add(self.cb_force)
+            self.advanced.add(self.cb_png)
             layout.addWidget(self.advanced)
 
             # ---- 6. go ----------------------------------------------
@@ -420,7 +449,11 @@ def main() -> int:
             self.resize(560, 760)
             self.setMinimumWidth(480)
             self._restore_settings()
-            self._mode_changed()
+            # apply the hunt state even when nothing was saved: the box
+            # starts unchecked (a composite night is the ordinary night),
+            # and the button, the estimates and the contact-sheet row all
+            # follow it
+            self._meteors_toggled(self.cb_meteors.isChecked())
 
             import time as _time
             from PySide6.QtCore import QTimer
@@ -439,16 +472,36 @@ def main() -> int:
                     return key
             return M.DEFAULT
 
+        def _rate_key(self, mode_key):
+            """A composite run and a meteor hunt take different times, so
+            each remembers its own pace."""
+            return (f"rate_{mode_key}_m" if self.cb_meteors.isChecked()
+                    else f"rate_{mode_key}_c")
+
         def _mode_changed(self):
             key = self._mode_key()
+            hunting = self.cb_meteors.isChecked()
             for k, card in self.cards.items():
                 card.set_picked(k == key)
-                measured = self._settings.value(f"rate_{k}")
+                measured = (self._settings.value(self._rate_key(k))
+                            # rates learned before the checkbox existed
+                            # were all meteor hunts
+                            or (self._settings.value(f"rate_{k}")
+                                if hunting else None))
                 try:
                     measured = float(measured) if measured else None
                 except (TypeError, ValueError):
                     measured = None
-                card.set_estimate(M.estimate(k, self.n_photos, measured))
+                card.set_estimate(M.estimate(
+                    k, self.n_photos, measured,
+                    factor=1.0 if hunting else 0.7))
+
+        def _meteors_toggled(self, on):
+            self.cb_sheet.setEnabled(on)
+            if self.worker is None or not self.worker.isRunning():
+                self.button.setText("Find my meteors" if on
+                                    else "Build my composite")
+            self._mode_changed()      # the estimates change with the hunt
 
         def _set_folder(self, folder):
             import os
@@ -510,8 +563,9 @@ def main() -> int:
 
         # ---------------- settings --------------------------------------
 
-        _CBS = (("trail", "cb_trail"), ("sheet", "cb_sheet"),
-                ("png", "cb_png"), ("force", "cb_force"))
+        _CBS = (("meteors", "cb_meteors"), ("trail", "cb_trail"),
+                ("sheet", "cb_sheet"), ("png", "cb_png"),
+                ("force", "cb_force"))
 
         def _restore_settings(self):
             s = self._settings
@@ -645,7 +699,9 @@ def main() -> int:
                 output_dir=self._out_dir(),
                 emit_pngjsx=self.cb_png.isChecked(),
                 emit_startrail=self.cb_trail.isChecked(),
-                emit_contact_sheet=self.cb_sheet.isChecked(),
+                find_meteors=self.cb_meteors.isChecked(),
+                emit_contact_sheet=(self.cb_sheet.isChecked()
+                                    and self.cb_meteors.isChecked()),
                 force=self.cb_force.isChecked(),
                 jobs=max((os.cpu_count() or 2) - 1, 1),
                 cleanup_cache=True,
@@ -655,6 +711,7 @@ def main() -> int:
                 **M.config_kwargs(mode),
             )
             self._run_mode = mode
+            self._run_meteors = self.cb_meteors.isChecked()
             self.open_report_btn.setText("Open the report")
             self._save_settings()
             self._set_running(True)
@@ -676,11 +733,13 @@ def main() -> int:
             else:
                 self.button.setEnabled(bool(self.folder)
                                        and self.n_photos > 0)
-                self.button.setText("Find my meteors")
+                self.button.setText("Find my meteors"
+                                    if self.cb_meteors.isChecked()
+                                    else "Build my composite")
             self.test_button.setEnabled(not running)
             self.bar.setVisible(running)
-            for wdg in (self.cb_trail, self.cb_sheet, self.cb_png,
-                        self.cb_force, self.site, self.compass,
+            for wdg in (self.cb_meteors, self.cb_trail, self.cb_sheet,
+                        self.cb_png, self.cb_force, self.site, self.compass,
                         self.elevation, self.drop_label):
                 wdg.setEnabled(not running)
             for card in self.cards.values():
@@ -746,18 +805,24 @@ def main() -> int:
             # remember this machine's own pace, so the next estimate is
             # its number rather than a guess from someone else's laptop
             mode = getattr(self, "_run_mode", M.DEFAULT)
+            hunted = getattr(self, "_run_meteors", True)
             if self.n_photos > 0 and secs > 5:
                 rate = max(secs - M.by_key(mode).overhead_s, 1.0) \
                     / self.n_photos
-                self._settings.setValue(f"rate_{mode}", rate)
+                self._settings.setValue(
+                    f"rate_{mode}_{'m' if hunted else 'c'}", rate)
                 self._mode_changed()
             mins = secs / 60.0
             when = (f"{secs:.0f} seconds" if secs < 90
                     else f"{mins:.0f} minutes")
-            bits = [f"Found {meteors} meteor{'' if meteors == 1 else 's'}"]
-            if flagged:
-                bits.append(f"{flagged} plane/satellite trail"
-                            f"{'' if flagged == 1 else 's'} flagged")
+            if hunted:
+                bits = [f"Found {meteors} "
+                        f"meteor{'' if meteors == 1 else 's'}"]
+                if flagged:
+                    bits.append(f"{flagged} plane/satellite trail"
+                                f"{'' if flagged == 1 else 's'} flagged")
+            else:
+                bits = ["Your composite is ready"]
             line = " · ".join(bits) + f" · {when}."
             if "degraded" in quality:
                 line += ("  ⚠ The star lock was shaky on this night, so "

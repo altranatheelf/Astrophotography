@@ -55,6 +55,13 @@ class Config:
     lens_k1: float = 0.0            # poly3 barrel term; 0 = no pre-correction
 
     # --- detection (defaults adopted from shin3tky/detect_meteors, Apache-2.0) ---
+    # Whether this run hunts meteors at all.  Off, the run is a nightscape
+    # build: the same aligned, sigma-clipped starfield, the same frozen
+    # foreground and horizon matte, the same layered file and preview —
+    # just no search, no candidate layers and no second look.  Everything
+    # downstream of "detect" hashes this, so switching it re-stacks (the
+    # stack masks meteor corridors when there are meteors to mask).
+    find_meteors: bool = True
     # (there was a bin_factor here.  Nothing read it: the search binning
     # is fixed by the half-size decode, and detect_streaks' own
     # bin_factor argument is fed the derived output scale.  Changing it
@@ -256,7 +263,8 @@ class Config:
                   "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg",
                   "pointed_compass", "pointed_elevation_deg"],
         "reproject": ["align_mode"],
-        "detect": ["ref_window", "ref_sigma", "diff_threshold",
+        "detect": ["find_meteors", "ref_window", "ref_sigma",
+                   "diff_threshold",
                    "min_area", "min_aspect_ratio", "hough_threshold",
                    "hough_min_line_length", "hough_max_line_gap",
                    "min_line_score", "detect_min_thresh",

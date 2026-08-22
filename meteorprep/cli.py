@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help=argparse.SUPPRESS)   # it is off by default now
     p.add_argument("--no-contact-sheet", action="store_true",
                    help="do not write the sheet of candidate thumbnails")
+    p.add_argument("--no-meteors", action="store_false",
+                   dest="find_meteors",
+                   help="skip the meteor hunt: build the composite only "
+                        "(same aligned starfield, frozen foreground, "
+                        "layered file and preview — no candidate layers)")
     p.add_argument("--startrail", "--emit-startrail", action="store_true",
                    dest="emit_startrail",
                    help="also write the classic star-trail photo")
@@ -113,6 +118,7 @@ def config_from_args(args, parser=None) -> Config:
         emit_pngjsx=bool(getattr(args, "pngjsx", False)),
         emit_contact_sheet=not args.no_contact_sheet,
         emit_startrail=args.emit_startrail,
+        find_meteors=args.find_meteors,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,
         **_M.config_kwargs(_resolve_mode(args, parser)),

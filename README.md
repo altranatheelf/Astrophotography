@@ -1,8 +1,10 @@
 # METEORPREP
 
-An open-source preparer that turns a folder of fixed-tripod RAW meteor-shower
-frames into a **layered, geometry-corrected PSD** (plus a PNG + Photoshop-script
-fallback), with a JSON provenance sidecar.
+An open-source preparer that turns a folder of fixed-tripod RAW night-sky
+frames into a **layered, geometry-corrected PSD** (plus a PNG +
+Photoshop-script fallback), with a JSON provenance sidecar: a clean,
+stacked starfield over your frozen foreground, an optional star-trail
+image, and — when the meteor hunt is on — one layer per meteor.
 
 ## Quick start (macOS, no terminal)
 
@@ -10,16 +12,19 @@ Double-click **MeteorPrep.app** (or **Start MeteorPrep.command**) in this
 folder.  The first time, macOS may warn about an unidentified developer:
 right-click the app, choose **Open**, then **Open** again — only needed
 once.  First launch installs the components by itself if they're missing.
-Then drop your photo folder into the window, pick one of the three
-choices — **Quick look**, **Full quality**, or **Full quality, half
-size** — and press **Find my meteors**.  All three find the same
-meteors; they differ only in what they hand you and how long they take.
+Then drop your photo folder into the window, tick **Hunt for meteors**
+if it was a shower night, pick one of the three finishes — **Quick
+look**, **Full quality**, or **Full quality, half size** — and press
+the big button.  All three finishes make the same picture (and, hunting,
+find the same meteors); they differ only in what they hand you and how
+long they take.
 
 Every mechanical/geometric step is automated — decode, timing, plate solve,
-TAN reprojection, meteor detection, aircraft/satellite rejection, alpha
-extraction, sigma-clipped base stacking, assembly.  Every aesthetic decision
-— which meteors, foreground choice, crop, grade — is surfaced to the human as
-PSD layer toggles and never baked in.
+TAN reprojection, sigma-clipped base stacking, assembly, and (with the hunt
+on) meteor detection with aircraft/satellite rejection and alpha
+extraction.  Every aesthetic decision — which meteors, foreground choice,
+crop, grade — is surfaced to the human as PSD layer toggles and never
+baked in.
 
 ## Why not just rotate the frames?
 
@@ -61,8 +66,9 @@ meteorprep /path/to/frames -o out \
     --seed-ra 48 --seed-dec 58        # rough pointing seed for the solver
 ```
 
-or launch the GUI (`python -m meteorprep.gui`): drop the folder, pick a
-mode, press **Find my meteors**.  On the command line the same choice is
+or launch the GUI (`python -m meteorprep.gui`): drop the folder, pick
+what you want, press the button.  `--no-meteors` skips the hunt (the
+window's checkbox, inverted).  On the command line the mode choice is
 `--mode quick` / `--mode full` / `--mode smaller`.
 
 Outputs per shooting group:

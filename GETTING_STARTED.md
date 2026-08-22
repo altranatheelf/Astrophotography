@@ -40,9 +40,9 @@ drag-and-drop.*
 
 ## What this tool actually does
 
-You shot hundreds of frames on a fixed tripod during the Perseids. Somewhere
-in there are a handful of meteors, plus planes, satellites, and a lot of
-identical starfields. METEORPREP:
+You shot a night of frames on a fixed tripod — a nightscape session, a
+meteor shower, star trails, whatever the sky gave you. METEORPREP turns
+the folder into a finished, layered composite:
 
 1. Reads every RAW file and its capture time.
 2. Works out the exact sky position of every frame (it matches your stars
@@ -50,14 +50,22 @@ identical starfields. METEORPREP:
 3. Undoes the sky's rotation **correctly**. Simply rotating the images
    looks fine in the middle but is off by *hundreds of pixels* in the
    corners of a wide lens over a night — this tool does the real map
-   projection instead, so corner stars and meteors land where they should.
-4. Finds streaks, and tells meteors apart from planes (blinking, colored)
-   and satellites (thin, steady, multi-frame). Nothing is deleted — the
-   rejects go into a hidden "FLAGGED" folder of layers you can inspect.
-5. Averages all your frames into one super-clean starfield (the meteors are
-   carefully kept out of the average).
-6. Gives you a layered Photoshop document: clean sky at the bottom, your
-   foreground, then **one layer per meteor** that you toggle on/off.
+   projection instead, so corner stars land where they should.
+4. Averages all your frames into one super-clean starfield, and freezes
+   your foreground sharp from its own average.
+5. Gives you a layered Photoshop document — clean sky at the bottom, your
+   foreground above it — plus a finished preview.jpg you can share as-is.
+
+**Tick "Hunt for meteors"** and it also searches every photo for streaks,
+tells meteors apart from planes (blinking, colored) and satellites (thin,
+steady, multi-frame), keeps them out of the sky average, and puts **each
+meteor on its own layer** that you toggle on and off. Nothing is deleted —
+the rejects go into a hidden "FLAGGED" folder of layers you can inspect.
+The hunt is a checkbox because most nights aren't meteor nights: leave it
+off and the run is about a third faster, and the composite is identical.
+
+**Tick "Star-trail photo"** for the classic circles around the pole —
+built from the photos you already have, at no extra reading cost.
 
 Your taste stays yours: which meteors to keep, which foreground, crop,
 color — all still done by you in Photoshop, non-destructively.
@@ -85,16 +93,23 @@ color — all still done by you in Photoshop, non-destructively.
 2. Run: `python3 -m meteorprep.gui` (or make a shortcut for it once).
 3. Drag your folder onto the window. It counts your photos and tells you
    roughly how long each choice will take on *your* Mac.
-4. Pick one of the three, press **Find my meteors**, go make coffee.
-   (The same button turns into **Stop** while it's working. Stopping is
-   safe — everything worked out so far is kept, and running the same
-   folder again picks up from there.)
+4. Tick **Hunt for meteors** if it was a shower night; tick **Star-trail
+   photo** if you want one. Pick how far to take it, press the big
+   button — **Build my composite**, or **Find my meteors** when the hunt
+   is on — and go make coffee. (The same button turns into **Stop**
+   while it's working. Stopping is safe — everything worked out so far
+   is kept, and running the same folder again picks up from there.)
 5. It opens the report by itself when it's done. Start there.
+
+Changed your mind after a run? Check **Hunt for meteors** and run the
+same folder again — the star lock, the alignment and the stack are
+reused, so only the search itself is new work.
 
 ## The three choices, and the difference between them
 
-They all read every photo and search every one of them the same way, so
-**they all find the same meteors**. What changes is what you get out.
+They all read every photo the same way — and when the hunt is on, they
+all search every one of them the same way, so **they all find the same
+meteors**. What changes is what you get out.
 
 | | you get | roughly |
 |---|---|---|
@@ -120,7 +135,8 @@ run clears them itself when it finishes.)
 full or a full-size run was more than your Mac wanted to do. Same
 layers, same meteors, quarter-size files.
 
-From the command line: `--mode quick`, `--mode full`, `--mode smaller`.
+From the command line: `--mode quick`, `--mode full`, `--mode smaller` —
+and `--no-meteors` to skip the hunt (the window's checkbox).
 
 ## Where the files land
 
