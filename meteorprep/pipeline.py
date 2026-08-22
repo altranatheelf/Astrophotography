@@ -266,7 +266,7 @@ def _paint_segments(mask: np.ndarray, segments) -> None:
 _DISK_FULL_MSG = (
     "Your disk is full — METEORPREP ran out of space for its working "
     "files. Free up several GB (empty the Trash, delete old *_meteorprep "
-    "folders), then press Find my meteors again, leaving 'Start over' "
+    "folders), then press the big button again, leaving 'Start over' "
     "unticked — it will pick up where it stopped rather than beginning "
     "again.")
 
@@ -1683,7 +1683,7 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
                 f"{need_mb / 1000:.0f} GB of working room and the drive "
                 f"holding {out_dir.name} has only {free_mb / 1000:.1f} GB "
                 f"free. Free up space (empty the Trash, delete old "
-                f"*_meteorprep folders), then press Find my meteors "
+                f"*_meteorprep folders), then press the big button "
                 f"again — or choose 'Full quality, half size', which "
                 f"needs about a quarter of the room.")
         if free_mb < 1.5 * need_mb:

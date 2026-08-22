@@ -184,7 +184,7 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
                 "downloads them on demand).\nFix: open the photo folder in "
                 "Finder, select all the files (Cmd-A), right-click and "
                 "choose 'Download Now', wait for the little cloud icons to "
-                "disappear, then press Find my meteors again. Or move the folder "
+                "disappear, then press the big button again. Or move the folder "
                 "somewhere not synced to iCloud, like your Pictures folder."
             ) from exc
         except ExiftoolError:

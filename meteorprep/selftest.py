@@ -102,7 +102,7 @@ def run_self_test(progress=None) -> dict:
     ok = not hard_fail
     if ok and exif_ok:
         verdict = ("Everything works. You're ready for real photos: drag "
-                   "your folder in and press Find my meteors.")
+                   "your folder in and press the big button.")
     elif ok:
         verdict = ("The engine works, but exiftool is missing — install it "
                    "from exiftool.org before running on RAW files.")
