@@ -1532,6 +1532,42 @@ def test_frame_weight_follows_noise_not_sky_drift():
     assert w2[10] < 0.5 * min(w2[i] for i in range(10))
 
 
+def test_the_first_and_last_photos_are_not_weighted_down_for_being_last():
+    """The noise is measured against a reference built from the
+    neighbouring photos, so the residual carries the reference's own
+    noise too — and there are fewer neighbours to take a median of at
+    the two ends of the night.  Left uncorrected, the first and last
+    photos of a night whose noise never changes measure ~10% noisier
+    than the middle ones and get weighted down for it."""
+    from meteorprep.detect.reference import RunningReference
+    from meteorprep.fastmath import mad_sigma
+
+    rng = np.random.default_rng(4)
+    n, h, w, sig = 14, 200, 300, 40.0
+    sky = np.full((h, w), 1000.0, np.float32)
+    frames = [(sky + rng.normal(0, sig, (h, w))).astype(np.float32)
+              for _ in range(n)]
+    ref = RunningReference(frames, 7, 3.0)
+
+    raw, corrected = [], []
+    for i in range(n):
+        d = frames[i] - ref.for_frame(i).astype(np.float32)
+        s = mad_sigma(d, floor=0.0)[1]
+        raw.append(s)
+        corrected.append(s / ref.noise_inflation(i))
+
+    # the ends read high, and the whole night reads high
+    assert max(raw) / min(raw) > 1.07
+    assert raw[0] > np.median(raw) * 1.04 and raw[-1] > np.median(raw) * 1.04
+    assert np.mean(raw) > sig * 1.10
+    # corrected: flat across the night, and close to the truth
+    assert max(corrected) / min(corrected) < 1.04
+    assert abs(np.mean(corrected) / sig - 1.0) < 0.05
+    # fewer neighbours means a bigger correction, always > 1
+    assert ref.noise_inflation(0) > ref.noise_inflation(n // 2) > 1.0
+    assert len(ref.window_idx(n // 2)) > len(ref.window_idx(0))
+
+
 def test_an_unmeasurable_frame_cannot_flatten_every_other_weight():
     """A photo the search could not measure reports sigma 0.  That used
     to mean weight 1e6, which pushed every real photo onto the 0.25 clip
@@ -1565,15 +1601,12 @@ def test_the_colour_frame_cache_never_exceeds_its_cap():
             cache[i] = i
 
     def prefetch_new(cache, idx):
-        todo = [i for i in dict.fromkeys(idx) if i not in cache][:CAP]
+        want = list(dict.fromkeys(idx))[:CAP]
+        for k in [k for k in cache if k not in want]:
+            cache.pop(k, None)
+        todo = [i for i in want if i not in cache]
         if len(todo) < 2:
             return
-        room = len(cache) + len(todo) - CAP
-        if room > 0:
-            victims = ([k for k in cache if k not in idx]
-                       + [k for k in cache if k in idx])
-            for k in victims[:room]:
-                cache.pop(k, None)
         for i in todo:
             cache[i] = i
 
@@ -1598,6 +1631,51 @@ def test_the_colour_frame_cache_never_exceeds_its_cap():
         prefetch_new(cache, list(range(lo, lo + int(rng.integers(2, 9)))))
         peak = max(peak, len(cache))
     assert peak <= CAP, peak
+
+    # Holding the cap must not be paid for in RAW decodes.  An earlier
+    # attempt made room by evicting frames the CURRENT candidate was
+    # about to ask for, so they came straight back one slow decode at a
+    # time inside the measuring loop, outside the pool whose whole job is
+    # to overlap them.
+    def decodes(prefetch, tracks, n=226):
+        cache, count, peak = {}, 0, 0
+        for frames in tracks:
+            need = []
+            for i in frames:
+                need += [i, i - 1 if i > 0 else min(i + 1, n - 1)]
+            before = set(cache)
+            prefetch(cache, need)
+            count += len(set(cache) - before)
+            peak = max(peak, len(cache))
+            for i in frames:                       # the measuring loop
+                for k in (i, i - 1 if i > 0 else min(i + 1, n - 1)):
+                    if k not in cache:
+                        while len(cache) >= CAP:
+                            cache.pop(next(iter(cache)))
+                        cache[k] = k
+                        count += 1
+                peak = max(peak, len(cache))
+        return count, peak
+
+    def prefetch_evicting_what_is_needed(cache, idx):
+        todo = [i for i in dict.fromkeys(idx) if i not in cache][:CAP]
+        if len(todo) < 2:
+            return
+        room = len(cache) + len(todo) - CAP
+        if room > 0:
+            victims = ([k for k in cache if k not in idx]
+                       + [k for k in cache if k in idx])
+            for k in victims[:room]:
+                cache.pop(k, None)
+        for i in todo:
+            cache[i] = i
+
+    spread = [[27, 28, 29, 30], [40, 41, 42], [30, 32, 34, 36],
+              [31, 33, 35, 37, 39, 41], [32, 33, 34, 35, 36, 37]]
+    bad_n, bad_peak = decodes(prefetch_evicting_what_is_needed, spread)
+    good_n, good_peak = decodes(prefetch_new, spread)
+    assert bad_peak <= CAP and good_peak <= CAP
+    assert good_n < bad_n * 0.75, (good_n, bad_n)
 
 
 def test_evidence_ledger_matches_its_definition_without_a_float64_canvas():
@@ -1660,21 +1738,60 @@ def test_the_override_file_cannot_invent_a_half_draft(tmp_path, caplog):
     from meteorprep.config import Config
     from meteorprep.pipeline import run
 
-    (tmp_path / "frames").mkdir()
-    (tmp_path / "frames" / "meteorprep_config.json").write_text(json.dumps(
-        {"draft": True, "solve_every_k": 4, "nonsense_setting": 1}))
+    def _apply(cfg, doc):
+        (tmp_path / "frames").mkdir(exist_ok=True)
+        (tmp_path / "frames" / "meteorprep_config.json").write_text(
+            json.dumps(doc))
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="meteorprep"):
+            # no photos in there, so the run stops right after the
+            # override block — which is the part under test
+            with pytest.raises(FileNotFoundError):
+                run(cfg)
+        return " ".join(r.getMessage() for r in caplog.records)
+
     cfg = Config(input_dir=str(tmp_path / "frames"),
                  output_dir=str(tmp_path / "out"))
-    with caplog.at_level(logging.WARNING, logger="meteorprep"):
-        # no photos in there, so the run stops right after the override
-        # block — which is the part under test
-        with pytest.raises(FileNotFoundError):
-            run(cfg)
-    msgs = " ".join(r.getMessage() for r in caplog.records)
+    msgs = _apply(cfg, {"draft": True, "solve_every_k": 4,
+                        "nonsense_setting": 1, "output_path": "/tmp/x",
+                        "to_dict": 1})
     assert "'draft'" in msgs and "--mode" in msgs
-    assert "nonsense_setting" in msgs          # typos are reported, not eaten
     assert cfg.draft is False and cfg.half_size is False
     assert cfg.solve_every_k == 4              # ordinary settings still apply
+    # a read-only property and a method name are typos, not settings: they
+    # used to raise straight out of setattr, at a photographer, as a
+    # traceback
+    assert "output_path" in msgs and "to_dict" in msgs
+    assert "nonsense_setting" in msgs
+
+    # the other direction: on a quick look the sidecar cannot undo the
+    # derivation key by key, which used to rebuild the same impossible
+    # hybrid — a full-size Photoshop file in the quick-look folder off a
+    # forty-photo background sky
+    q = Config(input_dir=str(tmp_path / "frames"),
+               output_dir=str(tmp_path / "out"), draft=True)
+    msgs = _apply(q, {"half_size": False, "super_sample": 2.0,
+                      "emit_psd": True, "faint_harvest": True})
+    assert q.half_size and q.super_sample == 1.0
+    assert not q.emit_psd and not q.faint_harvest
+    assert "quick look decides" in msgs
+    # but on a full run those same settings are ordinary and still apply
+    f = Config(input_dir=str(tmp_path / "frames"),
+               output_dir=str(tmp_path / "out"))
+    _apply(f, {"super_sample": 1.5, "emit_psd": False})
+    assert f.super_sample == 1.5 and f.emit_psd is False
+
+    # and the folders, which are already in use by the time this is read
+    g = Config(input_dir=str(tmp_path / "frames"),
+               output_dir=str(tmp_path / "out"))
+    msgs = _apply(g, {"output_dir": str(tmp_path / "elsewhere")})
+    assert g.output_dir == str(tmp_path / "out") and "output_dir" in msgs
+
+    # a file that is not a { } block is a mistake, not a crash
+    h = Config(input_dir=str(tmp_path / "frames"),
+               output_dir=str(tmp_path / "out"))
+    msgs = _apply(h, ["draft"])
+    assert "meteorprep_config.json" in msgs
 
 
 def test_a_saved_star_lock_never_carries_its_canvas_across(tmp_path):
@@ -1706,8 +1823,8 @@ def test_a_saved_star_lock_never_carries_its_canvas_across(tmp_path):
     frames = [_F(f"IMG_{i}.CR2") for i in range(4)]
     det_wcs = [wcs_at(40.0 + i) for i in range(4)]
     cache = CacheStore(tmp_path)
-    _save_solve(cache, frames, det_wcs, -0.017, "refine", "nominal",
-                ["IMG_0.CR2"])
+    _save_solve(cache, frames, det_wcs, "IMG_1.CR2", -0.017, "refine",
+                "nominal", ["IMG_0.CR2"])
 
     saved = json.loads((tmp_path / "solve.json").read_text())
     assert not (set(saved) & {"base_wcs", "pole_xy", "base_wcs_fits_header",
@@ -1716,7 +1833,7 @@ def test_a_saved_star_lock_never_carries_its_canvas_across(tmp_path):
 
     back = [None] * 4
     frames2 = [_F(f"IMG_{i}.CR2") for i in range(4)]
-    got = _restore_solve(cache, frames2, back)
+    got = _restore_solve(cache, frames2, back, "IMG_1.CR2")
     assert got["k1"] == -0.017 and got["solver"] == "refine"
     assert got["quality"] == "nominal" and got["solve_files"] == ["IMG_0.CR2"]
     for w, w2, f in zip(det_wcs, back, frames2):
@@ -1727,9 +1844,27 @@ def test_a_saved_star_lock_never_carries_its_canvas_across(tmp_path):
     # a different set of photos in the folder means solving again, not
     # pairing a photo with someone else's sky
     other = [_F("IMG_0.CR2"), _F("IMG_9.CR2")]
-    assert _restore_solve(cache, other, [None, None]) is None
+    assert _restore_solve(cache, other, [None, None], "IMG_1.CR2") is None
     assert _restore_solve(CacheStore(tmp_path / "empty"), frames2,
-                          [None] * 4) is None
+                          [None] * 4, "IMG_1.CR2") is None
+    # and a lock solved around a DIFFERENT base frame is refused: the base
+    # frame defines the whole output canvas, and it is picked from the
+    # light-paint flags and the sharpness ranking, not from the settings
+    assert _restore_solve(cache, frames2, [None] * 4, "IMG_2.CR2") is None
+
+    # a light-painted frame is never verified, so its RMS stays the NaN
+    # sentinel — which must survive the trip as NaN, and must not put a
+    # bare NaN token into the file (that is not valid JSON)
+    frames[2].solve_rms_px = float("nan")
+    _save_solve(cache, frames, det_wcs, "IMG_1.CR2", 0.0, "refine",
+                "nominal", [])
+    text = (tmp_path / "solve.json").read_text()
+    assert "NaN" not in text and "Infinity" not in text
+    json.loads(text)                       # strict: no NaN tokens
+    frames3 = [_F(f"IMG_{i}.CR2") for i in range(4)]
+    _restore_solve(cache, frames3, [None] * 4, "IMG_1.CR2")
+    assert np.isnan(frames3[2].solve_rms_px)
+    assert frames3[0].solve_rms_px == 1.25
 
 
 def test_a_frame_with_no_saved_sky_makes_the_whole_lock_be_redone(tmp_path):
@@ -1743,8 +1878,8 @@ def test_a_frame_with_no_saved_sky_makes_the_whole_lock_be_redone(tmp_path):
     cache = CacheStore(tmp_path)
     cache.write_json("solve.json", {
         "k1": 0.0, "solver": "refine", "quality": "nominal",
-        "solve_files": [],
+        "base_file": "a.CR2", "solve_files": [],
         "frames": [{"file": "a.CR2", "wcs": "", "source": "", "rms_px": None},
                    {"file": "b.CR2", "wcs": "", "source": "", "rms_px": None}]})
     assert _restore_solve(cache, [_F("a.CR2"), _F("b.CR2")],
-                          [None, None]) is None
+                          [None, None], "a.CR2") is None

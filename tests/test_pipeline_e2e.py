@@ -382,3 +382,60 @@ def test_the_star_lock_is_reused_and_gives_the_same_full_size_picture(
     c = tifffile.imread(tmp_path / "clean" / "cache" / "g01" / "base.tif")
     assert a.shape == c.shape
     assert int(np.abs(a.astype(np.int32) - c.astype(np.int32)).max()) <= 2
+
+
+def test_a_deleted_or_damaged_cache_rebuilds_instead_of_crashing(
+        synth_dir, ground_truth, tmp_path):
+    """The guide tells people cache/ is safe to delete, and a run that is
+    stopped part-way can leave a half-written file behind a marker that
+    still says "done".  Every one of those used to end the next run in a
+    traceback, or — worse — sail on and quietly drop the seam crop and
+    the frozen-foreground layer."""
+    import dataclasses
+    import shutil
+
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    cfg = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "out"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, emit_psd=False, emit_contact_sheet=False)
+    first = run(cfg)
+    want = first["groups"][0]["n_meteors"]
+    cdir = tmp_path / "out" / "cache" / "g01"
+    sidecar = tmp_path / "out" / "g01" / "meteorprep.json"
+    good_crop = json.loads(sidecar.read_text())["seam_crop_origin_xy"]
+
+    def _same_again(what):
+        res = run(dataclasses.replace(cfg))
+        assert res["groups"][0]["n_meteors"] == want, what
+        # and the canvas is the same one, not a silently uncropped
+        # fallback with the seam still in it
+        assert json.loads(sidecar.read_text())["seam_crop_origin_xy"] == \
+            good_crop, what
+
+    # the whole cache folder, as the guide says is safe
+    shutil.rmtree(cdir)
+    _same_again("after deleting cache/")
+
+    # one artifact, cut in half by a run that was stopped
+    for name in ("base.tif", "coverage.npy", "lightpaint.json",
+                 "sky_det.npy", "solve.json"):
+        f = cdir / name
+        if not f.exists():
+            continue
+        raw = f.read_bytes()
+        f.write_bytes(raw[:len(raw) // 2])
+        _same_again(f"after truncating {name}")
+
+    # and one deleted while its marker still says the stage is done
+    for name in ("base.tif", "fg_stack.tif", "coverage.npy", "solve.json",
+                 "lightpaint.json"):
+        f = cdir / name
+        if f.exists():
+            f.unlink()
+            _same_again(f"after deleting {name}")

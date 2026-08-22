@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # Sidereal rate: 360 deg / 86164.0905 s.
@@ -176,14 +176,36 @@ class Config:
     # real file.
     draft_stack_max: int = 40
 
-    # Fields whose value has consequences BEYOND themselves, and so
-    # cannot be applied by setattr to a Config that is already built.
-    # "draft" is the whole list: __post_init__ below is what turns it
-    # into half_size, no editable files and no second look, and it runs
-    # only at construction.  The sidecar override file refuses these and
-    # says which knob to use instead (see meteorprep/modes.py — a run
-    # mode belongs to --mode and the window's picker, nowhere else).
-    DERIVED_ONLY = frozenset({"draft"})
+    # Settings the sidecar override file (meteorprep_config.json) must
+    # not touch, because by the time it is read their consequences have
+    # already happened.
+    #
+    #   draft            __post_init__ below is what turns it into
+    #                    half_size, no editable files and no second look,
+    #                    and it only runs at construction.  Setting it
+    #                    afterwards set the flag and nothing else.
+    #   input_dir        the override file was found inside it.
+    #   output_dir       the results folder is created and the run log is
+    #                    already open in it before the file is read, so
+    #                    changing it here strands the log — the one file
+    #                    to send when something looks wrong — in a folder
+    #                    with nothing else in it.
+    #
+    # A run mode belongs to --mode and the window's picker, nowhere else
+    # (see meteorprep/modes.py).
+    DERIVED_ONLY = frozenset({"draft", "input_dir", "output_dir"})
+
+    # What __post_init__ derives FROM draft.  Refusing "draft" alone only
+    # closed one direction: a quick look plus a sidecar that set
+    # half_size back to False rebuilt the same impossible hybrid from the
+    # other side — a full-resolution Photoshop file written into the
+    # quick-look folder, off a background sky still capped at forty
+    # photos.  These are refused only while the run IS a draft; on a full
+    # run they are ordinary settings and the tests set some of them.
+    DRAFT_DERIVED = frozenset({
+        "half_size", "super_sample", "emit_psd", "emit_pngjsx",
+        "emit_startrail", "emit_contact_sheet", "faint_harvest",
+        "crop_coverage_frac"})
 
     def __post_init__(self):
         if not self.draft:
@@ -207,8 +229,11 @@ class Config:
     # ------------------------------------------------------------------
 
     # Parameters that affect each stage (upstream stage hashes are chained in).
-    STAGE_PARAMS: dict = field(default=None, repr=False)
-
+    # (There was a public STAGE_PARAMS dataclass FIELD here, defaulting to
+    # None.  Nothing ever read it, but being a field it went into
+    # to_dict() and therefore into every stage hash and into the sidecar's
+    # recorded recipe — a null that had to be carried forever.  The real
+    # table is the private one below.)
     _STAGE_PARAMS = {
         # half_size / super_sample describe the OUTPUT canvas, not the
         # reading of the folder: the scan, the plate solve and the meteor
@@ -221,8 +246,11 @@ class Config:
         "lightpaint": ["lp_sigma", "lp_window"],
         # bump_px is read at the end of the solve: a tripod bump shows up
         # as pointing that jumped beyond the sky's own drift, which is
-        # only measurable once every frame has a WCS.
-        "solve": ["align_mode", "bump_px", "solve_every_k", "solve_min_stars",
+        # only measurable once every frame has a WCS.  site_explicit is
+        # what switches the below-the-horizon sanity check on, so a lock
+        # solved without that check must not be reused once it is on.
+        "solve": ["align_mode", "bump_px", "site_explicit",
+                  "solve_every_k", "solve_min_stars",
                   "solve_rms_max_px", "sip_order", "lens_model", "lens_k1",
                   "site_lat", "site_lon", "pixel_pitch_um", "catalog_file",
                   "seed_ra_deg", "seed_dec_deg", "seed_rotation_deg",
@@ -264,7 +292,13 @@ class Config:
         "ingest": [],
         "segment_folder": ["ingest"],
         "lightpaint": ["ingest", "segment_folder"],
-        "solve": ["ingest", "segment_folder"],
+        # lightpaint, because the solve reads its output twice: the base
+        # frame is the sharpest NON-light-painted photo in the middle of
+        # the night, and the anchor and verify loops skip light-painted
+        # frames.  Without this a changed lp_sigma moved the base frame
+        # while the saved star lock stayed "current", and the run adopted
+        # a WCS that had only ever been propagated as its canvas.
+        "solve": ["ingest", "segment_folder", "lightpaint"],
         "reproject": ["solve"],
         "detect": ["reproject", "lightpaint"],
         "classify": ["detect"],

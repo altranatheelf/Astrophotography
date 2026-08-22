@@ -56,13 +56,28 @@ class RunningReference:
         self.exclude = exclude or set()
         self.footprints = footprints
 
-    def for_frame(self, i: int) -> np.ndarray:
+    def window_idx(self, i: int) -> list[int]:
+        """Which frames the reference for frame ``i`` is built from."""
         n = len(self.frames)
         half = max(self.window // 2, 1)
         idx = [j for j in range(max(0, i - half), min(n, i + half + 1))
                if j != i and j not in self.exclude]
         if not idx:
             idx = [j for j in range(n) if j != i][:self.window]
+        return idx
+
+    # A median of k samples has about 1.2533/sqrt(k) of one sample's
+    # noise, so a difference against this reference carries sqrt(1 +
+    # 1.5708/k) times the frame's own — and k is smaller at the two ends
+    # of a night, where there are fewer neighbours to take a median of.
+    # Anything measuring per-photo noise off the residual has to divide
+    # this out, or the first and last photos of the night measure noisier
+    # than they are and get weighted down for being at the edge.
+    def noise_inflation(self, i: int) -> float:
+        return float(np.sqrt(1.0 + 1.5708 / max(len(self.window_idx(i)), 1)))
+
+    def for_frame(self, i: int) -> np.ndarray:
+        idx = self.window_idx(i)
         if not idx:
             # single-frame group: no neighbours — the reference is the frame
             # itself, so the difference is zero and nothing is detected
