@@ -575,14 +575,80 @@ def test_meteor_layer_has_no_hard_edges():
     for edge in (a[0, :], a[-1, :], a[:, 0], a[:, -1]):
         assert float(edge.max()) < 0.01, float(edge.max())
 
-    # 3) the halo is KEPT, not clipped: well off-axis but inside the box
-    #    there is still real signal carried by the layer
-    assert float(a[a > 0.05].size) > float((a > 0.9).sum()) * 2
+    # 3) the halo is KEPT, not clipped: the support reaches far beyond
+    #    the 3 px core (the sigma=18 glow is tens of thousands of pixels,
+    #    the core well under two thousand) — and the boundary feathers
+    #    out rather than cutting off
+    assert int((a > 0.5).sum()) > 12000
+    assert int(((a > 0.05) & (a < 0.9)).sum()) > 3000
 
     # 4) the layer holds the streak's own light, not the sky, so screening
     #    it where there is no streak changes nothing
     corner = layer.rgb[:20, :20]
     assert float(np.median(corner)) < 0.15 * sky
+
+
+def test_a_boosted_meteor_layer_brightens_the_streak_not_a_box():
+    """The whole point of per-meteor layers is that a person can crank
+    one +4 stops in Photoshop.  The opacity gate used to be measured on
+    raw single-frame noise — one pixel in six clears +1 sigma by chance —
+    so every layer carried a haze of speckle opacity across its box:
+    invisible at normal strength, a rectangle of colored confetti under
+    the very boost the layers exist for.  And the faintest second-look
+    meteors only survived extraction at all because that speckle padded
+    the sanity check."""
+    import cv2
+    from meteorprep.mask.extract import extract_meteor
+
+    rng = np.random.default_rng(9)
+    h, w = 700, 900
+    sky = 800.0
+    base = np.full((h, w, 3), sky, np.float32)
+    core = np.zeros((h, w), np.float32)
+    cv2.line(core, (250, 300), (650, 420), 1.0, thickness=3)
+    # a FAINT meteor: per-pixel peak ~3x the noise, the kind that needs
+    # the boost in the first place
+    streak = cv2.GaussianBlur(core, (0, 0), 1.6) * 320.0
+    noise_sigma = 40.0
+    # the part the noise-only version of this test missed: airglow moves
+    # between one frame and the night's average, so the frame-minus-stack
+    # residual carries a smooth COHERENT wash — up to ~1.5x the noise
+    # here — that no amount of smoothing-then-thresholding can remove.
+    # It has to be flattened out, or the whole box clears the gate.
+    gx = np.linspace(0, 1, w, dtype=np.float32)[None, :]
+    gy = np.linspace(0, 1, h, dtype=np.float32)[:, None]
+    airglow = 60.0 * (0.3 + 0.7 * gx) * (0.4 + 0.6 * gy)
+    frame = (base + streak[:, :, None] + airglow[:, :, None]
+             + rng.normal(0, noise_sigma, (h, w, 3)).astype(np.float32))
+    diff = (streak + airglow
+            + rng.normal(0, noise_sigma, (h, w)).astype(np.float32))
+
+    layer = extract_meteor(diff, frame, ((250, 300), (650, 420)), 3.0,
+                           base_rgb=base)
+    assert layer is not None, "the faint meteor must still extract"
+    x0, y0, x1, y1 = layer.bbox
+    a, rgb = layer.alpha, layer.rgb
+
+    # distance from the streak axis, inside the box
+    p0, p1 = np.array([250.0, 300.0]), np.array([650.0, 420.0])
+    u = (p1 - p0) / np.linalg.norm(p1 - p0)
+    yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float64)
+    d = np.abs((xx - p0[0]) * (-u[1]) + (yy - p0[1]) * u[0])
+    t = ((xx - p0[0]) * u[0] + (yy - p0[1]) * u[1]) \
+        / np.linalg.norm(p1 - p0)
+    on = (d < 4) & (t > 0.1) & (t < 0.9)
+    off = d > 25
+
+    # what Photoshop shows after a +5-stop Exposure on the layer:
+    # screen(base, 32x the layer's light through its alpha)
+    contrib = np.clip(rgb * 32.0, 0, 65535) * a[:, :, None]
+    lum = contrib.mean(axis=2)
+    assert float(np.median(lum[on])) > 2000.0        # the streak roars
+    # and the box does NOT: away from the trail the boosted layer adds
+    # essentially nothing — this held ~2 ADU of confetti per pixel
+    # (x32 = a visible speckle rectangle) before the smoothed gate
+    assert float(lum[off].mean()) < 20.0, float(lum[off].mean())
+    assert float((a[off] > 0.15).mean()) < 0.001
 
 
 def test_meteor_layer_border_stays_zero_with_stars_on_the_rim():
