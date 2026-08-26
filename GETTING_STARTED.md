@@ -72,19 +72,21 @@ color — all still done by you in Photoshop, non-destructively.
 
 ## One-time setup (Mac)
 
-1. Install Python from https://www.python.org/downloads/ (big yellow
-   button, then open the downloaded file and click through).
-2. Install exiftool from https://exiftool.org (reads capture times from
-   your RAWs — same drill, download and double-click the installer).
-3. Open the **Terminal** app once (I know — it's three lines, copy-paste
-   them one at a time and press Return):
+There isn't one any more. Unzip the folder, double-click
+**MeteorPrep.app** (first time: right-click → Open, then Open again —
+macOS asks once about unidentified developers). On a Mac with nothing
+installed, the app downloads its own private copy of Python (~45 MB,
+into its Application Support folder — no admin password, nothing
+system-wide) and sets itself up. A few minutes later the window opens;
+after that it opens instantly.
 
-   ```
-   pip3 install meteorprep-folder-path-here   # or: pip3 install -e /path/to/this/folder
-   pip3 install twirl astroquery              # optional: online star
-                                              # catalogue as a fallback
-   pip3 install PySide6                       # the drag-and-drop window
-   ```
+Capture times are read by a built-in reader — **exiftool is no longer
+required**. (Installing it from https://exiftool.org is still worthwhile
+if you shoot an unusual camera; the app prefers it when present.)
+
+If the app double-click misbehaves, double-click **Start
+MeteorPrep.command** instead — same thing, but in a Terminal window
+where any problem is visible.
 
 ## Every time after that
 
@@ -229,7 +231,9 @@ records GPS, the tool reads it from the photos and you can ignore the box.
 
 ## If something goes wrong
 
-- **"couldn't read the capture times"** → install exiftool (step 2 above).
+- **"couldn't read the capture times"** → rare now (the reader is built
+  in); installing exiftool from https://exiftool.org usually covers the
+  unusual camera that triggers it.
 - **"couldn't match the stars"** → this does NOT need the internet;
   the star map is built in. Check the pointing hints instead
   (it downloads a star map for your patch of sky), and the middle frame of

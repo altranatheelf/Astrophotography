@@ -240,6 +240,61 @@ def _from_exiftool(paths: list[Path]) -> list[FrameMeta] | None:
     return metas
 
 
+def _rec_to_meta(p: Path, rec: dict) -> FrameMeta | None:
+    """One exiftool-style record to a FrameMeta; None when the record has
+    no usable capture time (with the reason logged)."""
+    if not rec.get("DateTimeOriginal"):
+        log.warning("skipping %s — no capture time in its metadata "
+                    "(not a camera frame?)", p.name)
+        return None
+    try:
+        dt = _parse_dt(str(rec["DateTimeOriginal"]))
+    except ValueError:
+        log.warning("skipping %s — unreadable capture time %r (camera "
+                    "clock was never set?)", p.name, rec["DateTimeOriginal"])
+        return None
+    return FrameMeta(
+        path=p, file=p.name,
+        datetime_original=dt,
+        exposure_s=float(rec.get("ExposureTime", 20.0) or 20.0),
+        iso=int(rec.get("ISO", 0) or 0),
+        fnumber=float(rec.get("FNumber", 0) or 0),
+        focal_mm=float(rec.get("FocalLength", 16.0) or 16.0),
+        pixel_pitch_um=_pixel_pitch_um(rec),
+        model=str(rec.get("Model", "")),
+        lens_model=str(rec.get("LensModel", "")),
+        width=int(rec.get("ImageWidth", 0) or 0),
+        height=int(rec.get("ImageHeight", 0) or 0),
+        subsec=str(rec.get("SubSecTimeOriginal", "")),
+        gps_lat=_gps_deg(rec.get("GPSLatitude")),
+        gps_lon=_gps_deg(rec.get("GPSLongitude")),
+    )
+
+
+def _from_builtin(paths: list[Path]) -> list[FrameMeta] | None:
+    """The built-in TIFF/CR3 reader (exif_mini): no install needed.
+    Files it cannot read are skipped the way exiftool skips them."""
+    from meteorprep.ingest.exif_mini import read_exif_mini
+    metas = []
+    for k, p in enumerate(paths):
+        try:
+            rec = read_exif_mini(p)
+        except Exception as exc:
+            log.debug("built-in reader failed on %s: %s", p.name, exc)
+            rec = None
+        if rec is not None:
+            m = _rec_to_meta(p, rec)
+            if m is not None:
+                metas.append(m)
+        else:
+            log.warning("skipping %s — the built-in reader could not read "
+                        "it (installing exiftool from exiftool.org may "
+                        "help)", p.name)
+        if (k + 1) % 50 == 0:
+            log.info("reading photo info (%d/%d)…", k + 1, len(paths))
+    return metas or None
+
+
 def _from_sidecar(paths: list[Path]) -> list[FrameMeta] | None:
     """frames_meta.json in the folder (synthetic data / pre-scraped)."""
     if not paths:
@@ -284,13 +339,18 @@ def read_metadata(paths: list[Path]) -> list[FrameMeta]:
         except ExiftoolError as exc:
             raise RuntimeError(str(exc)) from exc
     if metas is None:
+        # no exiftool on this machine: the built-in reader handles every
+        # TIFF-family RAW (CR2/NEF/ARW/DNG/…) and CR3 — nothing to install
+        log.info("reading capture times with the built-in reader "
+                 "(exiftool not found — that's fine)")
+        metas = _from_builtin(paths)
+    if metas is None:
         raise RuntimeError(
-            "I couldn't find the free helper program 'exiftool', which reads "
-            "the capture times from your photos. Install it from "
+            "I couldn't read the capture times from these photos — the "
+            "built-in reader didn't recognise them and the helper program "
+            "'exiftool' isn't installed. Installing it usually fixes this: "
             "https://exiftool.org (Mac: download the installer package, "
-            "double-click it, done), then run METEORPREP again. If you HAVE "
-            "installed it, open Terminal, run:  which exiftool  — and report "
-            "what it prints.")
+            "double-click it, done), then run the folder again.")
     metas.sort(key=lambda m: m.datetime_original)
     # recursive scans can collect duplicate basenames (two memory cards,
     # both with IMG_0001.CR2): everything downstream keys on m.file, so

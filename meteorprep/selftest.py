@@ -39,15 +39,13 @@ def run_self_test(progress=None) -> dict:
     check("RAW decoder (rawpy/LibRaw)",
           lambda: __import__("rawpy").__version__)
 
-    def _exiftool():
+    def _exif_reader():
         from meteorprep.ingest.exif import find_exiftool
         exe = find_exiftool()
-        if exe is None:
-            raise RuntimeError(
-                "not found — install from exiftool.org before running on "
-                "RAW files (synthetic frames still work)")
-        return exe
-    exif_ok = check("Photo-info reader (exiftool)", _exiftool)
+        return (f"exiftool at {exe}" if exe
+                else "built-in reader (exiftool not installed — fine; "
+                     "installing it adds support for unusual files)")
+    check("Photo-info reader", _exif_reader)
 
     def _catalog():
         from meteorprep.astrometry.blind import load_bright_catalog
@@ -97,19 +95,14 @@ def run_self_test(progress=None) -> dict:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    hard_fail = [c for c in checks if not c[1]
-                 and c[0] != "Photo-info reader (exiftool)"]
-    ok = not hard_fail
-    if ok and exif_ok:
+    ok = all(c[1] for c in checks)
+    if ok:
         verdict = ("Everything works. You're ready for real photos: drag "
                    "your folder in and press the big button.")
-    elif ok:
-        verdict = ("The engine works, but exiftool is missing — install it "
-                   "from exiftool.org before running on RAW files.")
     else:
         verdict = ("Something needs fixing before a real run — send the "
                    "lines above to your assistant and it will be sorted.")
-    return {"ok": ok and exif_ok, "checks": checks, "verdict": verdict}
+    return {"ok": ok, "checks": checks, "verdict": verdict}
 
 
 def format_report(result: dict) -> str:

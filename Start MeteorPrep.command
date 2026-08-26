@@ -15,7 +15,12 @@ NEEDS="import PySide6, rawpy, cv2, tifffile, PIL, astropy, meteorprep.pipeline"
 # files — "App Translocation")
 xattr -dr com.apple.quarantine "$(pwd)" 2>/dev/null || true
 
+PRIVATE_PY_DIR="$HOME/Library/Application Support/MeteorPrep/python"
 CANDIDATES=""
+# a Python that MeteorPrep.app downloaded for itself on a previous
+# launch works here too
+[ -x "$PRIVATE_PY_DIR/bin/python3" ] && \
+    CANDIDATES="$CANDIDATES $PRIVATE_PY_DIR/bin/python3"
 for v in 3.13 3.12 3.11 3.14; do
     p="/Library/Frameworks/Python.framework/Versions/$v/bin/python3"
     [ -x "$p" ] && CANDIDATES="$CANDIDATES $p"

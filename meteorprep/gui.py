@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from pathlib import Path
 
 ELEV_CHOICES = {
     "halfway up the sky": 45.0,
@@ -249,6 +250,13 @@ def main() -> int:
 
             from meteorprep import __version__
             self.setWindowTitle(f"METEORPREP {__version__}")
+            try:
+                from PySide6.QtGui import QIcon
+                _icon = Path(__file__).parent / "assets" / "icon.png"
+                if _icon.exists():
+                    self.setWindowIcon(QIcon(str(_icon)))
+            except Exception:
+                pass
             self.setAcceptDrops(True)
             self.folder = None
             self.worker = None
@@ -791,6 +799,23 @@ def main() -> int:
             self._last_msg = msg
             self._msg_at = self._time.time()
 
+        def _notify_os(self, title, text):
+            """A system notification for the person who pressed go and
+            went to edit photos: a long run should announce itself even
+            when this window is buried."""
+            if sys.platform != "darwin" or self.isActiveWindow():
+                return
+            try:
+                import subprocess
+                t = title.replace('"', "'")
+                x = text.replace('"', "'")
+                subprocess.Popen(
+                    ["osascript", "-e",
+                     f'display notification "{x}" with title "{t}" '
+                     f'sound name "Glass"'])
+            except Exception:
+                pass
+
         def _on_done(self, result):
             self._hb.stop()
             self._set_running(False)
@@ -829,6 +854,7 @@ def main() -> int:
                          "the layers may not line up perfectly — the "
                          "report says what happened.")
             self.status.setText(line + "  Opening the report…")
+            self._notify_os("MeteorPrep is done", line)
             try:
                 from pathlib import Path as _P
                 target = None
@@ -885,6 +911,9 @@ def main() -> int:
             self._hb.stop()
             self._set_running(False)
             self.bar.setVisible(False)
+            self._notify_os("MeteorPrep stopped",
+                            "The run hit a problem — the window has the "
+                            "details.")
             # The messages this program raises are written for a person
             # and several of them are a paragraph long — "your disk is
             # full, here is what to do".  Keeping only the last line of

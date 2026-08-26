@@ -47,7 +47,12 @@ cd "$HERE" || exit 1
 # Candidate interpreters, best first.  A Mac can easily carry several
 # Pythons; the components may already be installed in ANY of them, so
 # look for one that is ready before trying to install anything.
+PRIVATE_PY_DIR="$HOME/Library/Application Support/MeteorPrep/python"
 CANDIDATES=""
+# a Python this app downloaded for itself on an earlier launch wins: it
+# is ours, nothing else touches it, and it never fights Homebrew
+[ -x "$PRIVATE_PY_DIR/bin/python3" ] && \
+    CANDIDATES="$CANDIDATES $PRIVATE_PY_DIR/bin/python3"
 for v in 3.13 3.12 3.11 3.14; do
     p="/Library/Frameworks/Python.framework/Versions/$v/bin/python3"
     [ -x "$p" ] && CANDIDATES="$CANDIDATES $p"
@@ -68,9 +73,35 @@ done
 PY=""
 for p in $CANDIDATES; do PY="$p"; break; done
 if [ -z "$PY" ]; then
-    say_alert "Python not found" \
-        "Install Python 3 from python.org, then double-click MeteorPrep again."
-    exit 1
+    # No Python on this Mac at all.  Rather than sending a person off to
+    # python.org, fetch a self-contained one into this app's own folder
+    # under Application Support — no admin password, nothing installed
+    # system-wide, removable by deleting one folder.
+    command -v osascript >/dev/null 2>&1 && osascript -e \
+      'display dialog "First-time setup: MeteorPrep will download its own copy of Python (about 45 MB) into its Application Support folder. Nothing is installed system-wide. Press OK to continue." buttons {"OK", "Cancel"} default button 1' \
+      >/dev/null 2>&1 || exit 1
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        arm64) PBS_ARCH="aarch64" ;;
+        *)     PBS_ARCH="x86_64" ;;
+    esac
+    PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.12.14+20260825-$PBS_ARCH-apple-darwin-install_only.tar.gz"
+    mkdir -p "$PRIVATE_PY_DIR.download" || exit 1
+    echo "=== downloading $PBS_URL" >> "$LOG" 2>&1
+    if curl -fL --retry 3 -o "$PRIVATE_PY_DIR.download/py.tar.gz" "$PBS_URL" \
+            >> "$LOG" 2>&1 \
+       && tar -xzf "$PRIVATE_PY_DIR.download/py.tar.gz" \
+              -C "$PRIVATE_PY_DIR.download" >> "$LOG" 2>&1 \
+       && rm -rf "$PRIVATE_PY_DIR" \
+       && mv "$PRIVATE_PY_DIR.download/python" "$PRIVATE_PY_DIR"; then
+        rm -rf "$PRIVATE_PY_DIR.download"
+        PY="$PRIVATE_PY_DIR/bin/python3"
+    else
+        rm -rf "$PRIVATE_PY_DIR.download"
+        say_alert "Download did not finish" \
+"MeteorPrep could not download Python (no internet?). Either connect and try again, or install Python 3 yourself from python.org and double-click MeteorPrep again."
+        exit 1
+    fi
 fi
 
 command -v osascript >/dev/null 2>&1 && osascript -e \

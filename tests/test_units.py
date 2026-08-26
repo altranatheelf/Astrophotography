@@ -1949,3 +1949,133 @@ def test_a_frame_with_no_saved_sky_makes_the_whole_lock_be_redone(tmp_path):
                    {"file": "b.CR2", "wcs": "", "source": "", "rms_px": None}]})
     assert _restore_solve(cache, [_F("a.CR2"), _F("b.CR2")],
                           [None, None], "a.CR2") is None
+
+
+def _mini_tiff(entries_ifd0, entries_exif, gps=None):
+    """A minimal little-endian TIFF with IFD0 -> ExifIFD (+ GPS IFD),
+    built by hand so the built-in reader is tested against the format
+    itself, not against another library's idea of it."""
+    import struct
+
+    def ifd(entries, data_start):
+        tail = b""
+        out = struct.pack("<H", len(entries))
+        for tag, vtype, values in entries:
+            if vtype == 2:                       # ascii
+                data = values.encode() + b"\0"
+                count = len(data)
+                size = count
+            elif vtype == 5:                     # rational
+                data = b"".join(struct.pack("<II", n, d) for n, d in values)
+                count = len(values)
+                size = 8 * count
+            elif vtype == 3:
+                data = struct.pack("<" + "H" * len(values), *values)
+                count = len(values)
+                size = 2 * count
+            else:                                # long
+                data = struct.pack("<" + "I" * len(values), *values)
+                count = len(values)
+                size = 4 * count
+            if size <= 4:
+                raw = data + b"\0" * (4 - size)
+            else:
+                raw = struct.pack("<I", data_start + len(tail))
+                tail += data
+            out += struct.pack("<HHI", tag, vtype, count) + raw
+        return out + struct.pack("<I", 0), tail
+
+    # layout: header(8) ifd0 ... exif ... gps ... data
+    def sized(entries):
+        return 2 + 12 * len(entries) + 4
+
+    ifd0_off = 8
+    exif_off = ifd0_off + sized(entries_ifd0)
+    gps_off = exif_off + sized(entries_exif)
+    data_off = gps_off + (sized(gps) if gps else 0)
+
+    e0 = list(entries_ifd0) + [(0x8769, 4, [exif_off])]
+    if gps:
+        e0.append((0x8825, 4, [gps_off]))
+    e0.sort()
+    # recompute after adding pointers
+    exif_off = ifd0_off + sized(e0)
+    gps_off = exif_off + sized(entries_exif)
+    data_off = gps_off + (sized(gps) if gps else 0)
+    e0 = [x for x in e0 if x[0] not in (0x8769, 0x8825)]
+    e0 += [(0x8769, 4, [exif_off])] + ([(0x8825, 4, [gps_off])] if gps else [])
+    e0.sort()
+
+    blobs = []
+    b0, t0 = ifd(e0, 0)
+    b1, t1 = ifd(entries_exif, 0)
+    b2, t2 = (ifd(gps, 0) if gps else (b"", b""))
+    tail_start = gps_off + len(b2)
+    # rebuild with real data offsets now that sizes are known
+    b0, t0 = ifd(e0, tail_start)
+    b1, t1 = ifd(entries_exif, tail_start + len(t0))
+    b2, t2 = (ifd(gps, tail_start + len(t0) + len(t1)) if gps
+              else (b"", b""))
+    import struct as _s
+    return (b"II" + _s.pack("<H", 42) + _s.pack("<I", ifd0_off)
+            + b0 + b1 + b2 + t0 + t1 + t2)
+
+
+def test_the_built_in_exif_reader_needs_no_exiftool(tmp_path, monkeypatch):
+    """A fresh download has to work on a Mac with nothing installed: the
+    capture times come from a built-in TIFF/CR3 reader, and exiftool —
+    when present — remains the preferred source for its thirty years of
+    vendor quirks."""
+    import struct
+
+    import meteorprep.ingest.exif as E
+    from meteorprep.ingest.exif_mini import read_exif_mini
+
+    blob = _mini_tiff(
+        [(0x0110, 2, "Canon EOS 6D")],
+        [(0x9003, 2, "2026:08:16 04:55:44"),
+         (0x829A, 5, [(20, 1)]),
+         (0x8827, 3, [1600]),
+         (0x920A, 5, [(20, 1)]),
+         (0xA434, 2, "EF16-35mm f/2.8L III USM"),
+         (0xA20E, 5, [(207316, 54)]),      # 6D: 3839.2 px/inch
+         (0xA210, 3, [2])],
+        gps=[(1, 2, "N"), (2, 5, [(44, 1), (19, 1), (39, 1)]),
+             (3, 2, "W"), (4, 5, [(72, 1), (10, 1), (21, 1)])])
+    raw = tmp_path / "IMG_0001.CR2"
+    raw.write_bytes(blob)
+
+    rec = read_exif_mini(raw)
+    assert rec["DateTimeOriginal"] == "2026:08:16 04:55:44"
+    assert rec["ExposureTime"] == 20.0 and rec["ISO"] == 1600
+    assert rec["Model"] == "Canon EOS 6D"
+    assert rec["LensModel"].startswith("EF16-35mm")
+    assert abs(rec["GPSLatitude"] - (44 + 19 / 60 + 39 / 3600)) < 1e-9
+    assert rec["GPSLongitude"] < 0            # W is negative
+
+    # the same TIFF blocks wrapped in Canon's CR3 boxes
+    def box(btype, payload):
+        return struct.pack(">I", 8 + len(payload)) + btype + payload
+
+    uuid = bytes.fromhex("85c0b687820f11e08111f4ce462b6a48")
+    exif_only = _mini_tiff(
+        [(0x9003, 2, "2026:08:16 04:55:44"), (0x829A, 5, [(20, 1)])], [])
+    cr3 = (box(b"ftyp", b"crx \0\0\0\1")
+           + box(b"moov", box(b"uuid", uuid
+                              + box(b"CMT1", blob)
+                              + box(b"CMT2", exif_only))))
+    c3 = tmp_path / "IMG_0002.CR3"
+    c3.write_bytes(cr3)
+    rec3 = read_exif_mini(c3)
+    assert rec3["DateTimeOriginal"] == "2026:08:16 04:55:44"
+    assert rec3["Model"] == "Canon EOS 6D"
+    assert rec3["GPSLatitude"] is not None
+
+    # and read_metadata falls through to it when exiftool is absent
+    monkeypatch.setattr(E, "find_exiftool", lambda: None)
+    metas = E.read_metadata([raw, c3])
+    assert len(metas) == 2
+    m = metas[0]
+    assert m.exposure_s == 20.0 and m.model == "Canon EOS 6D"
+    assert abs(m.pixel_pitch_um - 6.616) < 0.05      # from FocalPlane res
+    assert m.gps_lat is not None and m.gps_lon < 0
