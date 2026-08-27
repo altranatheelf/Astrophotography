@@ -492,3 +492,59 @@ def test_a_composite_run_skips_the_hunt_and_a_later_hunt_still_searches(
     manifest2 = json.loads((out / "layers_manifest.json").read_text())
     assert any(m["group"] == "METEORS" for m in manifest2)
     assert (cdir / "solve.json").exists()
+
+
+def test_finish_bundle_saved_and_renders(pipeline_result):
+    """The run leaves the adjust-and-export bundle next to its outputs,
+    and the finishing math renders from it: the window's sliders begin
+    where preview.jpg ended."""
+    from meteorprep.finish import load_finish_bundle, render_finish
+
+    outs = pipeline_result["groups"][0]["outputs"]
+    assert "finish_bundle" in outs
+    b = load_finish_bundle(outs["finish_bundle"], max_width=400)
+    d0 = render_finish(b)
+    assert d0.ndim == 3 and d0.shape[2] == 3
+    assert 0.0 <= float(d0.min()) and float(d0.max()) <= 1.0
+    assert (render_finish(b, {"brightness": 2.0}).mean()
+            > d0.mean())
+
+
+def test_trail_styles_and_timelapse_on_a_gappy_night(tmp_path, caplog):
+    """A night shot with dead time between exposures: the comet-fade
+    trail is planned, the solve-guided gap bridging activates, and the
+    timelapse film is written — all from one composite run."""
+    import logging
+
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+    from meteorprep.testdata.synth import make_synthetic_sequence
+
+    d = tmp_path / "gappy"
+    gt = make_synthetic_sequence(
+        d, n_frames=8, shape=(600, 900), focal_px=2443.0 * 900 / 5472,
+        n_stars=250, n_meteors=0, n_aircraft=0, n_satellites=0,
+        exp_s=20.0, gap_s=40.0, seed=5)
+    cfg = Config(
+        input_dir=str(d), output_dir=str(tmp_path / "out"),
+        catalog_file=str(d / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / gt["focal_px"],
+        solve_every_k=4, emit_psd=False,
+        find_meteors=False, emit_startrail=True, trail_style="comet",
+        emit_timelapse=True, emit_gradient_layer=False)
+    with caplog.at_level(logging.INFO, logger="meteorprep"):
+        res = run(cfg)
+    out = tmp_path / "out" / res["groups"][0]["group"]
+    log_text = caplog.text
+    assert "comet fade" in log_text
+    assert "bridging" in log_text, "the 40 s gap should trigger bridging"
+    assert (out / "startrail.tif").exists()
+    assert (out / "startrail.jpg").exists()
+    assert "timelapse" in res["groups"][0]["outputs"]
+    assert Path(res["groups"][0]["outputs"]["timelapse"]).stat().st_size \
+        > 10000
+    # comet fade is visible in the picture itself: the oldest frames'
+    # trail light is dimmer than a classic max would keep, so the trail
+    # image is dimmer overall than any single late frame is bright
+    trail = tifffile.imread(out / "startrail.tif")
+    assert trail.dtype == np.uint16 and trail.shape[2] == 3

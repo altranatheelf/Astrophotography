@@ -99,7 +99,9 @@ def write_report_html(out_dir: Path, group_result: dict,
                       capsule: dict | None = None,
                       draft: bool = False,
                       have_pngjsx: bool = False,
-                      meteor_hunt: bool = True) -> Path:
+                      meteor_hunt: bool = True,
+                      have_timelapse: bool = False,
+                      have_finish: bool = False) -> Path:
     g = group_result
     cands = g.get("candidates", [])
     meteors = [c for c in cands if c.get("label") == "meteor"]
@@ -258,6 +260,7 @@ def write_report_html(out_dir: Path, group_result: dict,
 {headline_card}
 {'<h2>Preview</h2><p>Auto-processed for viewing only — your layered file stays untouched and fully adjustable.</p><a href="preview.jpg"><img src="preview.jpg"></a>' if have_preview else ''}
 {looks_html}
+{'<h2>The film</h2><p><a href="timelapse.mp4"><b>timelapse.mp4</b></a> — the whole night in motion: every photo in time order, one steady exposure, ready to post.</p>' if have_timelapse else ''}
 {'<h2>Candidate lineup</h2><a href="contact_sheet.png"><img src="contact_sheet.png"></a>' if have_contact else ''}
 {candidate_table}
 {capsule_html}
@@ -280,6 +283,8 @@ rejected.png (where outliers were thrown away), removed.png (the light
 that was thrown away — meteors, planes, satellites, cosmic rays) and
 ledger.png (every pixel colour-coded by where it came from, with
 ledger_legend.json) — the honest-image receipts</li>
+{'<li><b>finish_bundle.npz</b> — what the app&#39;s Adjust screen edits from (brightness, warmth, light-pollution removal, meteor strength — then Save the picture). Safe to delete if you need the space back; a re-run rebuilds it</li>' if have_finish else ''}
+{'<li><b>timelapse.mp4</b> — the whole night as a short film, ready to post</li>' if have_timelapse else ''}
 <li><b>run_log.txt</b> — the full diary; send it when something looks wrong</li>
 {'<li><i>Not in a quick look:</i> the layered Photoshop file, the per-layer PNGs, the star-trail photo and the contact sheet. Run the folder again on Full quality and they are built from the search this run already did.</li>' if draft else ''}
 </ul>

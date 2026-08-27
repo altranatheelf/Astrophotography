@@ -54,7 +54,20 @@ def build_parser() -> argparse.ArgumentParser:
                         "layered file and preview — no candidate layers)")
     p.add_argument("--startrail", "--emit-startrail", action="store_true",
                    dest="emit_startrail",
-                   help="also write the classic star-trail photo")
+                   help="also write the star-trail photo (gaps between "
+                        "exposures are bridged using the measured sky "
+                        "rotation)")
+    p.add_argument("--trail-style", choices=["classic", "comet"],
+                   default="classic",
+                   help="star-trail look: 'classic' = every arc full "
+                        "strength; 'comet' = newest light bright, the "
+                        "tail fading behind it")
+    p.add_argument("--no-trail-gap-fill", action="store_false",
+                   dest="trail_fill_gaps",
+                   help="leave the dead time between exposures as dashes")
+    p.add_argument("--timelapse", action="store_true",
+                   help="also write the night as an .mp4 timelapse "
+                        "(time order, one steady stretch, no flicker)")
     p.add_argument("--mode", choices=[m.key for m in _M.MODES],
                    default=_M.DEFAULT,
                    help="what to produce; "
@@ -118,6 +131,9 @@ def config_from_args(args, parser=None) -> Config:
         emit_pngjsx=bool(getattr(args, "pngjsx", False)),
         emit_contact_sheet=not args.no_contact_sheet,
         emit_startrail=args.emit_startrail,
+        trail_style=args.trail_style,
+        trail_fill_gaps=args.trail_fill_gaps,
+        emit_timelapse=args.timelapse,
         find_meteors=args.find_meteors,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,

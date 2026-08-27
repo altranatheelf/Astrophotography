@@ -2079,3 +2079,134 @@ def test_the_built_in_exif_reader_needs_no_exiftool(tmp_path, monkeypatch):
     assert m.exposure_s == 20.0 and m.model == "Canon EOS 6D"
     assert abs(m.pixel_pitch_um - 6.616) < 0.05      # from FocalPlane res
     assert m.gps_lat is not None and m.gps_lon < 0
+
+
+# ---------------------------------------------------------------------------
+# star-trail styles: solve-guided gap bridging + comet fade
+# ---------------------------------------------------------------------------
+
+def test_trail_gap_plan_and_bridge():
+    """plan_fill measures the sky's true pixel rotation from a WCS pair
+    (pivot = the projected pole, to machine precision) and
+    fill_trail_gaps draws the bridge arcs at the star's own radius."""
+    import math
+
+    from meteorprep.astrometry.pole import pole_pixel_xy
+    from meteorprep.astrometry.solve import build_tan_wcs, propagate_wcs
+    from meteorprep.stack.startrail import (comet_gains, fill_trail_gaps,
+                                            plan_fill)
+
+    h, w = 600, 900
+    scale = np.rad2deg(np.arctan(1.0 / 2000.0))
+    wcs0 = build_tan_wcs(80.0, 55.0, scale, (h, w))
+    wcs1 = propagate_wcs(wcs0, 60.0)      # 20 s exposure, 40 s dead gap
+    fill = plan_fill(wcs0, wcs1, dt_pair_s=60.0, exposure_s=20.0,
+                     interval_s=60.0, decode_shape_hw=(h, w),
+                     det_to_decode=1.0)
+    assert fill is not None
+    px, py, th0, th1, n_steps = fill
+    omega = 2 * np.pi / 86164.0905
+    # the pixel-space angle is the sidereal rate warped by the gnomonic
+    # projection: same order, same sign structure, exposure/interval split
+    assert 0.5 < abs(th1) / (omega * 60.0) < 1.5
+    assert abs(abs(th0) / abs(th1) - 20.0 / 60.0) < 0.02
+    assert np.sign(th0) == np.sign(th1) and n_steps >= 1
+    ex, ey = pole_pixel_xy(wcs0)
+    assert np.hypot(px - ex, py - ey) < 1.0        # pivot IS the pole
+
+    # continuous shooting = no visible gap = no work
+    assert plan_fill(wcs0, propagate_wcs(wcs0, 21.0), 21.0, 20.0, 21.0,
+                     (h, w), 1.0) is None
+
+    rng = np.random.default_rng(1)
+    trail = rng.normal(500, 8, (h, w, 3)).clip(0, 65535).astype(np.uint16)
+    frame = trail.copy()
+    sx, sy = 650, 250                              # a star, in frame
+    r = math.hypot(sx - px, sy - py)
+    frame[sy - 1:sy + 2, sx - 1:sx + 2] = 20000
+    np.maximum(trail, frame, out=trail)
+    before = trail.copy()
+    fill_trail_gaps(trail, frame, fill, gain=1.0)
+    diff = (trail.astype(np.int32) - before.astype(np.int32)).max(axis=2)
+    ys, xs = np.nonzero(diff > 5000)
+    assert len(ys) >= n_steps, "no bridge drawn"
+    rads = np.hypot(xs - px, ys - py)
+    assert abs(rads.mean() - r) < 8                # on the star's circle
+    # the ground never moves: nothing new lit far from the star's arc
+    far = np.hypot(xs - sx, ys - sy) > 60
+    assert not far.any()
+
+    g = comet_gains(list(range(10)))
+    assert g[9] == 1.0 and g[0] < 0.2 and g[5] < g[8]
+
+
+# ---------------------------------------------------------------------------
+# the finishing bundle: save, load, every slider does its job, export
+# ---------------------------------------------------------------------------
+
+def test_finish_bundle_roundtrip(tmp_path):
+    from meteorprep.finish import (export_finish, load_finish_bundle,
+                                   render_finish, save_finish_bundle)
+    from meteorprep.mask.extract import MeteorLayer
+
+    base = np.full((400, 600, 3), 600.0, np.float32)
+    base[:, :, 0] += np.linspace(0, 400, 600)[None, :]   # a red gradient
+    fg = np.full((400, 600, 3), 300.0, np.float32)
+    skym = np.ones((400, 600), np.float32)
+    skym[300:] = 0.0                                     # ground below
+    lay = MeteorLayer(name="m", bbox=(100, 100, 140, 130),
+                      rgb=np.full((30, 40, 3), 3000.0, np.float32),
+                      alpha=np.ones((30, 40), np.float32))
+    fb = save_finish_bundle(tmp_path, base, fg, skym,
+                            np.array([1.05, 1.0, 0.95]),
+                            [(None, lay, 0, 0)], [], crop_xy=(0, 0))
+    assert fb is not None and fb.exists()
+    b = load_finish_bundle(fb, max_width=300)
+    assert {"sky", "fg", "skymask", "met", "grad"} <= set(b)
+
+    d0 = render_finish(b)
+    assert d0.shape == (200, 300, 3) and 0.0 <= d0.min() <= d0.max() <= 1.0
+    assert render_finish(b, {"brightness": 2.0}).mean() > d0.mean()
+    assert (render_finish(b, {"foreground": 3.0})[175, 150].mean()
+            > d0[175, 150].mean())
+    # the meteor sits at the bbox centre; boost 0 removes it
+    assert (d0[57, 60].mean()
+            > render_finish(b, {"boost": 0.0})[57, 60].mean())
+    lr0 = d0[50, 140, 0] - d0[50, 10, 0]
+    lr1 = (render_finish(b, {"depollute": 1.0})[50, 140, 0]
+           - render_finish(b, {"depollute": 1.0})[50, 10, 0])
+    assert abs(lr1) < abs(lr0)                     # the tilt flattens
+
+    out = export_finish(fb, {"brightness": 1.2}, tmp_path, want_tiff=True)
+    assert out["jpg"].stat().st_size > 5000
+    assert out["tif"].stat().st_size > 100000      # 16-bit, uncompressed-ish
+
+
+# ---------------------------------------------------------------------------
+# the timelapse writer
+# ---------------------------------------------------------------------------
+
+def test_timelapse_writer(tmp_path):
+    import cv2
+
+    from meteorprep.report.timelapse import write_timelapse
+
+    rng = np.random.default_rng(2)
+    frames = []
+    for i in range(8):
+        f = rng.normal(500, 10, (200, 300, 3)).clip(0, 65535)
+        f[:, i * 30:i * 30 + 8] += 4000            # something moving
+        frames.append(f.astype(np.uint16))
+    ticks = []
+    tl = write_timelapse(lambda i: frames[i], list(range(8)),
+                         tmp_path / "timelapse.mp4", gains=None,
+                         max_width=300, fps=8,
+                         notify=lambda k, n: ticks.append((k, n)))
+    assert tl is not None and tl.stat().st_size > 1000
+    cap = cv2.VideoCapture(str(tl))
+    assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 8
+    cap.release()
+    assert ticks and ticks[-1] == (8, 8)
+    # one frame is not a film
+    assert write_timelapse(lambda i: frames[i], [0],
+                           tmp_path / "t2.mp4") is None

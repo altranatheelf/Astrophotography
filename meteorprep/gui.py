@@ -35,7 +35,7 @@ def main() -> int:
                                        QComboBox, QFileDialog, QFrame,
                                        QHBoxLayout, QLabel, QLineEdit,
                                        QMainWindow, QProgressBar, QPushButton,
-                                       QRadioButton, QScrollArea,
+                                       QRadioButton, QScrollArea, QSlider,
                                        QStackedWidget, QVBoxLayout, QWidget)
     except ImportError:
         print("PySide6 is not installed: pip install 'meteorprep[gui]'",
@@ -145,6 +145,64 @@ def main() -> int:
                 self.ready.emit(str(src))
             except Exception:
                 self.failed.emit(traceback.format_exc())
+
+    class FinishWorker(QThread):
+        """Owns one finishing bundle on a worker thread: loads it small
+        for live slider renders, exports full size on demand.  Renders
+        queued while one is in flight collapse to the newest — dragging
+        a slider asks for the last position, not every position."""
+        loaded = Signal(dict)          # {"fg": bool, "met": bool, ...}
+        rendered = Signal(object)      # uint8 HxWx3 RGB
+        saved = Signal(str)
+        failed = Signal(str)
+
+        def __init__(self, bundle_path):
+            super().__init__()
+            import queue
+            self.bundle_path = str(bundle_path)
+            self.jobs = queue.Queue()
+
+        def submit(self, *job):
+            self.jobs.put(job)
+
+        def run(self):
+            import numpy as np
+
+            from meteorprep.finish import (export_finish,
+                                           load_finish_bundle,
+                                           render_finish)
+            try:
+                small = load_finish_bundle(self.bundle_path,
+                                           max_width=1100)
+                self.loaded.emit({k: (k in small) for k in
+                                  ("fg", "met", "flg", "grad",
+                                   "skymask")})
+            except Exception:
+                self.failed.emit(traceback.format_exc())
+                return
+            while True:
+                batch = [self.jobs.get()]
+                while not self.jobs.empty():
+                    batch.append(self.jobs.get())
+                renders = [b for b in batch if b[0] == "render"]
+                todo = ([b for b in batch if b[0] != "render"]
+                        + renders[-1:])
+                for b in todo:
+                    if b[0] == "quit":
+                        return
+                    try:
+                        if b[0] == "render":
+                            disp = render_finish(small, b[1])
+                            self.rendered.emit(
+                                (disp * 255.0 + 0.5).astype(np.uint8))
+                        elif b[0] == "export":
+                            out = export_finish(
+                                self.bundle_path, b[1],
+                                Path(self.bundle_path).parent,
+                                want_tiff=b[2])
+                            self.saved.emit(str(out["jpg"]))
+                    except Exception:
+                        self.failed.emit(traceback.format_exc())
 
     class CountWorker(QThread):
         """Counting photos means walking the folder, which is instant on
@@ -333,6 +391,7 @@ def main() -> int:
                 "setup": self._build_setup(),
                 "run": self._build_run(),
                 "done": self._build_done(),
+                "adjust": self._build_adjust(),
             }
             for w in self._page.values():
                 self.pages.addWidget(w)
@@ -361,6 +420,14 @@ def main() -> int:
             self._hb = QTimer(self)
             self._hb.setInterval(1000)
             self._hb.timeout.connect(self._heartbeat)
+            # slider debounce: render the position the hand settles on,
+            # not every pixel it dragged through
+            self._adj_timer = QTimer(self)
+            self._adj_timer.setSingleShot(True)
+            self._adj_timer.setInterval(120)
+            self._adj_timer.timeout.connect(self._adj_render_now)
+            self._adj = None
+            self._adj_path = None
 
         # ---------------- the four screens -------------------------------
 
@@ -524,13 +591,36 @@ def main() -> int:
             lay.addLayout(sheet_row)
             self.cb_meteors.toggled.connect(self._meteors_toggled)
             self.cb_trail = QCheckBox(
-                "Star-trail photo — the classic circles around the pole")
+                "Star-trail photo — circles around the pole")
             self.cb_trail.setToolTip(
                 "Every frame's brightest pixel kept, so the stars draw "
                 "arcs around the pole while the ground stays frozen. "
                 "Built from the photos you already have, at no extra "
-                "reading cost.")
+                "reading cost. Gaps between exposures are bridged "
+                "automatically using the measured sky rotation, so the "
+                "arcs come out solid, not dashed.")
             lay.addWidget(self.cb_trail)
+            self.trail_combo = QComboBox()
+            self.trail_combo.addItems(["classic — every arc full strength",
+                                       "comet fade — the tail thins away"])
+            self.trail_combo.setToolTip(
+                "Classic is the timeless full-strength circles. Comet "
+                "fade keeps the newest light bright and fades the older "
+                "arcs behind it, like a tail.")
+            self.trail_combo.setEnabled(False)
+            self.cb_trail.toggled.connect(self.trail_combo.setEnabled)
+            trail_row = QHBoxLayout()
+            trail_row.addSpacing(26)
+            trail_row.addWidget(self.trail_combo)
+            trail_row.addStretch(1)
+            lay.addLayout(trail_row)
+            self.cb_video = QCheckBox(
+                "Timelapse film — the whole night as a short video")
+            self.cb_video.setToolTip(
+                "Plays your night back as an .mp4: every photo in time "
+                "order, one steady exposure (no flicker), ready to post. "
+                "Adds a minute or two of reading at the end of the run.")
+            lay.addWidget(self.cb_video)
 
             lay.addSpacing(6)
             lay.addWidget(_heading("How far to take it?"))
@@ -699,18 +789,32 @@ def main() -> int:
 
             btns = QHBoxLayout()
             btns.addStretch(1)
+            self.adjust_btn = QPushButton("Adjust the picture")
+            self.adjust_btn.setObjectName("primary")
+            self.adjust_btn.setToolTip(
+                "Finish the shot right here — brightness, warmth, "
+                "colour, foreground light, light-pollution removal, "
+                "meteor strength — and save a full-quality JPEG. The "
+                "layered Photoshop file stays untouched.")
+            self.adjust_btn.clicked.connect(self._open_adjust)
+            self.adjust_btn.setVisible(False)
             self.open_report_btn = QPushButton("Open the report")
-            self.open_report_btn.setObjectName("primary")
             self.open_report_btn.clicked.connect(
                 lambda: self._open_path(getattr(self, "_report_path", None)))
             self.open_psd_btn = QPushButton("Open the Photoshop file")
             self.open_psd_btn.clicked.connect(
                 lambda: self._open_path(getattr(self, "_psd_path", None)))
+            self.video_btn = QPushButton("Play the film")
+            self.video_btn.clicked.connect(
+                lambda: self._open_path(getattr(self, "_video_path", None)))
+            self.video_btn.setVisible(False)
             self.open_folder_btn = QPushButton("Show the files")
             self.open_folder_btn.clicked.connect(
                 lambda: self._open_path(getattr(self, "_result_dir", None)))
+            btns.addWidget(self.adjust_btn)
             btns.addWidget(self.open_report_btn)
             btns.addWidget(self.open_psd_btn)
+            btns.addWidget(self.video_btn)
             btns.addWidget(self.open_folder_btn)
             btns.addStretch(1)
             lay.addLayout(btns)
@@ -727,6 +831,185 @@ def main() -> int:
             links.addWidget(self.tweak_btn)
             lay.addLayout(links)
             return page
+
+        def _build_adjust(self):
+            page = QWidget()
+            page.setObjectName("page")
+            lay = QVBoxLayout(page)
+            lay.setContentsMargins(28, 16, 28, 16)
+            lay.setSpacing(7)
+
+            top = QHBoxLayout()
+            back = QPushButton("◂  Back to the results")
+            back.setObjectName("link")
+            back.clicked.connect(lambda: self._goto("done"))
+            top.addWidget(back)
+            top.addStretch(1)
+            lay.addLayout(top)
+
+            self.adj_preview = QLabel("loading the picture…")
+            self.adj_preview.setObjectName("preview")
+            self.adj_preview.setAlignment(Qt.AlignCenter)
+            self.adj_preview.setMinimumHeight(230)
+            lay.addWidget(self.adj_preview, 1)
+
+            def srow(label, lo, hi, val):
+                row = QHBoxLayout()
+                lab = QLabel(label)
+                lab.setObjectName("sub")
+                lab.setMinimumWidth(150)
+                sl = QSlider(Qt.Horizontal)
+                sl.setRange(lo, hi)
+                sl.setValue(val)
+                sl.valueChanged.connect(self._adj_changed)
+                row.addWidget(lab)
+                row.addWidget(sl, 1)
+                holder = QWidget()
+                holder.setLayout(row)
+                lay.addWidget(holder)
+                return sl, holder
+
+            self.adj_bright, _ = srow("Sky brightness", 40, 250, 100)
+            self.adj_warm, _ = srow("Warmth", -100, 100, 0)
+            self.adj_sat, _ = srow("Colour strength", 0, 200, 100)
+            self.adj_fg, self._adj_fg_row = srow(
+                "Foreground light", 25, 300, 100)
+            self.adj_pol, self._adj_pol_row = srow(
+                "Remove light pollution", 0, 100, 0)
+            self.adj_boost, self._adj_boost_row = srow(
+                "Meteor strength", 0, 250, 100)
+            self.adj_flagged = QCheckBox(
+                "Show the satellite and plane trails too")
+            self.adj_flagged.toggled.connect(self._adj_changed)
+            self.adj_flagged.setVisible(False)
+            lay.addWidget(self.adj_flagged)
+
+            self.adj_status = QLabel("")
+            self.adj_status.setObjectName("sub")
+            self.adj_status.setWordWrap(True)
+            lay.addWidget(self.adj_status)
+
+            brow = QHBoxLayout()
+            reset = QPushButton("Back to how the run left it")
+            reset.setObjectName("link")
+            reset.clicked.connect(self._adj_reset)
+            brow.addWidget(reset)
+            brow.addStretch(1)
+            self.adj_tiff = QCheckBox("Also save a 16-bit TIFF")
+            self.adj_tiff.setToolTip(
+                "A print-grade 16-bit file of the same picture, next to "
+                "the JPEG. Adds ~50–70 MB.")
+            brow.addWidget(self.adj_tiff)
+            self.adj_save = QPushButton("Save the picture")
+            self.adj_save.setObjectName("primary")
+            self.adj_save.clicked.connect(self._adj_export)
+            brow.addWidget(self.adj_save)
+            lay.addLayout(brow)
+            return page
+
+        # ---------------- the adjust screen ------------------------------
+
+        def _adj_params(self):
+            return {
+                "brightness": self.adj_bright.value() / 100.0,
+                "warmth": self.adj_warm.value() / 100.0,
+                "saturation": self.adj_sat.value() / 100.0,
+                "foreground": self.adj_fg.value() / 100.0,
+                "depollute": self.adj_pol.value() / 100.0,
+                "boost": self.adj_boost.value() / 100.0,
+                "show_flagged": self.adj_flagged.isChecked(),
+            }
+
+        def _open_adjust(self):
+            path = getattr(self, "_bundle_path", None)
+            if not path or not Path(path).exists():
+                return
+            self._goto("adjust")
+            if self._adj is not None and self._adj_path == path \
+                    and self._adj.isRunning():
+                self._adj_changed()
+                return
+            if self._adj is not None and self._adj.isRunning():
+                self._adj.submit("quit")
+            self._adj_path = path
+            self.adj_preview.setText("loading the picture…")
+            self.adj_status.setText("")
+            self.adj_save.setEnabled(True)
+            self.adj_save.setText("Save the picture")
+            self._adj = FinishWorker(path)
+            self._adj.loaded.connect(self._adj_loaded)
+            self._adj.rendered.connect(self._adj_show)
+            self._adj.saved.connect(self._adj_saved)
+            self._adj.failed.connect(self._adj_failed)
+            self._adj.start()
+
+        def _adj_loaded(self, have):
+            # only offer the sliders this night actually has knobs for
+            self._adj_fg_row.setVisible(bool(have.get("fg")
+                                             and have.get("skymask")))
+            self._adj_pol_row.setVisible(bool(have.get("grad")))
+            self._adj_boost_row.setVisible(bool(have.get("met")
+                                                or have.get("flg")))
+            self.adj_flagged.setVisible(bool(have.get("flg")))
+            self._adj_render_now()
+
+        def _adj_changed(self, *_a):
+            if self._adj is not None:
+                self._adj_timer.start()
+
+        def _adj_render_now(self):
+            if self._adj is not None and self._adj.isRunning():
+                self._adj.submit("render", self._adj_params())
+
+        def _adj_show(self, arr):
+            from PySide6.QtGui import QImage, QPixmap
+            h, w = arr.shape[:2]
+            img = QImage(arr.tobytes(), w, h, 3 * w,
+                         QImage.Format_RGB888)
+            self.adj_preview.setPixmap(QPixmap.fromImage(img).scaled(
+                max(self.adj_preview.width(), 540),
+                max(self.adj_preview.height(), 320),
+                Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        def _adj_reset(self):
+            for sl, v in ((self.adj_bright, 100), (self.adj_warm, 0),
+                          (self.adj_sat, 100), (self.adj_fg, 100),
+                          (self.adj_pol, 0), (self.adj_boost, 100)):
+                sl.blockSignals(True)
+                sl.setValue(v)
+                sl.blockSignals(False)
+            self.adj_flagged.blockSignals(True)
+            self.adj_flagged.setChecked(False)
+            self.adj_flagged.blockSignals(False)
+            self._adj_changed()
+
+        def _adj_export(self):
+            if self._adj is None or not self._adj.isRunning():
+                return
+            self.adj_save.setEnabled(False)
+            self.adj_save.setText("Saving…")
+            self.adj_status.setText(
+                "Rendering the full-size picture…")
+            self._adj.submit("export", self._adj_params(),
+                             self.adj_tiff.isChecked())
+
+        def _adj_saved(self, jpg):
+            self.adj_save.setEnabled(True)
+            self.adj_save.setText("Save the picture")
+            extra = (" (and the 16-bit TIFF)"
+                     if self.adj_tiff.isChecked() else "")
+            self.adj_status.setText(
+                f"Saved {Path(jpg).name}{extra} next to your other "
+                "files.")
+            self._open_path(jpg)
+
+        def _adj_failed(self, tb):
+            self.adj_save.setEnabled(True)
+            self.adj_save.setText("Save the picture")
+            self.adj_status.setText(
+                "That did not work: "
+                + tb.strip().splitlines()[-1][:200])
+            print(tb, file=sys.stderr)
 
         # ---------------- mode + folder ---------------------------------
 
@@ -843,7 +1126,7 @@ def main() -> int:
 
         _CBS = (("meteors", "cb_meteors"), ("trail", "cb_trail"),
                 ("sheet", "cb_sheet"), ("png", "cb_png"),
-                ("force", "cb_force"))
+                ("force", "cb_force"), ("video", "cb_video"))
 
         def _restore_settings(self):
             s = self._settings
@@ -854,6 +1137,8 @@ def main() -> int:
                 if v is not None:
                     getattr(self, attr).setChecked(v in (True, "true", "1"))
             self.site.setText(str(s.value("site", "")))
+            if str(s.value("trail_style", "")) == "comet":
+                self.trail_combo.setCurrentIndex(1)
             for combo, name in ((self.compass, "compass"),
                                 (self.elevation, "elevation")):
                 v = str(s.value(name, ""))
@@ -875,6 +1160,9 @@ def main() -> int:
             for name, attr in self._CBS:
                 s.setValue(name, getattr(self, attr).isChecked())
             s.setValue("site", self.site.text())
+            s.setValue("trail_style",
+                       "comet" if self.trail_combo.currentIndex() == 1
+                       else "classic")
             s.setValue("compass", self.compass.currentText())
             s.setValue("elevation", self.elevation.currentText())
 
@@ -981,6 +1269,10 @@ def main() -> int:
                 output_dir=self._out_dir(),
                 emit_pngjsx=self.cb_png.isChecked(),
                 emit_startrail=self.cb_trail.isChecked(),
+                trail_style=("comet"
+                             if self.trail_combo.currentIndex() == 1
+                             else "classic"),
+                emit_timelapse=self.cb_video.isChecked(),
                 find_meteors=self.cb_meteors.isChecked(),
                 emit_contact_sheet=(self.cb_sheet.isChecked()
                                     and self.cb_meteors.isChecked()),
@@ -1231,10 +1523,24 @@ def main() -> int:
                 from pathlib import Path as _P
                 target = None
                 psd = None
+                bundle = None
+                video = None
                 for g in groups:
                     outs = g.get("outputs", {})
                     target = outs.get("report") or target
                     psd = outs.get("psd") or psd
+                    bundle = outs.get("finish_bundle") or bundle
+                    video = outs.get("timelapse") or video
+                # a fresh run means a fresh bundle: retire the old
+                # adjust worker so the screen reloads the new night
+                if self._adj is not None and self._adj.isRunning():
+                    self._adj.submit("quit")
+                self._adj = None
+                self._adj_path = None
+                self._bundle_path = bundle
+                self._video_path = video
+                self.adjust_btn.setVisible(bool(bundle))
+                self.video_btn.setVisible(bool(video))
                 if target is None and groups:
                     target = str(_P(next(iter(
                         groups[0]["outputs"].values()))).parent)
@@ -1364,6 +1670,9 @@ def main() -> int:
         def closeEvent(self, event):
             for c in list(self._counters):
                 c.wait(2000)
+            if self._adj is not None and self._adj.isRunning():
+                self._adj.submit("quit")
+                self._adj.wait(3000)
             if self.worker is not None and self.worker.isRunning():
                 if not getattr(self, "_quit_asked", False):
                     self._quit_asked = True

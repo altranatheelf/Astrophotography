@@ -157,7 +157,24 @@ class Config:
     # front ends now say the same thing about it.
     emit_pngjsx: bool = False
     emit_startrail: bool = False
+    # "classic": every frame full strength — the timeless circles.
+    # "comet": the newest light full strength, the tail fading behind it.
+    trail_style: str = "classic"
+    # Bridge the dead seconds between exposures using the measured sky
+    # rotation from the plate solves, so intervalometer nights don't come
+    # out as dashed arcs.  Only star light above the frame's own noise is
+    # bridged; the ground never moves.  Free when shooting was continuous
+    # (no visible gap = no work).
+    trail_fill_gaps: bool = True
     emit_contact_sheet: bool = True
+    # The whole night as a short film: frames in time order, one fixed
+    # stretch (no flicker), written as an .mp4 next to the other outputs.
+    emit_timelapse: bool = False
+    # The adjust-and-export bundle: a downsized linear copy of the
+    # composite's ingredients, saved so the window's Adjust screen can
+    # re-render the finished picture live and export it without touching
+    # the layered files.
+    emit_finish_bundle: bool = True
 
     # --- runtime ---
     jobs: int = 1               # >1 parallelises decode+reprojection
@@ -212,7 +229,7 @@ class Config:
     DRAFT_DERIVED = frozenset({
         "half_size", "super_sample", "emit_psd", "emit_pngjsx",
         "emit_startrail", "emit_contact_sheet", "faint_harvest",
-        "crop_coverage_frac"})
+        "crop_coverage_frac", "emit_timelapse"})
 
     def __post_init__(self):
         if not self.draft:
@@ -223,6 +240,7 @@ class Config:
         self.emit_pngjsx = False
         self.emit_startrail = False
         self.emit_contact_sheet = False
+        self.emit_timelapse = False   # a film is a full-run output
         self.faint_harvest = False   # the slow second look, by definition
         self.crop_coverage_frac = 0.0
 
@@ -288,12 +306,14 @@ class Config:
         # night to build it a second way.
         "base_sky": ["stack_sigma",
                      "frame_weighting", "emit_foreground_stack",
-                     "emit_startrail", "half_size", "super_sample",
+                     "emit_startrail", "trail_style", "trail_fill_gaps",
+                     "half_size", "super_sample",
                      "draft", "draft_stack_max"],
         "sky_ground": [],
         "extract": ["half_size", "super_sample"],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",
-                     "emit_contact_sheet", "crop_coverage_frac"],
+                     "emit_contact_sheet", "crop_coverage_frac",
+                     "emit_timelapse", "emit_finish_bundle"],
     }
 
     _STAGE_UPSTREAM = {

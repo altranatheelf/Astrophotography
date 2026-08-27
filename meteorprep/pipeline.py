@@ -573,7 +573,7 @@ def _stack_pass(args) -> dict:
     (mode, indices, paths, wcs_strs, base_wcs_str, shape_hw,
      segments_per_frame, frame_weights, tmp_dir_str, worker_id, half_size,
      bad_pixels, sigma, want_fg, want_trail, k1, sky_path,
-     shared_spec, cv_threads) = args
+     shared_spec, cv_threads, trail_gains, trail_fill) = args
     import json as _json
 
     import cv2 as _cv2
@@ -788,13 +788,31 @@ def _stack_pass(args) -> dict:
             # both walk the same undeveloped frame, so they walk it
             # together: one band of the decode feeds the running sum and
             # the running maximum while it is still in cache
+            tg = float(trail_gains.get(i, 1.0)) if trail_gains else 1.0
             for r0 in range(0, rgb.shape[0], _FG_BAND):
                 r1 = min(r0 + _FG_BAND, rgb.shape[0])
                 blk = rgb[r0:r1]
                 if want_fg:
                     _cv2.accumulate(blk, fg_sum[r0:r1])
                 if want_trail:
-                    _cv2.max(trail_max[r0:r1], blk, dst=trail_max[r0:r1])
+                    if tg != 1.0:      # comet fade: this frame, scaled
+                        blk_t = _np.clip(blk.astype(_np.float32) * tg,
+                                         0, 65535).astype(_np.uint16)
+                        _cv2.max(trail_max[r0:r1], blk_t,
+                                 dst=trail_max[r0:r1])
+                    else:
+                        _cv2.max(trail_max[r0:r1], blk,
+                                 dst=trail_max[r0:r1])
+            if want_trail and trail_fill is not None:
+                # bridge this frame's stars across the dead time before
+                # the next exposure — measured sky rotation, star light
+                # only, so the ground stays put (stack/startrail.py)
+                from meteorprep.stack.startrail import fill_trail_gaps
+                try:
+                    fill_trail_gaps(trail_max, rgb, trail_fill, gain=tg)
+                except Exception as exc:
+                    log.warning("trail gap fill skipped on %s: %s",
+                                Path(paths[indices.index(i)]).name, exc)
             fg_n += 1 if want_fg else 0
         _t = _tick("fg_trail", _t)
         distort = (_P3(k1, rgb.shape[:2]).distort if abs(k1) > 1e-9
@@ -3224,6 +3242,34 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         except Exception as exc:
             log.warning("star-trail JPG render failed: %s", exc)
 
+    # the adjust-and-export bundle: the same ingredients the preview just
+    # rendered, saved so the window can re-render the finished picture
+    # live and export it — no Photoshop required for the shareable shot
+    if cfg.emit_finish_bundle:
+        from meteorprep.finish import save_finish_bundle
+        fb = save_finish_bundle(
+            out_dir, base_img, fg_for_preview, sky_fg, gains,
+            meteor_layers, flagged_layers,
+            crop_xy=((crop[0], crop[1]) if crop is not None else (0, 0)),
+            grad_sky_mask=sky_mask)
+        if fb:
+            outputs["finish_bundle"] = str(fb)
+        sw("finish bundle")
+
+    if cfg.emit_timelapse:
+        notify(0.97, "writing the timelapse")
+        from meteorprep.report.timelapse import write_timelapse
+        tl_order = sorted(range(n), key=lambda i: frames[i].epoch_mid)
+        tl = write_timelapse(
+            lambda i: raw_mod.decode(frames[i].path, "final", bad_pixels,
+                                     half_size=True),
+            tl_order, out_dir / "timelapse.mp4", gains,
+            notify=lambda k, tot: notify(
+                0.97, f"writing the timelapse (frame {k}/{tot})"))
+        if tl:
+            outputs["timelapse"] = str(tl)
+        sw("timelapse")
+
     sidecar = write_sidecar(
         out_dir / "meteorprep.json", cfg, group.group_id, base_meta.file,
         base_wcs, pole_xy, radiant, frames, candidates,
@@ -3407,7 +3453,9 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         have_psd="psd" in outputs,
         crops=crops, timings=timings, info=info, looks=looks,
         capsule=capsule, draft=cfg.draft,
-        have_pngjsx="jsx" in outputs, meteor_hunt=want_meteors))
+        have_pngjsx="jsx" in outputs, meteor_hunt=want_meteors,
+        have_timelapse="timelapse" in outputs,
+        have_finish="finish_bundle" in outputs))
     if cfg.cleanup_cache:
         import shutil as _shutil
         _shutil.rmtree(det_lum_dir, ignore_errors=True)
@@ -3840,7 +3888,10 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
                 {i: frame_weights.get(i, 1.0) for i in indices},
                 str(tmp), worker_id, cfg.half_size, bad_pixels,
                 cfg.stack_sigma, want_fg, want_trail, k1, sky_path,
-                shared_for(mode, worker_id), cv_threads)
+                shared_for(mode, worker_id), cv_threads,
+                ({i: trail_gains[i] for i in indices if i in trail_gains}
+                 if want_trail else {}),
+                trail_fill if want_trail else None)
 
     # How many workers fit is a question about the canvas, not about the
     # machine alone: a worker's peak scales with the output resolution
@@ -3850,12 +3901,64 @@ def _stream_base(cfg, frames, ok_idx, det_wcs, base_wcs, base_det_wcs,
     # a draft on an 8 GB laptop two workers when six would fit.
     mp_out = (h * w) / 1e6
     peak_gb = 0.30 + 0.09 * mp_out
+    if cfg.emit_startrail and cfg.trail_fill_gaps:
+        # gap bridging holds a star image and one warped copy of it
+        # (uint16, camera-sized) alongside the trail maximum
+        peak_gb += 0.02 * mp_out
     reserve_gb = 2.0 + 0.07 * mp_out          # the OS, and this process
     budget = max(_available_ram_gb() - reserve_gb, 1.0)
     n_workers = max(min(int(budget // peak_gb), max(cfg.jobs, 1), 4), 1)
 
     import os as _os
     cv_threads = max((_os.cpu_count() or 4) // max(n_workers, 1), 1)
+
+    # ---- star-trail styling plan (comet fade + gap bridging) -----------
+    # Computed once in the parent from the solves and the exposure times;
+    # the workers only apply it.  Any failure here degrades to the
+    # classic trail — styling must never cost a night its stack.
+    trail_gains: dict = {}
+    trail_fill = None
+    if cfg.emit_startrail:
+        try:
+            from meteorprep.stack.startrail import comet_gains, plan_fill
+            t_order = sorted(ok_idx, key=lambda i: frames[i].epoch_mid)
+            if cfg.trail_style == "comet":
+                trail_gains = comet_gains(t_order)
+                log.info("star trail: comet fade over %d frames",
+                         len(t_order))
+            if cfg.trail_fill_gaps and len(t_order) >= 3 \
+                    and det_wcs is not None:
+                dts = [(frames[b2].epoch_mid
+                        - frames[a2].epoch_mid).total_seconds()
+                       for a2, b2 in zip(t_order, t_order[1:])]
+                int_med = float(np.median(dts))
+                exp_med = float(np.median(
+                    [frames[i].exposure_s for i in t_order]))
+                mid = len(t_order) // 2
+                pair = next(((a2, b2) for a2, b2 in
+                             zip(t_order[mid:], t_order[mid + 1:])
+                             if det_wcs[a2] is not None
+                             and det_wcs[b2] is not None), None)
+                if pair is not None and int_med > 0:
+                    a2, b2 = pair
+                    dt_pair = (frames[b2].epoch_mid
+                               - frames[a2].epoch_mid).total_seconds()
+                    det_to_decode = 1.0 if cfg.half_size else 2.0
+                    fw = frames[b2].width or 5472
+                    fh = frames[b2].height or 3648
+                    dscale = 0.5 if cfg.half_size else 1.0
+                    trail_fill = plan_fill(
+                        det_wcs[a2], det_wcs[b2], dt_pair, exp_med,
+                        int_med, (int(fh * dscale), int(fw * dscale)),
+                        det_to_decode)
+                    if trail_fill is not None:
+                        log.info("star trail: bridging a %.1fs gap "
+                                 "between exposures with %d solve-guided "
+                                 "steps per frame",
+                                 int_med - exp_med, trail_fill[4])
+        except Exception as exc:
+            log.warning("star-trail styling plan skipped: %s", exc)
+            trail_gains, trail_fill = {}, None
 
     # ONE spawn pool serves both passes: spawn startup re-imports the
     # numeric stack in every worker (seconds each), so pass 2 reuses the
