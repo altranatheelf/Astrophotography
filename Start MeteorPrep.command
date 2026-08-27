@@ -2,6 +2,14 @@
 # Double-click fallback launcher: same behaviour as MeteorPrep.app but in
 # a Terminal window, so anything that goes wrong is visible on screen.
 set -u
+# Rosetta escape hatch: a Terminal set to "Open using Rosetta" hands
+# x86_64 down to every universal Python we start, which then refuses
+# the installed arm64 components.  Relaunch natively.
+if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = "1" ] \
+        && [ -z "${METEORPREP_NATIVE:-}" ]; then
+    echo "(relaunching in this Mac's native architecture...)"
+    METEORPREP_NATIVE=1 exec arch -arm64 /bin/bash "$0" "$@"
+fi
 cd "$(dirname "$0")" || exit 1
 DIR="$(pwd)"
 
@@ -79,6 +87,18 @@ cd "$DIR" || exit 1
 
 if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui
+fi
+if "$PY" -c "$NEEDS" 2>&1 | grep -q "incompatible architecture"; then
+    echo
+    echo "One-time repair: reinstalling the components built for this"
+    echo "Mac's own chip (a few minutes)..."
+    cd "$HOME" || cd /
+    "$PY" -m pip install --force-reinstall --no-cache-dir "$DIR"'[gui]' \
+        || true
+    cd "$DIR" || exit 1
+    if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
+        exec "$PY" -m meteorprep.gui
+    fi
 fi
 echo
 echo "=== component check — this is the actual error: ==="

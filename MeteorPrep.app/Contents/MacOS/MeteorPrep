@@ -3,6 +3,15 @@
 # Lives inside the unzipped METEORPREP folder — it launches the GUI from
 # the folder that contains this app, so keep them together.
 set -u
+# Rosetta escape hatch: on an Apple Silicon Mac a launcher started under
+# Intel translation (a Terminal set to Rosetta, a remembered LaunchServices
+# flag) passes x86_64 down to every universal Python it starts — which
+# then refuses the installed arm64 components with "incompatible
+# architecture".  Detect translation and relaunch this script natively.
+if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = "1" ] \
+        && [ -z "${METEORPREP_NATIVE:-}" ]; then
+    METEORPREP_NATIVE=1 exec arch -arm64 /bin/bash "$0" "$@"
+fi
 LOG=/tmp/meteorprep_setup.log
 # every module a real run needs — the window, the RAW decoder, the
 # image writers.  Probing only for PySide6 and the package itself
@@ -162,6 +171,24 @@ cd "$HERE" || exit 1
 
 if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui
+fi
+
+# a site-packages half-installed under Rosetta and half native fails
+# with "incompatible architecture" no matter which way we run — the
+# repair is to reinstall the components for the architecture we are
+# actually running as (pip fetches the matching wheels)
+if "$PY" -c "$NEEDS" 2>&1 | grep -q "incompatible architecture"; then
+    command -v osascript >/dev/null 2>&1 && osascript -e \
+      'display notification "One-time repair: reinstalling components built for this Mac'"'"'s chip. A few minutes — the window will appear when it is done." with title "MeteorPrep"' \
+      >/dev/null 2>&1
+    echo "=== arch mismatch: reinstalling for this architecture" >> "$LOG"
+    cd "$HOME" 2>/dev/null || cd /
+    "$PY" -m pip install --force-reinstall --no-cache-dir \
+        "$HERE"'[gui]' >> "$LOG" 2>&1 || true
+    cd "$HERE" || exit 1
+    if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
+        exec "$PY" -m meteorprep.gui
+    fi
 fi
 
 # still not working: capture WHAT actually fails to import — the check
