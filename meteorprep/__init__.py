@@ -4,7 +4,7 @@ layered, geometry-corrected PSD.
 CLI-core library; see :func:`meteorprep.pipeline.run`.
 """
 
-__version__ = "1.31.1"
+__version__ = "1.31.2"
 
 from meteorprep.config import Config  # noqa: F401
 

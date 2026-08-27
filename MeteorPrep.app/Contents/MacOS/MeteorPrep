@@ -25,17 +25,44 @@ HERE="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)" || HERE=""
 # from a random READ-ONLY copy under /private/var/.../AppTranslocation/,
 # with none of its sibling files.  Anything that touches that directory
 # fails with "Result too large".  Find the real unzipped folder instead.
+# Three lessons from real machines are baked into this search:
+#  - the NEWEST copy wins (ls -td): the copy the person just unzipped
+#    is the one they mean, wherever it is — including Applications,
+#    which the old search never looked in at all
+#  - Finder renames repeat unzips ("MeteorPrep 3"), so the match is
+#    case-insensitive with any suffix
+#  - a folder macOS refuses to READ (the Downloads privacy gate) is
+#    skipped, not selected — a stale abandoned copy in Downloads once
+#    hijacked the search and killed the launch with a confusing dialog
 if [ -z "$HERE" ] || [ ! -f "$HERE/meteorprep/__init__.py" ]; then
     HERE=""
-    for d in $(ls -td "$HOME"/Downloads/METEORPREP-* "$HOME"/Desktop/METEORPREP-* \
-                      "$HOME"/Documents/METEORPREP-* "$HOME"/METEORPREP-* \
-                      "$HOME"/Downloads/METEORPREP "$HOME"/Desktop/METEORPREP \
-                      2>/dev/null); do
-        if [ -f "$d/meteorprep/__init__.py" ]; then HERE="$d"; break; fi
-    done
+    BLOCKED=""
+    shopt -s nullglob nocaseglob 2>/dev/null || true
+    while IFS= read -r d; do
+        d="${d%/}"
+        [ -f "$d/meteorprep/__init__.py" ] || continue
+        if head -c 1 "$d/meteorprep/__init__.py" >/dev/null 2>&1; then
+            HERE="$d"
+            break
+        else
+            BLOCKED="$d"
+        fi
+    done < <(ls -td /Applications/meteorprep*/ \
+                    "$HOME"/Applications/meteorprep*/ \
+                    "$HOME"/meteorprep*/ \
+                    "$HOME"/Desktop/meteorprep*/ \
+                    "$HOME"/Documents/meteorprep*/ \
+                    "$HOME"/Downloads/meteorprep*/ \
+                    2>/dev/null)
+    shopt -u nullglob nocaseglob 2>/dev/null || true
     if [ -z "$HERE" ]; then
-        say_alert "Move the folder first" \
-"macOS is running this app from a temporary copy, so it cannot see its own files. Drag the whole METEORPREP folder to your Desktop, then open MeteorPrep from there. (Or double-click 'Start MeteorPrep.command' in the folder — that always works.)"
+        if [ -n "$BLOCKED" ]; then
+            say_alert "macOS is protecting this folder" \
+"macOS will not let MeteorPrep read its files in $BLOCKED. Drag that whole folder into Applications (and delete any older METEORPREP folders left in Downloads), then open MeteorPrep from there."
+        else
+            say_alert "Move the folder first" \
+"macOS is running this app from a temporary copy, so it cannot see its own files. Drag the whole MeteorPrep folder into Applications, then open MeteorPrep from there. (Or double-click 'Start MeteorPrep.command' in the folder — that always works.)"
+        fi
         exit 1
     fi
     # found it: clear the download quarantine so the next double-click
@@ -51,7 +78,7 @@ cd "$HERE" || exit 1
 # gate is closed, say the fix in words instead of a traceback.
 if ! head -c 1 "$HERE/meteorprep/__init__.py" >/dev/null 2>&1; then
     say_alert "macOS is protecting this folder" \
-"macOS will not let MeteorPrep read its own files in $HERE. The fix takes 30 seconds: drag the whole METEORPREP folder into your home folder (the one with the house icon) or into Applications, then open MeteorPrep from there."
+"macOS will not let MeteorPrep read its own files in $HERE. The fix takes 30 seconds: drag this whole folder into Applications (and delete any older METEORPREP folders left in Downloads), then open MeteorPrep from there."
     exit 1
 fi
 
