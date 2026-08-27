@@ -2210,3 +2210,120 @@ def test_timelapse_writer(tmp_path):
     # one frame is not a film
     assert write_timelapse(lambda i: frames[i], [0],
                            tmp_path / "t2.mp4") is None
+
+
+# ---------------------------------------------------------------------------
+# the edge-snapped horizon: physics coarse mask + guided-filter snap
+# ---------------------------------------------------------------------------
+
+def _mask_scene(rng, equal_brightness=False):
+    """A jagged treeline night: (base aligned, fg frozen, ridge, truth)."""
+    import cv2
+    H, W = 500, 750
+    xs = np.arange(W)
+    ridge = (320 + 40 * np.sin(xs / 70.0) + 18 * np.sin(xs / 11.0)
+             ).astype(np.float32)
+    ridge = cv2.GaussianBlur(ridge.reshape(1, -1), (0, 0), 2.0).ravel()
+    truth = np.arange(H)[:, None].astype(np.float32) > ridge[None, :]
+    base = np.full((H, W, 3), 900.0, np.float32) + rng.normal(
+        0, 12, (H, W, 3))
+    for _ in range(220):
+        x, y = rng.uniform(2, W - 2), rng.uniform(2, ridge.min() + 30)
+        base[int(y) - 1:int(y) + 2, int(x) - 1:int(x) + 2] += rng.uniform(
+            800, 6000)
+    smear = cv2.GaussianBlur(
+        np.full((H, W), 870.0 if equal_brightness else 650.0, np.float32)
+        + rng.normal(0, 8, (H, W)), (0, 0), 9)
+    base = np.where(truth[:, :, None], smear[:, :, None], base)
+    fg = np.full((H, W, 3), 450.0, np.float32) + rng.normal(
+        0, 6, (H, W, 3))
+    for _ in range(80):
+        x, y = int(rng.uniform(20, W - 40)), int(rng.uniform(0, ridge.min()))
+        fg[y, x:x + 25] += rng.uniform(30, 120)
+    lvl = 450.0 if equal_brightness else 120.0
+    tex = cv2.GaussianBlur(lvl + 60 * (rng.random((H, W)) - 0.5),
+                           (0, 0), 0.8)
+    fg = np.where(truth[:, :, None], tex[:, :, None], fg)
+    return base, fg, ridge, truth
+
+
+def test_horizon_snap_kills_the_lip():
+    """The composite through the new matte must show no bright lip under
+    the treeline, and the boundary must sit on the real ridge."""
+    from meteorprep.segment.refine import build_sky_alpha
+    from meteorprep.segment.silhouette import foreground_sky_mask
+
+    rng = np.random.default_rng(7)
+    base, fg, ridge, truth = _mask_scene(rng)
+    H, W = base.shape[:2]
+    old_sky = foreground_sky_mask(fg)
+    new_sky = build_sky_alpha(base, fg, fg, silhouette_sky=old_sky)
+    assert new_sky is not None
+
+    def lip_of(sky_alpha):
+        a = np.clip(sky_alpha, 0, 1)[:, :, None]
+        lum = (base + (1 - a) * (fg - base)).mean(axis=2)
+        below = [lum[int(ridge[x]) + 3:int(ridge[x]) + 9, x].mean()
+                 for x in range(0, W, 4)]
+        return float(np.median(below) - lum[-120:-40].mean())
+
+    assert old_sky is not None
+    lip_old, lip_new = lip_of(old_sky), lip_of(new_sky)
+    assert abs(lip_new) < 4.0, f"lip survives: {lip_new:+.1f} ADU"
+    assert abs(lip_new) < abs(lip_old) * 0.5
+    ga = new_sky < 0.5
+    iou = (ga & truth).sum() / (ga | truth).sum()
+    assert iou > 0.99
+    errs = []
+    for x in range(0, W, 3):
+        cross = np.nonzero((new_sky[:-1, x] >= 0.5)
+                           & (new_sky[1:, x] < 0.5))[0]
+        if len(cross):
+            errs.append(abs(float(cross[0]) - ridge[x]))
+    assert np.median(errs) < 1.5, f"edge off by {np.median(errs):.2f}px"
+
+
+def test_horizon_snap_dark_on_dark_and_edits(tmp_path):
+    """Equal-brightness trees (the night the brightness matte and the
+    commercial sky selectors go blind on) still segment from physics;
+    painted strokes always win; an all-sky night bows out with None."""
+    import cv2
+
+    from meteorprep.segment.refine import (build_sky_alpha,
+                                           load_horizon_edits)
+    from meteorprep.segment.silhouette import foreground_sky_mask
+
+    rng = np.random.default_rng(9)
+    base, fg, ridge, truth = _mask_scene(rng, equal_brightness=True)
+    H, W = base.shape[:2]
+    old_sky = foreground_sky_mask(fg)     # typically None / nonsense here
+    new_sky = build_sky_alpha(base, fg, fg, silhouette_sky=old_sky)
+    assert new_sky is not None, "physics must not go blind"
+    ga = new_sky < 0.5
+    iou = (ga & truth).sum() / (ga | truth).sum()
+    # no luminance edge exists to snap to on this night, so the boundary
+    # keeps the vote window's smoothing — the point is that the physics
+    # mask still SEGMENTS where the brightness matte is simply blind
+    assert iou > 0.85
+
+    # all-sky: no ground anywhere -> None (caller keeps its own path)
+    sky_only = np.full((H, W, 3), 450.0, np.float32) + rng.normal(
+        0, 6, (H, W, 3))
+    assert build_sky_alpha(base, sky_only, sky_only,
+                           silhouette_sky=None) is None
+
+    # painted strokes round-trip through the PNG the editor writes
+    rgba = np.zeros((H, W, 4), np.uint8)
+    rgba[40:90, 100:220] = (60, 60, 235, 200)      # BGR(A): red = ground
+    rgba[400:450, 500:640] = (235, 60, 60, 200)    # blue = sky
+    cv2.imwrite(str(tmp_path / "horizon_edits.png"), rgba)
+    edits = load_horizon_edits(tmp_path, (H, W))
+    assert edits is not None
+    pg, ps = edits
+    assert pg[60, 150] and not ps[60, 150]
+    assert ps[420, 560] and not pg[420, 560]
+    painted = build_sky_alpha(base, fg, fg, silhouette_sky=old_sky,
+                              edits=edits)
+    assert painted is not None
+    assert painted[55:80, 120:200].mean() < 0.3    # painted ground sticks
+    assert painted[410:440, 520:620].mean() > 0.7  # painted sky sticks

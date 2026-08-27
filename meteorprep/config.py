@@ -175,6 +175,12 @@ class Config:
     # re-render the finished picture live and export it without touching
     # the layered files.
     emit_finish_bundle: bool = True
+    # The edge-snapped horizon (segment/refine.py): a physics coarse mask
+    # (frozen sharp ground vs aligned sharp stars) snapped onto the real
+    # treeline with a guided filter and choked so the bright aligned sky
+    # never bleeds under the silhouette.  Off = the classic brightness
+    # matte alone.
+    mask_snap: bool = True
 
     # --- runtime ---
     jobs: int = 1               # >1 parallelises decode+reprojection
@@ -313,7 +319,7 @@ class Config:
         "extract": ["half_size", "super_sample"],
         "assemble": ["emit_psd", "emit_pngjsx", "emit_startrail",
                      "emit_contact_sheet", "crop_coverage_frac",
-                     "emit_timelapse", "emit_finish_bundle"],
+                     "emit_timelapse", "emit_finish_bundle", "mask_snap"],
     }
 
     _STAGE_UPSTREAM = {

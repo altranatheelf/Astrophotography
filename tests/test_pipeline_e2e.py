@@ -548,3 +548,47 @@ def test_trail_styles_and_timelapse_on_a_gappy_night(tmp_path, caplog):
     # image is dimmer overall than any single late frame is bright
     trail = tifffile.imread(out / "startrail.tif")
     assert trail.dtype == np.uint16 and trail.shape[2] == 3
+
+
+def test_painted_horizon_edits_change_the_shipped_mask(
+        tmp_path, ground_truth, synth_dir, caplog):
+    """The Fix-the-horizon strokes: paint a block of sky as ground, run
+    again, and the shipped skymask honours the paint — snapped, not
+    ignored."""
+    import logging
+
+    import cv2
+
+    from meteorprep.config import Config
+    from meteorprep.pipeline import run
+
+    cfg = Config(
+        input_dir=str(synth_dir), output_dir=str(tmp_path / "out"),
+        catalog_file=str(synth_dir / "catalog_radec.npy"),
+        pixel_pitch_um=16000.0 / ground_truth["focal_px"],
+        seed_ra_deg=ground_truth["tangent_radec"][0] + 0.2,
+        seed_dec_deg=ground_truth["tangent_radec"][1] - 0.15,
+        solve_every_k=4, emit_psd=False, find_meteors=False)
+    res = run(cfg)
+    out = Path(res["groups"][0]["outputs"]["report"]).parent
+    mask_a = cv2.imread(str(out / "skymask.png"), cv2.IMREAD_GRAYSCALE)
+    assert mask_a is not None
+    h, w = mask_a.shape
+    # paint a solid block of upper sky as "ground"
+    y0, y1, x0, x1 = h // 8, h // 4, w // 4, w // 2
+    rgba = np.zeros((h, w, 4), np.uint8)
+    rgba[y0:y1, x0:x1] = (60, 60, 235, 200)        # red stroke = ground
+    cv2.imwrite(str(out / "horizon_edits.png"), rgba)
+    with caplog.at_level(logging.INFO, logger="meteorprep"):
+        run(cfg)
+    assert "Fix-the-horizon" in caplog.text
+    mask_b = cv2.imread(str(out / "skymask.png"), cv2.IMREAD_GRAYSCALE)
+    pad = 12                                       # clear of the snap band
+    block_a = mask_a[y0 + pad:y1 - pad, x0 + pad:x1 - pad].mean()
+    block_b = mask_b[y0 + pad:y1 - pad, x0 + pad:x1 - pad].mean()
+    assert block_a > 200, "the block started as sky"
+    assert block_b < 60, f"paint ignored: block still {block_b:.0f}"
+    # far from the paint the mask is unchanged in character
+    far_a = mask_a[:h // 8, w // 2 + w // 8:].mean()
+    far_b = mask_b[:h // 8, w // 2 + w // 8:].mean()
+    assert abs(far_a - far_b) < 30

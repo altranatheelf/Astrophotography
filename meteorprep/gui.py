@@ -153,6 +153,7 @@ def main() -> int:
         a slider asks for the last position, not every position."""
         loaded = Signal(dict)          # {"fg": bool, "met": bool, ...}
         rendered = Signal(object)      # uint8 HxWx3 RGB
+        rendered_base = Signal(object)  # the untouched (default) render
         saved = Signal(str)
         failed = Signal(str)
 
@@ -177,6 +178,9 @@ def main() -> int:
                 self.loaded.emit({k: (k in small) for k in
                                   ("fg", "met", "flg", "grad",
                                    "skymask")})
+                base = render_finish(small)   # for hold-to-compare
+                self.rendered_base.emit(
+                    (base * 255.0 + 0.5).astype(np.uint8))
             except Exception:
                 self.failed.emit(traceback.format_exc())
                 return
@@ -325,6 +329,132 @@ def main() -> int:
         def add_layout(self, layout):
             self.body_layout.addLayout(layout)
 
+    class PaintCanvas(QLabel):
+        """The Fix-the-horizon painting surface: the finished preview
+        with the current mask tinted over it, and two brushes — "this is
+        ground" and "this is sky" — that the pipeline obeys on the next
+        run.  Strokes live in an overlay image; Undo pops whole strokes.
+        """
+
+        def __init__(self):
+            super().__init__()
+            self.setObjectName("preview")
+            self.setAlignment(Qt.AlignCenter)
+            self.setMinimumHeight(300)
+            self._base = None          # QPixmap of preview.jpg (fitted)
+            self._tint = None          # QPixmap of the current mask tint
+            self._strokes = None       # QImage ARGB32, the paint
+            self._undo = []
+            self.brush_px = 30
+            self.mode_ground = True
+            self._painting = False
+
+        def set_scene(self, base_pm, tint_pm, existing=None):
+            """``existing``: the previously saved strokes (QImage), so a
+            second session ADDS to the corrections instead of silently
+            replacing them — Clear is the way to start over."""
+            from PySide6.QtGui import QImage, QPainter
+            self._base = base_pm
+            self._tint = tint_pm
+            self._strokes = QImage(base_pm.size(),
+                                   QImage.Format_ARGB32_Premultiplied)
+            self._strokes.fill(0)
+            self._loaded = False
+            if existing is not None and not existing.isNull():
+                p = QPainter(self._strokes)
+                p.drawImage(self._strokes.rect(), existing)
+                p.end()
+                self._loaded = True
+            self._undo = []
+            self._daubs = 0
+            self._recompose()
+
+        def has_strokes(self):
+            return bool(getattr(self, "_daubs", 0)
+                        or getattr(self, "_loaded", False))
+
+        def _recompose(self):
+            from PySide6.QtGui import QPainter, QPixmap
+            if self._base is None:
+                return
+            out = QPixmap(self._base.size())
+            p = QPainter(out)
+            p.drawPixmap(0, 0, self._base)
+            if self._tint is not None:
+                p.setOpacity(0.35)
+                p.drawPixmap(0, 0, self._tint)
+                p.setOpacity(1.0)
+            p.drawImage(0, 0, self._strokes)
+            p.end()
+            self.setPixmap(out)
+
+        def _img_pos(self, event_pos):
+            """Widget coords -> stroke-image coords (the pixmap is
+            centred in the label)."""
+            if self._base is None:
+                return None
+            ox = (self.width() - self._base.width()) // 2
+            oy = (self.height() - self._base.height()) // 2
+            x = event_pos.x() - ox
+            y = event_pos.y() - oy
+            if 0 <= x < self._base.width() and 0 <= y < self._base.height():
+                return x, y
+            return None
+
+        def _daub(self, pos):
+            from PySide6.QtCore import QPoint
+            from PySide6.QtGui import QColor, QPainter
+            pt = self._img_pos(pos)
+            if pt is None:
+                return
+            p = QPainter(self._strokes)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            color = (QColor(235, 70, 70, 170) if self.mode_ground
+                     else QColor(70, 140, 255, 170))
+            p.setPen(Qt.NoPen)
+            p.setBrush(color)
+            r = max(self.brush_px // 2, 2)
+            p.drawEllipse(QPoint(pt[0], pt[1]), r, r)
+            p.end()
+            self._recompose()
+
+        def mousePressEvent(self, e):
+            if self._strokes is None:
+                return
+            # a click outside the picture is not a stroke: it must not
+            # push an undo state or arm the rebuild button
+            if self._img_pos(e.position().toPoint()) is None:
+                return
+            if len(self._undo) >= 12:
+                self._undo.pop(0)
+            self._undo.append((self._strokes.copy(), self._daubs))
+            self._painting = True
+            self._daubs += 1
+            self._daub(e.position().toPoint())
+
+        def mouseMoveEvent(self, e):
+            if self._painting:
+                self._daub(e.position().toPoint())
+
+        def mouseReleaseEvent(self, _e):
+            self._painting = False
+
+        def undo(self):
+            if self._undo:
+                self._strokes, self._daubs = self._undo.pop()
+                self._recompose()
+
+        def clear(self):
+            if self._strokes is not None:
+                self._undo = []
+                self._daubs = 0
+                self._loaded = False
+                self._strokes.fill(0)
+                self._recompose()
+
+        def strokes_image(self):
+            return self._strokes
+
     class ModeCard(QFrame):
         """One of the three things you can ask for: a title, a line about
         what you get, and — once a folder is chosen — how long it takes."""
@@ -392,6 +522,7 @@ def main() -> int:
                 "run": self._build_run(),
                 "done": self._build_done(),
                 "adjust": self._build_adjust(),
+                "horizon": self._build_horizon(),
             }
             for w in self._page.values():
                 self.pages.addWidget(w)
@@ -823,14 +954,188 @@ def main() -> int:
             self.again_btn = QPushButton("Run another folder")
             self.again_btn.setObjectName("link")
             self.again_btn.clicked.connect(lambda: self._goto("home"))
+            self.horizon_btn = QPushButton("Fix the horizon")
+            self.horizon_btn.setObjectName("link")
+            self.horizon_btn.setToolTip(
+                "Paint over anything it got wrong — mark trees it "
+                "mistook for sky or sky it mistook for trees — and it "
+                "rebuilds with your corrections, snapped to the real "
+                "edges. The rebuild reuses everything else, so it is "
+                "quick.")
+            self.horizon_btn.clicked.connect(self._open_horizon)
+            self.horizon_btn.setVisible(False)
             self.tweak_btn = QPushButton("Same folder, different choices")
             self.tweak_btn.setObjectName("link")
             self.tweak_btn.clicked.connect(lambda: self._goto("setup"))
             links.addWidget(self.again_btn)
             links.addStretch(1)
+            links.addWidget(self.horizon_btn)
+            links.addStretch(1)
             links.addWidget(self.tweak_btn)
             lay.addLayout(links)
             return page
+
+        def _build_horizon(self):
+            page = QWidget()
+            page.setObjectName("page")
+            lay = QVBoxLayout(page)
+            lay.setContentsMargins(28, 16, 28, 16)
+            lay.setSpacing(8)
+
+            top = QHBoxLayout()
+            back = QPushButton("◂  Back to the results")
+            back.setObjectName("link")
+            back.clicked.connect(lambda: self._goto("done"))
+            top.addWidget(back)
+            top.addStretch(1)
+            lay.addLayout(top)
+            lay.addWidget(_sub(
+                "The red shade is what MeteorPrep took for ground. Paint "
+                "over anything it got wrong — your strokes win, and the "
+                "edge still snaps to the real treeline."))
+
+            self.paint = PaintCanvas()
+            lay.addWidget(self.paint, 1)
+
+            row = QHBoxLayout()
+            self.paint_ground_btn = QPushButton("🖌 This is ground")
+            self.paint_sky_btn = QPushButton("🖌 This is sky")
+            for b in (self.paint_ground_btn, self.paint_sky_btn):
+                b.setCheckable(True)
+            self.paint_ground_btn.setChecked(True)
+
+            def _mode(ground):
+                self.paint.mode_ground = ground
+                self.paint_ground_btn.setChecked(ground)
+                self.paint_sky_btn.setChecked(not ground)
+            self.paint_ground_btn.clicked.connect(lambda: _mode(True))
+            self.paint_sky_btn.clicked.connect(lambda: _mode(False))
+            row.addWidget(self.paint_ground_btn)
+            row.addWidget(self.paint_sky_btn)
+            row.addSpacing(14)
+            row.addWidget(_sub("brush"))
+            self.brush_slider = QSlider(Qt.Horizontal)
+            self.brush_slider.setRange(8, 90)
+            self.brush_slider.setValue(30)
+            self.brush_slider.setMaximumWidth(140)
+            self.brush_slider.valueChanged.connect(
+                lambda v: setattr(self.paint, "brush_px", v))
+            row.addWidget(self.brush_slider)
+            row.addStretch(1)
+            undo = QPushButton("Undo")
+            undo.clicked.connect(self.paint.undo)
+            row.addWidget(undo)
+            clear = QPushButton("Clear")
+            clear.clicked.connect(self.paint.clear)
+            row.addWidget(clear)
+            lay.addLayout(row)
+
+            brow = QHBoxLayout()
+            self.horizon_status = QLabel("")
+            self.horizon_status.setObjectName("sub")
+            self.horizon_status.setWordWrap(True)
+            brow.addWidget(self.horizon_status, 1)
+            self.horizon_apply = QPushButton("Rebuild with my fixes")
+            self.horizon_apply.setObjectName("primary")
+            self.horizon_apply.clicked.connect(self._horizon_apply)
+            brow.addWidget(self.horizon_apply)
+            lay.addLayout(brow)
+            return page
+
+        # ---------------- the horizon editor -----------------------------
+
+        def _open_horizon(self):
+            rd = getattr(self, "_result_dir", None)
+            if not rd:
+                return
+            rd = Path(rd)
+            pv = rd / "preview.jpg"
+            mask = rd / "skymask.png"
+            if not pv.exists() or not mask.exists():
+                return
+            try:
+                import numpy as _np
+                from PIL import Image as _Im
+                from PySide6.QtGui import QImage, QPixmap
+                base_pm = QPixmap(str(pv))
+                if base_pm.isNull():
+                    return
+                # fit the window as it actually is: a fixed 700px canvas
+                # was wider than the minimum window, and the clipped
+                # edges could be neither seen nor painted
+                fit_w = max(min(self.pages.width() - 70, 900), 460)
+                fit_h = max(min(self.pages.height() - 250, 540), 280)
+                base_pm = base_pm.scaled(fit_w, fit_h, Qt.KeepAspectRatio,
+                                         Qt.SmoothTransformation)
+                pw, ph = base_pm.width(), base_pm.height()
+                m = _np.asarray(_Im.open(mask).convert("L")
+                                .resize((pw, ph)), _np.uint8)
+                rgba = _np.zeros((ph, pw, 4), _np.uint8)
+                rgba[:, :, 0] = 235
+                rgba[:, :, 1] = 60
+                rgba[:, :, 2] = 60
+                rgba[:, :, 3] = (255 - m.astype(_np.int32)) * 200 // 255
+                tint = QPixmap.fromImage(QImage(
+                    rgba.tobytes(), pw, ph, 4 * pw,
+                    QImage.Format_RGBA8888).copy())
+                # corrections accumulate: strokes saved by an earlier
+                # session come back onto the canvas, editable, so a
+                # second session ADDS fixes instead of replacing them
+                existing = None
+                prev = Path(rd) / "horizon_edits.png"
+                if prev.exists():
+                    old = QImage(str(prev))
+                    if not old.isNull():
+                        existing = old.scaled(pw, ph,
+                                              Qt.IgnoreAspectRatio,
+                                              Qt.SmoothTransformation)
+                self.paint.set_scene(base_pm, tint, existing=existing)
+                self._horizon_mask_size = _Im.open(mask).size
+                self.horizon_status.setText(
+                    "Your earlier strokes are loaded — add to them, or "
+                    "press Clear to start over." if existing is not None
+                    else "")
+                self._goto("horizon")
+            except Exception as exc:
+                print(f"horizon editor could not open: {exc}",
+                      file=sys.stderr)
+
+        def _horizon_apply(self):
+            if self.worker is not None and self.worker.isRunning():
+                return
+            rd = getattr(self, "_result_dir", None)
+            strokes = self.paint.strokes_image()
+            if not rd or strokes is None:
+                return
+            dest = Path(rd) / "horizon_edits.png"
+            if not self.paint.has_strokes():
+                if dest.exists():
+                    # Clear + rebuild = "remove my corrections"
+                    dest.unlink(missing_ok=True)
+                    self._start()
+                    return
+                self.horizon_status.setText(
+                    "Nothing painted yet — brush over the wrong spots "
+                    "first.")
+                return
+            if self.paint._daubs == 0 and self.paint._loaded:
+                # nothing new painted: rebuild against the saved strokes
+                # untouched, rather than round-tripping them through the
+                # display resolution again
+                self._start()
+                return
+            try:
+                mw, mh = getattr(self, "_horizon_mask_size",
+                                 (strokes.width(), strokes.height()))
+                out = strokes.scaled(mw, mh, Qt.IgnoreAspectRatio,
+                                     Qt.SmoothTransformation)
+                if not out.save(str(dest)):
+                    raise OSError("could not write horizon_edits.png")
+            except Exception as exc:
+                self.horizon_status.setText(
+                    f"Could not save the strokes: {exc}")
+                return
+            self._start()
 
         def _build_adjust(self):
             page = QWidget()
@@ -894,6 +1199,13 @@ def main() -> int:
             reset.setObjectName("link")
             reset.clicked.connect(self._adj_reset)
             brow.addWidget(reset)
+            self.adj_compare = QPushButton("Hold to compare")
+            self.adj_compare.setToolTip(
+                "Press and hold to see the picture as the run left it; "
+                "let go to see your adjustments again.")
+            self.adj_compare.pressed.connect(self._adj_compare_on)
+            self.adj_compare.released.connect(self._adj_compare_off)
+            brow.addWidget(self.adj_compare)
             brow.addStretch(1)
             self.adj_tiff = QCheckBox("Also save a 16-bit TIFF")
             self.adj_tiff.setToolTip(
@@ -936,14 +1248,19 @@ def main() -> int:
             self.adj_status.setText("")
             self.adj_save.setEnabled(True)
             self.adj_save.setText("Save the picture")
+            self._adj_base_arr = None
+            self._adj_last_arr = None
             self._adj = FinishWorker(path)
             self._adj.loaded.connect(self._adj_loaded)
             self._adj.rendered.connect(self._adj_show)
+            self._adj.rendered_base.connect(self._adj_keep_base)
             self._adj.saved.connect(self._adj_saved)
             self._adj.failed.connect(self._adj_failed)
             self._adj.start()
 
         def _adj_loaded(self, have):
+            if self.sender() is not None and self.sender() is not self._adj:
+                return          # a retired worker's late signal
             # only offer the sliders this night actually has knobs for
             self._adj_fg_row.setVisible(bool(have.get("fg")
                                              and have.get("skymask")))
@@ -961,8 +1278,10 @@ def main() -> int:
             if self._adj is not None and self._adj.isRunning():
                 self._adj.submit("render", self._adj_params())
 
-        def _adj_show(self, arr):
+        def _show_arr(self, arr):
             from PySide6.QtGui import QImage, QPixmap
+            if arr is None:
+                return
             h, w = arr.shape[:2]
             img = QImage(arr.tobytes(), w, h, 3 * w,
                          QImage.Format_RGB888)
@@ -970,6 +1289,26 @@ def main() -> int:
                 max(self.adj_preview.width(), 540),
                 max(self.adj_preview.height(), 320),
                 Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        def _adj_show(self, arr):
+            if self.sender() is not None and self.sender() is not self._adj:
+                return          # a retired worker's late render
+            self._adj_last_arr = arr
+            if not getattr(self, "_adj_holding", False):
+                self._show_arr(arr)
+
+        def _adj_keep_base(self, arr):
+            if self.sender() is not None and self.sender() is not self._adj:
+                return
+            self._adj_base_arr = arr
+
+        def _adj_compare_on(self):
+            self._adj_holding = True
+            self._show_arr(getattr(self, "_adj_base_arr", None))
+
+        def _adj_compare_off(self):
+            self._adj_holding = False
+            self._show_arr(getattr(self, "_adj_last_arr", None))
 
         def _adj_reset(self):
             for sl, v in ((self.adj_bright, 100), (self.adj_warm, 0),
@@ -994,6 +1333,8 @@ def main() -> int:
                              self.adj_tiff.isChecked())
 
         def _adj_saved(self, jpg):
+            if self.sender() is not None and self.sender() is not self._adj:
+                return          # a retired worker's late signal
             self.adj_save.setEnabled(True)
             self.adj_save.setText("Save the picture")
             extra = (" (and the 16-bit TIFF)"
@@ -1004,6 +1345,8 @@ def main() -> int:
             self._open_path(jpg)
 
         def _adj_failed(self, tb):
+            if self.sender() is not None and self.sender() is not self._adj:
+                return          # a retired worker's late signal
             self.adj_save.setEnabled(True)
             self.adj_save.setText("Save the picture")
             self.adj_status.setText(
@@ -1549,6 +1892,10 @@ def main() -> int:
                     self._result_dir = str(_P(target).parent)
                     self._psd_path = psd
                     self.open_psd_btn.setVisible(bool(psd))
+                    self.horizon_btn.setVisible(
+                        not getattr(self, "_run_is_demo", False)
+                        and (_P(self._result_dir)
+                             / "skymask.png").exists())
                     self._show_preview(self._result_dir)
                     # a week later, "where did my files go" is the first
                     # support question every tool like this gets — so the

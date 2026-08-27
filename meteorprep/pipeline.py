@@ -3031,6 +3031,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # picture when used as a cutout.
     from meteorprep.segment.silhouette import foreground_sky_mask
     fg_ref = _fit_output(base_rgb_final)
+    if fg_stack is not None and tripod_bump:
+        # the camera moved partway through the night, so this average is
+        # two horizons on top of each other.  Dropped HERE, before any
+        # mask is cut from it — a double horizon is as wrong for the
+        # matte as it is for the layer.  (Dropping it also drops it out
+        # of preview.jpg, which prefers it when it exists.)
+        log.info("frozen-ground stack dropped: the tripod moved at %s",
+                 tripod_bump["file"])
+        fg_stack = None
     try:
         sky_cam = foreground_sky_mask(fg_stack if fg_stack is not None
                                       else base_rgb_final)
@@ -3038,8 +3047,52 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         log.warning("foreground segmentation failed (%s); falling back to "
                     "the alignment mask", exc)
         sky_cam = None
-    sky_fg = _fit_output(sky_cam) if sky_cam is not None else sky_mask
+    # bring the frozen stack onto the canvas once: the matte work and
+    # the layer below both use this fit
+    fg_stack_fit = _fit_output(fg_stack) if fg_stack is not None else None
+    sil_fit = None
+    if sky_cam is not None:
+        sil_fit = np.clip(_fit_output(sky_cam), 0.0, 1.0)
+    # The horizon, done the way the big editors do it (segment/refine.py):
+    # a physics coarse mask — frozen sharp ground vs aligned sharp stars,
+    # no brightness assumptions — plus any strokes painted on the Fix-
+    # the-horizon screen, snapped onto the real treeline with a guided
+    # filter and choked so nothing bright bleeds under the silhouette.
+    sky_fg = None
+    if cfg.mask_snap:
+        try:
+            from meteorprep.segment.refine import (EDITS_NAME,
+                                                   build_sky_alpha,
+                                                   load_horizon_edits)
+            if cfg.force:
+                # "Start over" means over: strokes painted for an older
+                # state of this folder (or a different night dropped into
+                # the same folder) must not haunt the clean run
+                (out_dir / EDITS_NAME).unlink(missing_ok=True)
+            edits = load_horizon_edits(out_dir, (h, w))
+            if edits is not None:
+                log.info("horizon: applying the strokes painted on the "
+                         "Fix-the-horizon screen")
+            guide = fg_stack_fit if fg_stack_fit is not None else fg_ref
+            sky_fg = build_sky_alpha(
+                base_img, fg_stack_fit, guide,
+                silhouette_sky=sil_fit,
+                # only the alignment-physics mask may veto; the single-
+                # frame fallback guess is the WEAKEST signal in the
+                # building and once vetoed a whole real night to zero
+                sky_prior=(sky_mask if sky_det is not None else None),
+                edits=edits)
+            if sky_fg is not None:
+                log.info("horizon: edge-snapped matte (physics coarse "
+                         "mask + guided-filter snap + choke)")
+        except Exception as exc:
+            log.warning("edge-snapped horizon failed (%s); using the "
+                        "classic matte", exc)
+            sky_fg = None
+    if sky_fg is None:
+        sky_fg = sil_fit if sil_fit is not None else sky_mask
     sky_fg = np.clip(sky_fg, 0.0, 1.0)
+    del sil_fit, sky_cam       # canvas-sized; the chosen matte carries on
     fg_alpha = 1.0 - sky_fg
     # match the foreground's sky level to the stack IN THE LAYERS too, not
     # only in the preview: a foreground that drops in at a different
@@ -3053,15 +3106,8 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
         _skymask_path)
     fg_layers = [Layer(name="FG_base_time", rgb=fg_ref,
                        alpha=fg_alpha, blend="normal", visible=True)]
-    if fg_stack is not None and tripod_bump:
-        # the camera moved partway through the night, so this average is
-        # two horizons on top of each other.  Dropping it also drops it
-        # out of preview.jpg, which prefers it when it exists.
-        log.info("frozen-ground stack dropped: the tripod moved at %s",
-                 tripod_bump["file"])
-        fg_stack = None
     if fg_stack is not None:
-        fg_stack = match_sky_level(_fit_output(fg_stack), base_img, sky_fg,
+        fg_stack = match_sky_level(fg_stack_fit, base_img, sky_fg,
                                    ctx=lvl_ctx)
     if fg_stack is not None:
         # frozen-ground stack: all frames averaged in camera space — far

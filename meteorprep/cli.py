@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timelapse", action="store_true",
                    help="also write the night as an .mp4 timelapse "
                         "(time order, one steady stretch, no flicker)")
+    p.add_argument("--no-mask-snap", action="store_false",
+                   dest="mask_snap",
+                   help="skip the edge-snapped horizon (physics coarse "
+                        "mask + guided-filter snap) and use the classic "
+                        "brightness matte alone")
     p.add_argument("--mode", choices=[m.key for m in _M.MODES],
                    default=_M.DEFAULT,
                    help="what to produce; "
@@ -134,6 +139,7 @@ def config_from_args(args, parser=None) -> Config:
         trail_style=args.trail_style,
         trail_fill_gaps=args.trail_fill_gaps,
         emit_timelapse=args.timelapse,
+        mask_snap=args.mask_snap,
         find_meteors=args.find_meteors,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,
