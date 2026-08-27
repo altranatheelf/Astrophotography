@@ -81,6 +81,10 @@ if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui
 fi
 echo
+echo "=== component check — this is the actual error: ==="
+"$PY" -c "$NEEDS" || true
+echo "==================================================="
+echo
 echo "Setup did not finish. Copy the messages above (or screenshot them)"
 echo "and send them to Claude — that text says exactly what is missing."
 read -r -p "Press Return to close."

@@ -137,8 +137,13 @@ if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui
 fi
 
-# still not working: show the tail of the log right in the dialog and
-# open the full log, so the problem is visible instead of cryptic
+# still not working: capture WHAT actually fails to import — the check
+# above runs silent, and without this the dialog showed pip's success
+# story while the real error (one line of traceback) went nowhere
+{ echo; echo "=== component check ($PY):";
+  "$PY" -c "$NEEDS"; } >> "$LOG" 2>&1
+# show the tail of the log right in the dialog and open the full log,
+# so the problem is visible instead of cryptic
 tail -n 14 "$LOG" 2>/dev/null | tr '"' "'" > /tmp/meteorprep_setup_tail.txt
 command -v osascript >/dev/null 2>&1 && osascript -e \
   'display alert "Setup did not finish" message (read POSIX file "/tmp/meteorprep_setup_tail.txt")' >/dev/null 2>&1
