@@ -106,6 +106,46 @@ def main() -> int:
                 self.report.emit("The setup check itself crashed:\n\n" + tb)
                 self.done.emit(False, "The setup check could not finish.")
 
+    class DemoWorker(QThread):
+        """Builds the demo night (synthetic sky, two meteors, one plane)
+        in the app's own folder — a few seconds, once — so a person can
+        watch the whole thing work before pointing it at real photos."""
+        ready = Signal(str)
+        failed = Signal(str)
+
+        def run(self):
+            try:
+                import json
+                from pathlib import Path as _P
+
+                if sys.platform == "darwin":
+                    base = (_P.home() / "Library" / "Application Support"
+                            / "MeteorPrep")
+                else:
+                    base = _P.home() / ".meteorprep"
+                src = base / "demo-night"
+                marker = src / "meteorprep_config.json"
+                if not marker.exists():
+                    src.mkdir(parents=True, exist_ok=True)
+                    from meteorprep.testdata.synth import (
+                        make_synthetic_sequence)
+                    # the same night the setup check has always run:
+                    # verified for years as "2 meteors found, 1 plane
+                    # flagged", so the demo's story is a known one
+                    gt = make_synthetic_sequence(
+                        src, n_frames=10, shape=(600, 900),
+                        focal_px=2443.0 * 900 / 5472, n_stars=250,
+                        n_meteors=2, n_aircraft=1, n_satellites=0, seed=3)
+                    marker.write_text(json.dumps({
+                        "catalog_file": str(src / "catalog_radec.npy"),
+                        "pixel_pitch_um": 16000.0 / gt["focal_px"],
+                        "solve_every_k": 4,
+                        "emit_gradient_layer": False,
+                    }))
+                self.ready.emit(str(src))
+            except Exception:
+                self.failed.emit(traceback.format_exc())
+
     class CountWorker(QThread):
         """Counting photos means walking the folder, which is instant on
         an SSD and several seconds on a memory card or a network drive —
@@ -285,10 +325,11 @@ def main() -> int:
             self.drop_label.mousePressEvent = self._browse
             layout.addWidget(self.drop_label)
 
-            self.summary = QLabel("")
+            self.summary = QLabel(
+                "One night on a fixed tripod, in one folder — this builds "
+                "your finished composite from it.")
             self.summary.setObjectName("summary")
             self.summary.setWordWrap(True)
-            self.summary.setVisible(False)
             layout.addWidget(self.summary)
 
             # ---- 2. what you want -----------------------------------
@@ -428,7 +469,14 @@ def main() -> int:
             done_row = QHBoxLayout()
             self.open_report_btn = QPushButton("Open the report")
             self.open_folder_btn = QPushButton("Show the files")
-            for b in (self.open_report_btn, self.open_folder_btn):
+            self.problem_btn = QPushButton("Save a problem report")
+            self.problem_btn.setToolTip(
+                "Bundles the run's diary and this Mac's details into one "
+                "zip on your Desktop — the file to send when asking for "
+                "help.")
+            self.problem_btn.clicked.connect(self._save_problem_report)
+            for b in (self.open_report_btn, self.open_folder_btn,
+                      self.problem_btn):
                 b.setVisible(False)
                 done_row.addWidget(b)
             done_row.addStretch(1)
@@ -443,11 +491,24 @@ def main() -> int:
             sep.setFrameShape(QFrame.HLine)
             sep.setStyleSheet("color: #232c38;")
             layout.addWidget(sep)
+            foot = QHBoxLayout()
+            self.demo_button = QPushButton(
+                "Watch it work on a demo night  (~1 min, no photos needed)")
+            self.demo_button.setObjectName("link")
+            self.demo_button.setToolTip(
+                "Generates a small fake night — stars, two meteors, one "
+                "plane — and runs the whole thing on it: the search, the "
+                "stack, the layered Photoshop file and the report. The "
+                "quickest way to see what you'll get.")
+            self.demo_button.clicked.connect(self._run_demo)
             self.test_button = QPushButton(
-                "Check this Mac can run it  (~2 min, no photos needed)")
+                "Check this Mac can run it  (~2 min)")
             self.test_button.setObjectName("link")
             self.test_button.clicked.connect(self._self_test)
-            layout.addWidget(self.test_button)
+            foot.addWidget(self.demo_button)
+            foot.addStretch(1)
+            foot.addWidget(self.test_button)
+            layout.addLayout(foot)
 
             scroll = QScrollArea()
             scroll.setWidget(page)
@@ -457,6 +518,13 @@ def main() -> int:
             self.resize(560, 760)
             self.setMinimumWidth(480)
             self._restore_settings()
+            last = str(self._settings.value("last_report", ""))
+            if last and Path(last).exists():
+                self._report_path = last
+                self._result_dir = str(Path(last).parent)
+                self.open_report_btn.setText("Open the last run's report")
+                self.open_report_btn.setVisible(True)
+                self.open_folder_btn.setVisible(True)
             # apply the hunt state even when nothing was saved: the box
             # starts unchecked (a composite night is the ordinary night),
             # and the button, the estimates and the contact-sheet row all
@@ -720,9 +788,19 @@ def main() -> int:
             )
             self._run_mode = mode
             self._run_meteors = self.cb_meteors.isChecked()
-            self.open_report_btn.setText("Open the report")
+            self._run_is_demo = False
             self._save_settings()
+            self._launch(cfg)
+
+        def _launch(self, cfg):
+            self._last_out = cfg.output_dir
+            """The one place a run actually starts: worker wiring, the
+            heartbeat, and — on a Mac — a sleep hold, because a laptop
+            that dozes off forty minutes into a two-hour stack throws
+            the night away."""
+            self.open_report_btn.setText("Open the report")
             self._set_running(True)
+            self._hold_awake(True)
             self.worker = Worker(cfg)
             self.worker.progressed.connect(self._on_progress)
             self.worker.finished_ok.connect(self._on_done)
@@ -733,6 +811,23 @@ def main() -> int:
             self._run_t0 = self._time.time()
             self._hb.start()
             self.worker.start()
+
+        def _hold_awake(self, hold):
+            """caffeinate -i while a run is going (macOS): the display
+            may sleep, the machine may not."""
+            proc = getattr(self, "_caffeinate", None)
+            if hold and sys.platform == "darwin" and proc is None:
+                try:
+                    import subprocess
+                    self._caffeinate = subprocess.Popen(["caffeinate", "-i"])
+                except Exception:
+                    self._caffeinate = None
+            elif not hold and proc is not None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                self._caffeinate = None
 
         def _set_running(self, running):
             if running:
@@ -745,6 +840,7 @@ def main() -> int:
                                     if self.cb_meteors.isChecked()
                                     else "Build my composite")
             self.test_button.setEnabled(not running)
+            self.demo_button.setEnabled(not running)
             self.bar.setVisible(running)
             for wdg in (self.cb_meteors, self.cb_trail, self.cb_sheet,
                         self.cb_png, self.cb_force, self.site, self.compass,
@@ -755,6 +851,7 @@ def main() -> int:
             if running:
                 self.open_report_btn.setVisible(False)
                 self.open_folder_btn.setVisible(False)
+                self.problem_btn.setVisible(False)
 
         def _heartbeat(self):
             if self.worker is None or not self.worker.isRunning():
@@ -765,6 +862,45 @@ def main() -> int:
                 self.status.setText(
                     f"{self._last_msg}  —  still working "
                     f"({m}m {s:02d}s in this step)")
+
+        def _run_demo(self):
+            import os
+            if self.worker is not None and self.worker.isRunning():
+                return
+            if getattr(self, "tester", None) is not None \
+                    and self.tester.isRunning():
+                return
+            self.demo_button.setEnabled(False)
+            self.button.setEnabled(False)
+            self.status.setText("Building a demo night — a dozen fake "
+                                "photos with two meteors hidden in them…")
+            self._demo_maker = DemoWorker()
+
+            def _go(folder):
+                self.demo_button.setEnabled(True)
+                cfg = Config(
+                    input_dir=folder,
+                    output_dir=folder + "_meteorprep",
+                    find_meteors=True, emit_contact_sheet=True,
+                    jobs=max((os.cpu_count() or 2) - 1, 1),
+                    cleanup_cache=False,      # a second demo is instant
+                    **M.config_kwargs("full"),
+                )
+                self._run_mode = "full"
+                self._run_meteors = True
+                self._run_is_demo = True
+                self._launch(cfg)
+
+            def _bad(tb):
+                self.demo_button.setEnabled(True)
+                self._set_running(False)
+                self.status.setText("The demo could not be built:\n"
+                                    + tb.strip().splitlines()[-1])
+                print(tb, file=sys.stderr)
+
+            self._demo_maker.ready.connect(_go)
+            self._demo_maker.failed.connect(_bad)
+            self._demo_maker.start()
 
         def _self_test(self):
             if self.worker is not None and self.worker.isRunning():
@@ -818,6 +954,7 @@ def main() -> int:
 
         def _on_done(self, result):
             self._hb.stop()
+            self._hold_awake(False)
             self._set_running(False)
             self.bar.setValue(100)
             self.bar.setVisible(True)
@@ -831,7 +968,8 @@ def main() -> int:
             # its number rather than a guess from someone else's laptop
             mode = getattr(self, "_run_mode", M.DEFAULT)
             hunted = getattr(self, "_run_meteors", True)
-            if self.n_photos > 0 and secs > 5:
+            if self.n_photos > 0 and secs > 5 \
+                    and not getattr(self, "_run_is_demo", False):
                 rate = max(secs - M.by_key(mode).overhead_s, 1.0) \
                     / self.n_photos
                 self._settings.setValue(
@@ -868,6 +1006,10 @@ def main() -> int:
                     self._result_dir = str(_P(target).parent)
                     self.open_report_btn.setVisible(True)
                     self.open_folder_btn.setVisible(True)
+                    # a week later, "where did my files go" is the first
+                    # support question every tool like this gets — so the
+                    # window remembers, across relaunches
+                    self._settings.setValue("last_report", target)
                     self._open_path(target)
             except Exception:
                 pass
@@ -901,6 +1043,7 @@ def main() -> int:
 
         def _on_stopped(self):
             self._hb.stop()
+            self._hold_awake(False)
             self._set_running(False)
             self.bar.setVisible(False)
             self.status.setText(
@@ -909,6 +1052,7 @@ def main() -> int:
 
         def _on_fail(self, tb):
             self._hb.stop()
+            self._hold_awake(False)
             self._set_running(False)
             self.bar.setVisible(False)
             self._notify_os("MeteorPrep stopped",
@@ -933,8 +1077,48 @@ def main() -> int:
             self.status.setText(
                 (msg[:1200] or "The run stopped early.")
                 + "\n\nThe full diary is in run_log.txt inside the results "
-                  "folder — that is the file to send if this looks wrong.")
+                  "folder — or press 'Save a problem report' below and "
+                  "send the zip it puts on your Desktop.")
+            self.problem_btn.setVisible(True)
+            self._last_tb = tb
             print(tb, file=sys.stderr)
+
+        def _save_problem_report(self):
+            """Everything support needs, one zip, on the Desktop: the run
+            diaries, the machine's shape, and the error itself."""
+            import io
+            import platform
+            import zipfile
+            from pathlib import Path as _P
+
+            from meteorprep import __version__
+            try:
+                dest_dir = _P.home() / "Desktop"
+                if not dest_dir.is_dir():
+                    dest_dir = _P.home()
+                dest = dest_dir / "MeteorPrep problem report.zip"
+                with zipfile.ZipFile(dest, "w",
+                                     zipfile.ZIP_DEFLATED) as z:
+                    out = _P(getattr(self, "_last_out", "") or ".")
+                    for name in ("run_log.txt", "run_log_quick.txt"):
+                        f = out / name
+                        if f.exists():
+                            z.write(f, name)
+                    info = io.StringIO()
+                    info.write(f"MeteorPrep {__version__}\n")
+                    info.write(f"{platform.platform()}\n")
+                    info.write(f"Python {sys.version}\n")
+                    info.write(f"folder: {self.folder}\n")
+                    info.write(f"photos: {self.n_photos}\n")
+                    z.writestr("about_this_mac.txt", info.getvalue())
+                    if getattr(self, "_last_tb", ""):
+                        z.writestr("error.txt", self._last_tb)
+                self.status.setText(
+                    f"Saved: {dest}\nSend that file and describe what "
+                    "you were doing — it holds the whole story.")
+                self._open_path(str(dest_dir))
+            except Exception as exc:
+                self.status.setText(f"Could not write the report: {exc}")
 
         def closeEvent(self, event):
             for c in list(self._counters):

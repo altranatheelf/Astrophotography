@@ -88,6 +88,12 @@ If the app double-click misbehaves, double-click **Start
 MeteorPrep.command** instead — same thing, but in a Terminal window
 where any problem is visible.
 
+Want to see it work before pointing it at your own night? Press
+**"Watch it work on a demo night"** at the bottom of the window: it
+invents a small fake night — stars, two meteors, a plane — and runs the
+whole thing on it in well under a minute, layered Photoshop file and
+report included.
+
 ## Every time after that
 
 1. Put all the frames from one night, one tripod position, in one folder
@@ -242,6 +248,10 @@ records GPS, the tool reads it from the photos and you can ignore the box.
   skips them for matching.
 - **A plane got labeled as a meteor (or vice versa)** → nothing is lost;
   drag the layer between the METEORS and FLAGGED groups in Photoshop.
+- **The Mac went to sleep during a run** → it won't: while a run is
+  going the app holds the machine awake (the screen may still dim).
+  Closing the lid still pauses everything, though — leave it open on a
+  long night.
 - **A run looks wrong and you want a clean one** → tick **Start over**
   under Advanced. That now really does mean everything: the folder scan,
   the star lock, the horizon it found, the meteor search — all measured
