@@ -44,6 +44,17 @@ if [ -z "$HERE" ] || [ ! -f "$HERE/meteorprep/__init__.py" ]; then
 fi
 cd "$HERE" || exit 1
 
+# macOS guards Downloads (and Desktop/Documents) with a privacy gate: a
+# process that is refused sees "Operation not permitted" on the most
+# basic reads — one real machine died inside pip's very first line, in
+# os.getcwd().  Probe with an actual read of our own files and, if the
+# gate is closed, say the fix in words instead of a traceback.
+if ! head -c 1 "$HERE/meteorprep/__init__.py" >/dev/null 2>&1; then
+    say_alert "macOS is protecting this folder" \
+"macOS will not let MeteorPrep read its own files in $HERE. The fix takes 30 seconds: drag the whole METEORPREP folder into your home folder (the one with the house icon) or into Applications, then open MeteorPrep from there."
+    exit 1
+fi
+
 # Candidate interpreters, best first.  A Mac can easily carry several
 # Pythons; the components may already be installed in ANY of them, so
 # look for one that is ready before trying to install anything.
@@ -109,12 +120,18 @@ command -v osascript >/dev/null 2>&1 && osascript -e \
 
 { echo "=== using: $PY"; "$PY" --version; echo "=== folder: $HERE"; } \
     > "$LOG" 2>&1
+# pip reads its working directory before doing anything else, and on a
+# privacy-guarded folder that single call is what used to kill setup —
+# so pip always runs from the home folder and is handed the absolute
+# path instead
+cd "$HOME" 2>/dev/null || cd /
 if "$PY" -m pip install --upgrade pip >> "$LOG" 2>&1; then :; fi
-if ! "$PY" -m pip install ".[gui]" >> "$LOG" 2>&1; then
+if ! "$PY" -m pip install "$HERE"'[gui]' >> "$LOG" 2>&1; then
     # retry once for the classic macOS case: system-managed Python that
     # refuses to install into itself
-    "$PY" -m pip install --user ".[gui]" >> "$LOG" 2>&1 || true
+    "$PY" -m pip install --user "$HERE"'[gui]' >> "$LOG" 2>&1 || true
 fi
+cd "$HERE" || exit 1
 
 if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui

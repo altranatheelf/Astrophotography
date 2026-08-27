@@ -3,6 +3,20 @@
 # a Terminal window, so anything that goes wrong is visible on screen.
 set -u
 cd "$(dirname "$0")" || exit 1
+DIR="$(pwd)"
+
+# macOS guards Downloads (and Desktop/Documents) with a privacy gate:
+# when it is closed, every later step dies with cryptic "Operation not
+# permitted" errors. Probe with a real read and say the fix in words.
+if ! head -c 1 "$DIR/meteorprep/__init__.py" >/dev/null 2>&1; then
+    echo "macOS is not letting this window read the METEORPREP folder here:"
+    echo "  $DIR"
+    echo
+    echo "The fix takes 30 seconds: drag the whole METEORPREP folder into"
+    echo "your home folder (house icon in Finder) or into Applications,"
+    echo "then double-click 'Start MeteorPrep.command' from there."
+    read -r -p "Press Return to close."; exit 1
+fi
 # every module a real run needs — the window, the RAW decoder, the
 # image writers.  Probing only for PySide6 and the package itself
 # passed on an install with no rawpy, and first-time setup was
@@ -52,11 +66,16 @@ echo "First-time setup: installing MeteorPrep's components into"
 echo "  $PY"
 echo "(this takes a few minutes; leave this window open)"
 echo
+# pip always runs from the home folder with the absolute path: pip
+# reads its working directory before doing anything else, and on a
+# privacy-guarded folder that one call is what used to kill setup
+cd "$HOME" || cd /
 "$PY" -m pip install --upgrade pip
-if ! "$PY" -m pip install ".[gui]"; then
+if ! "$PY" -m pip install "$DIR"'[gui]'; then
     echo "Retrying as a per-user install..."
-    "$PY" -m pip install --user ".[gui]" || true
+    "$PY" -m pip install --user "$DIR"'[gui]' || true
 fi
+cd "$DIR" || exit 1
 
 if "$PY" -c "$NEEDS" >/dev/null 2>&1; then
     exec "$PY" -m meteorprep.gui
