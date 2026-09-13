@@ -291,3 +291,62 @@ format is trivial and already has validation.
 - DOM for text UI, canvas for the world — proposed (readability, phone inputs).
 - Hot-seat + optional co-op with two on-screen d-pads on one device — proposed.
 - Pixel-art GBA look (FireRed/LeafGreen scale: 16 px tiles, 16×24 characters) — proposed.
+
+---
+
+## 11. Revisions after reading the author's design record
+
+The author's own history (Pinocchio in RPG Maker MV, the Elsewhenowhere
+material, the engine conversations, the Pokémon taste notes) changes several
+things. Each item below is a concrete design change, not a mood.
+
+1. **Accretion is the workflow, so fragments are first-class.** The project
+   gets `fragments: [{ id, kind:'note'|'dialogue'|'audio'|'image'|'map-idea', title, body, tags }]`
+   — things that exist before they have a place. Creator Mode gets a Fragments
+   panel; a fragment can be dragged onto an object as its script, onto a map
+   as a sign, or promoted to a Common Event. Nothing has to be placed to be
+   kept, and nothing kept is lost.
+2. **Assets have two backends.** Every registry entry that draws something
+   (tile, sprite, icon, face, portrait) is either pixel-string art (drawn
+   here, editable in text) or an **image file** (a PNG sheet from Aseprite,
+   with `frame` rectangles). `settings.tileSize` is a project setting (16
+   default; 32 and 48 supported) so hand-drawn MV-scale assets can be
+   imported. The single-file build inlines small images as data URIs.
+3. **Faces in dialogue.** `say` gets an optional `face` (a registered image
+   or a Pokémon portrait); the dialogue box has a face slot. Pinocchio's
+   144×144 faces would drop straight in.
+4. **Real audio alongside synthesised audio.** `sounds` and `music`
+   registries accept files (mp3/ogg) as well as WebAudio recipes; a map or an
+   in-world object can play a track diegetically (`music` command with
+   `source:'object'` fades by distance). Field recordings become content.
+5. **The game remembers you.** A `meta` save section survives New Game
+   (`runs`, `endingsSeen`, names used, first-played date) and is queryable by
+   conditions (`{ kind:'meta', key:'runs', op:'>=', value:2 }`). Palimpsest
+   as a primitive: an NPC can say "you've been here before" on the second run
+   with one page and no code.
+6. **NPCs live between sessions.** The clock system knows wall-clock time
+   elapsed since the last session and emits `sessionResumed { elapsedMs }`;
+   modules react ("while you were away, Pikachu found a berry"). The garden
+   is the first consumer.
+7. **Encounter is data, not a hard-coded catch scene.** The encounter scene
+   takes a *profile* from content: `{ actions:[{ id, label, kind:'throw'|'offer'|'talk'|'wait'|'leave', effects }], strings, art }`.
+   The default profile is Pokémon catching (Throw Ball / Berry / Talk / Run).
+   The same scene can be re-themed the way Pinocchio re-themed a battle into
+   a tea party — sit quietly, offer tea, listen — without touching code.
+8. **Creator Mode speaks RPG Maker.** Since the author has shipped in MV, the
+   editor uses MV's vocabulary where the concepts match: *Events* (objects),
+   *Event Pages*, *Switches & Variables* (our typed vars), *Common Events*
+   (named scripts), *Plugins* (modules). Fewer new words to learn.
+9. **Palette is a project-level dial.** Because all built-in art is
+   pixel-strings with palettes, the renderer supports a global palette remap
+   and a tint overlay (`settings.palette: { remap:{...}, tint:'#..', amount }`).
+   A cheerful GBA palette and a muted, faded, "slightly wrong" register are
+   the same art with a different dial — the author picks the register, and
+   can change it later without redrawing.
+10. **Scale note.** 16 px tiles is not a demake: SoulSilver renders 16 px
+    tiles on a 256×192 screen. The logical viewport defaults to 16×12 tiles
+    to match that framing exactly; zoom is the integer scale on top.
+11. **Two sentences, in the tool.** The Project panel has a required
+    "Describe this game in two sentences" field, shown nowhere in the game.
+    It is the author's own rule and it should be the first thing the editor
+    asks for.
