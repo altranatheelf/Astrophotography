@@ -18,37 +18,37 @@ PKMN.SPRITES.charizard = {
     w: '#ffffff', // eye highlight / teeth / claws
   },
   rows: [
-    '.............kk.................', // 0
-    '...kk.......kOOk................', // 1
-    '..kOok.....kOTTTk.k...k.........', // 2
-    '..kOOok....kOTTTk.kOk.kOk.......', // 3
-    '.kTOOOk...kOTTTTkkkOOkkOOkk.....', // 4
-    '.kTTOOOk..kOTTTTkOOOOOOOOOOOk...', // 5
-    '.kTTTOOOk.kOTTTTkoOOOOOOkweOOk..', // 6
-    '.kTTTTOOOkkOTTTTkoOOOOOOkeeOOOk.', // 7
-    '.kTTTTTOOOkkOTkkOOOOOOOOOOOOOk..', // 8
-    '.kTTTTTTOOOkkOkkOOOOOOOdkkkkkkk.', // 9
-    '.kTTTTTTTOOkkOkkOOOOOOdkqqwqqqk.', // 10
-    '..kTTTTTTTOOkkOOOOOOOOkOOOOOOOk.', // 11
-    '...qkTTTTTOOkkOOOOOOOckkkkkkk...', // 12
-    '..qRq..kTTOOkOOOOOOOcck.........', // 13
-    '..qRRq...kOOkOOOOOccccck........', // 14
-    '.qRYRq....kOOOOOOOcccccck.......', // 15
-    '.qRYRq...kOOOOOOOOcccckOk.......', // 16
-    '.qRYRq...kOOOOOOOcccccckOOk.....', // 17
-    '.qRRRq...kOOOOOOOccccccckOOk....', // 18
-    '.kOOOk...kOOOOOOcccccccckOdk....', // 19
-    '..kOOdk..kOOOOOOcccccccckwk.....', // 20
-    '...kOOdk.kOOOOOOccccccccCk......', // 21
-    '....kOOOdOOOOOOOcccccccCCk......', // 22
-    '.....kkkOOOOOOOOcccccccCk.......', // 23
-    '........kkOOOOOkccccccck........', // 24
-    '.........kOOOOOkkOOOOOOk........', // 25
-    '.........kOOOOOkkOOOOOOk........', // 26
-    '.........kOOOOk.kOOOOOk.........', // 27
-    '.........kOOOOk.kOOOOOk.........', // 28
-    '........kOOOOOOk.kOOOOOOOk......', // 29
-    '........kdOOOOOwkkdOOOOOOwk.....', // 30
+    '............kk..................', // 0
+    '...kk......kOOk.................', // 1
+    '..kOok....kOOTTnk....k..........', // 2
+    '..ntOok...kOTTTnkOk..kOk........', // 3
+    '.ntTOok...kOtTTn.kOOk.kOOk......', // 4
+    '.ntTTOok..kOtTTnkOOOkkOOOkkk....', // 5
+    '.ntTTTOok.kOTTnkooOOOOOOOOOOk...', // 6
+    '.ntTTTTOokkOTTnkoOOOOOOOkweOOk..', // 7
+    '.ntTTTTTOokOTTnkOOOOOOOOkeeOOdk.', // 8
+    '.ntTTTTTTOokTTnkOOOOOOOdkkkkkkk.', // 9
+    '.nTTTTTTTOOknnnkOOOOOOdkqqwqqqk.', // 10
+    '..qnTTTTTTOOkOOOOOOOOOdkOOOOOOk.', // 11
+    '.qRq.nTTTTOOkOOOOOOOOcckkkkkkk..', // 12
+    '.qRRq..nTTOOkoOOOOOOccck........', // 13
+    '.qRYRq...nTOkoOOOOOcccccck......', // 14
+    '.qYYRq....kooOOOOOOcccccck......', // 15
+    '.qRYYRq..koOOOOOOOcCCCkOk.......', // 16
+    '.qRYRRq..kOOOOOOOccccckOOk......', // 17
+    '..qRRq...kOOOOOOOcccccckOOk.....', // 18
+    '.koOOk...kOOOOOOcCCCCCCkOdk.....', // 19
+    '..koOdk..kOOOOOOcccccccckwk.....', // 20
+    '...kOOOdkkOOOOOOccccccccCk......', // 21
+    '....kOOOdOOOOOOOcCCCCCCCCk......', // 22
+    '.....kkkddOOOOOOcccccccCk.......', // 23
+    '........kkdddddkccccccck........', // 24
+    '.........kdddddkkOOOOOdk........', // 25
+    '.........kdddddkkOOOOOdk........', // 26
+    '.........kddddk.kOOOOdk.........', // 27
+    '.........kddddk.kOOOOdk.........', // 28
+    '........kddddddk.kOOOOOOOk......', // 29
+    '........kddddddwkkdOOOOOOwk.....', // 30
     '........kkkkkkkk.kkkkkkkkkk.....', // 31
   ]
 };

@@ -25,36 +25,36 @@ PKMN.SPRITES.jynx = {
   },
   rows: [
     '................................', // 0
-    '...........hhhhhhhh.............', // 1
-    '.........hhyYYYyyyyhh...........', // 2
-    '........hyYYYyyyyyyyyh..........', // 3
-    '.......hyYYyyyyyyyyyyyh.........', // 4
-    '......hyYyyyyyyyyyyyyyyh........', // 5
-    '.....hyyyyyyyqqqqqqqqqyh........', // 6
-    '....hyyyyyyyqPPPPpppppqyh.......', // 7
-    '...hyyyyyyyyqPWWppWWWpqyh.......', // 8
-    '..hyyyyyyyddqPWeppWwepqdh.......', // 9
-    '..hyyyyyyyddqpWeppWeepqh........', // 10
-    '.hyyyyyyyyddqpppppppmmmmmm......', // 11
-    '.hyyyyyyyyddqppppppmLLllllm.....', // 12
-    '.hyyyyyyyyddqppppppmLllllllm....', // 13
-    '.hyyyyyyyyddqppppppmlnnnnnm.....', // 14
-    '.hyyyyyyyyddqpppppppmmmmmm......', // 15
-    '.hyyyyyyyyddqppppppppq..........', // 16
-    '.hyyyyyyyyddhqppppppq...........', // 17
-    '.hyyyyyyyyddhGGGGGGGGGG.........', // 18
-    '.hyyyyyyyyddhGYgggggggG.........', // 19
-    '.hyyyyyyyyddhGggggggggG.........', // 20
-    '.hyyyyyyyyddhGGGGGGGGGGkkGGG....', // 21
-    '.hyyyyyyyyddhRRrrrrrrrrrGYggG...', // 22
-    '.hyyyyyyyddhRRRrrrrrrrrrGgggG...', // 23
-    '..hhyhhyhhhRRRrrrrrrrrrrrGggG...', // 24
-    '....h..hkRRRrrrrrrrrrrrrrkGG....', // 25
-    '.......kRRrrrrrrrrrrrrrsssk.....', // 26
+    '..........hhhhhhhhhh............', // 1
+    '........hhyYYYYyyyyyhh..........', // 2
+    '.......hyYYYYYyyyyyyyyh.........', // 3
+    '......hyYYYYyyyyyyyyyyyh........', // 4
+    '.....hyYYYyyyyyyyyyyyyyyh.......', // 5
+    '....hyYYyyyyyyqqqqqqqyyyh.......', // 6
+    '...hyyyyyyyyyqPPpppppqyyh.......', // 7
+    '..hyyyyyyyyyqPpWWppWWWqydh......', // 8
+    '..hyyyyyyyddqPpWeppWweqydh......', // 9
+    '.hyyyyyyyyddqppWeppWeeqydh......', // 10
+    '.hyyyyyyyyddqppppppppmmmmmm.....', // 11
+    '.hyyyydyyyddqpppppppmLLllllm....', // 12
+    '..hyyydyyyddqppppppmLlllllllm...', // 13
+    '..hyyydyyyddqppppppmlmmmmmmlm...', // 14
+    '.hyyyydyyyddqppppppmlllllnnnm...', // 15
+    '.hyyyydyyyddqpppppppmnnnnnnm....', // 16
+    '.hyyyydyyyddqppppppppmmmmmm.....', // 17
+    '..hyyydyyyddhqppppppq...........', // 18
+    '..hyyydyyyddhGGGGGGGGGGkkkGGG...', // 19
+    '.hyyyydyyyddhGYgggggggGkRGYggG..', // 20
+    '.hyyyydyyyddhGggggggggGrrGggggG.', // 21
+    '.hyyyydyyyddhGGGGGGGGGGrsGggggG.', // 22
+    '.hyyyyddyddhRRrrrrrrrrrkkGgggG..', // 23
+    '.hyyhhyyhhdhRRRrrrrrrrrrk.GGG...', // 24
+    '..hh..hhkRhRRRrrrrrrrrrrrk......', // 25
+    '.......kRRrrrrrrrrrrrrrssk......', // 26
     '......kRRrrrrrrrrrrrrrssssk.....', // 27
-    '.....kRrrrrrrrrrrrrrrssssssk....', // 28
-    '....krrrrrrrrrrrrrrrsssssssk....', // 29
-    '....krrrrsssssssssssssssssssk...', // 30
-    '....kkkkkkkkkkkkkkkkkkkkkkkkk...', // 31
+    '.....kRRrrrrrrrrrrrrrsssssk.....', // 28
+    '....kRrrrrrrrrrrrrrrsssssssk....', // 29
+    '....krrrrssssssssssssssssssk....', // 30
+    '....kkkkkkkkkkkkkkkkkkkkkkkk....', // 31
   ],
 };
