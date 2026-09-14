@@ -9,5 +9,7 @@ files.push('js/kit/world/tiles.js');
 files.push('js/kit/script/text.js');
 files.push('js/kit/script/conditions.js');
 files.push('js/kit/script/commands.js');
+files.push('js/kit/script/screenplay.js');
+files.push('js/kit/script/interpreter.js');
 for (const f of files) require(path.join(root, f));
 module.exports = globalThis.KIT;
