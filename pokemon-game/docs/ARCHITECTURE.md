@@ -1,248 +1,496 @@
-# Pokémon Adventure Kit — architecture & contract
+# Kit — build contract (architecture v2)
 
-A top-down, pixel-art, Pokémon-style **story adventure** for two people to play
-on one device — with a built-in **Creator Mode** so the author can draw the
-maps, place characters, write the dialogue and shape the story themselves
-(think: a tiny RPG Maker that lives inside the game). Catching and collecting
-Pokémon is a core loop; there are NO traditional battles in v1. Everything
-runs as plain HTML/CSS/JS from `file://`, no framework, no build step, classic
-scripts only (no ES modules — Chrome blocks them over `file://`).
+This is the document every builder works from. `DESIGN.md` says why; this says
+exactly what. When the two disagree, this one wins. Vocabulary: the engine is
+**Kit** (`window.KIT`), the Pokémon parts are the **mons module**, the author's
+world is **content**. Creator Mode uses RPG Maker MV's words in its UI (see §13).
 
-One global namespace: `window.PKMN`. Every file begins with
-`window.PKMN = window.PKMN || {};`. Data/engine files that tests `require()`
-use this shim (each file returns the SAME shared object on globalThis):
+## 0. Ground rules for builders
 
+- Plain JavaScript, classic `<script>` files, runs from `file://`. No bundler,
+  no ES modules, no TypeScript, no frameworks. JSDoc typedefs for the shapes in
+  this document. Readable code over clever code: the author will read it.
+- One global for the engine, `window.KIT`, and one for the Pokémon data pack,
+  `window.PKMN` (already used by `js/data/*.js` and `js/sprites/*.js`).
+- Files that tests `require()` use this shim (each returns the shared object):
+  ```js
+  (function (root) {
+    const KIT = root.KIT = root.KIT || {};
+    // ...
+    if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+  })(typeof window !== 'undefined' ? window : globalThis);
+  ```
+- Nothing in `js/kit/` may reference `KIT.modules.*`, `PKMN`, or content. Nothing
+  in `js/modules/` may reference content. A test greps for violations.
+- Every extensible thing goes through a registry (§3.1). Every editable thing
+  has a schema (§3.2). Every edit goes through the document (§4). No exceptions,
+  no second mechanism.
+- Tests: `node --test test/` from `pokemon-game/`. Browser checks: Playwright
+  1.56 + Chromium are installed globally (`export NODE_PATH=$(npm root -g)`);
+  open `file:///home/user/Astrophotography/pokemon-game/index.html`.
+
+## 1. File map and load order
+
+```
+index.html                       loads everything below, in this order
+css/kit.css  css/editor.css
+js/kit/core/registry.js          KIT.registry, KIT.defineRegistry
+js/kit/core/schema.js            KIT.schema  (field types, validate, defaults, refs, migrate helpers)
+js/kit/core/events.js            KIT.events() bus factory
+js/kit/core/rng.js               KIT.rng(seed), KIT.hash(...)
+js/kit/core/pixels.js            KIT.pixels (exists as js/core/pixels.js — move + rename API per §6.1)
+js/kit/core/input.js             KIT.input
+js/kit/core/audio.js             KIT.audio
+js/kit/core/storage.js           KIT.storage
+js/kit/world/document.js         KIT.document(project)  (ops, undo, watch, snapshots)
+js/kit/world/project.js          KIT.project  (schema v3, normalize, validate, migrate, helpers)
+js/kit/world/tiles.js            tile flags, autotile baking (pure)
+js/kit/world/map.js              map view (content + overlay), passability, regions, connections
+js/kit/world/entities.js         entity model + movement rules (pure)
+js/kit/script/text.js            templating + text codes + word wrap/pagination (pure)
+js/kit/script/conditions.js      condition registry + baseline kinds
+js/kit/script/commands.js        command registry + baseline commands (definitions; run() uses ctx ports)
+js/kit/script/screenplay.js      Screenplay text format: parse/serialize (pure, lossless)
+js/kit/script/interpreter.js     run(commands, ctx), threads, labels/loops, blocking rules
+js/kit/systems/*.js              movement, behaviours, triggers, companions, clock, inventory, vars, camera
+js/kit/scenes/*.js               stack, map, dialogue, choice, nameEntry, chapter, menu, transition, debug
+js/kit/render/*.js               renderer, layers cache, sprites, overlays, ui widgets (DOM)
+js/kit/game.js                   KIT.game: boot, loop, save/load, settings, testability API
+js/kit/editor/*.js               KIT.editor: shell, document glue, tools, inspector, panels, screenplay view, play-here, io
+js/art/tiles.js, tiles-*.js      tile art (exists; format §6.2)   js/art/chars.js, chars-*.js   js/art/icons.js
+js/data/types.js moves.js pokemon.js   PKMN species data (exists)   js/sprites/*.js  PKMN portraits (exists)
+js/modules/mons/manifest.js + *.js     the Pokémon module (§11)
+js/content/demo/project.js  js/content/demo/maps/*.js     the demo world
+js/content/world/project.js js/content/world/maps/*.js    the author's world (editor export target)
+js/main.js                       captures pristine HTML, loads modules in manifest order, boots
+tools/  test/  e2e/  docs/
+```
+
+Module manifest (`js/modules/<id>/manifest.js`):
 ```js
-(function (root) {
-  const PKMN = root.PKMN = root.PKMN || {};
-  // ... define things on PKMN ...
-  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
-})(typeof window !== 'undefined' ? window : globalThis);
+KIT.module({
+  id: 'mons', version: 1, requires: [],                 // other module ids; boot sorts topologically, fails loudly (banner + console) if missing
+  register(kit) { /* add to registries, subscribe to events, declare save section, content schema, editor panels */ },
+  save: { key: 'mons', defaults: () => ({ party: [], box: [], dex: {} }), migrate: [ /* (data) => data, by version */ ] },
+  content: { fields: [ /* schema for project.packs.mons */ ] },
+});
+```
+`KIT.modules` lists loaded modules; `project.modules` lists which are enabled
+for this world (a module not in the list registers nothing for it).
+
+## 2. Namespaces at a glance
+
+```
+KIT.registry(name) / KIT.defineRegistry(name, opts)        §3.1
+KIT.schema.{types, validate, defaults, refs, walk, migrateChain}   §3.2
+KIT.events() -> { on, off, once, emit }                     §8.4
+KIT.rng(seed) -> fn ; KIT.hash(a,b,c) -> uint32              deterministic
+KIT.document(project) -> doc                                 §4
+KIT.project.{normalize, validate, migrate, newMap, resize, blank, clone, exportFiles, importFiles}   §5
+KIT.storage                                                  §4.3
+KIT.text / KIT.screenplay / KIT.interpreter                  §9
+KIT.game / KIT.scenes / KIT.world (runtime)                  §8
+KIT.editor                                                   §10
+KIT.module(def) / KIT.modules                                §1
 ```
 
-Tests: `node --test test/` from `pokemon-game/`. Browser checks: Playwright 1.56 +
-Chromium are installed globally (`export NODE_PATH=$(npm root -g)`), load with
-`page.goto('file:///home/user/Astrophotography/pokemon-game/index.html')`.
+## 3. Registries and schemas
 
-## File map & load order (index.html)
-
-```
-js/data/types.js, moves.js, pokemon.js   PKMN.TYPES / MOVES / POKEMON / ROSTER   (exist — 32 Pokémon)
-js/sprites/<id>.js                       PKMN.SPRITES[id]   32×32 Pokémon portraits (3 exist; 29 being drawn)
-js/art/tiles.js                          PKMN.TILES         registry + stamps (exists)
-js/art/tiles-nature.js, tiles-town.js, tiles-interior.js   PKMN.TILES.register([...])  16×16 map tiles  [art]
-js/art/chars.js                          PKMN.CHARS         registry (exists)
-js/art/chars-heroes.js, chars-npcs.js    PKMN.CHARS.register([...])  16×24 walking sprites  [art]
-js/art/icons.js                          PKMN.ICONS         small UI icons                     [art]
-js/core/pixels.js                        PKMN.Pixels        pixel-string → canvas, cache, mirror, recolour, downscale
-js/core/input.js                         PKMN.Input         keyboard + on-screen d-pad/A/B, 1 or 2 players
-js/core/audio.js                         PKMN.Audio         WebAudio SFX + chiptune music
-js/core/storage.js                       PKMN.Storage       localStorage, export/import, artifact republish
-js/engine/project.js                     PKMN.Project       project schema, defaults, validate, migrate
-js/data/project.js                       PKMN.DEFAULT_PROJECT   the demo world (a small, charming starter)
-js/engine/map.js                         PKMN.MapRenderer / PKMN.MapLogic   layers, animation, collision, warps, camera
-js/engine/entities.js                    PKMN.Entities      heroes, partner-follow, NPC movement, Pokémon followers
-js/engine/script.js                      PKMN.Script        event command interpreter, flags/vars/items
-js/engine/dialogue.js                    PKMN.Dialogue      text box, typewriter, choices, name plate
-js/engine/pokemon.js                     PKMN.Mons          caught Pokémon, party/box, Pokédex, encounters, catch scene, garden
-js/engine/game.js                        PKMN.Game          scene stack + state machine, save/load, new game, settings
-js/ui/menus.js                           PKMN.Menus         title, pause menu, Pokémon list, Pokédex, bag, settings, save
-js/editor/editor.js (+ editor/*.js)      PKMN.Editor        Creator Mode
-js/main.js                               boot
-css/style.css
-```
-
-## 1. Pixel-art format (shared by tiles, characters, icons, Pokémon sprites)
-
+### 3.1 Registry
 ```js
-{ w: 16, h: 16, palette: { g: '#58b848', G: '#3c8c30', ... }, rows: [ '16 chars', ... 16 rows ] }
+KIT.defineRegistry('commands', { fields: [ /* schema for a definition */ ], onAdd(def) {} })
+const r = KIT.registry('commands')   // throws if undefined
+r.add(def)      // validates against the registry's definition schema; replaces an existing id (logs a warning unless def.replace === true)
+r.addAll(list) ; r.get(id) ; r.has(id) ; r.list() (stable insertion order) ; r.remove(id) ; r.on('add'|'remove', fn)
 ```
-`.` = transparent. Every non-`.` char must be in `palette`; every palette key
-must be used. Multi-frame art uses `frames: [rows, rows, ...]` instead of
-`rows`. Pokémon portraits (existing files) use `size: 32` + `rows`.
+Kit-defined registries: `tiles sprites faces icons sounds music objectTypes behaviours
+commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors
+validators presets` (quick-event presets) `migrations`. Modules define more (§11).
 
-`PKMN.Pixels`:
+### 3.2 Schema
+A schema is an array of fields:
 ```js
-Pixels.canvas(art, { scale=1, mirror=false, recolor={ from:'#hex', to:'#hex' } | { key:'#hex' }, frame=0 }) -> HTMLCanvasElement  (memoised by a key of all options)
-Pixels.draw(ctx, art, x, y, opts)          // draws the (cached) canvas at integer coordinates
-Pixels.downscale(art32, 16) -> art         // nearest-neighbour 32→16 for Pokémon overworld icons (keeps the palette; drops '.')
-Pixels.silhouette(w, h, color) -> art      // placeholder when art is missing — never crash on missing art
-Pixels.validate(art) -> string[] errors
+{ key:'radius', type:'number', label:'Wander radius', doc:'How far from home it roams', default:3, min:0, max:20,
+  nullable:false, parent:'Movement', when:{ field:'kind', eq:'wander' }, display:'radius' }
 ```
+Types (closed set; each has a form widget, a validator, a reference extractor):
+`string text note number bool enum color position direction tile region route script
+condition strings list group` and references `ref:map ref:tile ref:sprite ref:face
+ref:item ref:object ref:script ref:var ref:sound ref:music ref:fragment ref:preset`
+(modules may add `ref:<kind>` by registering a resolver: `KIT.schema.refKind('mon', { list(project), label(id) })`).
+- `enum`: `options:[{ value, label }]` or `optionsFrom:'itemKinds'` (a registry).
+- `list`: `of:<field>`, `array:{ min, max }`. `group`: `fields:[...]`.
+- `ref:object`: `ref:{ scope:'sameMap'|'any', tag:'door', symmetrical:true }`.
+- `display` hints for the map: `point` (position), `path`|`loop` (list of positions), `radius` (number), `link` (ref:object → arrow), `hidden`.
+- `position` values are `{ x, y }` in tiles (plus optional `map` when `ref` across maps is allowed).
+- `route` is a list of route steps (§9.3 `moveRoute`). `condition` is a Condition (§9.2). `script` is a command list.
+API: `validate(fields, value, ctx) -> [{ path, message }]`, `defaults(fields) -> value`,
+`refs(fields, value) -> [{ kind, id, path, access:'read'|'write' }]` (writes: `setVar`,
+`setSelf`, `give`… are `write`), `walk(fields, value, fn)`.
+Object types register `{ id, label, doc, tags, icon, fields (page props), defaults, maxCount, limit:'moveLast'|'prevent', toc:true, look:{ sprite|tile } }`.
 
-## 2. Tiles — `js/art/tiles.js`
+## 4. Document and storage
 
+### 4.1 Document
 ```js
-PKMN.TILES = {
-  list: [ { id:'grass', name:'Grass', group:'nature', art:{...}, solid:false, encounter:false,
-            frames:[art,art] /* animated, ~0.5 s per frame */, ledge:'down' /* one-way */, warpLook:true /* door/stairs/mat */ } ],
-  byId: { grass: {...} },
-  stamps: [ { id:'big-tree', name:'Big tree', group:'nature', tiles: [['tree-tl','tree-tr'],['tree-bl','tree-br']] },
-            { id:'house-red', name:'Red house (5×4)', tiles: [[...],[...],[...],[...]] }, ... ],
-  groups: ['nature','town','interior','cave'],
-}
+const doc = KIT.document(project)          // project is normalized first
+doc.value                                   // the live object (read-only by convention — never mutate directly)
+doc.get(path)                               // path = array of keys/indices
+doc.apply(ops, { label:'Paint' })           // ops: {op:'set',path,value} | {op:'del',path} | {op:'splice',path,index,remove,insert}
+doc.transaction('Paint stroke', fn)         // everything applied inside is ONE undo step; nested transactions flatten
+doc.undo() / doc.redo() / doc.canUndo() / doc.history (labels)   — unlimited within the session
+doc.watch(prefixPath, fn)                   // fn({ ops, inverse, label, paths }) for changes under the prefix; doc.watch([], fn) for all
+doc.snapshot(label) -> id / doc.snapshots() / doc.restore(id)   // labelled full copies (kept in memory + storage)
+doc.dirty / doc.markClean()
 ```
-Required tile ids (draw ALL of them; `*` = solid; `~` = animated 2 frames):
-- **nature**: grass, grass-2 (variant with tufts), tall-grass (encounter), flowers-red, flowers-yellow, flowers-blue, path, path-edge-n, path-edge-s, path-edge-e, path-edge-w (grass on that side), sand, water*~, water-lily*~, rock*, boulder*, tree-small*, tree-tl*, tree-tr*, tree-bl*, tree-br*, bush*, hedge*, stump*, log*, ledge-down (ledge: 'down' — walkable only from north to south; a little jump), bridge-h, bridge-v, cave-floor, cave-wall*, cave-rock*
-- **town**: fence-h*, fence-v*, fence-post*, sign*, mailbox*, lamp-post*, bench*, flower-pot*, roof-red*, roof-red-eave*, roof-blue*, roof-blue-eave*, roof-green*, roof-green-eave*, wall*, wall-window*, door (warpLook), lab-wall*, lab-window*, lab-door (warpLook), pokeball-item (a pokéball lying on the ground — used by item objects)
-- **interior**: floor-wood, floor-tile, carpet-red, carpet-blue, rug, wall-in-top*, wall-in* (wall face), window-inner*, poster*, exit-mat (warpLook), stairs-up (warpLook), stairs-down (warpLook), bed-top*, bed-bottom*, table*, chair*, bookshelf*, pc*, tv*, plant*, counter*, fridge*, stove*, cushion, crate*
-Stamps required: big-tree (2×2), house-red (roof-red 5×2 with roof-red-eave on row 2, then wall/wall-window/door/wall-window/wall, and the same for house-blue and house-green), lab (lab-wall/lab-window/lab-door, 7×4 with roof-blue), bed (bed-top over bed-bottom).
-Style: 16×16, GBA-era cheerful palette (grass ≈ #78c850 / #58a838 shades), 1-px darker outlines on objects, no pure black except tiny details; tiles that repeat (grass, path, water, floors) must tile seamlessly — check a 3×3 repetition.
+Inverses are computed at apply time. `set` on a missing intermediate creates
+objects (never arrays) — builders must create arrays explicitly. Paths into
+tile layers are `['maps', id, 'layers', 'ground', index]`; painting sets one
+index per op inside a transaction (the renderer invalidates only touched tiles).
 
-## 3. Characters — `js/art/chars.js`
+### 4.2 Persistence layout (git-friendly)
+`KIT.project.exportFiles(project) -> { 'project.js': text, 'maps/<id>.js': text }`:
+pretty-printed, 2-space, keys sorted, tile layers written as one row per line
+(strings of ids joined by `,`? no — arrays with 1 map row per text line). No
+volatile fields inside content: `meta.modified`, cursor/scroll/selection live in
+`KIT.storage` under editor state, never in the project. `importFiles` reverses.
+The single-file build embeds `<script id="project-data" type="application/json">`.
 
+### 4.3 Storage
+Adapters tried in order: IndexedDB → localStorage → memory (with a visible
+warning). Keys (all under `kit.<projectId>.`): `draft` (editor autosave, debounced
+500 ms), `editorState`, `save.<slot>` (3 slots + `autosave`), `meta` (survives
+New Game), `settings` (global, not per project). API:
 ```js
-PKMN.CHARS = {
-  list: [ { id:'hero-boy', name:'Hero (boy)', group:'hero', w:16, h:24, palette:{...},
-            frames: { down:[rows,rows,rows], up:[...], left:[...] } } ],   // right = mirrored left
-  byId: {...},
-  recolorable: { 'hero-boy': { hair:'#5a3a1a', shirt:'#e04040', pants:'#3060c0' } },   // palette keys the editor lets the author swap
-}
+KIT.storage.ready() ; get/set/del(key) ; loadProject() -> { project, source:'draft'|'embedded'|'default' }
+saveDraft(p) ; discardDraft() ; exportText(obj) -> string ; importText(s) -> obj
+download(name, text) ; canPublish() ; publish(project) ; captureHtml()
+saveGame(slot, state) ; loadGame(slot) ; listGames() ; deleteGame(slot) ; exportGame(slot) -> string ; importGame(string)
 ```
-Frame order per direction: `[stand, stepA, stepB]`; the walk cycle plays
-stand → stepA → stand → stepB. 16 wide × 24 tall; the feet sit on the bottom
-row, the head overlaps the tile above. Big readable heads (GBA/FRLG style), 1-px
-dark outline (dark colour, not pure black).
-Required: hero-boy, hero-girl, kid-boy, kid-girl, woman (mom), man (dad),
-grandpa, grandma, professor (lab coat), nurse, clerk (apron), trainer (girl in a
-cap), plus `pokeball` (16×16, 1 frame, used for item objects) — no, use the tile.
+`publish()` regenerates the page from `KIT.PRISTINE_HTML` (captured by
+`main.js` before any DOM mutation) replacing the `project-data` block, then calls
+the artifact capability if present (`typeof claude !== 'undefined'`); never
+serialises the live DOM. Every capability probe has a 10 s timeout → null.
+Cross-tab: the draft carries `writerId`; a second tab that sees a foreign
+`writerId` change goes read-only with a banner.
 
-## 4. Icons — `js/art/icons.js`
-
-`PKMN.ICONS = { byId: { pokeball: art16, berry: art12, 'golden-berry': art12, heart: art8, 'heart-empty': art8, arrow: art8, sparkle: art8, star: art8, bag: art16, pokedex: art16, save: art16, gear: art16, map: art16, play: art16, pencil: art16, note: art8, speaker: art8, hand: art8, exclaim: art8, question: art8, zzz: art8, key: art12, egg: art16 } }`.
-
-## 5. Project (the world) — `js/engine/project.js` + `js/data/project.js`
+## 5. Project format v3
 
 ```js
 {
-  version: 1,
-  title: 'Our Adventure', subtitle: 'for you ♥', author: '',
-  heroes: [ { name:'Player 1', sprite:'hero-boy', recolor:{} }, { name:'Player 2', sprite:'hero-girl', recolor:{} } ],
+  version: 3,
+  meta: { id:'our-adventure', title, subtitle, author, pitch /* the two sentences */, created },
+  modules: ['mons'],
+  settings: { tileSize:16, viewport:{ w:16, h:12 }, textSpeed:'normal', zoom:'auto', coop:{ enabled:false },
+              palette:{ remap:{}, tint:null, amount:0 }, encounterRate:12 /* module settings live in packs */ },
+  strings: { 'got-item':'Got {count} {item}!', 'save-prompt':'Save your progress?', ... },   // Terms table; kit + modules declare keys with defaults
+  heroes: [ { id:'p1', name:'Player 1', sprite:'hero-boy', recolor:{} }, { id:'p2', name:'Player 2', sprite:'hero-girl', recolor:{} } ],
   start: { map:'home', x:5, y:6, dir:'down' },
-  intro: [ /* commands run once on New Game, before control */ ],
-  items: { pokeball:{ name:'Poké Ball', icon:'pokeball', kind:'ball', desc:'...' }, berry:{ kind:'berry', ... }, 'golden-berry':{...}, ... },
-  settings: { encounterRate: 12 /* % per step in tall grass */, catchDifficulty: 'normal', followers: true, coop: false, textSpeed:'normal' },
-  garden: 'garden',                      // id of the map where caught Pokémon roam
-  mapOrder: ['home','town','lab','route','garden'],
-  maps: {
-    home: {
-      id:'home', name:'Home', width:12, height:10, music:'house', kind:'indoor'|'outdoor'|'garden',
-      layers: { ground: [ 'floor-wood', ... width*height ids ], deco: [ null|id ... ], above: [ null|id ... ] },
-      collision: [ 0|1|null ... ]          // null = derive from tiles; 1 forces solid; 0 forces walkable
-      encounters: { rate: null /* null = settings default */, table: [ { id:'pikachu', weight:5 } ] },
-      objects: [ Object ... ],
-    }, ...
-  }
+  vars: { chapter:{ type:'number', default:0, label:'Chapter', group:'Story' }, metMom:{ type:'bool', default:false } },   // declared; undeclared names are allowed and auto-collected (validator warns)
+  items: { berry:{ kind:'berry', name:'Berry', icon:'berry', desc:'', note:'', props:{} } },
+  scripts: { 'meet-mom': { label:'Meet Mom', trigger:'call'|'auto'|'parallel', when:null|Condition, params:[], body:[Command], note:'' } },
+  fragments: [ { id, kind:'note'|'dialogue'|'audio'|'image'|'map-idea', title, body, tags:[], folder:'' } ],
+  testStates: [ { id, label, map, x, y, dir, vars:{}, inventory:{}, modules:{} } ],
+  autotiles: { default: { source:'terrain', groups:[ { id:'grass-path', name, active:true, terrain:2,
+                 rules:[ { size:3, pattern:[0,-2,0, -2,2,-2, 0,-2,0], tiles:['path'], mode:'single', chance:1, breakOnMatch:true, flip:'none', outOfBounds:null, modulo:{x:1,y:1,ox:0,oy:0} } ] } ] } },
+  terrains: [ { id:1, name:'Grass', color:'#58b848', base:'grass' }, { id:2, name:'Path', color:'#d8b878', base:'path' } ],
+  world: { maps:{ town:{ x:0, y:0, folder:'Chapter 1' } }, connections:[ { a:'town', side:'s', b:'route', offset:0 } ] },
+  maps: { town: Map },
+  packs: { mons: { /* module content, validated by the module's content schema */ } },
 }
+Map = { id, name, width, height, kind:'outdoor'|'indoor'|'cave'|'garden'|string, music:null|id, note:'',
+        layers: { terrain:[int], ground:[tileId], deco:[tileId|null], above:[tileId|null], regions:[int 0-255] },
+        collision: [ null|0|1|'n'|'s'|'e'|'w' ],            // override: 1 solid, 0 walkable, 'n' = cannot pass northward edge (ledge/one-way)
+        objects: [ Object ], props: {} }
+Object = { id:'mom', name:'Mom', type:'npc', x, y, note:'', pages:[ Page ] }
+Page = { when: null|Condition,
+         sprite:'woman', dir:'down', layer:'same'|'below'|'above', through:false, dirFix:false, stepAnim:false, visible:true,
+         behaviour: { kind:'none'|'wander'|'look'|'route'|'approach', radius:3, speed:1, frequency:2, route:[steps], repeat:true },
+         on: { interact:[Command], step:[Command], touch:[Command], enter:[Command], tick:[Command], init:[Command] },   // all optional
+         once:false, needsBoth:false, props:{ /* object type fields */ } }
 ```
-Objects (things on a map with behaviour):
+Rules:
+- **Page resolution: the LAST page whose `when` passes is active** (MV order).
+  `when: null` passes. Pages are evaluated when vars/self/inventory change.
+- Trigger semantics (must be documented in editor tooltips): `interact` = A
+  while facing (or over, for `below` objects); `step` = a hero enters the tile
+  (for `below`/`above` objects) or bumps it (for `same`); `touch` = the object's
+  own movement collides with a hero; `enter` = when the map is entered and the
+  page is active (runs every entry unless `once`); `tick` = parallel, every
+  frame while active, does not block input (validator warns > 3 per map);
+  `init` = once when the object first appears on this map visit. `enter` and
+  `auto` scripts BLOCK input until they end; the validator warns if such a
+  script never changes anything its `when` depends on (soft-lock guard).
+- `once` = sugar for `self.done` on the page's interact/step/touch.
+- Object state in the save: `objects['town:mom'] = { self:{}, hidden, x, y, dir }`.
+  `hidden` persists (MV's Erase Event made permanent); `erase { persistent:false }` hides until map re-entry.
+- Migrations: `KIT.registry('migrations')` entries `{ from:2, to:3, up(project) }`;
+  `normalize` runs the chain, then fills defaults and validates.
+- Validation returns `[{ severity:'error'|'warn', code, message, where:{ map, object, page, path } }]`.
+
+## 6. Art and assets
+
+### 6.1 Art format and `KIT.pixels`
+Pixel-string art: `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows...]`.
+Image art: `{ image:'assets/heroes.png' | dataURI, frame:{ x, y, w, h }, frames:[rects] }`.
+`KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint }) ` (cached),
+`draw(ctx, art, x, y, opts)`, `downscale(art, size)`, `silhouette(w, h, color)`,
+`validate(art)`, `load(image) -> Promise` (for image-backed art). Missing art never throws: `silhouette` is used and a warning logged once.
+
+### 6.2 Tiles registry entry
 ```js
-{ id:'mom', type:'npc', x:4, y:5, sprite:'woman', dir:'down', move:'none'|'wander'|'look'|'path', path:['up','left'], name:'Mom',
-  trigger:'interact'|'step'|'auto', once:false, needsBoth:false,
-  condition: { flag:'met_mom', is:false } | { var:'coins', op:'>=', value:3 } | null,   // object is present only when true
-  hiddenByFlag: null | 'flag_name',      // hides the object while the flag is true (cheap "it's gone now")
-  event: [ Command... ] }
-type:'sign'    -> look:'sign' (tile id drawn at the position), trigger interact, solid
-type:'item'    -> look:'pokeball-item', item:'berry', count:1, once:true  (picking it up: sparkle + "Found a Berry!" + sets doneOnce)
-type:'warp'    -> to:{ map:'town', x:10, y:12, dir:'down' }, look:null (invisible; put it on a door/mat/stairs tile), trigger:'step', sound:'door'
-type:'trigger' -> invisible, trigger:'step'|'auto', event
-type:'pokemon' -> a Pokémon standing in the world: mon:'eevee', wild:true (interact = catch scene) | wild:false (a friendly Pokémon that talks: event)
+{ id:'tall-grass', name, group:'nature', art|frames, solid:false, passage:{ n:true, s:true, e:true, w:true },
+  bush:true /* hero legs hidden */, counter:false /* interact across */, ledge:null|'down', warpLook:false,
+  encounter:true, terrainTag:0, probability:1, animMs:500, note:'' }
 ```
-Commands (the event script language — each `{ t: ... }`):
-```
-say        { who:'Mom', text:'Hi {p1}! ...' }      // {p1} {p2} hero names, {p} the hero who triggered, {mon} last caught, \n new line; long text auto-pages
-choice     { prompt:'Ready?', options:[ { text:'Yes', then:[...] }, { text:'Not yet', then:[...] } ] }
-if         { flag:'x', is:true, then:[...], else:[...] } | { var:'coins', op:'>='|'<'|'=='|'!=', value:3, then, else } | { item:'berry', count:1, then, else } | { has:'pikachu', then, else } | { dexCount:5, op:'>=', then, else }
-set        { flag:'x', value:true }
-var        { name:'coins', op:'set'|'add', value:1 }
-give       { item:'berry', count:1 }               // shows "Got 1 Berry!"
-take       { item:'berry', count:1 }
-givePokemon{ mon:'eevee', nickname:'' }             // catch fanfare, dex registers, joins party (or box if full)
-warp       { map:'town', x:10, y:12, dir:'down', fade:true }
-move       { target:'self'|'p1'|'p2'|'<objectId>', path:['up','up','left'], wait:true }
-face       { target, dir:'up'|'down'|'left'|'right'|'player' }
-wait       { ms:500 }
-sound      { name:'sparkle' }
-music      { name:'town' | null }
-shake      { }        flash { }        fade { to:'out'|'in' }
-heal       { }        // "Your Pokémon look happy!" (friendship +5 for all)
-encounter  { mon:'pikachu', shiny:false }            // scripted catch scene; sets var `lastCaught` on success
-chapter    { title:'Chapter 1', subtitle:'A new morning' }   // full-screen title card
-hide       { target:'<objectId>' }     show { target }       // persistent (saved)
-end        { }
-```
-`PKMN.Project.normalize(project)` fills defaults & validates (returns `{ project, errors[] }`);
-`Project.newMap({ id, name, width, height, kind })`, `Project.resize(map, w, h)`,
-`Project.blank()` (empty project with one map), `Project.clone(p)`.
+Existing `js/art/tiles-*.js` register via `PKMN.TILES.register` — the first
+foundation task renames this to `KIT.registry('tiles').addAll` (sed in art files;
+keep the art untouched) and moves the stamps into the registry `presets`? No:
+stamps stay `KIT.registry('tiles').stamps` (multi-tile brushes).
+Autotile baking: `KIT.tiles.bake(map, project) -> { ground, deco }` pure and
+deterministic (per-cell seed `KIT.hash(seed, x, y)`), re-run within radius
+(rule size) after a terrain edit. Baked tiles are stored in `ground`/`deco` so
+the runtime never needs rules; the runtime overlay can call `bake` too.
 
-## 6. Game state (a save)
+### 6.3 Characters, faces, icons, audio
+Characters: existing format (`frames:{down,up,left}` × 3, right = mirrored),
+registered in `sprites`. Faces: `faces` registry (`{ id, art }`, 48×48 pixel or
+image). Icons: `icons`. Audio: `sounds`/`music` entries are `{ id, kind:'synth', recipe }`
+or `{ id, kind:'file', src }`; `KIT.audio.play(id)`, `startMusic(id)`, `stopMusic()`,
+`playAt(id, { map, x, y })` (diegetic, distance fade). MV sheet importer is Phase 5.
 
+## 7. Save format v2
 ```js
-{ version:1, projectTitle, hero:{ map, x, y, dir }, partner:{ x, y, dir }, activeHero:0,
-  flags:{}, vars:{}, items:{ pokeball:5, berry:3 }, doneOnce:{ 'town:item-1':true },
-  hidden:{ 'town:mom':true }, party:[Mon...] (max 6), box:[Mon...], dex:{ seen:{}, caught:{} },
-  follower: uid|null, steps:0, playtimeMs:0, savedAt:ISO, coop:false }
-Mon: { uid, id:'pikachu', nickname:'', friendship:70 (0-255), mood:'happy'|'okay'|'sleepy', shiny:false,
-       caughtAt:{ map, date:ISO }, caughtBy:'p1'|'p2', metAt:'Route 1', favouriteBerry:'berry' }
+{ version:2, projectId, savedAt, playtimeMs, slotLabel,
+  heroes:[ { map, x, y, dir }, { x, y, dir } ], activeHero:0,
+  vars:{}, inventory:{ berry:3 }, objects:{ 'town:mom':{ self:{}, hidden:false } },
+  overlays:{ home:{ tiles:{ '5,6':{ deco:'plant' } }, objects:[] } },
+  modules:{ mons:{...} }, clock:{ day:1, minutes:480, lastSeenAt:ISO }, timer:{ running:false, secondsLeft:0 },
+  music:{ current:'town', saved:null } }
+meta (separate key, survives New Game): { runs:0, firstPlayed, endingsSeen:[], namesUsed:[] }
 ```
+Loading a save whose objects/maps no longer exist ignores those entries. Save
+migrations are a registry chain like project migrations. Export/import as text.
 
-## 7. Engine behaviour
+## 8. Runtime
 
-- **Rendering**: one `<canvas>` for the map/entities, DOM overlay for UI. Tile = 16 logical px. `tileScale` chosen so a tile is ~40 CSS px on phones (viewport width < 600) and ~48 on desktop, adjustable in settings (small/normal/large); canvas backing store is logical × tileScale × devicePixelRatio with `imageSmoothingEnabled=false` → crisp pixels. Draw order: ground layer → deco layer → entities sorted by y (feet) → above layer → weather/overlays. Animated tiles cycle every 500 ms. Camera centres on the active hero, clamped to the map (maps smaller than the viewport are centred with a dark border).
-- **Movement**: grid-based, 4 directions, ~8 tiles/second; smooth interpolation; holding a direction keeps walking; turning in place if tapped briefly; bump sound when blocked (rate-limited). Ledges: stepping onto a `ledge:'down'` tile from the north performs a 2-tile hop; from other sides it is solid. Warps trigger on stepping onto the object's tile (fade out → load map → fade in, `door` sound; the hero appears at the target facing `dir`).
-- **Partner**: the second hero follows the first along its path (Gen-2 HGSS style trail). In **co-op mode** (settings toggle) both heroes are controlled: keyboard P1 = arrows + Z/X (A/B) or Enter/Backspace, P2 = WASD + F/G; on touch, two d-pads (left → P1, right → P2) each with A/B. The camera follows the *active* hero (Tab / a swap button switches); the other hero cannot leave the screen (blocked at the edge). Either hero can interact; `{p}` in text is the hero who triggered. `needsBoth` objects require both heroes adjacent, else "This needs both of you!".
-- **Follower Pokémon**: the first party Pokémon walks behind the hero as a 16×16 icon (`Pixels.downscale` of its 32×32 portrait; missing portrait → coloured silhouette). Interacting with it (turn around and press A) shows a mood line ("Pikachu is happy to be with you!"), friendship +1 (max once per 50 steps).
-- **NPC movement**: `wander` = random step every 1-2 s within 3 tiles of home, never onto hero/other objects; `look` = turns randomly; `path` = loops the path. NPCs face the hero when talked to, then resume.
-- **Interaction**: A while facing an object with trigger `interact`; `step` fires when a hero enters the tile; `auto` fires on map entry (respecting `condition`, `once`). Talking to a `pokemon` object that is `wild` starts the catch scene. Signs show text with a wooden-sign frame.
-- **Script interpreter**: runs commands sequentially (async, awaitable), one script at a time (input locked); `once` objects record `doneOnce[map:id]`; `hide/show` persist; text substitution as above; `say` pages long text (3 lines of the box) with the ▼ prompt; choices render as a small menu. Unknown commands are skipped with a console warning, never a crash.
-- **Encounters**: each step onto `tall-grass` rolls `rate%`; pick from the map's table by weight; wild level cosmetic. **Catch scene**: the map dims, a grassy card slides in, the Pokémon's 32×32 portrait appears at 4× scale (bobbing; shiny = sparkles + a hue-shifted palette), name + type badges + "dex: new!" marker. Actions: **Throw Ball** (uses 1 pokeball; a ring shrinks toward the Pokémon; tap/press A to throw; the closer the ring is to the green band the better — 'perfect'/'great'/'ok'/'miss'), **Berry** (uses 1 berry: Pokémon calms — bigger green band + catch bonus; golden-berry = guaranteed next throw), **Talk** (a cute random line, small friendship head-start, 30% it gets curious = bonus), **Run**. Catch chance = base (common 60% / uncommon 45% / rare 30% / legendary 15% by Pokémon `rarity`, default by base-stat total: <420 common, <500 uncommon, <580 rare, else legendary) × timing (perfect 1.6, great 1.3, ok 1.0, miss 0.4) + berry bonus (+20%), clamp 5-95%. Ball wobbles 1-3 times then either "Gotcha! X was caught!" (sparkle + jingle + nickname prompt: "Give it a nickname?" Yes/No with a text field) or "Oh no! It broke free!". After 3 failed throws, 40% chance it flees each further throw ("X ran away!"). Caught → party (if < 6) else box; dex.caught; `vars.lastCaught`. Running out of Poké Balls → "You're out of Poké Balls!" (Mom/shop/lab can give more via events).
-- **Garden** (the "after catching" hub): the map with `kind:'garden'` shows every caught Pokémon (party + box) roaming as icons (wander AI), shiny ones sparkle. Interact: a card with nickname, species, types, friendship hearts (0-5), mood, caught where/when/by whom; actions: **Pet** (friendship +3, a heart floats up; 1 per visit per Pokémon), **Give berry** (friendship +10, uses a berry), **Take along** (moves it to the party/first slot = follower), **Leave here**. Friendship thresholds change the mood text and unlock nothing yet — hooks for the author's ideas (flags `friend_<id>_max` are set at 255 so events can react).
-- **Pause menu** (Start/Esc/menu button): Pokémon (party list → details → reorder / send to box), Pokédex (32 entries: seen = silhouette, caught = portrait + blurb + where caught; counts), Bag (items with counts and descriptions; berries can be given to the follower), Save, Settings (sound, music, text speed, zoom, co-op toggle, controls help), Creator Mode (if enabled in the project or `?edit=1`), Quit to title.
-- **Save/load**: `PKMN.Storage` keys under `pkmn-adventure.`; one save slot + autosave on map change; Title screen: New Game / Continue (if a save exists) / Create (Creator Mode) / Settings. New Game asks for both hero names (prefilled from the project) and runs `project.intro`.
-- **Audio**: SFX 'blip','select','back','bump','door','item','sparkle','ball-throw','ball-wobble','ball-break','catch','shiny','heal','save','pet','notify','hop'; music 'title','town','route','house','cave','garden','encounter','fanfare' (short jingle, not looped). Music switches on map change by `map.music`. Everything synthesised (no files); silent no-op until the first user gesture.
-- **Input**: `PKMN.Input.state(player) -> { up,down,left,right,a,b,menu }` plus `Input.onPress(fn)` for menus; on-screen controls appear on touch devices (or setting "always"), sized ≥ 56 px; keyboard as above; swipe on the map canvas also moves. A/B/menu buttons must not scroll or zoom the page (touch-action: none; user-scalable=no).
-- **Testability hooks**: `window.PKMN.Game` exposes `state` (live save state), `project`, `scene` (name of the top scene: 'title'|'map'|'dialogue'|'choice'|'catch'|'menu'|'editor'|'chapter'|'nameEntry'), `loadProject(p)`, `newGame({names})`, `warp(map,x,y)`, `press(key)` (simulate a press: 'up'|'down'|'left'|'right'|'a'|'b'|'menu'), `tick(ms)` (advance the game clock; with `?fast=1` all animations/typewriter are instant). DOM: `#screen-title`, `#game-canvas`, `#dialogue` (`.speaker`, `.text`, `.choices button`), `#pause-menu`, `#catch-scene`, `#editor`, on-screen buttons `[data-btn="up|down|left|right|a|b|menu"]` (and `[data-player="2"]` variants).
-
-## 8. Creator Mode — `js/editor/*.js` (`PKMN.Editor`)
-
-Opened from the title ("Create") or the pause menu; toggle **Play ⇄ Edit** at any time (Play starts at the cursor position: "Play here"). Layout: a top bar (map selector, Play/Edit, Undo/Redo, save status, ☰ menu), the map canvas in the middle (pan by drag on empty space / two-finger, zoom buttons), and a side panel (bottom sheet on phones) with tabs:
-- **Tiles**: groups as tabs (Nature / Town / Interior / Cave / Stamps), a swatch grid of the tile art, tools: pencil, fill (bucket), rectangle, eraser, eyedropper; layer selector (Ground / Deco / Above); toggles: grid, collision overlay (red = solid), object labels. Painting on `ground` never leaves holes (erase = grass/floor-wood by map kind).
-- **Objects**: buttons to add NPC / Sign / Item / Door(warp) / Trigger / Wild Pokémon; tap an object on the map to select → **Inspector**: id (auto), name, sprite (picker with previews + recolour swatches for hair/shirt/pants on heroes/NPCs), direction, movement, trigger, once, needsBoth, condition (flag/var/item/has), warp target (map + tap-on-map to pick x/y), item + count, Pokémon + wild, and the **Event editor**: a vertical list of command cards, "+ Add" opens a friendly picker ("Say something", "Ask a question", "If…", "Set flag", "Change number", "Give item", "Take item", "Give Pokémon", "Teleport", "Move", "Face", "Wait", "Sound", "Music", "Shake", "Flash", "Fade", "Heal", "Wild encounter", "Chapter card", "Hide/Show", "End"); cards have inline fields (textarea for text with a live preview of the dialogue box; dropdowns for flags/items/maps/Pokémon/sprites; nested lists for choice/if branches, indented); drag handle or ▲▼ to reorder; duplicate/delete. Delete object with confirm.
-- **Map**: name, size (resize keeps content anchored top-left), kind, music, encounter rate, wild table (add Pokémon from the roster with a weight slider, shows portraits), a "Set start here" for the project start; New map (blank / copy), duplicate, delete (confirm), reorder.
-- **Project**: title, subtitle, hero names + sprites + recolours, start position, intro script (same event editor), settings defaults, items (add custom items with icon + description), a "Flags & numbers" list (auto-collected from all scripts; rename with refactor), and **Save / Export / Import / Reset to demo** (see Storage).
-- Undo/redo for every change (Ctrl+Z / Ctrl+Shift+Z), min 50 steps. Keyboard: 1-5 tools, G grid, C collision, [ ] layer.
-- Everything must be usable with a finger on a 390×844 phone (targets ≥ 44 px, panels scroll) and comfortable with a mouse on a laptop.
-- The editor validates on save (`Project.normalize`) and shows problems (warp to a missing map, unknown tile, empty say) as a list that jumps to the object.
-
-## 9. Storage — `js/core/storage.js`
-
+### 8.1 Game and scenes
+`KIT.game.boot({ project, mount })` builds the renderer, input, audio, storage,
+world, scene stack; `KIT.game.newGame({ names, testState })`, `continueGame(slot)`,
+`update(dt)` fixed 60 Hz, render on rAF. Scene interface:
 ```js
-Storage.loadProject() -> { project, source: 'draft'|'embedded'|'default' }
-   // 1. localStorage draft ('pkmn-adventure.project') if present; 2. <script id="project-data" type="application/json"> if present; 3. PKMN.DEFAULT_PROJECT
-Storage.saveDraft(project)        // debounced autosave from the editor; shows "Saved" in the top bar
-Storage.discardDraft()
-Storage.exportJSON(project) -> string        // pretty, stable key order
-Storage.download(filename, text)             // uses the artifact 'downloads' capability when present, else a Blob link; else shows a copyable textarea
-Storage.importJSON(text) -> { project, errors }
-Storage.canPublish() -> Promise<boolean>     // claude.use('artifact') resolves non-null
-Storage.publish(project) -> Promise<'ok'|'conflict'|'not_granted'|'unavailable'>
-   // regenerates the page: PRISTINE_HTML (captured by main.js before any DOM mutation: '<!doctype html>' + document.documentElement.outerHTML) with the
-   // <script id="project-data"> block replaced by the JSON (escape '</' as '<\/'), then artifact.publish(html). Never serialises the live DOM.
-Storage.saveGame(state) / loadGame() / hasGame() / deleteGame()
-Storage.settings()/saveSettings()
+{ id, transparent:false, enter(params), exit(), update(dt), render(ctx), input(ev), result }
+await KIT.scenes.run(scene, params) -> result     // push, wait for scene.done(result), pop
+KIT.scenes.top(), .stack, .replace(scene)
 ```
-`window.claude` may not exist (file://): every capability check is `typeof claude !== 'undefined' && claude.use ? await claude.use(name) : null`, with a 10 s timeout treated as null. Buttons for cloud save/download only appear when available.
+Kit scenes: `title map dialogue choice nameEntry inputNumber chapter menu transition
+debug picture`. Modules add scenes (`catch`).
 
-## 10. The demo world — `js/data/project.js`
+### 8.2 World and entities
+`KIT.world` = `{ project, save, map (current MapView), entities, events, clock, rng }`.
+`MapView` composes `project.maps[id]` + `save.overlays[id]`; exposes
+`tileAt(layer, x, y)`, `region(x, y)`, `passable(x, y, fromDir, who)`,
+`objectsAt(x, y)`, `connectionAt(x, y)`. Entities are plain objects:
+`{ id, kind:'hero'|'npc'|'object'|'companion', x, y, dir, px, py (interpolated), sprite, art, layer, through, solid, mover:{...}, behaviour, page, visible }`.
+Movement rules (pure, in `entities.js`): grid steps at `speed` tiles/s (default
+~7), turn-in-place on short tap, `passage` flags per tile edge, `collision`
+overrides, ledges (`ledge:'down'` = hop 2 tiles southward only), `bush` (draw
+legs clipped), `counter` (interact reaches across), `through`, map `connections`
+(walk off an edge into the neighbour at the same offset), heroes cannot enter
+solid objects unless `through`.
 
-A small, warm starter that shows every feature and is easy to replace:
-- **home** (12×10, indoor): bedroom + kitchen, Mom (npc, wander) — first talk gives 5 Poké Balls and 3 Berries and says the Professor is waiting; a PC (sign-type object explaining "your Pokémon relax in the Garden"), a TV with a cute line, stairs/mat warp to town.
-- **town** (24×18, outdoor): your red house, a blue house (a kid NPC inside talks about the follower), the Lab, fences, flowers, a sign with the town name, a lamp post, bench with grandma ("Everyone's a beginner at first!"), a gate (warp) south to the route and a hedge-lined path east to the garden. Chapter card "Chapter 1 — A New Morning" on first entry.
-- **lab** (14×10, indoor): the Professor (auto event once: welcome; interact: choice of three starters shown as `pokemon` objects (not wild) — pick one: `givePokemon` + sets flag `has_starter`; the other two vanish via `hide`). A nurse-ish assistant explaining catching.
-- **route** (20×30, outdoor): tall grass patches with wild table (pikachu 5, butterfree 4, jolteon 1 …), a pond, a ledge, a `pokemon` wild object (an Eevee-like — use `mew`? no: use 'pikachu' standing by a tree), an item (golden-berry), a trainer NPC with a choice, a cave entrance stub.
-- **garden** (16×12, kind garden): flowers, pond, benches, a gate back to town; roaming caught Pokémon.
-Intro script: fade in, chapter card, `say` from a narrator ("{p1} and {p2} wake up to a bright new morning…").
+### 8.3 Systems (registered, run in `order`)
+`movement(10) behaviours(20) triggers(30) companions(40) clock(50) camera(90)` +
+module systems. Each: `{ id, order, update(world, dt) }` and optional
+`onMapEnter/onMapLeave`. `triggers` dispatches page slots per the semantics in §5.
 
-## 11. Non-goals for v1
-No battles, no levels/experience, no trading, no online. Keep the code plain and
-readable — the author will read it with Claude to change things.
+### 8.4 Events (bus on `world.events`)
+`step {hero,x,y,tile,region}` `interact {hero,object}` `mapEnter {map}` `mapLeave {map}`
+`varChanged {name,old,value}` `selfChanged {objectKey,key}` `itemChanged {id,delta}`
+`objectStateChanged {objectKey}` `clockTick {minutes}` `sessionResumed {elapsedMs}`
+`scriptStart/scriptEnd {id}` `sceneChange {id}` + module events. Systems and
+modules listen; nothing polls except `tick` slots.
+
+### 8.5 Renderer, input, audio, clock
+Renderer: canvas; per-layer offscreen caches per map (invalidated by document
+`paths`); entities sorted by `py` then layer; `above` layer; overlays (fade,
+tint, flash, weather, palette remap); integer scale (tile ≈ 40 CSS px on
+phones, 48 desktop, setting small/normal/large); DPR-aware;
+`imageSmoothingEnabled=false`. Viewport 16×12 tiles by default (settings).
+Input: players→heroes mapping; P1 arrows/Z/X/Enter/Esc, P2 WASD/F/G; on-screen
+d-pad + A/B/menu per player (pointer events, `touch-action:none`, one pointer
+per pad, ≥ 56 px targets); swipe on canvas; `KIT.input.state(player)`, `onPress`.
+Audio: WebAudio synth (existing recipes) + file playback; silent until first
+gesture; unlock on `pointerup`/`touchend`; iOS: resume context on visibility.
+Clock: in-game minutes advance with steps and time (`settings.clock`); wall-clock
+`lastSeenAt` → `sessionResumed`. `timer` command drives `save.timer`.
+
+## 9. Script language
+
+### 9.1 Command registry
+```js
+KIT.registry('commands').add({
+  id:'give', label:'Change Items', group:'Party', icon:'bag', mv:'Change Items',
+  fields:[ { key:'item', type:'ref:item' }, { key:'count', type:'number', default:1 }, { key:'mode', type:'enum', options:['give','take'], default:'give' } ],
+  async run(ctx, cmd) { ... },                      // ctx: { world, io, rng, self, hero, thread, project }
+  summary(cmd, ctx) -> 'Give 3× Berry',            // card text
+  text:{ toLine(cmd) -> '@give berry 3', fromLine(line) -> cmd|null },   // optional Screenplay sugar; generic form always works
+  blocking:true, editor:{ favourite:true } })
+```
+`ctx.io`: `say(opts)`, `choice(opts)`, `nameEntry`, `inputNumber`, `toast`,
+`chapter`, `fade`, `tint`, `flash`, `shake`, `weather`, `picture`, `scrollText`,
+`menu`, `wait(ms)` — all promise-returning scene calls; in tests a fake io answers them.
+
+### 9.2 Baseline commands (id — MV label — fields; semantics)
+Message: `say` (Show Text: who, face, text, position top|middle|bottom, bg window|dim|none), `choice` (Show Choices: prompt, options[{text, when?, then[]}], cancel), `inputNumber` (var, digits), `scrollText`.
+Progression: `setVar` (Control Variables: name, op set|add|sub|mul|div|mod|random|copyVar, value|var|min,max), `setSelf` (Self state: key, op, value), `timer` (Control Timer: start seconds|stop).
+Flow: `if` (Conditional Branch: when, then[], else[]), `loop` (body[]), `break`, `label`, `jump`, `exit` (Exit Event Processing), `call` (Common Event: script, args), `comment`, `wait` (ms), `group` (label, body[] — no runtime effect), any command may carry `disabled:true` (skipped, drawn dimmed).
+Party: `give`/`take` (Change Items), `nameEntry` (hero, prompt).
+Movement: `transfer` (Transfer Player: map, x, y, dir, fade), `setLocation` (Set Event Location: target, x, y | swap), `moveRoute` (Set Movement Route: target self|p1|p2|obj:id, steps[], wait, skipBlocked, repeat), `scrollMap` (dx, dy, speed), `follow` (companion on/off).
+Character: `transparency`, `animation` (Show Animation: target, id), `balloon` (Show Balloon: target, kind ! ? ♥ ♪ … zzz sweat anger), `erase` (persistent).
+Screen: `fadeOut`, `fadeIn`, `tint`, `flash`, `shake`, `weather` (none rain snow fog, power).
+Picture: `pictureShow` (id, image, x, y, anchor, opacity), `pictureMove`, `pictureErase`.
+Audio: `music` (Play BGM: id|null, fade), `sound` (Play SE), `stopSound`, `saveMusic`, `replayMusic`, `jingle` (ME).
+System: `menu` (open), `save` (prompt), `title` (return), `chapter` (title card), `heal` (kit-level hook: emits `heal` event), `debug` (log).
+Route steps (for `moveRoute` and `behaviour.route`): `up down left right`, `randomStep`, `towardHero`, `awayHero`, `face:<dir>`, `faceHero`, `turnRandom`, `jump:dx,dy`, `wait:ms`, `sprite:<id>`, `speed:n`, `through:on|off`, `visible:on|off`, `sound:<id>`, `dirFix:on|off`, `stepAnim:on|off`.
+
+### 9.3 Conditions
+`{ kind:'var', name, op ==,!=,<,<=,>,>=, value|var }` `{ kind:'self', key, op, value }`
+`{ kind:'item', id, op, count }` `{ kind:'facing', target, dir }` `{ kind:'button', key }`
+`{ kind:'timer', op, seconds }` `{ kind:'region', id, target }` `{ kind:'tile', layer, id, at }`
+`{ kind:'meta', key, op, value }` `{ kind:'clock', from, to }` `{ kind:'coop' }`
+`{ kind:'all'|'any', of:[...] }` `{ kind:'not', of }` + module kinds (`has`, `dexCount`, `friendship`).
+
+### 9.4 Text
+Templating: `{p1} {p2} {p} {var:name} {self:key} {item:id} {hero}` + module tags.
+Codes: `{pause}` `{pause:800}` `{wait}` (wait for input mid-message) `{fast}` `{instant}`
+`{color:red}…{/color}` `{icon:berry}` `{size:big}…{/size}` `{shake}`. Word wrap to the
+box width in the dialogue font metrics, auto-pagination into N boxes (3 lines
+each by default), `\n` forced break. `KIT.text.render(str, ctx) -> [{ pages:[[spans]] }]`, pure.
+
+### 9.5 Screenplay (text view of a script) — lossless by construction
+```
+:: meet-mom [auto] when: chapter == 0            # header (scripts file); body lines follow
+Mom: Good morning, {p1}! {pause} Sleep well?
+Mom (face=mom-smile, at=top): The Professor was asking for you.
+  Narration without a speaker is a line in quotes:
+"The kettle whistles."
+? Ready to go?                                  # choice prompt
+- Yes
+    Mom: Take these.
+    @give item=berry count=3
+- Not yet
+    Mom: Take your time.
+@if when: chapter >= 2
+    Mom: Off you go.
+@else
+    Mom: Don't forget your bag.
+@end
+@set chapter = 2            # sugar for @setVar name=chapter op=set value=2 ; also += -= *=
+@self opened = true          # sugar for @setSelf
+@call meet-mom
+@transfer map=town x=10 y=12 dir=down
+@move target=self steps="up up left" wait=true
+@wait 500                    # sugar for @wait ms=500
+@sound sparkle  |  @music town  |  @fade out  |  @shake  |  @balloon target=self kind=!
+# a comment line becomes a comment command
+```
+Grammar: one command per line; blocks (`then`, `else`, choice options, loop,
+group) are indented by 4 spaces or a tab; `Name:` prefix = `say`; a leading
+`"` = narration; `?` = choice; `-` = option; `@id key=value …` is the generic
+form for every command (values: bare words, numbers, `"quoted"`, `true/false`);
+a command may add sugar (`toLine/fromLine`). Unparsable lines become
+`{ t:'raw', line }` (preserved verbatim, shown as a warning card) — nothing is
+ever dropped. `serialize(parse(text))` equals canonical text and
+`parse(serialize(cmds))` deep-equals `cmds` (tests enforce for the demo and the
+author's world). Twee-like whole-project export: `:: <script-id>` sections plus
+`:: <map>/<object>/<page>/<slot>` sections; import re-attaches by id.
+
+### 9.6 Interpreter
+`KIT.interpreter.run(commands, ctx) -> Promise` with `ctx.thread` = `{ id, pc stack, labels, cancelled, breakpoints }`;
+`auto`/`enter`/`interact`/`step`/`touch` scripts run on the **main thread**
+(input locked, at most one main script at a time; a second request queues);
+`tick`/`parallel` run on **background threads** (no `say`/`choice` allowed —
+validator error; interpreter throws if attempted). `call` passes `args` as
+`{arg:name}` template values and local vars. `label/jump` within a body;
+`loop/break`; `exit` ends the thread. Threads are observable (`KIT.interpreter.threads()`)
+for the Debug panel; breakpoints pause the main thread (`thread.pause()/step()`).
+Determinism: all randomness via `ctx.rng`.
+
+## 10. Creator Mode (`KIT.editor`)
+
+Shell: top bar (mode strip **EDITING / PLAYING** with colour, map selector with
+folders + search, Undo/Redo, save status, ☰ menu: Snapshots, Export, Import,
+Publish, Reset demo, Help/Vocabulary). Centre: the map canvas (pan: drag on
+empty space or two fingers; zoom buttons; grid; collision/regions/terrain
+overlays toggles). Side panel (bottom sheet on phones, tabs scroll):
+- **Tiles**: Terrain brush (default; paints `terrain`, re-bakes within rule radius, live), Pencil, Fill, Rect, Eraser, Eyedropper, Stamp (multi-tile selection or registry stamp), Random (set + seeded), Regions mode (0-255 palette with names), layer selector (ground/deco/above), Autotile rules sub-view with the **template wizard** (edges/corners/inner corners → rule group) and remap-terrain.
+- **Objects** (Events): list per map with search + Find usages; Add: NPC / Sign / Item / Door(Transfer) / Trigger / **Presets** registry (Door, Sign, Item on ground, Transfer pair, Wild Pokémon…); tap-tap placement and moves (no drag required); **Inspector** = schema-driven form over the selected thing (object → pages as tabs, page → props/behaviour/slots; last page wins is shown as "later pages override earlier ones"); inherited defaults greyed with reset; map-drawn fields (`point/path/radius/link`) drawn on the canvas and editable by tapping.
+- **Script editor** for every slot/script: command cards (searchable Add with favourites/recent, multi-select, copy, paste above/below, disable, group, collapse branches, drag or ▲▼), inline fields per schema (textarea with live dialogue preview for `text`), nested blocks; a **Screenplay** toggle showing the same script as text (§9.5) with error markers; broken `ref:*` → "Create <kind> <id>" / "Create as fragment".
+- **Map**: name, kind, size (anchor top-left), music, note, connections (pick side + neighbour), start-here, module props (encounters by region), test-state save.
+- **World**: maps as cards on a canvas (positions from `world.maps`), warp/call arrows, folders, connections drawn edge-to-edge; tap to open.
+- **Scripts** (Common Events): list, triggers, params; **Fragments**: notes/dialogue/audio/image with folders/tags; drag/assign to a slot or map.
+- **Project**: title, subtitle, **pitch (two sentences, required)**, heroes (sprite + recolour), start, settings, palette dial, modules on/off, items table, **Strings** (Terms), **Variables** (declared vars with types/groups, usages with reads vs writes), test states.
+- **Dialogue Review**: every `text` field in the project, searchable, editable in place (produces the same patches).
+- **Problems**: validator output with jump-to. **Data**: raw JSON of the selection/project, editable with validation. **Debug** (PLAYING): running threads, breakpoints, pause-on-var-change, live vars/inventory/self editing, warp-to, give item/mon, step.
+- **Play here**: cursor tile + facing; starting state picker: New game / Current save / Test state; "Back to editor here"; tap a thing while playing (with edit-tap mode) to select it in the inspector. Edits while PLAYING apply to the document immediately (the running map view re-reads); the strip says so.
+Undo is universal (inspector, deletes, paint, scripts). Delete always confirms
+or is undoable, never adjacent to navigation on phones. Keyboard: 1-6 tools, G
+grid, C collision, R regions, [ ] layer, Ctrl+Z/Shift+Z, Ctrl+S export, F5 play.
+Every panel is registered (`editorPanels`), every tool (`editorTools`), every
+field widget (`fieldEditors`), so modules extend the editor without core edits.
+
+## 11. The mons module (Phase 3; contract summary)
+Registries it adds: `species` (from PKMN data), `mon` ref kind, object type
+`pokemon` (wild|friendly, mon, shiny), condition kinds `has`, `dexCount`,
+`friendship`, commands `givePokemon`, `encounter`, `friendship`, item kinds
+`ball`, `berry`, scene `catch` (encounter **profiles** from `packs.mons.profiles`:
+actions `[{ id, label, kind:'throw'|'offer'|'talk'|'wait'|'leave', effects }]`,
+strings, art), systems `encounters` (on `step` by region table), `companion`
+(follower), `garden` (on maps with `kind:'garden'`), save section
+`{ party, box, dex, follower, seen }`, menus Pokémon / Pokédex / Bag, editor panel
+"Wild Pokémon" (per-map tables by region with weights), events `monCaught`,
+`friendshipChanged`. Friendship 0-255, thresholds 50/100/150/200/255, gains:
+walking +1/128 steps, pet +3 (1/visit), berry +10, `sessionResumed` bonus.
+
+## 12. Testability and test plan
+`window.KIT.game` exposes `state`, `project`, `world`, `scene()`, `newGame`,
+`warp(map,x,y,dir)`, `press(key, player)`, `tick(ms)`, `rngOverride`, and `?fast=1`
+makes typewriter/animations instant; `?edit=1` opens Creator Mode; `?test=<id>`
+starts from a test state. DOM ids: `#screen-title #game-canvas #dialogue #choice
+#pause-menu #chapter #toast #editor #mode-strip`, buttons `[data-btn]`,
+`[data-player]`, `[data-action]`, panels `[data-panel]`, tools `[data-tool]`.
+Tests (Node): registry/schema (validate, defaults, refs incl. read/write,
+display hints), document (ops, inverses, transactions, watch prefixes,
+snapshots, unlimited undo), project (normalize v2→v3 migration, validate codes,
+resize, export/import files round-trip with sorted keys), tiles (autotile bake
+determinism + locality), map view (passage, ledges, counter, bush, connections,
+overlays), entities (movement rules), text (templating, codes, wrap/paginate),
+conditions, commands (each baseline command with a fake io), screenplay
+(lossless both directions; raw-line preservation), interpreter (threads,
+labels/loops, blocking rules, call args, breakpoints), storage (adapters
+fallback, export/import), save (migrations, missing-object tolerance), layering
+grep, world lint of demo + author content. Browser (Playwright): walk/talk/doors
+/save/load/coop play-through; editor round-trip (paint terrain → bake → place NPC
+→ write screenplay → play here → talk); phone 390×844 with touch and desktop
+1280×800; no console errors; screenshots reviewed.
+
+## 13. Vocabulary (editor labels use the MV word)
+Event = object · Event Page = page · Switch/Variable = var · Self Switch = self state ·
+Common Event = script · Plugin = module · Region = region · Transfer Player = transfer ·
+Set Movement Route = moveRoute · Show Balloon Icon = balloon · Action Button / Player
+Touch / Event Touch / Autorun / Parallel = interact / step / touch / enter(auto) / tick ·
+Note = note · Terms = strings · Test Play = Play here · Database = Project panel.
+Deliberately better than MV (shown on the Help page): unlimited undo everywhere;
+unlimited page conditions with all/any/not; named unlimited self state; find
+usages with reads vs writes; play from any tile with a chosen state; editing
+inside the game; autotiles you define; word-wrapped, paginated, text-editable
+dialogue; typed module fields with real forms; saves that survive content changes.
+
+## 14. Build phases and acceptance
+1. **Foundation** — core (registry, schema, events, rng, pixels move, storage), document, project v3 (+ migration from the current art/data), tiles (bake), text, conditions, commands (definitions + summaries + screenplay sugar), screenplay, interpreter with fake io. All Node-tested. *Accept:* `node --test` green; screenplay round-trip on a 40-command sample; interpreter runs a branching script with a fake io deterministically.
+2. **Runtime** — world/map/entities/systems, scenes, renderer, input, audio wiring, game boot, title/pause/settings/save, demo world (home/town/lab/route/garden with terrain+autotiles, regions, connections, scripts using ≥ 25 distinct commands). *Accept:* Playwright walk/talk/doors/save/coop at both viewports, no console errors, screenshots reviewed.
+3. **Creator Mode v1** — shell, document glue, tools incl. terrain brush + wizard, inspector, script editor + screenplay, pages, objects list, map/world/project/strings/variables panels, problems, data, play-here with state picker, debug panel, presets, clipboard, I/O + publish. *Accept:* the editor round-trip e2e; a map made only in the editor plays; undo across panels.
+4. **mons module** — §11. *Accept:* catch/garden e2e; wild-table panel edits play.
+5. **Importers & polish** — MV sheet importer, Dialogue Review, Twee export, snapshots UI, single-file build budget warnings.
+Each phase ends: tests green, e2e green, pushed, single-file build produced.

@@ -1,0 +1,11 @@
+{
+  "name": "pokemon-game",
+  "private": true,
+  "description": "Kit: a top-down story-adventure engine with a built-in creator mode, plus the Pokémon module.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "e2e": "NODE_PATH=$(npm root -g) node e2e/run.js",
+    "build": "node tools/build.js",
+    "sheet": "node tools/sprite-sheet.js /tmp/sheet.png 4"
+  }
+}
