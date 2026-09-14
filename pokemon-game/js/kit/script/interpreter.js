@@ -95,13 +95,14 @@
   };
 
   /**
-   * run(commands, ctx, { kind:'main'|'background', label, path }) -> Promise<{ status, thread, signal }>
+   * run(commands, ctx, { kind:'main'|'background', label, path, breakpoints:['2/then/0'] }) -> Promise<{ status, thread, signal }>
    * Main runs are serialised: a new main run starts when the previous one has ended.
    */
   I.run = function (cmds, ctx, opts) {
     opts = opts || {};
     const kind = opts.kind === 'background' ? 'background' : 'main';
     const thread = makeThread(kind, opts.label);
+    for (const b of opts.breakpoints || []) thread.breakpoints.add(Array.isArray(b) ? P.join(b) : String(b));
     threads.set(thread.id, thread);
     const tctx = Object.assign({}, ctx || {}, { thread });
     const exec = async () => {

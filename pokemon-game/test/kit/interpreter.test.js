@@ -87,33 +87,31 @@ test('interpreter: cancel, breakpoints, pause/step, onStep paths', async () => {
   assert.equal(r.status, 'cancelled');
   assert.deepEqual(ctx.said(), ['one']);
   assert.deepEqual(steps, ['0', '1']);
-  // breakpoints
+  // pause from the step hook, then step one command, then resume
   const ctx2 = I.fakeCtx();
   let thread = null;
-  ctx2.onStep = (cmd, path, t) => { thread = t; };
+  ctx2.onStep = (cmd, path, t) => { thread = t; if (path.join('/') === '1') t.pause(); };
   const p = I.run(cmds, ctx2);
-  await new Promise(r => setTimeout(r, 0));
-  assert.ok(thread);
-  thread.pause();
   await new Promise(r => setTimeout(r, 5));
-  const saidWhenPaused = ctx2.said().length;
-  assert.ok(saidWhenPaused < 4);
+  assert.deepEqual(ctx2.said(), ['one']);
+  assert.ok(thread.paused);
   thread.step();
   await new Promise(r => setTimeout(r, 5));
-  assert.equal(ctx2.said().length, saidWhenPaused + 1);
-  assert.ok(thread.paused);
+  assert.deepEqual(ctx2.said(), ['one', 'two']);
+  assert.ok(thread.paused, 'paused again after one step');
   thread.resume();
   const r2 = await p;
   assert.equal(r2.status, 'done');
   assert.deepEqual(ctx2.said(), ['one', 'two', 'three', 'four']);
+  // a breakpoint on a nested path
   const ctx3 = I.fakeCtx();
-  const p3 = I.run(cmds, ctx3);
-  await new Promise(r => setTimeout(r, 0));
-  const t3 = I.threads()[0];
-  assert.ok(t3, 'thread visible while running');
-  t3.breakpoints.add('2/then/0');
+  const p3 = I.run(cmds, ctx3, { breakpoints: ['2/then/0'] });
   await new Promise(r => setTimeout(r, 5));
-  if (t3.paused) { assert.deepEqual(ctx3.said(), ['one', 'two']); t3.resume(); }
+  const t3 = I.threads()[0];
+  assert.ok(t3 && t3.paused, 'stopped at the breakpoint');
+  assert.deepEqual(ctx3.said(), ['one', 'two']);
+  assert.equal(t3.current.path.join('/'), '2/then/0');
+  t3.resume();
   await p3;
   assert.deepEqual(ctx3.said(), ['one', 'two', 'three', 'four']);
 });
