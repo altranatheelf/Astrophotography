@@ -1,4 +1,4 @@
-// PKMN.Pixels — pixel-string art → canvas (contract: docs/ARCHITECTURE.md §1)
+// KIT.pixels — pixel-string art → canvas (contract: docs/ARCHITECTURE.md §6.1)
 //
 // Art format: { w, h, palette: { char: '#hex' }, rows: ['....', ...] } or
 // { frames: [rows, rows, ...] } for multi-frame art. Pokémon portraits use
@@ -7,13 +7,18 @@
 // canvas() / draw() need a browser (document.createElement('canvas')).
 // validate() / downscale() / silhouette() / rowsOf() / dims() are pure and
 // also work in Node, so tests can require() this file.
+//
+// This file used to live at js/core/pixels.js under the Pokémon namespace; the
+// art registry files (js/art/tiles.js) keep that old name as an alias so the
+// art tools keep working. Nothing here depends on any art file (icons.js may
+// not exist yet) and nothing here references content or modules.
 (function (root) {
-  const PKMN = root.PKMN = root.PKMN || {};
+  const KIT = root.KIT = root.KIT || {};
 
   const HEX = /^#[0-9a-fA-F]{6}$/;
   // WeakMap<art, Map<optionKey, canvas>> — the art object is the identity, so
   // an art object that is edited in place (Creator Mode) should call
-  // Pixels.invalidate(art) to drop its cached canvases.
+  // KIT.pixels.invalidate(art) to drop its cached canvases.
   const cache = new WeakMap();
 
   function hasDocument() {
@@ -213,7 +218,7 @@
   // Memoised canvas for `art` with the given options. Missing/invalid art
   // falls back to a silhouette so callers never crash.
   function canvas(art, opts) {
-    if (!hasDocument()) throw new Error('Pixels.canvas needs a browser document');
+    if (!hasDocument()) throw new Error('KIT.pixels.canvas needs a browser document');
     let a = art;
     if (!a || typeof a !== 'object' || !rowsOf(a, 0)) {
       const d = dims(a);
@@ -240,10 +245,16 @@
     if (art) cache.delete(art);
   }
 
-  PKMN.Pixels = {
-    canvas, draw, downscale, silhouette, validate,
-    dims, rowsOf, frameCount, paletteWith, invalidate,
-  };
+  /** The art object of a registry entry: tiles/sprites carry rows/palette on the definition itself or under `art`. */
+  function artOf(def) {
+    if (!def || typeof def !== 'object') return null;
+    if (def.art && typeof def.art === 'object') return def.art;
+    return (Array.isArray(def.rows) || Array.isArray(def.frames)) ? def : null;
+  }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+  KIT.pixels = {
+    canvas, draw, downscale, silhouette, validate,
+    dims, rowsOf, frameCount, paletteWith, invalidate, artOf,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

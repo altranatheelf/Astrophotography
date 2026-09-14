@@ -9,7 +9,6 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const { encodePng, hexToRgb } = require('./sprite-png.js');
 
 const [file, out, scaleArg, ...rest] = process.argv.slice(2);
@@ -18,14 +17,13 @@ const scale = parseInt(scaleArg || '6', 10);
 const repeatIdx = rest.indexOf('--repeat');
 const repeatId = repeatIdx >= 0 ? rest[repeatIdx + 1] : null;
 
-const root = path.join(__dirname, '..');
-const sandbox = { console }; sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.PKMN = {};
-function load(rel) { const p = path.join(root, rel); if (fs.existsSync(p)) vm.runInNewContext(fs.readFileSync(p, 'utf8'), sandbox, { filename: p }); }
-load('js/art/tiles.js'); load('js/art/chars.js');
+// The kit core + art registries load first (art files register into KIT registries through the PKMN aliases).
+const { createSandbox, loadInto } = require('./kit-sandbox.js');
+const sandbox = createSandbox();
 const P = sandbox.PKMN;
 const beforeTiles = new Set((P.TILES.list || []).map(t => t.id));
 const beforeChars = new Set((P.CHARS.list || []).map(c => c.id));
-vm.runInNewContext(fs.readFileSync(path.resolve(file), 'utf8'), sandbox, { filename: file });
+loadInto(sandbox, path.resolve(file));
 
 const errors = [];
 function validateArt(label, art, w, h) {

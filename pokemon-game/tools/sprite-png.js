@@ -6,16 +6,13 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const zlib = require('zlib');
 
 function loadSprite(file) {
-  const code = fs.readFileSync(file, 'utf8');
-  const sandbox = { window: {}, console };
-  sandbox.window.PKMN = {};
-  sandbox.PKMN = sandbox.window.PKMN;
-  sandbox.globalThis = sandbox;
-  vm.runInNewContext(code, sandbox, { filename: file });
+  // The kit core loads first so a sprite file may also register kit things.
+  const { createSandbox, loadInto } = require('./kit-sandbox.js');
+  const sandbox = createSandbox();
+  loadInto(sandbox, path.resolve(file));
   const sprites = sandbox.PKMN.SPRITES || (sandbox.window.PKMN && sandbox.window.PKMN.SPRITES) || {};
   const ids = Object.keys(sprites);
   if (!ids.length) throw new Error(`${file}: no PKMN.SPRITES.<id> defined`);
