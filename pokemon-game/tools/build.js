@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Bundle the whole game into ONE html file so it can be sent as a single
 // attachment (AirDrop / iMessage / email) and opened on any phone or laptop.
-//   node tools/build.js            -> writes Pokemon-Battle-Night.html next to index.html
+//   node tools/build.js            -> writes Our-Adventure.html next to index.html
 //   node tools/build.js out.html   -> custom output path
 // It reads index.html, inlines every local <link rel="stylesheet"> and
 // <script src="..."> in order, and leaves external URLs (fonts) untouched.
@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const outFile = path.resolve(process.argv[2] || path.join(root, 'Pokemon-Battle-Night.html'));
+const outFile = path.resolve(process.argv[2] || path.join(root, 'Our-Adventure.html'));
 let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
 const isLocal = (src) => src && !/^(https?:)?\/\//i.test(src) && !src.startsWith('data:');
