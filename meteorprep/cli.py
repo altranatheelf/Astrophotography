@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="skip the edge-snapped horizon (physics coarse "
                         "mask + guided-filter snap) and use the classic "
                         "brightness matte alone")
+    p.add_argument("--no-calibration", action="store_false",
+                   dest="calibrate",
+                   help="ignore any darks/ or flats/ folder beside the "
+                        "photographs and leave the lens falloff and the "
+                        "sensor dust in the picture")
     p.add_argument("--mode", choices=[m.key for m in _M.MODES],
                    default=_M.DEFAULT,
                    help="what to produce; "
@@ -140,6 +145,7 @@ def config_from_args(args, parser=None) -> Config:
         trail_fill_gaps=args.trail_fill_gaps,
         emit_timelapse=args.timelapse,
         mask_snap=args.mask_snap,
+        calibrate=args.calibrate,
         find_meteors=args.find_meteors,
         jobs=args.jobs, force=args.force,
         seed_rotation_deg=args.seed_rotation,

@@ -114,6 +114,12 @@ class Config:
     # the report would state the height of a meteor over Vermont for a
     # photograph taken anywhere else.
     site_explicit: bool = False
+    # Calibration frames, if the photographer shot any: a "flats" folder
+    # beside the photographs measures the lens's corner falloff and the
+    # sensor's dust, a "darks" folder measures the sensor's own glow.
+    # On by default because it costs nothing when the folders are absent,
+    # and the folders are only there when someone meant them to be.
+    calibrate: bool = True
     shower_entry_km_s: float = 59.0
     shower_ablation_km: float = 95.0
     # second-pass faint search against the clean stacked base (2.0 plan
@@ -272,7 +278,7 @@ class Config:
         # same answers either way.  Keeping them out of "ingest" is what
         # lets a draft and the full run share everything up to the stack,
         # so the full run after a draft skips straight to the stacking.
-        "ingest": ["input_dir", "raw_extensions"],
+        "ingest": ["input_dir", "raw_extensions", "calibrate"],
         "segment_folder": ["max_gap_factor"],
         "lightpaint": ["lp_sigma", "lp_window"],
         # bump_px is read at the end of the solve: a tripod bump shows up

@@ -365,9 +365,29 @@ def read_metadata(paths: list[Path]) -> list[FrameMeta]:
 
 
 def scan_input_dir(input_dir: Path, extensions) -> list[Path]:
-    """Recursive, case-insensitive frame discovery (§2.5)."""
+    """Recursive, case-insensitive frame discovery (§2.5).
+
+    Calibration subfolders — ``darks``, ``flats``, ``bias`` — are
+    photographs of a lens cap and a white cloth, not of the sky, and are
+    skipped here rather than by each caller.  Everything that counts
+    frames (the pipeline, the phone app, the window's photo count, its
+    thumbnail strip and its moon reader) goes through this one function,
+    so this is the only place the distinction has to be made.
+    """
+    from meteorprep.ingest.masters import CAL_DIRS
     exts = {e.lower() for e in extensions}
-    out = [p for p in sorted(Path(input_dir).rglob("*"))
-           if p.is_file() and p.suffix.lower() in exts
-           and p.name != "frames_meta.json"]
+    root = Path(input_dir)
+    out = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in exts:
+            continue
+        if p.name == "frames_meta.json":
+            continue
+        try:
+            parts = p.relative_to(root).parts[:-1]
+        except ValueError:                 # a symlink out of the tree
+            parts = ()
+        if any(part.lower() in CAL_DIRS for part in parts):
+            continue
+        out.append(p)
     return out

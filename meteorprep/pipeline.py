@@ -1153,6 +1153,15 @@ def _run(cfg: Config, _fh, progress=None) -> dict:
                         "repair this time; it will retry on the next run")
             bad_pixels = None
 
+    # the calibration frames are a property of the night's gear, like the
+    # hot-pixel map, so they are built here once and cached beside it
+    from meteorprep.ingest import masters as _masters
+    try:
+        bad_pixels = _masters.prepare(cfg, metas, bad_pixels, notify)
+    except Exception as exc:              # never lose a night to a flat
+        log.warning("calibration frames could not be used (%s) — "
+                    "continuing without them", exc)
+
     pre_timings = [("folder scan + hot-pixel map",
                     _time.time() - _t_ingest)]
     groups = segment_folder(metas, cfg.max_gap_factor)
@@ -1497,6 +1506,16 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
             _fp.update(f"{m.file}:{m.path.stat().st_size}".encode())
         except OSError:
             _fp.update(m.file.encode())
+    # ...and a change of calibration frames, which stage_hash cannot see:
+    # it hashes Config's fields, and re-shooting the flats changes none of
+    # them.  Without this a resumed run would happily reuse work done on
+    # uncalibrated data.
+    for _kind in ("dark", "flat"):
+        _kf = cfg.cache_path / f"master_{_kind}.key"
+        try:
+            _fp.update(_kf.read_bytes() if _kf.exists() else b"none")
+        except OSError:
+            _fp.update(b"none")
     frames_fp = _fp.hexdigest()[:16]
 
     def stage_cached(stage):
@@ -1527,9 +1546,15 @@ def _run_group(cfg: Config, group, bad_pixels, notify,
     # ------- decode-once cache: every stage reads half-size luminance
     # ------- from here instead of re-decoding the RAW (3x decode saved)
     det_lum_dir = cache.dir("det_lum")
-    if cfg.force:
+    # these are named after their source file and trusted on sight, so a
+    # stale one would quietly mix uncalibrated luminance into a calibrated
+    # run.  The stamp records which frame set and which masters made them.
+    _lum_stamp = det_lum_dir / "fingerprint.txt"
+    _stale = (_lum_stamp.read_text() if _lum_stamp.exists() else "") != frames_fp
+    if cfg.force or _stale:
         for _f in det_lum_dir.glob("*.npy"):
             _f.unlink()
+        _lum_stamp.write_text(frames_fp)
 
     def det_lum_file(i):
         return det_lum_dir / (Path(frames[i].file).stem + ".npy")

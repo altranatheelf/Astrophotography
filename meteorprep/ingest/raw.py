@@ -22,6 +22,13 @@ log = logging.getLogger("meteorprep")
 
 RAW_EXTS = {".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2"}
 
+# LibRaw's adjust_maximum_thr (0.75 by default) pulls the saturation point
+# down to each frame's own brightest pixel, so the same sensor value can
+# decode to different numbers in different frames.  It is left at the
+# default here — every threshold in the meteor search was measured against
+# it — and pinned to 0.0 only for a calibrated decode, where a flat can
+# lift a corner star past the old maximum and move the gain by a third.
+# Calib.apply then puts the scale back where the search expects it.
 _DETECT_KW = dict(half_size=False, use_camera_wb=False, use_auto_wb=False,
                   user_wb=[1.0, 1.0, 1.0, 1.0], no_auto_bright=True,
                   gamma=(1, 1), output_bps=16)
@@ -63,10 +70,14 @@ def _repair_bad_pixels_fast(raw, coords: np.ndarray) -> None:
             sl[y, x] = neigh[:, 4]
 
 
-def decode(path: Path, mode: str = "detect",
-           bad_pixels: np.ndarray | None = None,
+def decode(path: Path, mode: str = "detect", cal=None,
            half_size: bool = False) -> np.ndarray:
     """Decode any supported frame to a 16-bit linear RGB (H, W, 3) array.
+
+    ``cal`` is either a hot-pixel coordinate array, as it always was, or
+    a :class:`~meteorprep.ingest.masters.Calib` carrying that map plus
+    the night's master dark and flat — the same argument, in the same
+    position, so every caller reads the same.
 
     ``half_size=True`` decodes at half resolution (2x2 superpixel): ~4x
     less memory/scratch disk and time, for space-constrained machines.
@@ -98,6 +109,29 @@ def decode(path: Path, mode: str = "detect",
         import rawpy
 
         with rawpy.imread(str(path)) as raw:
+            from meteorprep.ingest.masters import as_calib
+            calib = as_calib(cal)
+            # The masters go on the pictures, not on the search.
+            #
+            # Vignetting and dust are identical in every frame of a fixed
+            # tripod sequence, so they cancel in the frame-to-frame
+            # difference the meteor search works on: flattening buys the
+            # search nothing, and it costs something real, because
+            # dividing the dark corners up by two multiplies their noise
+            # by two as well.  Measured on the reference night, flattening
+            # the detection path moved every detection around — it lost
+            # both real meteors and offered three candidates that were
+            # not there.  The visible output is the opposite case: there
+            # the corners and the dust motes are the whole point.
+            calibrating = calib.calibrates and mode == "final"
+            if calibrating:
+                # masters first, repair second.  A dark still holds the
+                # hot pixels' own spikes, so repairing the light before
+                # subtracting would punch a black hole where each one
+                # was; subtract first and the repair only has the residue
+                # to flatten — and dead pixels, which no dark can reach.
+                calib.apply(raw)
+            bad_pixels = calib.bad_pixels
             if bad_pixels is not None and len(bad_pixels):
                 try:
                     _repair_bad_pixels_fast(raw, bad_pixels)
@@ -126,6 +160,8 @@ def decode(path: Path, mode: str = "detect",
                           demosaic_algorithm=_rp.DemosaicAlgorithm.LINEAR,
                           output_color=_rp.ColorSpace.raw)
             kw["half_size"] = half_size
+            if calibrating:
+                kw["adjust_maximum_thr"] = 0.0
             return raw.postprocess(**kw)
     raise ValueError(f"unsupported frame type: {path}")
 
