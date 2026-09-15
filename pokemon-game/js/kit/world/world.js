@@ -238,10 +238,40 @@
       return r;
     };
 
-    /** Fires `step` slots for whatever the hero landed on. */
+    /** Fires `step` slots for whatever the hero landed on, and the built-in behaviour of warp/item objects. */
     world.stepTriggers = async function (h) {
-      const hits = world.entities.filter(e => e.x === h.x && e.y === h.y && e.page && e.page.on && e.page.on.step);
-      for (const e of hits) await world.runSlot(e, 'step', h.id);
+      const hits = world.entities.filter(e => e.x === h.x && e.y === h.y);
+      for (const e of hits) {
+        const type = e.object && e.object.type;
+        if (type === 'warp') { if (await world.doWarp(e, h)) return; }
+        else if (type === 'item') await world.doPickup(e, h);
+        if (e.page && e.page.on && e.page.on.step) await world.runSlot(e, 'step', h.id);
+      }
+    };
+    /** A `warp` object carries its destination in props.to — no script needed. */
+    world.doWarp = async function (e, h) {
+      const to = e.page && e.page.props && e.page.props.to;
+      if (!to || !to.map || !project.maps[to.map]) return false;
+      if (ports.audio && ports.audio.play && e.page.props.sound !== null) ports.audio.play(e.page.props.sound || 'door');
+      if (ports.map && ports.map.transfer) await ports.map.transfer({ map: to.map, x: to.x || 0, y: to.y || 0, dir: to.dir || h.dir, fade: e.page.props.fade !== false });
+      else await world.enterMap(to.map, to.x || 0, to.y || 0, to.dir || h.dir);
+      return true;
+    };
+    /** An `item` object gives its item once and disappears for good. */
+    world.doPickup = async function (e, h) {
+      const props = (e.page && e.page.props) || {};
+      if (!props.item) return false;
+      const st = save.objects && save.objects[e.objectKey];
+      if (st && st.self && st.self.done) return false;
+      const ctx = world.makeCtx(e, h.id);
+      const count = props.count == null ? 1 : props.count;
+      KIT.commands.state.give(ctx, props.item, count);
+      KIT.commands.state.setSelf(ctx, 'done', true, e.objectKey);
+      if (ports.audio && ports.audio.play) ports.audio.play('item');
+      if (ports.io && ports.io.toast) await ports.io.toast({ text: KIT.strings.get(project, 'got-item', { count, item: (project.items[props.item] && project.items[props.item].name) || props.item }) });
+      save.objects[e.objectKey].hidden = true;
+      events.emit('objectStateChanged', { objectKey: e.objectKey });
+      return true;
     };
 
     // ---- systems ---------------------------------------------------------------
