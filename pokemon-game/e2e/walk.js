@@ -88,6 +88,9 @@ async function stepOnce(page, dir) {
       const h = w.hero();
       return h.x !== bx || h.y !== by;
     }, [before.x, before.y], { timeout: 2500 });
+  } catch (e) {
+    // Blocked — a wandering NPC stepped into the way. Not a failure on its own:
+    // the caller looks at where the hero ended up and walks round.
   } finally {
     await page.keyboard.up(KEY[dir]);
   }
@@ -137,21 +140,25 @@ const spotBeside = (page, pos) => page.evaluate(([px, py]) => {
 
 /** Walk up to an object (wherever it has wandered to) and press A until it answers. */
 async function talkTo(page, id, label) {
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     const pos = await entityAt(page, id);
     if (!pos) return check(false, `${label || id} is on the map`);
     const spot = await spotBeside(page, pos);
     if (!spot) continue;
     await walkTo(page, spot.x, spot.y, '', true);
-    const now = await entityAt(page, id);
-    const at = await hero(page);
-    if (!now || !at) continue;
-    const dx = now.x - at.x, dy = now.y - at.y;
-    if (Math.abs(dx) + Math.abs(dy) !== 1) continue;               // it moved again: go round once more
-    await face(page, dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up');
-    await pressA(page);
-    await page.waitForTimeout(250);
-    if ((await scenes(page)).includes('dialogue')) return check(true, `talked to ${label || id}`);
+    // She may take another step while we are getting there, so aim again from
+    // where she is now — a few times before walking round once more.
+    for (let aim = 0; aim < 3; aim++) {
+      const now = await entityAt(page, id);
+      const at = await hero(page);
+      if (!now || !at) break;
+      const dx = now.x - at.x, dy = now.y - at.y;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) break;                // out of reach: go round again
+      await face(page, dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up');
+      await pressA(page);
+      await page.waitForTimeout(250);
+      if ((await scenes(page)).includes('dialogue')) return check(true, `talked to ${label || id}`);
+    }
   }
   return check(false, `talked to ${label || id}`);
 }

@@ -1,0 +1,1 @@
+[null,{"id":1,"name":"Honey Bun","description":"Sticky. Filling.","iconIndex":176,"itypeId":1,"price":20,"consumable":true,"scope":7,"occasion":0,"speed":0,"successRate":100,"repeats":1,"tpGain":0,"hitType":0,"animationId":0,"note":"","damage":{"critical":false,"elementId":0,"formula":"0","type":0,"variance":20},"effects":[{"code":11,"dataId":0,"value1":0,"value2":100}]}]

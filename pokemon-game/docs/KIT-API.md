@@ -126,5 +126,30 @@ Grammar: `Name: text` and `Name (face=x, at=top): text` → say; `"narration"`; 
 `fakeCtx({ project, save, self, hero, seed, answers, names, numbers, onSay, map, coop }) -> ctx` with `log`, `said()`, `calls(port,name)` — the headless test/play harness.
 Thread: `{ id, kind, background, breakpoints:Set('2/then/0'), pause(), resume(), step(), cancel(), current:{cmd,path}, steps }`; `ctx.onStep(cmd, path, thread)` is the debugger hook.
 
+## import/* — the importers (docs/IMPORT-CONTRACT.md, docs/IMPORTING.md)
+Pure: each takes already-read data plus resolvers and returns a `Result`; no fs, no DOM, no network.
+Load after `world/*` and `script/*` (they use `KIT.project`, `KIT.screenplay`, `KIT.tiles`); `index.html` loads all four.
+
+`KIT.import.tiled` — `map(json, opts)` · `tileset(json, opts)` · `any(input, opts)` · `detect(input) -> 'map'|'tileset'|null` · `gid(n)` · `fromXml(text)` · `prepare(json, opts)` · `blank()`.
+`opts`: `asset(src)->{id,src,w,h}` `tilesets{}`/`tileset(src)` `templates{}`/`template(src)` `inflate(bytes,method)` `prefix` `id`/`name`/`title` `mapId(name)->id`.
+
+`KIT.import.rpgmaker` — `project(files, opts)` · `commands(list, ctx)` · `characters(name, opts)` · `faces(name, opts)` · `detect(files)` · helpers (`tileRect` `autotileOrigin` `tileArt` `tileFlags` `convertText` `routeSteps` …).
+`opts`: `asset(src)` `prefix` `tileSize` `imageDir`.
+
+`KIT.import.aseprite` — `sheet(json, opts)` · `file(buffer, opts)` (native pixel art) · `parse(buffer, opts)` · `any(input, opts)` · `detect(input) -> 'sheet'|'file'|null` · `artOf(def, dir)` · `direction(tag)` · `split(tag)` · `tagFrames(from,to,dir)` · `zinflate`/`inflateRaw`.
+`opts`: `asset(src)` `inflate` `encodePng(w,h,rgba)` `prefix` `id`/`name` `kind:'sprite'|'tiles'|'faces'|'icons'` `maxPixels` `maxColors` `alphaThreshold`.
+
+`KIT.import.merge(target, result, opts) -> Report` — folds a Result into a project.
+`target` is a plain project (merged in place) or a `KIT.document` (one undo step, `"Import <source>"`).
+`opts`: `{ prefix, overwrite, dryRun, source, label, register, autotileSet }`.
+Writes `project.assets/tiles/sprites/faces/icons/animations/items/vars/scripts/maps` and the top-level fields a Result carries (`meta.title`, `start`, `settings.tileSize`, `terrains`, `autotiles`), and registers tiles/sprites/faces/icons/assets into their registries (`register:false` to skip).
+Collisions: free id → added · same value → unchanged (no problem) · different + `overwrite` → replaced · different → `duplicate-id` warn, kept. So a re-import leaves the project identical.
+`Report`: `{ problems, added, replaced, unchanged, skipped, ids:{added,replaced,skipped}, label, project, registered, dryRun }` (each count table has `assets tiles sprites faces icons animations maps objects scripts vars items terrains autotiles`).
+Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewrites references; idempotent) and `KIT.import.merge.registerProject(project)`.
+
+`KIT.project.registerContent(project) -> { assets, tiles, sprites, faces, icons }` (world/project) puts a project's own content tables into the registries — imported art has no `js/art/*.js` file, so the project is the file. Called by `KIT.storage.loadProject` before normalize and by `KIT.game.useAssets`.
+
+The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
+
 ## Still to build
 `scenes/*` (stack + title/map/dialogue/choice/nameEntry/chapter/menu/transition/debug), `render/*`, `core/input.js`, `core/audio.js`, `core/storage.js`, `game.js`, `main.js`, `index.html`, `css/kit.css`, then `editor/*` and `modules/mons/*`.

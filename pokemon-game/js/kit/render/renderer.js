@@ -139,9 +139,16 @@
         drawTileTo(g, id, def, x * tilePx, y * tilePx, 0);
       }
     }
+    // A tile always fills its cell: art imported from a tool with a different
+    // tile size (an 8px or a 48px tileset in a 16px game) is scaled to fit
+    // rather than leaving gaps or spilling over its neighbours.
     function drawTileTo(g, id, def, dx, dy, frame) {
       if (!def) { KIT.pixels.draw(g, missingArt(id, TILE(), TILE(), true), dx, dy, { scale }); return; }
-      KIT.pixels.draw(g, tileArt(def), dx, dy, { scale, frame: frame || 0, recolor });
+      const art = tileArt(def);
+      const size = KIT.pixels.dims(art);
+      const opts = { scale, frame: frame || 0, recolor };
+      if (size.w > 0 && size.h > 0 && (size.w !== TILE() || size.h !== TILE())) opts.fit = { w: tilePx, h: tilePx };
+      KIT.pixels.draw(g, art, dx, dy, opts);
     }
 
     /** invalidate(mapId, x, y) — one cell (or the whole map when x is omitted). */
@@ -155,10 +162,16 @@
     }
 
     // ---- entities ---------------------------------------------------------------
+    // `frame.rows` is either the row strings of pixel art or — for a sprite
+    // backed by an imported image (a Tiled tile object, an RPG Maker character
+    // sheet, an Aseprite export) — the source rectangle inside that image.
     function artForFrame(frame) {
       let a = spriteArts.get(frame.rows);
       if (!a) {
-        a = { w: frame.w || 16, h: frame.h || 24, palette: frame.palette || {}, rows: frame.rows };
+        const image = frame.art && typeof frame.art.image === 'string' ? frame.art.image : null;
+        a = image
+          ? { image, frame: frame.rows, w: frame.w || 16, h: frame.h || 24 }
+          : { w: frame.w || 16, h: frame.h || 24, palette: frame.palette || {}, rows: frame.rows };
         spriteArts.set(frame.rows, a);
       }
       return a;

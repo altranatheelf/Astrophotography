@@ -1,0 +1,208 @@
+{
+ "compressionlevel": -1,
+ "height": 5,
+ "infinite": false,
+ "layers": [
+  {
+   "data": "eJxjZGBgYMSDmaE0EwNDAz51pGIALzwAog==",
+   "height": 5,
+   "id": 1,
+   "name": "ground",
+   "opacity": 1,
+   "type": "tilelayer",
+   "visible": true,
+   "width": 6,
+   "x": 0,
+   "y": 0,
+   "encoding": "base64",
+   "compression": "zlib"
+  },
+  {
+   "data": "eJxjYCAdMJGhBx0AAAEAAAM=",
+   "height": 5,
+   "id": 2,
+   "name": "deco",
+   "opacity": 1,
+   "type": "tilelayer",
+   "visible": true,
+   "width": 6,
+   "x": 0,
+   "y": 0,
+   "encoding": "base64",
+   "compression": "zlib"
+  },
+  {
+   "draworder": "topdown",
+   "id": 3,
+   "name": "events",
+   "objects": [
+    {
+     "gid": 5,
+     "height": 16,
+     "id": 1,
+     "name": "Mom",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 16,
+     "x": 32,
+     "y": 48,
+     "properties": [
+      {
+       "name": "dialogue",
+       "type": "string",
+       "value": "Mom: Good morning!\nMom: Mind the water."
+      },
+      {
+       "name": "behaviour",
+       "type": "string",
+       "value": "look"
+      },
+      {
+       "name": "mood",
+       "type": "string",
+       "value": "cheerful"
+      }
+     ]
+    },
+    {
+     "height": 16,
+     "id": 2,
+     "name": "Door",
+     "rotation": 0,
+     "type": "warp",
+     "visible": true,
+     "width": 16,
+     "x": 80,
+     "y": 64,
+     "properties": [
+      {
+       "name": "map",
+       "type": "string",
+       "value": "home.tmj"
+      },
+      {
+       "name": "x",
+       "type": "int",
+       "value": 3
+      },
+      {
+       "name": "y",
+       "type": "int",
+       "value": 7
+      },
+      {
+       "name": "dir",
+       "type": "string",
+       "value": "up"
+      }
+     ]
+    },
+    {
+     "height": 32,
+     "id": 3,
+     "name": "Meadow",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 32,
+     "x": 16,
+     "y": 48,
+     "properties": [
+      {
+       "name": "zone",
+       "type": "string",
+       "value": "meadow"
+      },
+      {
+       "name": "steps",
+       "type": "int",
+       "value": 4
+      },
+      {
+       "name": "secret",
+       "type": "bool",
+       "value": true
+      }
+     ]
+    },
+    {
+     "height": 16,
+     "id": 4,
+     "name": "Fence",
+     "rotation": 0,
+     "type": "collision",
+     "visible": true,
+     "width": 32,
+     "x": 48,
+     "y": 48,
+     "properties": []
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 4,
+ "nextobjectid": 5,
+ "orientation": "orthogonal",
+ "properties": [
+  {
+   "name": "kind",
+   "type": "string",
+   "value": "outdoor"
+  },
+  {
+   "name": "music",
+   "type": "string",
+   "value": "town"
+  }
+ ],
+ "renderorder": "right-down",
+ "tiledversion": "1.11.0",
+ "tileheight": 16,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "outside.tsj"
+  },
+  {
+   "columns": 0,
+   "firstgid": 5,
+   "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+   },
+   "margin": 0,
+   "name": "folk",
+   "spacing": 0,
+   "tilecount": 1,
+   "tileheight": 16,
+   "tilewidth": 16,
+   "tiles": [
+    {
+     "id": 0,
+     "image": "sprite.png",
+     "imageheight": 16,
+     "imagewidth": 16,
+     "type": "npc",
+     "properties": [
+      {
+       "name": "sprite",
+       "type": "string",
+       "value": "woman"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "tilewidth": 16,
+ "type": "map",
+ "version": "1.10",
+ "width": 6
+}

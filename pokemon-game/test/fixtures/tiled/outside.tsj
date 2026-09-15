@@ -1,0 +1,174 @@
+{
+ "columns": 4,
+ "image": "tiles.png",
+ "imageheight": 16,
+ "imagewidth": 64,
+ "margin": 0,
+ "name": "outside",
+ "spacing": 0,
+ "tilecount": 4,
+ "tiledversion": "1.11.0",
+ "tileheight": 16,
+ "tilewidth": 16,
+ "type": "tileset",
+ "version": "1.10",
+ "wangsets": [
+  {
+   "colors": [
+    {
+     "color": "#58b848",
+     "name": "Grass",
+     "probability": 1,
+     "tile": 0
+    }
+   ],
+   "name": "Ground",
+   "tile": -1,
+   "type": "edge",
+   "wangtiles": [
+    {
+     "tileid": 0,
+     "wangid": [
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+     ]
+    }
+   ]
+  }
+ ],
+ "tiles": [
+  {
+   "id": 0,
+   "properties": [
+    {
+     "name": "name",
+     "type": "string",
+     "value": "grass"
+    },
+    {
+     "name": "encounter",
+     "type": "bool",
+     "value": true
+    },
+    {
+     "name": "terrainTag",
+     "type": "int",
+     "value": 2
+    },
+    {
+     "name": "footstep",
+     "type": "string",
+     "value": "soft"
+    },
+    {
+     "name": "rarity",
+     "type": "float",
+     "value": 0.25
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "type": "wall",
+   "properties": [
+    {
+     "name": "name",
+     "type": "string",
+     "value": "wall"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "objects": [
+     {
+      "height": 16,
+      "id": 1,
+      "name": "",
+      "rotation": 0,
+      "type": "",
+      "visible": true,
+      "width": 16,
+      "x": 0,
+      "y": 0
+     }
+    ],
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": 2,
+   "animation": [
+    {
+     "duration": 400,
+     "tileid": 2
+    },
+    {
+     "duration": 400,
+     "tileid": 3
+    }
+   ],
+   "properties": [
+    {
+     "name": "name",
+     "type": "string",
+     "value": "water"
+    },
+    {
+     "name": "bush",
+     "type": "bool",
+     "value": true
+    },
+    {
+     "name": "ledge",
+     "type": "string",
+     "value": "down"
+    }
+   ],
+   "objectgroup": {
+    "draworder": "index",
+    "id": 2,
+    "name": "",
+    "objects": [
+     {
+      "height": 3,
+      "id": 1,
+      "name": "",
+      "rotation": 0,
+      "type": "",
+      "visible": true,
+      "width": 16,
+      "x": 0,
+      "y": 0
+     }
+    ],
+    "opacity": 1,
+    "type": "objectgroup",
+    "visible": true,
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": 3,
+   "properties": [
+    {
+     "name": "name",
+     "type": "string",
+     "value": "water-b"
+    }
+   ]
+  }
+ ]
+}

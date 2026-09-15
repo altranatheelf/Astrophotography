@@ -197,6 +197,10 @@
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
     }
     let project = base, problems = [];
+    // Imported art (tiles/sprites/faces/icons/assets the project carries) has no
+    // js/art file to register it, so the project registers its own — before
+    // normalize, which validates every tile id a map uses.
+    try { KIT.project.registerContent(base); } catch (e) { (KIT.log || console).warn('[storage] the project content did not register', e); }
     try { const n = KIT.project.normalize(base); project = n.project; problems = n.problems; }
     catch (e) { (KIT.log || console).error('[storage] the project did not normalize; starting blank', e); project = KIT.project.blank(); source = 'default'; }
     projectId = (project.meta && project.meta.id) || projectId;

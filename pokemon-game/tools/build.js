@@ -15,16 +15,21 @@ let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
 const isLocal = (src) => src && !/^(https?:)?\/\//i.test(src) && !src.startsWith('data:');
 const read = (rel) => fs.readFileSync(path.join(root, rel.split('?')[0]), 'utf8');
+const missing = (rel) => !fs.existsSync(path.join(root, rel.split('?')[0]));
 
-let styles = 0, scripts = 0;
+let styles = 0, scripts = 0, skipped = 0;
 html = html.replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*>/gi, (tag) => {
   const m = tag.match(/href=["']([^"']+)["']/i);
   if (!m || !isLocal(m[1])) return tag;
+  // index.html lists content files that need not exist yet (the demo's assets.js
+  // appears the first time something is imported); a missing one is dropped.
+  if (missing(m[1])) { skipped++; console.warn(`  (skipped ${m[1]}: not there)`); return ''; }
   styles++;
   return `<style>\n/* ${m[1]} */\n${read(m[1])}\n</style>`;
 });
 html = html.replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>\s*<\/script>/gi, (tag, src) => {
   if (!isLocal(src)) return tag;
+  if (missing(src)) { skipped++; console.warn(`  (skipped ${src}: not there)`); return ''; }
   scripts++;
   const code = read(src).replace(/<\/script/gi, '<\\/script');
   return `<script>\n// ---- ${src} ----\n${code}\n</script>`;
@@ -32,4 +37,4 @@ html = html.replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
 
 fs.writeFileSync(outFile, html);
 const kb = (fs.statSync(outFile).size / 1024).toFixed(0);
-console.log(`bundled ${styles} stylesheet(s) and ${scripts} script(s) -> ${path.relative(process.cwd(), outFile)} (${kb} KB)`);
+console.log(`bundled ${styles} stylesheet(s) and ${scripts} script(s)${skipped ? ` (${skipped} missing file(s) skipped)` : ''} -> ${path.relative(process.cwd(), outFile)} (${kb} KB)`);

@@ -30,7 +30,7 @@
     if (!art) return { w: 0, h: 0 };
     if (isImageArt(art)) {
       const r = imageRect(art, 0);
-      if (r) return { w: r.w | 0, h: r.h | 0 };
+      if (r) return { w: (r.sw || r.w) | 0, h: (r.sh || r.h) | 0 };      // sw/sh = the untrimmed box
       const size = KIT.assets ? KIT.assets.size(art.image) : { w: 0, h: 0 };
       return { w: (art.w != null ? art.w : size.w) | 0, h: (art.h != null ? art.h : size.h) | 0 };
     }
@@ -236,13 +236,20 @@
     return cv;
   }
 
-  /** Draw a slice of a decoded asset image (mirrored and scaled as asked). */
+  /**
+   * Draw a slice of a decoded asset image (mirrored and scaled as asked).
+   * A trimmed frame (Aseprite's --trim) carries the box it was cut out of —
+   * `sw`/`sh` — and where it sits in it — `ox`/`oy`; the canvas is that whole
+   * box, so a trimmed walk cycle does not jitter.
+   */
   function renderImage(art, o, scale) {
     const el = KIT.assets ? KIT.assets.image(art.image) : null;
     const rect = imageRect(art, o.frame | 0) || { x: 0, y: 0, w: dims(art).w, h: dims(art).h };
     const w = Math.max(1, rect.w | 0), h = Math.max(1, rect.h | 0);
+    const boxW = Math.max(w, rect.sw | 0), boxH = Math.max(h, rect.sh | 0);
+    const ox = rect.ox | 0, oy = rect.oy | 0;
     const cv = document.createElement('canvas');
-    cv.width = w * scale; cv.height = h * scale;
+    cv.width = boxW * scale; cv.height = boxH * scale;
     const ctx = cv.getContext('2d');
     if (!ctx) return cv;
     ctx.imageSmoothingEnabled = false;
@@ -253,7 +260,7 @@
       return cv;
     }
     if (o.mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
-    ctx.drawImage(el, rect.x | 0, rect.y | 0, w, h, 0, 0, w * scale, h * scale);
+    ctx.drawImage(el, rect.x | 0, rect.y | 0, w, h, ox * scale, oy * scale, w * scale, h * scale);
     return cv;
   }
 
@@ -275,11 +282,18 @@
     return cv;
   }
 
-  // Draw the cached canvas at integer coordinates.
+  // Draw the cached canvas at integer coordinates. `opts.fit = { w, h }` squeezes
+  // it into that many device pixels instead — how art drawn for another tile size
+  // (an imported 8px or 48px tileset in a 16px game) is made to fit its cell.
   function draw(ctx, art, x, y, opts) {
     if (!ctx) return;
     const cv = canvas(art, opts);
-    ctx.drawImage(cv, Math.round(x), Math.round(y));
+    const fit = opts && opts.fit;
+    if (fit && fit.w > 0 && fit.h > 0 && (cv.width !== fit.w || cv.height !== fit.h)) {
+      ctx.drawImage(cv, Math.round(x), Math.round(y), Math.round(fit.w), Math.round(fit.h));
+    } else {
+      ctx.drawImage(cv, Math.round(x), Math.round(y));
+    }
     return cv;
   }
 

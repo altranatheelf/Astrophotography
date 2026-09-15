@@ -518,6 +518,7 @@
   /** Register the project's imported images and start decoding them; redraw as they arrive. */
   function useAssets(project) {
     if (!KIT.assets) return;
+    KIT.project.registerContent(project);          // imported tiles/sprites/faces/icons + assets
     KIT.assets.fromProject(project);
     if (!useAssets.watching && KIT.pixels.onImageLoaded) {
       useAssets.watching = KIT.pixels.onImageLoaded(() => { if (G.renderer) G.renderer.clearCaches(); });

@@ -33,9 +33,39 @@ Result = {
 }
 ```
 
-Then `KIT.import.merge(project, result, { prefix, overwrite })` folds a result
-into a project (document patches when a document is given) and returns the
-problems. Nothing is written to disk by the importer itself.
+Then `KIT.import.merge(target, result, { prefix, overwrite, dryRun, source })`
+folds a result into a project. `target` is a plain project (merged in place) or a
+`KIT.document`, in which case every change lands in ONE undo step called
+`Import <source>`. Nothing is written to disk by the importer itself —
+`tools/import.js` reads the files, resolves the images and writes the content.
+
+```js
+Report = {
+  problems: [ Problem ],            // the merge's own, then the importer's
+  added:    { maps, objects, tiles, sprites, faces, icons, animations, assets,
+              scripts, vars, items, terrains, autotiles },
+  replaced: { ...same... }, unchanged: { ...same... }, skipped: { ...same... },
+  ids:      { added:[ 'maps/town', ... ], replaced:[], skipped:[] },
+  label, project, registered, dryRun,
+}
+```
+
+Where a result lands, and what the engine does with it afterwards:
+
+| Result | Project | Registry |
+|---|---|---|
+| `assets` | `project.assets[id]` | `KIT.assets.define` |
+| `tiles` / `sprites` / `faces` / `icons` | `project.<kind>[id]` | `KIT.registry('<kind>')` |
+| `animations` | `project.animations[id]` | none yet (`animations-stored` info) |
+| `maps` / `scripts` / `vars` / `items` | `project.<kind>[id]` | — |
+| `project` | `meta.title`, `start`, `settings.tileSize`, `terrains`, `autotiles` | — |
+
+`project.tiles/sprites/faces/icons` are content tables: imported art has no
+`js/art/*.js` file to register it, so `KIT.project.registerContent(project)` puts
+them into the registries when the project loads (`KIT.storage.loadProject`, and
+`KIT.game.useAssets`). Values are written in the shape `KIT.project.normalize`
+keeps them in, so importing the same file twice compares equal and changes
+nothing.
 
 ## Ids and collisions
 - Every produced id is `KIT.slug`ged and prefixed by the source when `opts.prefix`
@@ -43,7 +73,9 @@ problems. Nothing is written to disk by the importer itself.
   so re-importing updates instead of duplicating.
 - Tile ids: `<tilesetId>:<localIndex>` unless the tile has a `name`/`id` property.
 - An id that already exists is replaced when `overwrite` is true, otherwise it is
-  reported as a `duplicate-id` problem and skipped.
+  reported as a `duplicate-id` problem and skipped. An id that already exists
+  with *the same value* is neither: it is counted as `unchanged` and says
+  nothing, which is what makes re-running an import a no-op.
 
 ## Images
 Imported art is image-backed (`js/kit/core/assets.js`):

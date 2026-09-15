@@ -13,9 +13,17 @@ are standing in.
 ```
 open index.html                 # the game (any modern browser, also from a file)
 open index.html?edit=1          # straight into Creator Mode
-npm test                        # 99 unit tests, pure Node, no browser
+npm test                        # 197 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
+node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
 node tools/build.js             # bundle everything into one shareable .html
+```
+
+Play-throughs in a real browser (they need Playwright):
+
+```
+NODE_PATH=$(npm root -g) node e2e/walk.js     # title -> walk -> talk -> save -> co-op
+NODE_PATH=$(npm root -g) node e2e/import.js   # import a map, then play it
 ```
 
 ## What is here
@@ -25,12 +33,15 @@ node tools/build.js             # bundle everything into one shareable .html
 | `docs/DESIGN.md` | Why the engine is shaped this way, and how future ideas plug in |
 | `docs/ARCHITECTURE.md` | The build contract: data model, commands, editor, phases |
 | `docs/KIT-API.md` | Every public function, with signatures |
+| `docs/IMPORTING.md` | Bringing maps and art in from Tiled, RPG Maker MV and Aseprite |
+| `docs/IMPORT-CONTRACT.md` | The shape every importer returns |
 | `js/kit/` | The engine: core, world, script, systems, render, scenes, editor |
+| `js/kit/import/` | Importers: Tiled, RPG Maker MV/MZ, Aseprite, and the merge into a project |
 | `js/art/` | Pixel art: ~80 map tiles, characters (some real, some generated placeholders) |
 | `js/data/`, `js/sprites/` | The 32-Pokémon data pack and portraits (for the Pokémon module) |
 | `js/content/demo/` | The demo world — ordinary content, made to be replaced |
-| `tools/` | Sprite/tile renderers, the demo builder, the single-file bundler |
-| `test/`, `e2e/` | Node tests and browser play-throughs |
+| `tools/` | Sprite/tile renderers, the demo builder, the importer CLI, the single-file bundler |
+| `test/`, `e2e/` | Node tests (with fixtures for each importer) and browser play-throughs |
 
 ## The ideas the engine is built on
 
@@ -79,8 +90,9 @@ Done and tested: the core (registries, schema, patch document, deterministic
 randomness), the project format with migrations, autotiles, the full command
 set, conditions, the Screenplay text format, the interpreter with threads and
 breakpoints, the map view, entities and movement, the world runtime with event
-pages and slots, the standard systems, the editor operations, and the demo
-world.
+pages and slots, the standard systems, the editor operations, the demo world,
+and the importers — a Tiled map, an RPG Maker MV/MZ project or Aseprite art
+becomes playable content with one command (`docs/IMPORTING.md`).
 
 In progress: the browser layer (renderer, scenes, input, audio, storage, game
 boot) and Creator Mode's panels. After that: the Pokémon module (catching,

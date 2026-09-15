@@ -327,6 +327,25 @@
     it.props = k && k.fields ? S.fill(k.fields, isObj(src.props) ? src.props : {}) : (isObj(src.props) ? src.props : {});
     return it;
   };
+  /** fillAutotileGroup(group, index) -> the group with every default filled in (and its rules). */
+  P.fillAutotileGroup = function (g, i) {
+    const go = S.fill(F.autotileGroup, isObj(g) ? g : {});
+    if (!go.id) go.id = `group-${(i || 0) + 1}`;
+    if (!go.name) go.name = titleCase(go.id);
+    go.rules = (Array.isArray(g && g.rules) ? g.rules : []).map(r => {
+      const ro = S.fill(F.autotileRule, isObj(r) ? r : {});
+      if (ro.layer === undefined) delete ro.layer;
+      for (const key of ['tilesX', 'tilesY', 'tilesXY']) if (ro[key] === undefined) delete ro[key];
+      return ro;
+    });
+    return go;
+  };
+  /** fillScript(script, id) -> the script with every default filled in. */
+  P.fillScript = function (raw, id) {
+    const sc = S.fill(F.script, isObj(raw) ? raw : {});
+    if (!sc.label) sc.label = titleCase(id || '');
+    return sc;
+  };
   const VAR_DEFAULT = { number: 0, bool: false, string: '' };
   P.fillVar = function (raw, name) {
     if (!isObj(raw)) { const t = typeof raw === 'boolean' ? 'bool' : typeof raw === 'string' ? 'string' : 'number'; raw = { type: t, default: raw == null ? VAR_DEFAULT[t] : raw }; }
@@ -356,18 +375,14 @@
     p.vars = {}; if (isObj(src.vars)) for (const k of Object.keys(src.vars)) p.vars[k] = P.fillVar(src.vars[k], k);
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
     p.assets = {}; if (isObj(src.assets)) for (const k of Object.keys(src.assets)) p.assets[k] = S.fill(F.asset, isObj(src.assets[k]) ? src.assets[k] : {});
-    p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) { const sc = S.fill(F.script, isObj(src.scripts[k]) ? src.scripts[k] : {}); if (!sc.label) sc.label = titleCase(k); p.scripts[k] = sc; }
+    p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) p.scripts[k] = P.fillScript(src.scripts[k], k);
     p.fragments = (Array.isArray(src.fragments) ? src.fragments : []).map((f, i) => { const o = S.fill(F.fragment, isObj(f) ? f : {}); if (!o.id) o.id = `fragment-${i + 1}`; return o; });
     p.testStates = (Array.isArray(src.testStates) ? src.testStates : []).map((t, i) => { const o = S.fill(F.testState, isObj(t) ? t : {}); if (!o.id) o.id = `test-${i + 1}`; o.vars = isObj(t && t.vars) ? t.vars : {}; o.inventory = isObj(t && t.inventory) ? t.inventory : {}; o.modules = isObj(t && t.modules) ? t.modules : {}; return o; });
     p.autotiles = {};
     const sets = isObj(src.autotiles) && Object.keys(src.autotiles).length ? src.autotiles : { default: { source: 'terrain', groups: [] } };
     for (const k of Object.keys(sets)) {
       const set = isObj(sets[k]) ? sets[k] : {};
-      p.autotiles[k] = { source: set.source || 'terrain', groups: (Array.isArray(set.groups) ? set.groups : []).map((g, i) => {
-        const go = S.fill(F.autotileGroup, isObj(g) ? g : {}); if (!go.id) go.id = `group-${i + 1}`; if (!go.name) go.name = titleCase(go.id);
-        go.rules = (Array.isArray(g && g.rules) ? g.rules : []).map(r => { const ro = S.fill(F.autotileRule, isObj(r) ? r : {}); if (ro.layer === undefined) delete ro.layer; for (const key of ['tilesX', 'tilesY', 'tilesXY']) if (ro[key] === undefined) delete ro[key]; return ro; });
-        return go;
-      }) };
+      p.autotiles[k] = { source: set.source || 'terrain', groups: (Array.isArray(set.groups) ? set.groups : []).map((g, i) => P.fillAutotileGroup(g, i)) };
     }
     p.terrains = (Array.isArray(src.terrains) ? src.terrains : []).map((t, i) => { const o = S.fill(F.terrain, isObj(t) ? t : {}); if (!Number.isInteger(o.id) || o.id < 1) o.id = i + 1; if (!o.name) o.name = `Terrain ${o.id}`; return o; });
     p.maps = {};
@@ -787,6 +802,39 @@
     out.width = w; out.height = h;
     return out;
   };
+  /**
+   * registerContent(project) -> { assets, tiles, sprites, faces, icons }
+   * A project may carry content of its own — the tables an import writes
+   * (KIT.import.merge): `assets`, `tiles`, `sprites`, `faces`, `icons`, each a
+   * table keyed by id. Art drawn here lives in `js/art/*.js` and registers
+   * itself at load time; imported art has no such file, so the project IS the
+   * file and this puts it into the registries. Called before the project is
+   * normalized (storage.loadProject) so the validator sees the tiles too.
+   * Safe to call twice: every definition replaces its own id.
+   */
+  const CONTENT_TABLES = ['tiles', 'sprites', 'faces', 'icons'];
+  P.registerContent = function (project) {
+    const counts = { assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0 };
+    if (!isObj(project)) return counts;
+    if (KIT.assets && KIT.assets.define && isObj(project.assets)) {
+      for (const id of Object.keys(project.assets).sort()) {
+        try { KIT.assets.define(Object.assign({ id }, project.assets[id])); counts.assets++; }
+        catch (e) { (KIT.log || console).warn(`[project] asset '${id}' was not registered: ${e.message}`); }
+      }
+    }
+    for (const name of CONTENT_TABLES) {
+      const table = project[name];
+      if (!isObj(table) || !KIT.registry.exists(name)) continue;
+      const reg = KIT.registry(name);
+      for (const id of Object.keys(table).sort()) {
+        if (!isObj(table[id])) continue;
+        try { reg.add(Object.assign({ id }, table[id], { replace: true })); counts[name]++; }
+        catch (e) { (KIT.log || console).warn(`[project] ${name.replace(/s$/, '')} '${id}' was not registered: ${e.message}`); }
+      }
+    }
+    return counts;
+  };
+
   /** blank() -> a small valid project with one map. */
   P.blank = function (opts) {
     opts = opts || {};
@@ -920,8 +968,12 @@
         '',
       ].join('\n');
     }
+    // An imported map id can carry a namespace ('outside:town'); ':' is legal in
+    // an id but not in a filename on every system, so the FILE name is tamed
+    // while the id inside the file (and its header) stays exactly as it is.
+    const fileName = (id) => id.replace(/[^A-Za-z0-9._-]+/g, '-');
     for (const id of Object.keys(maps).sort()) {
-      files[`maps/${id}.js`] = [
+      files[`maps/${fileName(id)}.js`] = [
         fileHeader('map', pid, id, (maps[id].name || id) + ' (map)'),
         '(function (root, data) {',
         '  var KIT = root.KIT = root.KIT || {};',
