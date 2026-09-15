@@ -88,13 +88,17 @@
     const def = reg && e.sprite ? reg.get(e.sprite) : null;
     if (!def || !def.frames) return null;
     const seq = [0, 1, 0, 2][e.walkFrame % 4];
-    const dir = e.dir === 'right' ? 'left' : e.dir;
-    const frames = def.frames[dir] || def.frames.down;
+    // A sheet may carry a real `right` row (RPG Maker sheets do); otherwise the
+    // left row is mirrored, which is how hand-drawn Kit art is made.
+    const drawn = (e.dir === 'right' && !def.frames.right) ? 'left' : e.dir;
+    const mirror = e.dir === 'right' && !def.frames.right;
+    const frames = def.frames[drawn] || def.frames.down;
     if (!frames) return null;
-    const key = `${e.sprite}|${dir}|${Math.min(seq, frames.length - 1)}|${e.dir === 'right' ? 'm' : ''}`;
+    const i = Math.min(seq, frames.length - 1);
+    const key = `${e.sprite}|${drawn}|${i}|${mirror ? 'm' : ''}`;
     let cached = frameCache.get(key);
     if (!cached || cached.def !== def) {
-      cached = { def, rows: frames[Math.min(seq, frames.length - 1)], palette: def.palette, mirror: e.dir === 'right', w: def.w || 16, h: def.h || 24 };
+      cached = { def, rows: frames[i], palette: def.palette, mirror, w: def.w || 16, h: def.h || 24, art: def.art || (typeof def.image === 'string' ? def : null), frameIndex: i, dir: drawn };
       frameCache.set(key, cached);
     }
     return cached;

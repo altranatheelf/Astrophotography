@@ -95,3 +95,18 @@ test('entities: companion follows the leader trail one tile behind', () => {
   E.updateCompanion(comp, lead, 1 / 60, v);
   assert.deepEqual([comp.x, comp.y], [7, 7]);
 });
+
+test('entities: a sheet with real right-facing frames is not mirrored', () => {
+  const reg = KIT.registry('sprites');
+  const rows = (ch) => Array.from({ length: 24 }, () => ch.repeat(16));
+  reg.add({ id: 'mirrored', w: 16, h: 24, palette: { a: '#ff0000' }, frames: { down: [rows('a'), rows('a'), rows('a')], up: [rows('a'), rows('a'), rows('a')], left: [rows('a'), rows('a'), rows('a')] } });
+  reg.add({ id: 'four-way', w: 16, h: 24, palette: { a: '#ff0000', b: '#00ff00' }, frames: { down: [rows('a'), rows('a'), rows('a')], up: [rows('a'), rows('a'), rows('a')], left: [rows('a'), rows('a'), rows('a')], right: [rows('b'), rows('b'), rows('b')] } });
+  const m = E.create({ id: 'm', sprite: 'mirrored', dir: 'right' });
+  const f = E.create({ id: 'f', sprite: 'four-way', dir: 'right' });
+  assert.equal(E.frame(m).mirror, true, 'no right row: mirror the left one');
+  assert.equal(E.frame(f).mirror, false, 'a real right row is drawn as it is');
+  assert.equal(E.frame(f).rows[0][0], 'b');
+  f.dir = 'left';
+  assert.equal(E.frame(f).rows[0][0], 'a');
+  assert.equal(E.frame(m), E.frame(m), 'frames are cached by identity');
+});
