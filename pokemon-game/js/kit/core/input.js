@@ -53,7 +53,8 @@
   }
 
   function setKey(player, key, down) {
-    if (player > 1 && players < 2 && key !== 'menu') return;      // player 2's keys are dead in one-player mode
+    // Player 2's buttons stay live even with one pad on screen: with co-op off
+    // the map scene simply points them at whoever is leading.
     const pad = pads[player];
     if (!pad || !KEYS.includes(key)) return;
     if (down) {

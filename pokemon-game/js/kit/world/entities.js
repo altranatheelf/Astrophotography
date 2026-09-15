@@ -82,6 +82,7 @@
   };
 
   /** The sprite frame to draw: { rows, mirror } via the sprites registry, or null when there is no art. */
+  const frameCache = new Map();          // 'sprite|dir|seq' -> the SAME object every time, so canvas caches keyed by identity hit
   E.frame = function (e) {
     const reg = KIT.registry.exists('sprites') ? KIT.registry('sprites') : null;
     const def = reg && e.sprite ? reg.get(e.sprite) : null;
@@ -90,8 +91,15 @@
     const dir = e.dir === 'right' ? 'left' : e.dir;
     const frames = def.frames[dir] || def.frames.down;
     if (!frames) return null;
-    return { def, rows: frames[Math.min(seq, frames.length - 1)], palette: def.palette, mirror: e.dir === 'right', w: def.w || 16, h: def.h || 24 };
+    const key = `${e.sprite}|${dir}|${Math.min(seq, frames.length - 1)}|${e.dir === 'right' ? 'm' : ''}`;
+    let cached = frameCache.get(key);
+    if (!cached || cached.def !== def) {
+      cached = { def, rows: frames[Math.min(seq, frames.length - 1)], palette: def.palette, mirror: e.dir === 'right', w: def.w || 16, h: def.h || 24 };
+      frameCache.set(key, cached);
+    }
+    return cached;
   };
+  E.clearFrameCache = () => frameCache.clear();
 
   // ---- move routes (§9.2) -----------------------------------------------------
   /**

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Our Adventure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Loaded without blocking: if the font never arrives the fallback stack is fine. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="css/kit.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Creator Mode uses these two; they stay empty (and hidden) while you play. -->
+  <div id="mode-strip" hidden></div>
+
+  <main id="stage">
+    <div id="screen">
+      <canvas id="game-canvas" aria-label="Game screen"></canvas>
+      <div id="chapter" class="overlay" hidden></div>
+      <div id="dialogue" class="overlay" hidden></div>
+      <div id="choice" class="overlay" hidden></div>
+      <div id="pause-menu" class="overlay" hidden></div>
+      <div id="toast" class="overlay" hidden></div>
+      <div id="screen-title" class="overlay" hidden></div>
+    </div>
+    <div id="controls" class="kit-controls"></div>
+  </main>
+
+  <div id="editor" hidden></div>
+</div>
+
+<!-- The single-file build writes the world in here; empty means "use the content files". -->
+<script id="project-data" type="application/json"></script>
+
+<!-- Kit core (load order: docs/KIT-API.md) -->
+<script src="js/kit/core/util.js"></script>
+<script src="js/kit/core/events.js"></script>
+<script src="js/kit/core/rng.js"></script>
+<script src="js/kit/core/registry.js"></script>
+<script src="js/kit/core/schema.js"></script>
+<script src="js/kit/core/registries.js"></script>
+<script src="js/kit/core/pixels.js"></script>
+<script src="js/kit/core/input.js"></script>
+<script src="js/kit/core/audio.js"></script>
+<script src="js/kit/core/storage.js"></script>
+
+<!-- World (document/project/tiles first: the script layer validates against them) -->
+<script src="js/kit/world/document.js"></script>
+<script src="js/kit/world/project.js"></script>
+<script src="js/kit/world/tiles.js"></script>
+
+<!-- Script language -->
+<script src="js/kit/script/text.js"></script>
+<script src="js/kit/script/conditions.js"></script>
+<script src="js/kit/script/commands.js"></script>
+<script src="js/kit/script/screenplay.js"></script>
+<script src="js/kit/script/interpreter.js"></script>
+
+<!-- The live world needs the script layer above it -->
+<script src="js/kit/world/map.js"></script>
+<script src="js/kit/world/entities.js"></script>
+<script src="js/kit/world/world.js"></script>
+<script src="js/kit/systems/index.js"></script>
+
+<!-- Runtime UI -->
+<script src="js/kit/render/renderer.js"></script>
+<script src="js/kit/scenes/stack.js"></script>
+<script src="js/kit/scenes/dialogue.js"></script>
+<script src="js/kit/scenes/menu.js"></script>
+<script src="js/kit/scenes/title.js"></script>
+<script src="js/kit/scenes/map.js"></script>
+<script src="js/kit/game.js"></script>
+
+<!-- Art (each file registers into the kit registries; missing art is drawn as a silhouette) -->
+<script src="js/art/tiles.js"></script>
+<script src="js/art/tiles-nature.js"></script>
+<script src="js/art/tiles-town.js"></script>
+<script src="js/art/tiles-interior.js"></script>
+<script src="js/art/chars.js"></script>
+<script src="js/art/chars-heroes.js"></script>
+<script src="js/art/chars-placeholder.js"></script>
+
+<!-- Pokémon data and portraits (the mons module will use these) -->
+<script src="js/data/types.js"></script>
+<script src="js/data/moves.js"></script>
+<script src="js/data/pokemon.js"></script>
+<script src="js/sprites/charizard.js"></script>
+<script src="js/sprites/venusaur.js"></script>
+<script src="js/sprites/machamp.js"></script>
+<script src="js/sprites/jynx.js"></script>
+<script src="js/sprites/electabuzz.js"></script>
+<script src="js/sprites/jolteon.js"></script>
+<script src="js/sprites/vaporeon.js"></script>
+
+<!-- Content: the demo world. If these files are missing the game still boots (blank project). -->
+<script src="js/content/demo/project.js"></script>
+<script src="js/content/demo/maps/home.js"></script>
+<script src="js/content/demo/maps/town.js"></script>
+<script src="js/content/demo/maps/lab.js"></script>
+<script src="js/content/demo/maps/route.js"></script>
+
+<script src="js/main.js"></script>
+</body>
+</html>

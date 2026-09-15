@@ -6,11 +6,13 @@
   const reg = KIT.registry('systems');
 
   // --- 10 movement: interpolation, arrivals, hero touch checks -------------------
+  const routePorts = (world) => ({ hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) });
   reg.add({ id: 'movement', order: 10, update(world, dt) {
-    for (const h of world.heroes) E.update(h, dt);
+    for (const h of world.heroes) { E.update(h, dt); if (h.route) E.updateRoute(h, dt, world.map, routePorts(world)); }
     if (world.companion) E.update(world.companion, dt);
     for (const e of world.entities) {
       const arrived = E.update(e, dt);
+      if (e.route) E.updateRoute(e, dt, world.map, routePorts(world));   // routes started by the moveRoute command or a behaviour
       if (arrived && e.kind === 'npc') {
         const hit = world.heroes.find(h => h.x === e.x && h.y === e.y);
         if (hit && e.page && e.page.on && e.page.on.touch && !world.busy) world.runSlot(e, 'touch', hit.id);
@@ -43,7 +45,7 @@
   bhv.add({ id: 'route', label: 'Follow a route', fields: [{ key: 'route', type: 'route', default: [] }, { key: 'repeat', type: 'bool', default: true }],
     update(e, world, dt) {
       if (!e.route && !e.data.routeDone) E.startRoute(e, e.behaviour.route || [], { repeat: e.behaviour.repeat !== false, skipBlocked: true });
-      if (e.route && E.updateRoute(e, dt, world.map, { hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) })) e.data.routeDone = true;
+      // the movement system steps it
     } });
   bhv.add({ id: 'approach', label: 'Approach the player', fields: [{ key: 'frequency', type: 'number', min: 1, max: 9, default: 5 }],
     update(e, world, dt) {
@@ -107,7 +109,7 @@
     update(world) {
       const view = world.map;
       if (!view) return world.camera;
-      const vp = (world.project.settings && world.project.settings.viewport) || { w: 16, h: 12 };
+      const vp = world.viewport || (world.project.settings && world.project.settings.viewport) || { w: 16, h: 12 };
       const h = world.hero();
       let cx = (h ? h.px : 0) + 0.5 - vp.w / 2;
       let cy = (h ? h.py : 0) + 0.5 - vp.h / 2;

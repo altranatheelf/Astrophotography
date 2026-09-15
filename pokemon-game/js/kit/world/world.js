@@ -26,6 +26,8 @@
     const world = {
       project, save, events, rng, ports,
       map: null, entities: [], heroes: [], companion: null,
+      viewport: Object.assign({ w: 16, h: 12 }, (project.settings && project.settings.viewport) || {}),   // live tiles on screen; the renderer updates it, the project is not touched
+      activeEntity: null,          // the object whose script is running (ports read it to resolve target 'self')
       activeHero: 0, coop: !!(project.settings && project.settings.coop && project.settings.coop.enabled),
       busy: false,                 // a main-thread script is running: input is locked
       time: 0, systems: [],
@@ -100,13 +102,16 @@
     world.refreshPages = refreshPages;
 
     /** enterMap(id, x, y, dir) -> Promise: swaps the map, places the heroes, runs init/enter slots. */
-    world.enterMap = async function (mapId, x, y, dir) {
+    world.enterMap = async function (mapId, x, y, dir, opts) {
       const from = world.map ? world.map.id : null;
       if (from) { for (const s of world.systems) if (s.onMapLeave) s.onMapLeave(world); events.emit('mapLeave', { map: from }); }
       world.map = KIT.mapView(project, save, mapId);
       world.initDone = {};
-      const lead = world.hero();
-      for (const h of world.heroes) { h.x = x; h.y = y; h.px = x; h.py = y; h.dir = dir || h.dir; h.mover.moving = false; }
+      const places = (opts && opts.heroes) || null;    // restoring a save may put each hero back on its own tile
+      world.heroes.forEach((h, i) => {
+        const at = places && places[i] ? places[i] : { x, y, dir };
+        h.x = at.x; h.y = at.y; h.px = at.x; h.py = at.y; h.dir = at.dir || dir || h.dir; h.mover.moving = false;
+      });
       if (world.heroes[1]) { world.heroes[1].data.trail = []; }
       if (world.companion) { world.companion.x = x; world.companion.y = y; world.companion.px = x; world.companion.py = y; world.companion.data.trail = []; }
       buildEntities();
@@ -129,7 +134,7 @@
 
     // ---- scripts ---------------------------------------------------------------
     /** The base ctx for conditions (no object bound). */
-    world.ctxBase = () => ({ world, project, save, hero: world.hero() ? world.hero().id : 'p1', coop: world.coop });
+    world.ctxBase = () => ({ world, project, save, hero: world.hero() ? world.hero().id : 'p1', coop: world.coop, input: ports.input || { pressed: () => false } });
     /** makeCtx(entity, heroId) -> the RunCtx commands use (§9.1). */
     world.makeCtx = function (entity, heroId) {
       const ctx = {
@@ -140,6 +145,7 @@
         emit(event, payload) { events.emit(event, payload); },
       };
       for (const group of ['io', 'audio', 'screen', 'pictures', 'map', 'game']) ctx[group] = ports[group] || {};
+      ctx.input = ports.input || { pressed: () => false };      // the `button` condition kind
       return ctx;
     };
 
@@ -159,9 +165,11 @@
       }
       const ctx = world.makeCtx(entity, heroId);
       const background = slot === 'tick';
+      const previousActive = world.activeEntity;
       if (!background) {
         if (world.busy) return null;
         world.busy = true;
+        world.activeEntity = entity;          // ports resolve target 'self' through this
         if (entity.kind === 'npc' && !entity.dirFix && slot === 'interact') {
           const h = world.heroById(ctx.hero);
           entity.data.resumeDir = entity.dir;
@@ -175,6 +183,7 @@
       } finally {
         if (!background) {
           world.busy = false;
+          world.activeEntity = previousActive;
           if (entity.data.resumeDir) { entity.dir = entity.data.resumeDir; entity.data.resumeDir = null; }
           refreshPages();
         }

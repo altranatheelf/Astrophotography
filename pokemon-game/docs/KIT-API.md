@@ -9,12 +9,14 @@ Load order (classic scripts, no modules):
 ```
 core/util.js  core/events.js  core/rng.js  core/registry.js  core/schema.js
 core/registries.js  core/pixels.js
-world/document.js  world/project.js  world/tiles.js  world/map.js  world/entities.js  world/world.js
+world/document.js  world/project.js  world/tiles.js
 script/text.js  script/conditions.js  script/commands.js  script/screenplay.js  script/interpreter.js
+world/map.js  world/entities.js  world/world.js
 systems/index.js        (then: scenes, render, game — being built)
 ```
-(`script/*` must load before `world/project.js` validates scripts, and before
-`world/world.js` runs them; the test loader `test/kit/_load.js` has the exact order.)
+(`world/world.js` captures `KIT.interpreter` at load time, so `script/*` must
+load before it; `world/project.js` only uses the script schema lazily, so it may
+come earlier. `test/kit/_load.js` and `index.html` both use this order.)
 
 ## core/util — stable
 `KIT.deepClone(v)` · `KIT.deepEqual(a,b)` · `KIT.stableStringify(v, indent)` (sorted keys) ·
