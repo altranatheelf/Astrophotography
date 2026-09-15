@@ -105,3 +105,24 @@ test('demo: town and route are joined by a walk-through connection', async () =>
   assert.equal(r.reason, 'connection');
   assert.equal(world.map.id, 'route');
 });
+
+test('a project carries its own art: imported tiles and sprites survive a reload', () => {
+  const R = (f) => require(path.join(__dirname, '..', '..', f));
+  R('js/kit/core/assets.js');
+  const base = KIT.project.blank();
+  base.assets = { sheet: { kind: 'image', src: 'assets/sheet.png', w: 64, h: 16 } };
+  base.tiles = { 'outside:stone': { id: 'outside:stone', name: 'Stone', group: 'outside', solid: true, art: { image: 'sheet', frame: { x: 16, y: 0, w: 16, h: 16 } } } };
+  base.sprites = { 'outside:hero': { id: 'outside:hero', w: 16, h: 24, frames: { down: [[], [], []] }, art: { image: 'sheet' } } };
+  const mapId = Object.keys(base.maps)[0];
+  base.maps[mapId].layers.ground[0] = 'outside:stone';
+  const { project, problems } = KIT.project.normalize(base);
+  assert.deepEqual(problems.filter(p => p.severity === 'error'), [], 'the project knows its own tiles');
+  assert.ok(KIT.registry('tiles').has('outside:stone'), 'loading a project registers its art');
+  assert.ok(KIT.registry('sprites').has('outside:hero'));
+  assert.ok(KIT.assets.has('sheet'), 'and its images');
+  assert.equal(KIT.tiles.flags('outside:stone').solid, true);
+  // and it all survives the content-file round trip
+  const back = KIT.project.importFiles(KIT.project.exportFiles(project));
+  assert.deepEqual(Object.keys(back.tiles), ['outside:stone']);
+  assert.deepEqual(Object.keys(back.assets), ['sheet']);
+});

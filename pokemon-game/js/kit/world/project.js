@@ -356,6 +356,28 @@
     return v;
   };
 
+  /**
+   * The art a project carries itself (imported from Tiled/RPG Maker/Aseprite, or drawn in
+   * Creator Mode) as opposed to the art built into the kit under js/art/. Loading a project
+   * registers it, which is what makes an imported tileset work after a reload.
+   */
+  P.ART_TABLES = [['tiles', 'tiles'], ['sprites', 'sprites'], ['faces', 'faces'], ['icons', 'icons'], ['animations', 'animations']];
+  /** registerArt(project) -> how many definitions were registered. Safe to call repeatedly. */
+  P.registerArt = function (project) {
+    let n = 0;
+    for (const [table, regName] of P.ART_TABLES) {
+      const t = project && project[table];
+      if (!isObj(t) || !KIT.registry.exists(regName)) continue;
+      for (const id of Object.keys(t)) {
+        if (!isObj(t[id])) continue;
+        try { KIT.registry(regName).add(Object.assign({}, t[id], { id, replace: true })); n++; }
+        catch (e) { (KIT.log || console).warn(`[project] ${table}['${id}'] could not be registered: ${e.message}`); }
+      }
+    }
+    if (KIT.assets && isObj(project && project.assets)) KIT.assets.fromProject(project);
+    return n;
+  };
+
   /** normalize(project, ctx) -> { project, problems }: migrate, fill every default, then validate. Never mutates the input. */
   P.normalize = function (project, ctx) {
     const mig = P.migrate(KIT.deepClone(project || {}));
@@ -394,6 +416,7 @@
     p.packs = isObj(src.packs) ? src.packs : {};
     if (!p.start.map && Object.keys(p.maps).length) p.start.map = Object.keys(p.maps)[0];
     for (const k of Object.keys(src)) if (!(k in p) && k !== 'version') p[k] = src[k];   // keep unknown top-level keys (modules' data)
+    if (!(ctx && ctx.skipRegisterArt)) P.registerArt(p);        // the project's own art has to exist before anything references it
     const problems = mig.problems.concat(P.validate(p, ctx));
     return { project: p, problems };
   };
@@ -761,7 +784,14 @@
         const plain = withoutScripts(def.fields);
         const filled = S.fill(plain, cmd);
         errors('schema', stripRefErrors(S.validate(plain, filled)), where, def.label || cmd.t);
-        for (const f of S.fields(plain)) if (f.type === 'text' && !f.optional && !f.nullable && S.visible(f, filled) && !String(filled[f.key] == null ? '' : filled[f.key]).trim()) prob('warn', 'empty-text', `${def.label || cmd.t}: '${f.key}' is empty`, Object.assign({}, where, { path: where.path.concat(f.key) }));
+        // An empty text field is usually a mistake — except where the games themselves leave it
+        // blank: choices often follow a message and carry no prompt of their own.
+        const textOptional = { choice: ['prompt'], chapter: ['subtitle'], comment: ['text'], debug: ['text'] };
+        for (const f of S.fields(plain)) {
+          if (f.type !== 'text' || f.optional || f.nullable || !S.visible(f, filled)) continue;
+          if ((textOptional[cmd.t] || []).includes(f.key)) continue;
+          if (!String(filled[f.key] == null ? '' : filled[f.key]).trim()) prob('warn', 'empty-text', `${def.label || cmd.t}: '${f.key}' is empty`, Object.assign({}, where, { path: where.path.concat(f.key) }));
+        }
         for (const tg of targetsOf(plain, filled, where.path)) checkTarget(tg, Object.assign({}, where, { path: tg.path }), def.label || cmd.t);
       }
       const background = where.slot === 'tick' || (where.script && project.scripts[where.script] && project.scripts[where.script].trigger === 'parallel');
