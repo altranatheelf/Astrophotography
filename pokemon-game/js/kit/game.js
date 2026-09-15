@@ -353,6 +353,7 @@
     await KIT.storage.ready();
 
     G.project = opts.project || KIT.project.blank();
+    useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
 
     canvas = KIT.ui.el('game-canvas');
@@ -514,10 +515,22 @@
     render();
     return G;
   };
+  /** Register the project's imported images and start decoding them; redraw as they arrive. */
+  function useAssets(project) {
+    if (!KIT.assets) return;
+    KIT.assets.fromProject(project);
+    if (!useAssets.watching && KIT.pixels.onImageLoaded) {
+      useAssets.watching = KIT.pixels.onImageLoaded(() => { if (G.renderer) G.renderer.clearCaches(); });
+    }
+    KIT.assets.loadAll().then((r) => { if (r.ready && G.renderer) G.renderer.clearCaches(); });
+  }
+  G.useAssets = useAssets;
+
   /** loadProject(project) — swap the whole world (tests, the editor, an import). */
   G.loadProject = function (project) {
     const n = KIT.project.normalize(project);
     G.project = n.project;
+    useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
     if (G.renderer) { G.renderer.setProject(G.project); G.resize(); }
     const top = KIT.scenes.top();

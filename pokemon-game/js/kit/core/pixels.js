@@ -28,12 +28,31 @@
   // Width/height of an art object (handles `size`, `w/h`, or infers from rows).
   function dims(art) {
     if (!art) return { w: 0, h: 0 };
+    if (isImageArt(art)) {
+      const r = imageRect(art, 0);
+      if (r) return { w: r.w | 0, h: r.h | 0 };
+      const size = KIT.assets ? KIT.assets.size(art.image) : { w: 0, h: 0 };
+      return { w: (art.w != null ? art.w : size.w) | 0, h: (art.h != null ? art.h : size.h) | 0 };
+    }
     const rows = rowsOf(art, 0);
     let w = art.w != null ? art.w : art.size;
     let h = art.h != null ? art.h : art.size;
     if (w == null) w = rows && rows[0] ? rows[0].length : 0;
     if (h == null) h = rows ? rows.length : 0;
     return { w: w | 0, h: h | 0 };
+  }
+
+  /** Art backed by an imported image: { image:'assetId', frame:{x,y,w,h} } or { image, frames:[rects] }. */
+  function isImageArt(art) { return !!(art && typeof art === 'object' && typeof art.image === 'string'); }
+  /** The source rectangle for one frame of image art (null when the art has none). */
+  function imageRect(art, frame) {
+    if (!isImageArt(art)) return null;
+    if (Array.isArray(art.frames) && art.frames.length) {
+      const i = ((frame | 0) % art.frames.length + art.frames.length) % art.frames.length;
+      const r = art.frames[i];
+      return r && r.w ? r : null;
+    }
+    return art.frame && art.frame.w ? art.frame : null;
   }
 
   // The row strings for frame `frame` (0-based). Returns null when missing.
@@ -50,6 +69,7 @@
   function frameCount(art) {
     if (!art) return 0;
     if (Array.isArray(art.frames)) return art.frames.length;
+    if (isImageArt(art)) return 1;
     return Array.isArray(art.rows) ? 1 : 0;
   }
 
@@ -191,6 +211,7 @@
   function render(art, opts) {
     const o = opts || {};
     const scale = Math.max(1, o.scale | 0 || 1);
+    if (isImageArt(art)) return renderImage(art, o, scale);
     const { w, h } = dims(art);
     const rows = rowsOf(art, o.frame | 0) || [];
     const pal = paletteWith(art, o.recolor);
@@ -215,12 +236,33 @@
     return cv;
   }
 
+  /** Draw a slice of a decoded asset image (mirrored and scaled as asked). */
+  function renderImage(art, o, scale) {
+    const el = KIT.assets ? KIT.assets.image(art.image) : null;
+    const rect = imageRect(art, o.frame | 0) || { x: 0, y: 0, w: dims(art).w, h: dims(art).h };
+    const w = Math.max(1, rect.w | 0), h = Math.max(1, rect.h | 0);
+    const cv = document.createElement('canvas');
+    cv.width = w * scale; cv.height = h * scale;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return cv;
+    ctx.imageSmoothingEnabled = false;
+    if (!el) {                                   // not decoded yet: a silhouette stands in
+      ctx.fillStyle = art.color || '#8a8a9a';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      cv.__pending = true;
+      return cv;
+    }
+    if (o.mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(el, rect.x | 0, rect.y | 0, w, h, 0, 0, w * scale, h * scale);
+    return cv;
+  }
+
   // Memoised canvas for `art` with the given options. Missing/invalid art
   // falls back to a silhouette so callers never crash.
   function canvas(art, opts) {
     if (!hasDocument()) throw new Error('KIT.pixels.canvas needs a browser document');
     let a = art;
-    if (!a || typeof a !== 'object' || !rowsOf(a, 0)) {
+    if (!a || typeof a !== 'object' || (!rowsOf(a, 0) && !isImageArt(a))) {
       const d = dims(a);
       a = silhouette(d.w || 16, d.h || 16, '#8a8a9a');
     }
@@ -228,6 +270,7 @@
     if (!perArt) { perArt = new Map(); cache.set(a, perArt); }
     const key = optionKey(opts);
     let cv = perArt.get(key);
+    if (cv && cv.__pending) { perArt.delete(key); cv = null; }      // the image finished loading since
     if (!cv) { cv = render(a, opts); perArt.set(key, cv); }
     return cv;
   }
@@ -244,17 +287,24 @@
   function invalidate(art) {
     if (art) cache.delete(art);
   }
+  // An asset finished decoding: drop the placeholder canvases drawn for it.
+  const imageWatchers = [];
+  function invalidateImage(assetId) { for (const fn of imageWatchers) { try { fn(assetId); } catch (e) { /* ignore */ } } }
+  /** onImageLoaded(fn) — the renderer uses this to clear its tile caches. */
+  function onImageLoaded(fn) { imageWatchers.push(fn); return () => { const i = imageWatchers.indexOf(fn); if (i >= 0) imageWatchers.splice(i, 1); }; }
 
   /** The art object of a registry entry: tiles/sprites carry rows/palette on the definition itself or under `art`. */
   function artOf(def) {
     if (!def || typeof def !== 'object') return null;
     if (def.art && typeof def.art === 'object') return def.art;
+    if (typeof def.image === 'string') return def;
     return (Array.isArray(def.rows) || Array.isArray(def.frames)) ? def : null;
   }
 
   KIT.pixels = {
     canvas, draw, downscale, silhouette, validate,
     dims, rowsOf, frameCount, paletteWith, invalidate, artOf,
+    isImageArt, imageRect, invalidateImage, onImageLoaded,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
