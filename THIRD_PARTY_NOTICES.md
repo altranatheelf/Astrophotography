@@ -17,6 +17,10 @@ METEORPREP is licensed Apache-2.0.  It builds on the following projects:
 | pytoshop (optional) | BSD | PSD writing |
 | psd-tools (optional) | MIT | PSD validation |
 | PySide6 (optional) | LGPL-3.0 | GUI (dynamically linked, unmodified) |
+| IM Fell English / English SC (Igino Marini) | SIL OFL 1.1 | bundled UI font (unmodified) |
+| EB Garamond (EB Garamond Project Authors) | SIL OFL 1.1 | bundled UI font (unmodified) |
+| IBM Plex Mono (IBM Corp.) | SIL OFL 1.1 | bundled UI font (unmodified) |
+| Caveat (Caveat Project Authors) | SIL OFL 1.1 | bundled UI font (unmodified) |
 | lensfunpy / Lensfun DB (optional) | MIT / LGPL-3.0 + CC-BY-SA (database) | lens distortion parameters |
 
 Invoked strictly as **external processes** (never linked), when present on

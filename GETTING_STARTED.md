@@ -262,3 +262,35 @@ records GPS, the tool reads it from the photos and you can ignore the box.
   the extra-clean averaged foreground, which would show two horizons, so
   the tool leaves it out and says so in the report. Use the FOREGROUND
   layer that comes from a single photo.
+
+## The window, and the four skins
+
+Everything below happens on three screens.
+
+**Home** — drop a folder of RAW files on the big window (it shows your own
+last stacked night), or press *Choose Folder…*.  Underneath: the nights you
+have already run — click one to open that folder again — and the moon
+tonight, worked out from the clock, so you know before you go out whether the
+sky will be dark.
+
+**Run** — the dial is the progress; the five lamps are the stages, each one
+keeping the time it really took; the strip is your photographs with the
+verdict on each (**✓** kept, **PLANE**, **SATELLITE**, **METEOR**); and the
+console underneath is the program's own log as it writes it.  *STOP* finishes
+the photo it is on and keeps everything worked out so far.
+
+**Done** — the finished picture, the night's own signature engraved beneath
+it, and every file the run wrote with its size.  Click a file to open it.
+*Adjust…* finishes the shot without leaving the app.
+
+**The skin** is yours, bottom right of Home:
+
+| | |
+|---|---|
+| **Bridge console** | painted steel, brass fittings, amber lamps (the default) |
+| **Chart room** | aged chart paper, brass clamps and ink — the light one |
+| **Logbook** | oxblood leather with cream paper readouts; nothing glows |
+| **Lantern** | near-black night, one amber lamp, a sextant instead of a dial |
+
+It is remembered between launches.  Nothing else changes with it: same
+screens, same words, same numbers.

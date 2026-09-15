@@ -42,15 +42,21 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
+    from PySide6.QtGui import QPixmap
+
     from meteorprep import modes as M
     from meteorprep.config import Config
     from meteorprep.pipeline import run as run_pipeline
+    from meteorprep.ui import facts, screens
+    from meteorprep.ui import theme as THEME
+    from meteorprep.ui import widgets as W
 
     class Cancelled(Exception):
         """Raised out of the progress callback to unwind a run."""
 
     class Worker(QThread):
         progressed = Signal(int, str)
+        logged = Signal(str)
         finished_ok = Signal(dict)
         failed = Signal(str)
         stopped = Signal()
@@ -73,6 +79,23 @@ def main() -> int:
             self.progressed.emit(int(frac * 100), msg)
 
         def run(self):
+            import logging
+
+            emit = self.logged.emit
+
+            class _Tap(logging.Handler):
+                """The run log, as it is written, so the window's console
+                shows the program's own words and not a paraphrase."""
+
+                def emit(self, record):
+                    try:
+                        emit(record.getMessage())
+                    except Exception:
+                        pass
+
+            tap = _Tap(level=logging.INFO)
+            logger = logging.getLogger("meteorprep")
+            logger.addHandler(tap)
             try:
                 result = run_pipeline(self.cfg, progress=self._progress)
                 self.finished_ok.emit(result)
@@ -83,6 +106,8 @@ def main() -> int:
                     self.stopped.emit()
                 else:
                     self.failed.emit(traceback.format_exc())
+            finally:
+                logger.removeHandler(tap)
 
     class SelfTestWorker(QThread):
         progressed = Signal(str)
@@ -228,6 +253,47 @@ def main() -> int:
             except Exception:
                 n = -1
             self.counted.emit(self.folder, n)
+
+    class ThumbWorker(QThread):
+        """The camera's own JPEG preview out of each RAW, for the frame strip.
+        It is the picture the camera made of that frame — nothing generated,
+        and cheap enough to read while the run is warming up."""
+        got = Signal(int, object)
+        listed = Signal(list)
+
+        def __init__(self, folder, limit=14):
+            super().__init__()
+            self.folder = folder
+            self.limit = limit
+            self._stop = False
+
+        def cancel(self):
+            self._stop = True
+
+        def run(self):
+            try:
+                from meteorprep.config import Config as _C
+                from meteorprep.ingest.exif import scan_input_dir
+                files = sorted(scan_input_dir(Path(self.folder), _C().raw_extensions))
+            except Exception:
+                return
+            # the frame strip counts in this order, and the classifier names
+            # the photographs it found things in, so the window needs both
+            self.listed.emit([Path(f).name for f in files])
+            for i, path in enumerate(files[:self.limit]):
+                if self._stop:
+                    return
+                data = None
+                try:
+                    import rawpy
+                    with rawpy.imread(str(path)) as raw:
+                        thumb = raw.extract_thumb()
+                        if thumb.format == rawpy.ThumbFormat.JPEG:
+                            data = thumb.data
+                except Exception:
+                    data = None
+                if data:
+                    self.got.emit(i, bytes(data))
 
     INK = "#e7ecf3"
     DIM = "#8d99aa"
@@ -515,7 +581,24 @@ def main() -> int:
             self.n_photos = 0
             self._settings = QSettings("meteorprep", "gui")
 
+            # the skin: bundled faces first, then the theme the person chose
+            self._fonts = THEME.load_fonts()
+            self._fam = THEME.families(self._fonts)
+            W.set_families(self._fam)
+            self.theme = THEME.get(str(self._settings.value("theme", THEME.DEFAULT)))
+
+            self.skin = W.Skin(self.theme)
+            shell = QVBoxLayout(self.skin)
+            shell.setContentsMargins(0, 0, 0, 0)
+            shell.setSpacing(0)
+            self.titlebar = W.TitleBar(self.theme)
+            shell.addWidget(self.titlebar)
             self.pages = QStackedWidget()
+            self.pages.setAttribute(Qt.WA_TranslucentBackground, True)
+            shell.addWidget(self.pages, 1)
+            self.rail = W.Rail(self.theme)
+            shell.addWidget(self.rail)
+
             self._page = {
                 "home": self._build_home(__version__),
                 "setup": self._build_setup(),
@@ -526,9 +609,18 @@ def main() -> int:
             }
             for w in self._page.values():
                 self.pages.addWidget(w)
-            self.setCentralWidget(self.pages)
-            self.resize(600, 700)
-            self.setMinimumSize(540, 620)
+            self.setCentralWidget(self.skin)
+            self.resize(600, 760)
+            self.setMinimumSize(600, 700)
+            self._thumbs = None
+            self._verdicts = {}
+            self._stage_i = -1
+            self._stage_t0 = None
+            self._stage_done = {}
+            self._apply_theme(self.theme, first=True)
+            self._refresh_recents()
+            self._refresh_moon()
+            self.rail.set_text(f"v{__version__}", "")
 
             self._restore_settings()
             # apply the hunt state even when nothing was saved: the box
@@ -540,8 +632,6 @@ def main() -> int:
             if last and Path(last).exists():
                 self._report_path = last
                 self._result_dir = str(Path(last).parent)
-                self.last_link.setText("Open the last run's report")
-                self.last_link.setVisible(True)
 
             import time as _time
             from PySide6.QtCore import QTimer
@@ -566,96 +656,122 @@ def main() -> int:
             self.pages.setCurrentWidget(self._page[name])
 
         def _build_home(self, version):
-            page = QWidget()
-            page.setObjectName("page")
-            lay = QVBoxLayout(page)
-            lay.setContentsMargins(28, 22, 28, 18)
-            lay.setSpacing(10)
+            return screens.build_home(self, self.theme, version)
 
-            head = QHBoxLayout()
-            try:
-                from PySide6.QtGui import QPixmap
-                _icon = Path(__file__).parent / "assets" / "icon.png"
-                if _icon.exists():
-                    mark = QLabel()
-                    mark.setPixmap(QPixmap(str(_icon)).scaled(
-                        30, 30, Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation))
-                    head.addWidget(mark)
-            except Exception:
-                pass
-            word = QLabel("MeteorPrep")
-            word.setObjectName("wordmark")
-            head.addWidget(word)
-            ver = QLabel(version)
-            ver.setObjectName("verstamp")
-            head.addWidget(ver, alignment=Qt.AlignBottom)
-            head.addStretch(1)
-            lay.addLayout(head)
-            lay.addStretch(1)
+        def _build_run(self):
+            return screens.build_run(self, self.theme)
 
-            self.drop_label = QLabel(
-                "☄\n\nDrop your night's photo folder here\n"
-                "or click to choose one")
-            self.drop_label.setAlignment(Qt.AlignCenter)
-            self.drop_label.setMinimumHeight(240)
-            self.drop_label.setWordWrap(True)
-            self._drop_css = (
-                "border: 2px dashed #313d4c; border-radius: 16px;"
-                " font-size: 16px; color: #8d99aa; background: #12161d;")
-            self._drop_css_hot = (
-                "border: 2px dashed #3b7dfd; border-radius: 16px;"
-                " font-size: 16px; color: #cfe0ff; background: #172236;")
-            self.drop_label.setStyleSheet(self._drop_css)
-            self.drop_label.mousePressEvent = self._browse
-            lay.addWidget(self.drop_label)
+        def _build_done(self):
+            return screens.build_done(self, self.theme)
 
-            tagline = _sub(
-                "One night on a fixed tripod → a clean stacked sky over "
-                "your sharp foreground, as a layered Photoshop file and "
-                "a finished picture.")
-            tagline.setAlignment(Qt.AlignCenter)
-            lay.addWidget(tagline)
+        # ---------------- the skin -----------------------------------------
 
-            self.home_status = QLabel("")
-            self.home_status.setObjectName("sub")
-            self.home_status.setWordWrap(True)
-            self.home_status.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.home_status)
+        def _set_theme(self, key):
+            t = THEME.get(key)
+            if t.key == self.theme.key:
+                return
+            self._settings.setValue("theme", t.key)
+            self._apply_theme(t)
 
-            self.last_link = QPushButton("")
-            self.last_link.setObjectName("link")
-            self.last_link.setVisible(False)
-            self.last_link.clicked.connect(
-                lambda: self._open_path(getattr(self, "_report_path", None)))
-            lay.addWidget(self.last_link, alignment=Qt.AlignCenter)
-            lay.addStretch(1)
+        def _apply_theme(self, t, first=False):
+            self.theme = t
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(t.qss(self._fam))
+            W.apply_theme(self, t)
+            # the one label that paints its own ink on the sky window
+            if hasattr(self, "stop_cap"):
+                self.stop_cap.setStyleSheet(
+                    'font-family: "%s"; font-size: 10px; letter-spacing: 2px;'
+                    ' color: %s; background: transparent;'
+                    % (self._fam["caps"], t.metal_ink))
+            if hasattr(self, "sky_note"):
+                self.sky_note.setStyleSheet(
+                    'font-family: "%s"; font-size: 11px; color: #a9a08a;'
+                    ' background: transparent;' % self._fam["mono"])
+            if not first:
+                self.update()
 
-            sep = QFrame()
-            sep.setFrameShape(QFrame.HLine)
-            sep.setStyleSheet(f"color: {LINE};")
-            lay.addWidget(sep)
-            foot = QHBoxLayout()
-            self.demo_button = QPushButton(
-                "▶  Watch it work on a demo night")
-            self.demo_button.setObjectName("link")
-            self.demo_button.setToolTip(
-                "Generates a small fake night — stars, two meteors, one "
-                "plane — and runs the whole thing on it: the search, the "
-                "stack, the layered Photoshop file and the report. About "
-                "a minute, no photos needed.")
-            self.demo_button.clicked.connect(self._run_demo)
-            self.test_button = QPushButton("Check this Mac can run it")
-            self.test_button.setObjectName("link")
-            self.test_button.setToolTip(
-                "A two-minute self-test on a built-in fake night; leaves "
-                "a report file on your Desktop.")
-            self.test_button.clicked.connect(self._self_test)
-            foot.addWidget(self.demo_button)
-            foot.addStretch(1)
-            foot.addWidget(self.test_button)
-            lay.addLayout(foot)
-            return page
+        def _home_status(self, text):
+            """The one line on Home that says what the app is doing."""
+            if hasattr(self, "home_lcd"):
+                self.home_lcd.set_lines(text or "no folder open", dim=[not text])
+
+        def _run_header(self, name):
+            if not hasattr(self, "run_path"):
+                return
+            text = str(name)
+            parts = Path(text).parts
+            if len(text) > 52 and len(parts) > 2:
+                text = "…/" + "/".join(parts[-2:])
+            self.run_path.setText(text)
+
+        def _set_fact(self, key, value):
+            """Show a measurement, and its label, once the program has it."""
+            self.fact_rows[key].setText(value)
+            self.fact_caps[key].setVisible(True)
+
+        def _run_stage(self, msg):
+            if hasattr(self, "run_lcd"):
+                lines = self.run_lcd._lines
+                self.run_lcd.set_lines(str(msg), lines[1] if len(lines) > 1 else "")
+
+        def _run_eta(self, text):
+            if hasattr(self, "remaining_lcd"):
+                self.remaining_lcd.set_lines(text or "—")
+
+        def _refresh_moon(self):
+            line, name, illum, waxing = facts.moon_line()
+            if hasattr(self, "moon"):
+                self.moon.set_phase(illum, waxing)
+                self.moon_lcd.set_lines(line)
+                self.moon_name.setText(name)
+
+        def _refresh_recents(self):
+            rows = facts.load_recents()
+            self._recent_rows = rows
+            if not hasattr(self, "recents"):
+                return
+            table = []
+            for r in rows[:4]:
+                m = int(r.get("meteors", 0))
+                table.append([(facts.recent_label(r), "date"),
+                              r.get("name", ""),
+                              (str(r.get("photos", "")), "mono"),
+                              (str(m), "hot" if m else "mono")])
+            self.recents.set_rows(table)
+
+        def _open_recent(self, i):
+            rows = getattr(self, "_recent_rows", [])
+            if 0 <= i < len(rows):
+                folder = rows[i].get("folder")
+                if folder and Path(folder).is_dir():
+                    self._set_folder(folder)
+                else:
+                    self._home_status("that folder has moved or been renamed")
+
+        def _open_file_row(self, i):
+            rows = getattr(self, "_file_paths", [])
+            if 0 <= i < len(rows):
+                self._open_path(rows[i])
+
+        def _start_thumbs(self, folder):
+            worker = getattr(self, "_thumbs", None)
+            if worker is not None:
+                worker.cancel()
+            self._frame_files = []
+            self._thumbs = ThumbWorker(folder)
+            self._thumbs.got.connect(self._on_thumb)
+            self._thumbs.listed.connect(self._on_frame_list)
+            self._thumbs.start()
+
+        def _on_frame_list(self, names):
+            self._frame_files = list(names)
+
+        def _on_thumb(self, i, data):
+            pm = QPixmap()
+            if pm.loadFromData(data) and hasattr(self, "strip"):
+                self.strip.set_thumb(i, pm)
 
         def _chip_row(self, with_change):
             """The little folder token that carries the answer to 'what
@@ -853,127 +969,9 @@ def main() -> int:
             scroll.setWidget(page)
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            scroll.viewport().setAutoFillBackground(False)
             return scroll
-
-        def _build_run(self):
-            page = QWidget()
-            page.setObjectName("page")
-            lay = QVBoxLayout(page)
-            lay.setContentsMargins(40, 20, 40, 24)
-            lay.setSpacing(10)
-
-            chip, self.run_chip_label = self._chip_row(with_change=False)
-            lay.addWidget(chip)
-            lay.addStretch(2)
-
-            self.run_pct = QLabel("0%")
-            self.run_pct.setObjectName("pct")
-            self.run_pct.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.run_pct)
-            self.run_stage = QLabel("starting up…")
-            self.run_stage.setObjectName("sub")
-            self.run_stage.setWordWrap(True)
-            self.run_stage.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.run_stage)
-            lay.addSpacing(6)
-            self.bar = QProgressBar()
-            lay.addWidget(self.bar)
-            self.run_eta = QLabel("")
-            self.run_eta.setObjectName("estimate")
-            self.run_eta.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.run_eta)
-            lay.addStretch(3)
-
-            self.stop_button = QPushButton("Stop")
-            self.stop_button.setObjectName("stop")
-            self.stop_button.setToolTip(
-                "Finishes the photo it is on and stops. Everything "
-                "worked out so far is kept — running the same folder "
-                "again picks up from there.")
-            self.stop_button.clicked.connect(self._stop)
-            lay.addWidget(self.stop_button, alignment=Qt.AlignCenter)
-            return page
-
-        def _build_done(self):
-            page = QWidget()
-            page.setObjectName("page")
-            lay = QVBoxLayout(page)
-            lay.setContentsMargins(28, 22, 28, 18)
-            lay.setSpacing(10)
-
-            self.done_head = QLabel("")
-            self.done_head.setObjectName("big")
-            self.done_head.setWordWrap(True)
-            self.done_head.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.done_head)
-            self.done_sub = QLabel("")
-            self.done_sub.setObjectName("sub")
-            self.done_sub.setWordWrap(True)
-            self.done_sub.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self.done_sub)
-
-            self.preview_lbl = QLabel("")
-            self.preview_lbl.setObjectName("preview")
-            self.preview_lbl.setAlignment(Qt.AlignCenter)
-            self.preview_lbl.setMinimumHeight(260)
-            lay.addWidget(self.preview_lbl, 1)
-
-            btns = QHBoxLayout()
-            btns.addStretch(1)
-            self.adjust_btn = QPushButton("Adjust the picture")
-            self.adjust_btn.setObjectName("primary")
-            self.adjust_btn.setToolTip(
-                "Finish the shot right here — brightness, warmth, "
-                "colour, foreground light, light-pollution removal, "
-                "meteor strength — and save a full-quality JPEG. The "
-                "layered Photoshop file stays untouched.")
-            self.adjust_btn.clicked.connect(self._open_adjust)
-            self.adjust_btn.setVisible(False)
-            self.open_report_btn = QPushButton("Open the report")
-            self.open_report_btn.clicked.connect(
-                lambda: self._open_path(getattr(self, "_report_path", None)))
-            self.open_psd_btn = QPushButton("Open the Photoshop file")
-            self.open_psd_btn.clicked.connect(
-                lambda: self._open_path(getattr(self, "_psd_path", None)))
-            self.video_btn = QPushButton("Play the film")
-            self.video_btn.clicked.connect(
-                lambda: self._open_path(getattr(self, "_video_path", None)))
-            self.video_btn.setVisible(False)
-            self.open_folder_btn = QPushButton("Show the files")
-            self.open_folder_btn.clicked.connect(
-                lambda: self._open_path(getattr(self, "_result_dir", None)))
-            btns.addWidget(self.adjust_btn)
-            btns.addWidget(self.open_report_btn)
-            btns.addWidget(self.open_psd_btn)
-            btns.addWidget(self.video_btn)
-            btns.addWidget(self.open_folder_btn)
-            btns.addStretch(1)
-            lay.addLayout(btns)
-
-            links = QHBoxLayout()
-            self.again_btn = QPushButton("Run another folder")
-            self.again_btn.setObjectName("link")
-            self.again_btn.clicked.connect(lambda: self._goto("home"))
-            self.horizon_btn = QPushButton("Fix the horizon")
-            self.horizon_btn.setObjectName("link")
-            self.horizon_btn.setToolTip(
-                "Paint over anything it got wrong — mark trees it "
-                "mistook for sky or sky it mistook for trees — and it "
-                "rebuilds with your corrections, snapped to the real "
-                "edges. The rebuild reuses everything else, so it is "
-                "quick.")
-            self.horizon_btn.clicked.connect(self._open_horizon)
-            self.horizon_btn.setVisible(False)
-            self.tweak_btn = QPushButton("Same folder, different choices")
-            self.tweak_btn.setObjectName("link")
-            self.tweak_btn.clicked.connect(lambda: self._goto("setup"))
-            links.addWidget(self.again_btn)
-            links.addStretch(1)
-            links.addWidget(self.horizon_btn)
-            links.addStretch(1)
-            links.addWidget(self.tweak_btn)
-            lay.addLayout(links)
-            return page
 
         def _build_horizon(self):
             page = QWidget()
@@ -1195,7 +1193,7 @@ def main() -> int:
             lay.addWidget(self.adj_status)
 
             brow = QHBoxLayout()
-            reset = QPushButton("Back to how the run left it")
+            reset = QPushButton("Back to the run's look")
             reset.setObjectName("link")
             reset.clicked.connect(self._adj_reset)
             brow.addWidget(reset)
@@ -1207,7 +1205,7 @@ def main() -> int:
             self.adj_compare.released.connect(self._adj_compare_off)
             brow.addWidget(self.adj_compare)
             brow.addStretch(1)
-            self.adj_tiff = QCheckBox("Also save a 16-bit TIFF")
+            self.adj_tiff = QCheckBox("Also a 16-bit TIFF")
             self.adj_tiff.setToolTip(
                 "A print-grade 16-bit file of the same picture, next to "
                 "the JPEG. Adds ~50–70 MB.")
@@ -1415,6 +1413,7 @@ def main() -> int:
             folder = os.path.abspath(folder)
             self.folder = folder
             name = os.path.basename(folder) or folder
+            self.titlebar.set_title(f"{name} — MeteorPrep" if name else "MeteorPrep")
             self.chip_label.setText(f"{name} — counting the photos…")
             self.n_photos = 0
             self._mode_changed()
@@ -1426,6 +1425,8 @@ def main() -> int:
             # dropping a second folder meanwhile must not drop the only
             # reference to a running QThread — that is how a live thread
             # gets garbage-collected out from under itself
+            self.strip.clear()
+            self._start_thumbs(folder)
             counter = CountWorker(folder)
             self._counters.append(counter)
             counter.counted.connect(self._on_counted)
@@ -1452,6 +1453,11 @@ def main() -> int:
                 self.chip_label.setText(
                     f"{name} — {n} photo{'s' if n != 1 else ''} · results "
                     f"go to {self._out_name()}")
+                self._home_status(f"{name} · {n} photo{'s' if n != 1 else ''}")
+                self.run_sub.setText(
+                    f"{n} photo{'s' if n != 1 else ''} · results go to "
+                    f"{self._out_name()}")
+                self.strip.set_count(n)
             if self.worker is None or not self.worker.isRunning():
                 self.button.setEnabled(n > 0)
             self._mode_changed()
@@ -1511,6 +1517,22 @@ def main() -> int:
 
         # ---------------- housekeeping ----------------------------------
 
+        def closeEvent(self, event):
+            """Let the background readers go before the window does: a thread
+            still reading thumbnails when Qt tears the app down is a crash on
+            quit, and quitting is the last thing a person does here."""
+            worker = getattr(self, "_thumbs", None)
+            if worker is not None:
+                worker.cancel()
+                worker.wait(1500)
+            for counter in list(getattr(self, "_counters", [])):
+                counter.wait(500)
+            if self._adj is not None and self._adj.isRunning():
+                self._adj.submit("quit")
+                self._adj.wait(1500)
+            self._hold_awake(False)
+            super().closeEvent(event)
+
         def _open_path(self, target):
             if not target:
                 return
@@ -1530,15 +1552,15 @@ def main() -> int:
             if self.worker is not None and self.worker.isRunning():
                 return                     # mid-run, the folder is fixed
             if e.mimeData().hasUrls():
-                self.drop_label.setStyleSheet(self._drop_css_hot)
+                self.sky.set_hot(True)
                 e.acceptProposedAction()
 
         def dragLeaveEvent(self, e):
-            self.drop_label.setStyleSheet(self._drop_css)
+            self.sky.set_hot(False)
 
         def dropEvent(self, e):
             import os
-            self.drop_label.setStyleSheet(self._drop_css)
+            self.sky.set_hot(False)
             e.acceptProposedAction()
             for url in e.mimeData().urls():
                 path = url.toLocalFile()
@@ -1549,7 +1571,7 @@ def main() -> int:
                     # the answer is obvious: use the folder it is in
                     self._set_folder(os.path.dirname(path))
                 else:
-                    self.home_status.setText(
+                    self._home_status(
                         "That is not a folder I can read — drop the "
                         "folder your photos are in.")
                 break
@@ -1577,7 +1599,7 @@ def main() -> int:
                 return
             self.stop_button.setEnabled(False)
             self.stop_button.setText("Stopping…")
-            self.run_stage.setText(
+            self._run_stage(
                 "Stopping — finishing the photo it is on. Everything "
                 "worked out so far is kept.")
             self.worker.cancel()
@@ -1643,20 +1665,35 @@ def main() -> int:
             self._set_running(True)
             self._hold_awake(True)
             if getattr(self, "_run_is_demo", False):
-                self.run_chip_label.setText("demo night")
+                self._run_header("demo night")
             else:
-                self.run_chip_label.setText(
-                    os.path.basename(str(self.folder or "")) or
-                    str(self.folder or ""))
-            self.run_pct.setText("0%")
-            self.run_stage.setText("starting up…")
-            self.run_eta.setText("")
-            self.bar.setValue(0)
+                self._run_header(str(self.folder or ""))
+            self.dial.set_value(0)
+            self._run_stage("starting up…")
+            self._run_eta("")
+            self.log.clear()
+            self._verdicts = {}
+            self._stage_i = -1
+            self._stage_done = {}
+            self._stage_t0 = None
+            for lamp in self.lamps:
+                lamp.set_state("off", "")
+            for key in self.fact_rows:
+                self.fact_rows[key].setText("")
+                self.fact_caps[key].setVisible(False)
+            self.strip.clear_verdicts()
+            if getattr(self, "_run_is_demo", False):
+                self.strip.clear()
+            self.elapsed_lcd.set_lines("0:00")
+            night, moon = self._night_and_moon()
+            self.run_night.setText(night)
+            self.run_moon.setText(moon)
             self.stop_button.setEnabled(True)
             self.stop_button.setText("Stop")
             self._goto("run")
             self.worker = Worker(cfg)
             self.worker.progressed.connect(self._on_progress)
+            self.worker.logged.connect(self._on_log)
             self.worker.finished_ok.connect(self._on_done)
             self.worker.failed.connect(self._on_fail)
             self.worker.stopped.connect(self._on_stopped)
@@ -1698,7 +1735,7 @@ def main() -> int:
             quiet = self._time.time() - self._msg_at
             if quiet > 4 and self._last_msg:
                 m, s = divmod(int(quiet), 60)
-                self.run_stage.setText(
+                self._run_stage(
                     f"{self._last_msg}  —  still working "
                     f"({m}m {s:02d}s in this step)")
 
@@ -1711,14 +1748,14 @@ def main() -> int:
                 return
             self.demo_button.setEnabled(False)
             self.button.setEnabled(False)
-            self.home_status.setText(
+            self._home_status(
                 "Building a demo night — a dozen fake photos with two "
                 "meteors hidden in them…")
             self._demo_maker = DemoWorker()
 
             def _go(folder):
                 self.demo_button.setEnabled(True)
-                self.home_status.setText("")
+                self._home_status("")
                 cfg = Config(
                     input_dir=folder,
                     output_dir=folder + "_meteorprep",
@@ -1735,7 +1772,7 @@ def main() -> int:
             def _bad(tb):
                 self.demo_button.setEnabled(True)
                 self._set_running(False)
-                self.home_status.setText(
+                self._home_status(
                     "The demo could not be built:\n"
                     + tb.strip().splitlines()[-1])
                 print(tb, file=sys.stderr)
@@ -1749,10 +1786,10 @@ def main() -> int:
                 return
             self.test_button.setEnabled(False)
             self.button.setEnabled(False)
-            self.home_status.setText("checking…")
+            self._home_status("checking…")
             self.tester = SelfTestWorker()
             self.tester.report.connect(self._keep_selftest_report)
-            self.tester.progressed.connect(self.home_status.setText)
+            self.tester.progressed.connect(self._home_status)
 
             def finish(ok, verdict):
                 self._show_selftest(ok, verdict)
@@ -1764,16 +1801,97 @@ def main() -> int:
             self.tester.done.connect(finish)
             self.tester.start()
 
+        # the five stages the lamps stand for, matched on the program's own
+        # words first and on the percentage only as a floor
+        _STAGE_WORDS = (
+            (0, ("scanning", "reading photo", "hot-pixel", "photo info")),
+            (1, ("star map", "star lock", "aligning", "starfield", "stacking",
+                 "clean starfield", "matching your stars")),
+            (2, ("meteor", "planes and satellites", "horizon", "cutting",
+                 "layer")),
+            (3, ("assembling", "psd", "photoshop")),
+            (4, ("preview", "report", "bundle", "film", "timelapse", "done:")),
+        )
+
+        def _stage_for(self, pct, msg):
+            low = (msg or "").lower()
+            best = -1
+            for idx, words in self._STAGE_WORDS:
+                if any(w in low for w in words):
+                    best = max(best, idx)
+            if best < 0:
+                best = 0 if pct < 12 else 1 if pct < 55 else 2 if pct < 88 else 3
+            return best
+
+        @staticmethod
+        def _took(secs):
+            """A stage that took no time did not run: it was already done from
+            a previous run, and saying '0.0 s' would imply it was instant."""
+            if secs < 0.05:
+                return "reused"
+            return f"{secs:.1f} s" if secs < 99 else f"{secs / 60:.0f} min"
+
+        def _advance_stage(self, stage):
+            """Light the lamp for the stage that is running, and leave the
+            one that finished showing how long it actually took."""
+            now = self._time.time()
+            if stage <= self._stage_i:
+                return          # a run does not go back a stage
+            if self._stage_i >= 0 and self._stage_t0 is not None:
+                took = now - self._stage_t0
+                self._stage_done[self._stage_i] = took
+                self.lamps[self._stage_i].set_state("lit", self._took(took))
+            for i in range(self._stage_i + 1, stage):
+                self.lamps[i].set_state("lit", "")
+            self._stage_i = stage
+            self._stage_t0 = now
+            if 0 <= stage < len(self.lamps):
+                self.lamps[stage].set_state("hot", "running")
+
+        def _on_log(self, line):
+            """The console, and the three measurements the window quotes
+            from the run log the moment the program prints them."""
+            import re as _re
+            self.log.add(line)
+            low = line.lower()
+            m = _re.search(r"([\d.]+)\s*px\s*rms", low)
+            if m:
+                how = "blind" if "blind" in low else "solved"
+                self._set_fact("plate solve", f"{how} · {m.group(1)} px RMS")
+            if "star lock reused" in low:
+                self._set_fact("star lock", "reused from the last run")
+            elif "star lock" in low or "solved" in low and "stars" in low:
+                self._set_fact("star lock", "solved for this night")
+            m = _re.search(r"from (\d+) stars:\s*r\s*x([\d.]+)\s+b\s*x([\d.]+)", low)
+            if m:
+                self._set_fact("star colour",
+                               f"{m.group(1)} stars · R ×{m.group(2)} · B ×{m.group(3)}")
+
         def _on_progress(self, pct, msg):
-            self.bar.setValue(pct)
-            self.run_pct.setText(f"{pct}%")
-            self.run_stage.setText(msg)
+            import re as _re
+            self.dial.set_value(pct)
+            self._run_stage(msg)
+            self._advance_stage(self._stage_for(pct, msg))
             t0 = getattr(self, "_run_t0", None)
-            if t0 is not None and 8 <= pct < 100:
-                left = (self._time.time() - t0) * (100 - pct) / pct
-                m = int(left // 60)
-                self.run_eta.setText(f"about {m + 1} min left" if m >= 1
-                                     else "under a minute left")
+            if t0 is not None:
+                gone = self._time.time() - t0
+                self.elapsed_lcd.set_lines(facts.mmss(gone))
+                if 8 <= pct < 100:
+                    left = gone * (100 - pct) / pct
+                    self._run_eta(facts.mmss(left) if left < 5400 else "a while")
+            m = _re.search(r"\(?(\d+)\s*/\s*(\d+)\)?", msg or "")
+            if m:
+                i, n = int(m.group(1)), int(m.group(2))
+                known = self.strip.count or self.n_photos
+                if known and n == known and 0 < i <= n:
+                    self.strip.set_current(i - 1)
+                    lines = self.run_lcd._lines
+                    self.run_lcd.set_lines(lines[0], f"frame {i} / {n}")
+            self._home_status(msg)
+            self.rail.set_text(
+                f"[{pct:3d}%] {msg}",
+                f"frame {self.strip.current + 1} of {self.strip.count}"
+                if self.strip.count and self.strip.current >= 0 else "")
             self._last_msg = msg
             self._msg_at = self._time.time()
 
@@ -1794,31 +1912,92 @@ def main() -> int:
             except Exception:
                 pass
 
-        def _show_preview(self, out_dir):
-            """The finished picture is the done screen's hero — nothing
-            says 'it worked' like the photograph itself."""
+        def _show_preview(self, out_dir, meteors=0):
+            """The finished picture, mounted the way this skin keeps a print,
+            with the night's own signature engraved under it."""
+            cap1, cap2 = facts.caption_lines(out_dir, self.n_photos, meteors)
+            pm = None
             try:
-                from PySide6.QtGui import QPixmap
                 p = Path(out_dir) / "preview.jpg"
                 if p.exists():
-                    pm = QPixmap(str(p))
-                    if not pm.isNull():
-                        self.preview_lbl.setPixmap(pm.scaled(
-                            540, 360, Qt.KeepAspectRatio,
-                            Qt.SmoothTransformation))
-                        self.preview_lbl.setVisible(True)
-                        return
+                    loaded = QPixmap(str(p))
+                    if not loaded.isNull():
+                        pm = loaded
+                        if not hasattr(self, "_sky_pm"):
+                            self._sky_pm = loaded
+                        self.sky.set_sky(loaded)
+                        name = Path(self.folder).name if self.folder else ""
+                        self.sky_note.setText(
+                            f"your last night · {name}" if name else "")
             except Exception:
-                pass
-            self.preview_lbl.clear()
-            self.preview_lbl.setVisible(False)
+                pm = None
+            self.mount.set_photo(pm, cap1, cap2)
+
+        def _list_outputs(self, out_dir):
+            """Every file the run wrote, with its real size — the row you
+            click is the file it names."""
+            notes = {
+                "meteorprep.psd": "layered Photoshop file",
+                "preview.jpg": "the picture above",
+                "report.html": "the report, with the candidates",
+                "timelapse.mp4": "film of the night",
+                "finish_bundle.npz": "what Adjust edits from",
+                "startrail.jpg": "star trails",
+                "meteors.jpg": "the meteors alone",
+                "capsule.txt": "how this image was made",
+                "meteorprep.json": "the numbers, for another program",
+            }
+            order = ["meteorprep.psd", "preview.jpg", "report.html", "timelapse.mp4",
+                     "startrail.jpg", "meteors.jpg", "finish_bundle.npz",
+                     "capsule.txt", "meteorprep.json"]
+            rows, paths = [], []
+            try:
+                here = Path(out_dir)
+                found = [f for f in here.glob("*.*") if f.is_file()]
+            except Exception:
+                found = []
+            found.sort(key=lambda q: (order.index(q.name) if q.name in order else 99,
+                                      q.name))
+            for f in found:
+                if f.suffix.lower() in (".png", ".log", ".tif", ".json") \
+                        and f.name != "meteorprep.json":
+                    continue
+                try:
+                    size = f.stat().st_size
+                except OSError:
+                    continue
+                rows.append([f.name, notes.get(f.name, ""), facts.human_size(size)])
+                paths.append(str(f))
+            rows, paths = rows[:8], paths[:8]
+            self._file_paths = paths
+            # the keys follow what is actually in the folder: a stage the run
+            # skipped because it was already done still left its file there,
+            # and the person can open it
+            by_name = {Path(q).name: q for q in paths}
+            if by_name.get("meteorprep.psd"):
+                self._psd_path = by_name["meteorprep.psd"]
+            if by_name.get("timelapse.mp4"):
+                self._video_path = by_name["timelapse.mp4"]
+            self.open_psd_btn.setVisible(bool(getattr(self, "_psd_path", None)))
+            self.video_btn.setVisible(bool(getattr(self, "_video_path", None)))
+            bundle = Path(out_dir) / "finish_bundle.npz"
+            if bundle.exists():
+                self._bundle_path = str(bundle)
+                self.adjust_btn.setVisible(True)
+            self.files.set_rows([[(r[0], "mono"), (r[1], "note"), (r[2], "mono")]
+                                 for r in rows])
+            self.files.setFixedHeight(max(len(rows), 1) * 21 + 4)
+            here = Path(out_dir)
+            where = f"{here.parent.name}/{here.name}" if here.parent.name else here.name
+            self.written_cap.setText(f"Written to  {where}")
 
         def _on_done(self, result):
             self._hb.stop()
             self._hold_awake(False)
             self._set_running(False)
-            self.bar.setValue(100)
-            self.run_pct.setText("100%")
+            self.dial.set_value(100)
+            self._finish_lamps(result)
+            self._mark_verdicts(result)
             groups = result.get("groups", [])
             meteors = sum(g["n_meteors"] for g in groups)
             flagged = sum(g.get("n_flagged", 0) for g in groups)
@@ -1857,6 +2036,11 @@ def main() -> int:
                     "what happened")
             self.done_head.setText(head)
             self.done_sub.setText("  ·  ".join(subbits))
+            self.done_lcd.set_lines("[100%] done: your composite is ready",
+                                    f"elapsed {facts.mmss(secs)}   frames "
+                                    f"{self.n_photos} / {self.n_photos}")
+            self.rail.set_text("[100%] done: your composite is ready",
+                               f"{facts.mmss(secs)}")
             # the setup screen keeps a one-line copy, so coming back to
             # tweak the choices still says what the last run did
             self.status.setText(f"{head} · {'  ·  '.join(subbits)}")
@@ -1896,17 +2080,106 @@ def main() -> int:
                         not getattr(self, "_run_is_demo", False)
                         and (_P(self._result_dir)
                              / "skymask.png").exists())
-                    self._show_preview(self._result_dir)
+                    self._show_preview(self._result_dir, meteors)
+                    self._list_outputs(self._result_dir)
+                    if not getattr(self, "_run_is_demo", False) and self.folder:
+                        cap = facts.read_capsule(self._result_dir)
+                        night = ""
+                        try:
+                            from datetime import datetime as _dt
+                            night = facts.night_of(_dt.fromisoformat(
+                                str(cap.get("captured")).replace("Z", "+00:00")))
+                        except Exception:
+                            night = ""
+                        facts.remember_night(self.folder, self.n_photos, meteors,
+                                             night, self._result_dir, target)
+                        self._refresh_recents()
                     # a week later, "where did my files go" is the first
                     # support question every tool like this gets — so the
                     # window remembers, across relaunches
                     self._settings.setValue("last_report", target)
-                    self.last_link.setText("Open the last run's report")
-                    self.last_link.setVisible(True)
+                    self._refresh_recents()
                     self._open_path(target)
             except Exception:
                 pass
             self._goto("done")
+
+        def _finish_lamps(self, result):
+            """When the run ends, every lamp keeps the time its stage really
+            took — from the pipeline's own stage timings where it reports
+            them, and from this window's clock for the rest."""
+            timings = {}
+            for g in result.get("groups", []):
+                for label, secs in g.get("timings", []) or []:
+                    timings[str(label).lower()] = float(secs)
+            keys = (("folder scan", "reading"), ("clean starfield", "starfield"),
+                    ("horizon", "layers"), ("assembling", "psd"), ("preview", "report"))
+            if self._stage_i >= 0 and self._stage_t0 is not None:
+                took = self._time.time() - self._stage_t0
+                self._stage_done[self._stage_i] = took
+            for i, lamp in enumerate(self.lamps):
+                secs = None
+                for word in keys[i]:
+                    for label, value in timings.items():
+                        if word in label:
+                            secs = value if secs is None else secs + value
+                            break
+                    if secs is not None:
+                        break
+                if secs is None:
+                    secs = self._stage_done.get(i)
+                if secs is None:
+                    lamp.set_state("off", "")
+                else:
+                    lamp.set_state("lit", self._took(secs))
+            self._stage_i = -1
+            self._stage_t0 = None
+
+        def _mark_verdicts(self, result):
+            """Each frame gets the classifier's own word for it: the frames a
+            candidate touches carry its label, the rest were kept."""
+            words = {"meteor": "METEOR", "aircraft": "PLANE", "plane": "PLANE",
+                     "satellite": "SATELLITE", "cosmic": "?",
+                     "observatory_beam": "BEAM", "unknown": "?"}
+            # a candidate names the photographs it crosses by file name; the
+            # strip counts them in the order the run read them
+            order = {name: i for i, name in enumerate(getattr(self, "_frame_files", []))}
+            marks = {}
+            for g in result.get("groups", []):
+                for cand in g.get("candidates", []) or []:
+                    label = words.get(str(cand.get("label", "")).lower())
+                    if not label:
+                        continue
+                    for fr in cand.get("frames", []) or []:
+                        if isinstance(fr, int):
+                            marks[fr] = label
+                        elif str(fr) in order:
+                            marks[order[str(fr)]] = label
+            n = self.strip.count or self.n_photos
+            for i in range(n):
+                self.strip.set_verdict(i, marks.get(i, "✓"))
+            self.strip.set_current(-1)
+
+        def _night_and_moon(self):
+            """The night these photographs belong to, and the moon that was up
+            while they were taken — both read from the frames themselves."""
+            try:
+                from datetime import datetime as _dt
+                from meteorprep.config import Config as _C
+                from meteorprep.ingest.exif import read_metadata, scan_input_dir
+                files = sorted(scan_input_dir(Path(self.folder), _C().raw_extensions))
+                if not files:
+                    return "", ""
+                meta = read_metadata(files[0])
+                when = getattr(meta, "timestamp", None) or getattr(meta, "utc", None)
+                if isinstance(when, str):
+                    when = _dt.fromisoformat(when.replace("Z", "+00:00"))
+                if when is None:
+                    return "", ""
+                line, name, illum, waxing = facts.moon_line(when)
+                return facts.night_of(when), f"moon {line}"
+            except Exception:
+                return "", ""
 
         def _keep_selftest_report(self, text):
             """Park the setup-check report where a person can open it —
@@ -1929,7 +2202,7 @@ def main() -> int:
             if path:
                 text += (f"\n\nThe details are in {path} — send that file "
                          "if anything is missing.")
-            self.home_status.setText(text)
+            self._home_status(text)
 
         def _on_stopped(self):
             self._hb.stop()
@@ -1940,7 +2213,7 @@ def main() -> int:
                 "the same folder again and it picks up from there.")
             self._goto("setup" if self.folder else "home")
             if not self.folder:
-                self.home_status.setText(self.status.text())
+                self._home_status(self.status.text())
 
         def _on_fail(self, tb):
             self._hb.stop()
@@ -1974,7 +2247,7 @@ def main() -> int:
             self._last_tb = tb
             self._goto("setup" if self.folder else "home")
             if not self.folder:
-                self.home_status.setText(text)
+                self._home_status(text)
             print(tb, file=sys.stderr)
 
         def _save_problem_report(self):
@@ -2023,7 +2296,7 @@ def main() -> int:
             if self.worker is not None and self.worker.isRunning():
                 if not getattr(self, "_quit_asked", False):
                     self._quit_asked = True
-                    self.run_stage.setText(
+                    self._run_stage(
                         "Still working — press Stop, or close this window "
                         "again, to end the run. Whatever it has finished "
                         "is kept, and running the folder again picks up "
@@ -2036,10 +2309,10 @@ def main() -> int:
                 # looks to a person like the app crashed on the way out.
                 # The pipeline checks the flag on its next progress
                 # report and unwinds through its own cleanup.
-                self.run_stage.setText("Stopping…")
+                self._run_stage("stopping…")
                 self.worker.cancel()
                 if not self.worker.wait(15000):
-                    self.run_stage.setText(
+                    self._run_stage(
                         "The current step will not stop cleanly; leave "
                         "the window open until it finishes.")
                     self._quit_asked = False

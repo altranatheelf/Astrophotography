@@ -26,6 +26,24 @@ extraction.  Every aesthetic decision — which meteors, foreground choice,
 crop, grade — is surfaced to the human as PSD layer toggles and never
 baked in.
 
+## The window
+
+Three screens, and all of them are the same app in four skins.  **Home** is a
+window onto your own last stacked night, with the folders you have already run
+and the moon tonight; **Run** is an instrument panel — a chronometer dial, the
+stage lamps with their real timings, the frame strip with the classifier's
+verdict on each photograph, and the program's own log scrolling underneath;
+**Done** keeps the finished picture like a print and lists every file it wrote.
+
+The skin is yours to pick, bottom right of Home: **Bridge console** (painted
+steel, brass and amber lamps), **Chart room** (aged chart paper and ink — the
+light one), **Logbook** (leather and cream paper) or **Lantern** (near-black
+night, one amber lamp, and a sextant instead of a dial).  The choice is
+remembered.  Nothing about the layout or the numbers changes with it, and
+nothing on any screen is decorative: every figure shown is one the program
+measured — the plate solve, the star-colour calibration, the stage timings, the
+file sizes, the moon's true phase.
+
 ## Why not just rotate the frames?
 
 For a wide rectilinear field (16 mm, ~97°) with the celestial pole ~35°
