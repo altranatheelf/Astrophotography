@@ -23,6 +23,12 @@
     const events = opts.events || KIT.events('world');
     const rng = opts.rng || KIT.rng(save.seed || 1);
 
+    // Every module that declared a save slice gets it filled and migrated here,
+    // once, before anything reads it — whether this save is a new game, one
+    // loaded from a slot, or one written before the module existed. A module's
+    // own code can then assume `save.modules.<key>` is there and current.
+    if (KIT.modules && KIT.modules.ensureSaves) KIT.modules.ensureSaves(save);
+
     const world = {
       project, save, events, rng, ports,
       map: null, entities: [], heroes: [], companion: null,

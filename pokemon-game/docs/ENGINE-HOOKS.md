@@ -17,12 +17,14 @@ says why the engine is shaped the way it is.
 | | | |
 |---|---|---|
 | 1 | `sessionResumed` never emitted | open |
-| 2 | a module cannot own a piece of the save or the project | open |
+| 2 | a module cannot own a piece of the save or the project | **fixed** |
 | 3 | the project is validated before the modules register | **fixed** |
 | 4 | `menus` will not take a function `label` | **fixed** |
 | 5 | no interact target that is not a map object | open |
 | 6 | `mapView` captures the overlay at construction | **fixed** |
-| 7–17 | see below | open |
+| 7–8 | see below | open |
+| 9 | `KIT.module` did not exist when a manifest loaded | **fixed** |
+| 10–17 | see below | open |
 
 ---
 
@@ -83,12 +85,28 @@ calls them at the top of every entry point: `KIT.home.ensure(save)` /
 `KIT.dungeon` likewise. Migrations live in `KIT.home.migrations` /
 `KIT.mons.migrateSave` and are applied on first touch rather than on load.
 
-**The fix.** In `activate()`: for each module with a `save` declaration, fill
-`save.modules[key]` from `defaults()` and run the `migrate` chain on load; for
-each `content` declaration, fill and validate `project.packs[key]` against
-`fields` inside `KIT.project.normalize`. Then `packs.<key>` becomes editable by
-the generic inspector like everything else, and a module panel is a convenience
-rather than the only way in.
+**Fixed.** The module system moved out of `js/main.js` and into the engine, as
+`js/kit/core/modules.js` (which also fixes hook 9, below). It acts on both
+declarations:
+
+* **`save`** — `KIT.world.create` calls `KIT.modules.ensureSaves(save)` for every
+  loaded module, so `save.modules[key]` is filled, migrated and repaired before
+  anything reads it, on a new game and on a loaded slot alike. The declaration
+  grew a `repair(data)`, which the modules needed and were each doing by hand;
+  it works in place, because everything holding a section holds that object.
+* **`content`** — `KIT.project.normalize` calls `ensurePacks(project)` and
+  `validate` calls `problems(project)`, so `packs.<key>` always has the shape the
+  module declared and a bad number is reported in the project's own problem list.
+  `at: 'tuning'` says which object inside the pack the `fields` describe.
+
+The three modules keep their `ensure(save)` / `pack(project)` helpers — they are
+called in eighteen places and they read well — but the bodies now delegate to
+the engine, falling back to doing it themselves only for a bare save with no
+world around it. `tools/new-module.js` scaffolds the declarations, and the test
+it writes proves the engine acts on them.
+
+`test/kit/modules.test.js` checks this against throwaway modules rather than the
+real ones, so what is held down is the engine's promise and not one module's habits.
 
 ---
 
@@ -294,10 +312,13 @@ and every `manifest.js` registers on `DOMContentLoaded` — a listener it adds
 before `main.js` adds its own, and which therefore runs before boot. It works,
 but it is four modules all carrying the same paragraph of explanation.
 
-**The fix.** Either define `KIT.module` / `KIT.modules` in their own tiny file
-loaded with the kit core (the natural home is `js/kit/core/registries.js`), or
-have `main.js` drain a `KIT._moduleQueue` that a two-line shim fills. Then a
-manifest can simply call `KIT.module(...)` at load time, as the docs say.
+**Fixed.** `KIT.module` / `KIT.modules` live in `js/kit/core/modules.js`, loaded
+with the kit core, so they exist long before any manifest. A manifest calls
+`KIT.module(DEF)` at load time, as the docs always said. `js/main.js` is now only
+what its name says — the page's entry point: the pristine capture, the banner,
+and load-and-boot.
+
+Four paragraphs of apology came out of three manifests and the scaffolder.
 
 ---
 

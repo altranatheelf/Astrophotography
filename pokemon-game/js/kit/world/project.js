@@ -429,6 +429,11 @@
     p.world = { maps: {}, connections: (Array.isArray(w.connections) ? w.connections : []).map(c => S.fill(F.connection, isObj(c) ? c : {})) };
     Object.keys(p.maps).forEach((id, i) => { const e = isObj(w.maps) && isObj(w.maps[id]) ? w.maps[id] : { x: i * 24, y: 0 }; p.world.maps[id] = S.fill(F.worldMap, e); });
     p.packs = isObj(src.packs) ? src.packs : {};
+    // Every module that declared a content slice gets its defaults filled in, so
+    // `packs.<key>` always has the shape the module said it would — an author who
+    // never opened that panel still has the numbers, and the generic inspector can
+    // edit them because their fields are declared.
+    if (KIT.modules && KIT.modules.ensurePacks) KIT.modules.ensurePacks(p);
     if (!p.start.map && Object.keys(p.maps).length) p.start.map = Object.keys(p.maps)[0];
     for (const k of Object.keys(src)) if (!(k in p) && k !== 'version') p[k] = src[k];   // keep unknown top-level keys (modules' data)
     if (!(ctx && ctx.skipRegisterArt)) P.registerArt(p);        // the project's own art has to exist before anything references it
@@ -638,6 +643,10 @@
     (project.heroes || []).forEach((h, i) => errors('schema', stripRefErrors(S.validate(F.hero, h)), { path: ['heroes', i] }, `hero ${i + 1}`));
     if (!Array.isArray(project.heroes) || !project.heroes.length) prob('error', 'no-heroes', 'the project needs at least one hero', { path: ['heroes'] });
     errors('schema', stripRefErrors(S.validate(F.start, project.start || {})), { path: ['start'] }, 'start');
+    // A module's content is checked against the fields the module declared, the
+    // same way everything else here is. A number an author typed into a module's
+    // panel is reported in the same list as a broken tile id.
+    if (KIT.modules && KIT.modules.problems) for (const m of KIT.modules.problems(project)) problems.push(m);
     for (const name of Object.keys(project.vars || {})) {
       const v = project.vars[name];
       errors('schema', S.validate(F.var, v), { path: ['vars', name] }, `var ${name}`);

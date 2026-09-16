@@ -2,12 +2,13 @@
 //
 //  1. capture the page exactly as it was authored (KIT.PRISTINE_HTML) — publish
 //     rebuilds from this, never from the live DOM;
-//  2. provide KIT.module() / KIT.modules so module manifests can register
-//     themselves, sorted by their `requires` (a missing one is a loud banner);
-//  3. load the project (draft → embedded → content files → blank) and boot.
+//  2. put up a banner nobody can miss when something fails to start;
+//  3. load the project and boot.
 //
-// Module manifests may be loaded before or after this file: KIT.module() is
-// defined as soon as this script runs, and boot waits for DOMContentLoaded.
+// The module system itself is the engine's (js/kit/core/modules.js), not this
+// file's: KIT.module exists as soon as the engine is on the page, so a manifest
+// may be loaded before or after this file, and boot waits for DOMContentLoaded
+// either way.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -18,68 +19,7 @@
     }
   } catch (e) { KIT.PRISTINE_HTML = null; }
 
-  // ---- 2. modules -------------------------------------------------------------
-  const defs = [];
-  const loaded = [];
-
-  /** KIT.module({ id, version, requires, register, save, content }) — called by a manifest at load time. */
-  KIT.module = function (def) {
-    if (!def || !def.id) throw new Error('KIT.module: a module needs an id');
-    const i = defs.findIndex(d => d.id === def.id);
-    if (i >= 0) defs[i] = def; else defs.push(def);
-    return def;
-  };
-
-  KIT.modules = {
-    /** all() -> every manifest seen, in load order. */
-    all() { return defs.slice(); },
-    /** loaded() -> the ones whose register() ran, in dependency order. */
-    loaded() { return loaded.slice(); },
-    get(id) { return defs.find(d => d.id === id) || null; },
-    has(id) { return loaded.some(d => d.id === id); },
-    /**
-     * order(ids) -> { order, missing, cycles } — a topological sort of the manifests.
-     * Pure, so the module test can check it without a page.
-     */
-    order(ids) {
-      const wanted = ids ? defs.filter(d => ids.includes(d.id)) : defs.slice();
-      const byId = new Map(wanted.map(d => [d.id, d]));
-      const order = [], missing = [], cycles = [];
-      const state = new Map();                 // id -> 'visiting' | 'done'
-      const visit = (def, trail) => {
-        if (state.get(def.id) === 'done') return;
-        if (state.get(def.id) === 'visiting') { cycles.push(trail.concat(def.id).join(' → ')); return; }
-        state.set(def.id, 'visiting');
-        for (const req of def.requires || []) {
-          const dep = byId.get(req);
-          if (!dep) { missing.push({ module: def.id, requires: req }); continue; }
-          visit(dep, trail.concat(def.id));
-        }
-        state.set(def.id, 'done');
-        order.push(def);
-      };
-      for (const d of wanted) visit(d, []);
-      return { order, missing, cycles };
-    },
-    /** activate(project) — register the modules this project enables, in dependency order. */
-    activate(project) {
-      const enabled = project && Array.isArray(project.modules) ? project.modules : defs.map(d => d.id);
-      const { order, missing, cycles } = KIT.modules.order(enabled);
-      for (const m of missing) banner(`The module “${m.module}” needs “${m.requires}”, which is not loaded.`);
-      for (const c of cycles) banner(`The modules ${c} require each other in a circle.`);
-      for (const def of order) {
-        try {
-          if (typeof def.register === 'function') def.register(KIT);
-          loaded.push(def);
-        } catch (e) {
-          (KIT.log || console).error(`[module ${def.id}] register threw`, e);
-          banner(`The module “${def.id}” failed to start: ${e.message}`);
-        }
-      }
-      return loaded.slice();
-    },
-  };
-
+  // ---- 2. the banner -----------------------------------------------------------
   /** A banner nobody can miss: modules and boot failures must not fail silently. */
   function banner(text) {
     (KIT.log || console).error('[kit] ' + text);

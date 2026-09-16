@@ -36,6 +36,7 @@
       key: 'dungeon',
       defaults: () => KIT.dungeon.defaults(),
       migrate: KIT.dungeon.migrations,
+      repair: (data) => KIT.dungeon.repair(data),
     },
 
     // The slice of the project this module owns: project.packs.dungeon.
@@ -47,18 +48,14 @@
   };
   KIT.dungeon.MANIFEST = DEF;
 
-  // A page may load the modules before main.js (so main.js can capture the whole
-  // page as KIT.PRISTINE_HTML). KIT.module does not exist yet at that point, so
-  // declare on DOMContentLoaded — that listener is added before main.js adds its
-  // own, and therefore runs before boot reads project.modules.
-  function declare() {
-    if (typeof KIT.module === 'function') return KIT.module(DEF);
-    (KIT.log || console).error('[dungeon] KIT.module is missing: js/main.js never loaded, so the module cannot be enabled');
-    return null;
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file. Declaring
+  // is one line.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[dungeon] KIT.module is missing: the engine is not on the page, so this module cannot be enabled');
+  } else {
+    KIT.module(DEF);
   }
-  if (typeof KIT.module === 'function') declare();
-  else if (typeof document !== 'undefined' && document.readyState === 'loading') document.addEventListener('DOMContentLoaded', declare);
-  else declare();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

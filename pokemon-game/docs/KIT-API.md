@@ -178,10 +178,22 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`) 
 
 `editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that.
 
-## main.js — modules
+## core/modules.js — the module system
 `KIT.module(def)` registers a manifest (`{ id, version, label, requires, describe, register(KIT), save, content }`; see `docs/MODULES.md`) ·
-`KIT.modules.all()` `loaded()` `get(id)` `has(id)` `order(ids) -> { order, missing, cycles }` (a pure topological sort) `activate(project)` (registers the modules `project.modules` names, in dependency order; a missing requirement or a cycle is a banner) ·
-`KIT.banner(text)` · `KIT.PRISTINE_HTML` (the page as authored — `KIT.storage.publish` rebuilds from this, never from the live DOM).
+`KIT.modules.all()` `loaded()` `get(id)` `has(id)` ·
+`order(ids) -> { order, missing, cycles }` (a pure topological sort) ·
+`activate(project)` (registers the modules `project.modules` names, in dependency order; a missing requirement or a cycle is a banner; already-loaded modules are skipped) ·
+`reset()` (forget every activation) · `forget(id)` (unsay the declaration too — for tests).
+
+The two declarations, which the engine acts on so a module does not have to:
+`saveSection(save, id)` fills, migrates and repairs `save.modules[key]` and writes it back — `KIT.world.create` calls it for every loaded module, so a module's code can assume its section is there and current ·
+`ensureSaves(save)` does all of them ·
+`pack(project, id)` → the filled content slice without mutating the project ·
+`ensurePacks(project)` writes each one back (called by `KIT.project.normalize`) ·
+`problems(project)` validates each declared `fields` against `project.packs[key]` (called by `KIT.project.validate`).
+
+## main.js — the page's entry point
+`KIT.banner(text)` · `KIT.PRISTINE_HTML` (the page as authored — `KIT.storage.publish` rebuilds from this, never from the live DOM). It loads the project, activates its modules through `loadProject({ before })` and boots the game; the module system itself is the engine's, above.
 `tools/load-modules.js` is the Node-side equivalent for the build and the tests: `require('./tools/load-modules.js').load(KIT, ['mons','home'])` requires each module's files in order and calls `activate`.
 
 ## The module namespaces

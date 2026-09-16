@@ -36,12 +36,35 @@
   ];
 
   /**
-   * ensure(save) -> the module's save section, created and migrated in place.
-   * Every entry point calls this first, so a save written before this module
-   * existed (or by an older version of it) still works.
+   * repair(data) -> the section with its shape put right. The engine calls this
+   * after filling and migrating, so an edited or truncated save cannot hand the
+   * module a string where it expects a list.
+   */
+  H.repair = function (data) {
+    if (!Array.isArray(data.jobs)) data.jobs = [];
+    if (!Array.isArray(data.gifts)) data.gifts = [];
+    if (!Array.isArray(data.furniture)) data.furniture = [];
+    if (!Array.isArray(data.log)) data.log = [];
+    if (!data.moods || typeof data.moods !== 'object') data.moods = {};
+    data.placed = data.furniture.length;
+    data.version = H.SAVE_VERSION;
+    return data;
+  };
+
+  /**
+   * ensure(save) -> the module's save section.
+   *
+   * The engine fills, migrates and repairs it when the world is made (see
+   * `save` in manifest.js), so normally this just reads it. It still does the
+   * whole job when handed a bare save — a headless test, a tool — because a
+   * module has to work without a world around it.
    */
   H.ensure = function (save) {
-    if (!save || typeof save !== 'object') return H.defaults();
+    if (!save || typeof save !== 'object') return H.repair(H.defaults());
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
+      const section = KIT.modules.saveSection(save, 'home');
+      if (section) return section;
+    }
     save.modules = save.modules || {};
     let data = save.modules.home;
     if (!data || typeof data !== 'object') data = H.defaults();
@@ -53,15 +76,8 @@
     }
     const d = H.defaults();
     for (const k of Object.keys(d)) if (!has(data, k)) data[k] = d[k];
-    if (!Array.isArray(data.jobs)) data.jobs = [];
-    if (!Array.isArray(data.gifts)) data.gifts = [];
-    if (!Array.isArray(data.furniture)) data.furniture = [];
-    if (!Array.isArray(data.log)) data.log = [];
-    if (!data.moods || typeof data.moods !== 'object') data.moods = {};
-    data.placed = data.furniture.length;
-    data.version = H.SAVE_VERSION;
-    save.modules.home = data;
-    return data;
+    save.modules.home = H.repair(data);
+    return save.modules.home;
   };
 
   // ---- content (project.packs.home) ------------------------------------------
@@ -90,8 +106,16 @@
     for (const f of H.TUNING) t[f.key] = f.default;
     return t;
   };
-  /** pack(project) -> packs.home with every default filled in (never mutates the project). */
+  /**
+   * pack(project) -> packs.home with every default filled in (never mutates the
+   * project). normalize() has usually written this already; this still fills it
+   * for a project that never went through normalize.
+   */
   H.pack = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
+      const p = KIT.modules.pack(project, 'home');
+      if (p) return p;
+    }
     const raw = (project && project.packs && project.packs.home) || {};
     const out = Object.assign(H.contentDefaults(), raw);
     out.tuning = Object.assign(H.tuningDefaults(), raw.tuning || {});

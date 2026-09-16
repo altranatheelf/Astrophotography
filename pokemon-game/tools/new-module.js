@@ -86,18 +86,37 @@ function rulesJs(v) {
    */
   M.migrations = [];
 
-  /** ensure(save) -> this module's section, filled in and migrated. Never throws. */
-  M.ensure = function (save) {
-    if (!isObj(save)) return M.defaults();
-    const mods = save.modules = isObj(save.modules) ? save.modules : {};
-    let data = isObj(mods.${v.camel}) ? mods.${v.camel} : {};
-    for (const m of M.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
+  /**
+   * repair(data) -> the same object, with its shape put right. In place: whoever
+   * holds this section keeps holding the right one. The engine calls it after
+   * filling and migrating, so an edited save cannot hand you a string where you
+   * expect a number.
+   */
+  M.repair = function (data) {
     data.version = M.VERSION;
     data.total = num(data.total, 0);
     data.byKey = isObj(data.byKey) ? data.byKey : {};
     data.seconds = num(data.seconds, 0);
-    mods.${v.camel} = data;
     return data;
+  };
+
+  /**
+   * ensure(save) -> this module's section. The engine fills it whenever a world
+   * is made (see the save declaration in manifest.js), so this usually just reads
+   * it; it still does the whole job for a bare save, so the module works with no
+   * world around it. Never throws.
+   */
+  M.ensure = function (save) {
+    if (!isObj(save)) return M.repair(M.defaults());
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('${v.id}')) {
+      const section = KIT.modules.saveSection(save, '${v.id}');
+      if (section) return section;
+    }
+    const mods = save.modules = isObj(save.modules) ? save.modules : {};
+    let data = isObj(mods.${v.camel}) ? mods.${v.camel} : {};
+    for (const m of M.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
+    mods.${v.camel} = M.repair(data);
+    return mods.${v.camel};
   };
 
   // ---- the content slice (project.packs.${v.id}) --------------------------------
@@ -116,6 +135,10 @@ function rulesJs(v) {
   };
   /** tuning(project) -> the pack with every default filled in. */
   M.tuning = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('${v.id}')) {
+      const p = KIT.modules.pack(project, '${v.id}');
+      if (p) return p;
+    }
     const pack = (project && project.packs && project.packs.${v.camel}) || {};
     const out = M.contentDefaults();
     for (const k of Object.keys(out)) if (pack[k] !== undefined && pack[k] !== null) out[k] = pack[k];
@@ -404,14 +427,20 @@ function manifestJs(v) {
       KIT.${v.camel}.registerAll(kit);
     },
 
-    // The slice of the save this module owns.
+    // The slice of the save this module owns: save.modules.${v.id}. The engine
+    // fills it, runs the migrate chain over it and calls repair, every time a
+    // world is made -- so this module never has to check.
     save: {
       key: '${v.id}',
       defaults: () => KIT.${v.camel}.defaults(),
       migrate: KIT.${v.camel}.migrations,
+      repair: (data) => KIT.${v.camel}.repair(data),
     },
 
-    // The slice of the project this module owns: project.packs.${v.id}.
+    // The slice of the project this module owns: project.packs.${v.id}. Because
+    // its fields are declared, normalize fills them, validate checks them, and
+    // Creator Mode's generic inspector can edit them. (Add at: 'tuning' if you
+    // move the numbers inside the pack instead of spreading them across it.)
     content: {
       key: '${v.id}',
       fields: KIT.${v.camel}.TUNING,
@@ -420,18 +449,13 @@ function manifestJs(v) {
   };
   KIT.${v.camel}.MANIFEST = DEF;
 
-  // A page loads its modules before main.js, so main.js can capture the whole
-  // page for the single-file build. KIT.module does not exist yet at that point,
-  // so declare on DOMContentLoaded — that listener is added before main.js adds
-  // its own, and so runs before boot reads project.modules.
-  function declare() {
-    if (typeof KIT.module === 'function') return KIT.module(DEF);
-    (KIT.log || console).error('[${v.id}] KIT.module is missing: js/main.js never loaded');
-    return null;
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[${v.id}] KIT.module is missing: the engine is not on the page');
+  } else {
+    KIT.module(DEF);
   }
-  if (typeof KIT.module === 'function') declare();
-  else if (typeof document !== 'undefined' && document.readyState === 'loading') document.addEventListener('DOMContentLoaded', declare);
-  else declare();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -447,7 +471,9 @@ const path = require('path');
 
 ${v.testLoad}
 const M = KIT.${v.camel};
-M.registerAll(KIT);
+// Switch it on the way a game does, rather than calling registerAll by hand:
+// that is what makes the engine act on the manifest's save and content slices.
+KIT.modules.activate({ modules: ['${v.id}'] });
 
 const blankSave = () => ({ version: 2, vars: {}, inventory: {}, objects: {}, overlays: {}, modules: {} });
 
@@ -546,6 +572,30 @@ test('the manifest declares a save section and a content slice, and sorts', () =
   assert.deepEqual(missing, [], 'nothing it needs is absent');
   assert.deepEqual(cycles, [], 'no circles');
   assert.equal(order[order.length - 1].id, '${v.id}', 'it comes after anything it requires');
+});
+
+test('the engine acts on those declarations without being asked', () => {
+  // The save slice: a world fills it, so this module's code never has to check.
+  const project = KIT.project.normalize({ version: 3, meta: { id: 'test-${v.id}' }, modules: ['${v.id}'] }).project;
+  const save = blankSave();
+  KIT.world.create({ project, save, ports: {} });
+  assert.ok(save.modules.${v.camel}, 'the section is there before we ask for it');
+  assert.equal(save.modules.${v.camel}.version, M.VERSION);
+
+  // The content slice: normalize fills it, so every number has a value even for
+  // an author who never opened this module's panel.
+  const defs = M.contentDefaults();
+  for (const key of Object.keys(defs)) {
+    assert.equal(project.packs.${v.camel}[key], defs[key], key + ' has its default');
+  }
+
+  // and validate reports a number that is out of range, in the project's own list
+  const wrong = KIT.project.normalize({
+    version: 3, meta: { id: 'test-${v.id}' }, modules: ['${v.id}'],
+    packs: { ${v.camel}: { max: -1 } },
+  }).problems.filter(p => p.code === 'module-content');
+  assert.equal(wrong.length, 1, JSON.stringify(wrong));
+  assert.match(wrong[0].message, /${v.id}: max/);
 });
 `;
 }
@@ -667,7 +717,7 @@ function main(argv) {
       : [
         "const ROOT = path.join(__dirname, '..', '..');",
         "const KIT = require(path.join(ROOT, 'test/kit/_load.js'));",
-        "require(path.join(ROOT, 'js/main.js'));        // KIT.module and KIT.modules; headless, it boots nothing",
+        "for (const f of ['map', 'entities', 'world']) require(path.join(ROOT, 'js/kit/world', f + '.js'));",
         `for (const f of ['rules', 'register', 'panel', 'manifest']) require(path.join(ROOT, '${loadPrefix}', '${id}', f + '.js'));`,
       ].join('\n'),
   };

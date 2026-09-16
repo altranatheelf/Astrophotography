@@ -29,36 +29,36 @@
       KIT.home.registerAll(kit);
     },
 
-    // The slice of the save this module owns. The engine does not read these
-    // declarations yet (see README, "What the engine still owes us"), so
-    // KIT.home.ensure(save) fills and migrates the section itself on first use.
+    // The slice of the save this module owns. The engine fills it, migrates it
+    // and calls `repair` whenever a world is made, so KIT.home.ensure(save) is
+    // only a named way of reading what is already there.
     save: {
       key: 'home',
       defaults: () => KIT.home.defaults(),
       migrate: KIT.home.migrations,
+      repair: (data) => KIT.home.repair(data),
     },
 
-    // The slice of the project this module owns: project.packs.home.
+    // The slice of the project this module owns: project.packs.home, whose
+    // `tuning` is the declared shape — so the engine fills every number and
+    // Creator Mode's generic inspector can edit them.
     content: {
       key: 'home',
       fields: KIT.home.TUNING,
+      at: 'tuning',
       defaults: () => KIT.home.contentDefaults(),
     },
   };
   KIT.home.MANIFEST = DEF;
 
-  // index.html loads the modules before main.js, so the whole page is captured
-  // as KIT.PRISTINE_HTML — which means KIT.module does not exist yet. Our
-  // DOMContentLoaded listener is added before main.js adds its own, so we
-  // declare the module before boot reads project.modules.
-  function declare() {
-    if (typeof KIT.module === 'function') return KIT.module(DEF);
-    (KIT.log || console).error('[home] KIT.module is missing: js/main.js never loaded, so the module cannot be enabled');
-    return null;
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file. Declaring
+  // is one line.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[home] KIT.module is missing: the engine is not on the page, so this module cannot be enabled');
+  } else {
+    KIT.module(DEF);
   }
-  if (typeof KIT.module === 'function') declare();
-  else if (typeof document !== 'undefined' && document.readyState === 'loading') document.addEventListener('DOMContentLoaded', declare);
-  else declare();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

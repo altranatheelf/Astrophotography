@@ -34,6 +34,8 @@
       key: 'mons',
       defaults: () => M.saveDefaults(),
       migrate: [{ from: 1, to: 2, up: (data) => M.migrateSave(data) }],
+      // Shape repair, in place, after the chain above has settled the version.
+      repair: (data) => M.repair(data),
     },
 
     content: {
@@ -56,23 +58,15 @@
     },
   };
 
-  // main.js says a manifest may load before or after it, but KIT.module only
-  // exists once main.js has run — and index.html loads the modules *before*
-  // main.js so that main.js still captures the whole page as KIT.PRISTINE_HTML.
-  // So: announce ourselves now if we can, and otherwise on DOMContentLoaded,
-  // whose listener we registered first and which therefore runs before boot.
-  // (See README, "the missing hook".)
   M.MANIFEST = DEF;
-  function announce(loud) {
-    if (typeof KIT.module !== 'function') {
-      if (loud) (KIT.log || console).error('[mons] KIT.module is still not defined — is js/main.js in the page?');
-      return false;
-    }
+
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file. Declaring
+  // is one line.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[mons] KIT.module is missing: the engine is not on the page, so this module cannot be enabled');
+  } else {
     KIT.module(DEF);
-    return true;
-  }
-  if (!announce(false) && typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('DOMContentLoaded', () => announce(true));
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

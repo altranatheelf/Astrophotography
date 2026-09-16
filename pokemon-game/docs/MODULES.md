@@ -26,21 +26,55 @@ KIT.module({
     // before the game boots, only when the project enables this module.
   },
 
-  // Optional: a slice of the save file this module owns.
+  // Optional: a slice of the save file this module owns, at save.modules.mons.
   save: {
     key: 'mons',
-    defaults: () => ({ party: [], box: [], dex: {} }),
+    defaults: () => ({ version: 2, party: [], box: [], dex: {} }),
     migrate: [ { from: 1, to: 2, up(data) { return data; } } ],
+    repair(data) { if (!Array.isArray(data.party)) data.party = []; return data; },
   },
 
-  // Optional: a slice of the project this module owns (project.packs.<key>),
-  // validated and edited by the schema like everything else.
+  // Optional: a slice of the project this module owns, at project.packs.mons.
   content: {
     key: 'mons',
+    at: 'tuning',                         // which object inside the pack `fields` describes
     fields: [ { key: 'startingBalls', type: 'number', default: 5 } ],
-    defaults: () => ({ species: {}, encounters: {} }),
+    defaults: () => ({ tuning: {}, species: {}, encounters: {} }),
   },
 })
+```
+
+## The two slices
+
+These are declarations, not requests: the engine acts on them, and a module
+does not write an `ensure(save)` or a `pack(project)` of its own.
+
+**`save`** — whenever a world is made, from a new game or a loaded slot, the
+engine takes `save.modules[key]`, runs the `migrate` chain over it (oldest
+first; each `{ from, to, up(data) }` takes the section at `from` and returns it
+at `to`), fills in any key that `defaults()` has and the section does not, and
+calls `repair(data)` last. So a save written before this module existed, or by
+an older version of it, loads; adding a field to a module is safe; and a save
+that arrives edited or truncated is put right rather than believed.
+
+`repair` must work **in place** and return the same object: everything that
+holds a section holds that object, and reading twice has to give the same one
+back.
+
+**`content`** — `KIT.project.normalize` fills `project.packs[key]` from
+`defaults()` and the declared `fields`, and `validate` checks it, so a number
+an author typed into a module's panel is reported in the same list as a broken
+tile id. Because the fields are declared, Creator Mode's generic inspector can
+edit them: a module's own panel is a convenience, not the only way in.
+
+Set `at` when the fields describe an object **inside** the pack (most packs are
+`{ tuning: {…}, …data… }`); leave it out and they describe the pack itself.
+
+Read either slice with the module's own helper if it has one, or directly:
+
+```js
+KIT.modules.saveSection(save, 'mons')   // fill + migrate + repair, and write back
+KIT.modules.pack(project, 'mons')       // the filled content slice, without mutating
 ```
 
 ## What `register` may add

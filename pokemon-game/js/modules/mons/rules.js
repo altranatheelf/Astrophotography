@@ -150,6 +150,10 @@
 
   /** pack(project) -> packs.mons with every default filled in (never mutates the project). */
   M.pack = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
+      const p = KIT.modules.pack(project, 'mons');
+      if (p) return p;
+    }
     const raw = (project && project.packs && isObj(project.packs.mons)) ? project.packs.mons : {};
     return Object.assign(M.contentDefaults(), raw);
   };
@@ -550,6 +554,31 @@
   };
 
   /**
+   * repair(data) -> the same object, with its shape put right.
+   *
+   * In place, deliberately: everything that holds a section holds this object,
+   * and reading twice has to give the same one back. A section that is the wrong
+   * version is not this function's business — the migrate chain does that, and
+   * the engine runs it first.
+   */
+  M.repair = function (data) {
+    if (!isObj(data)) return M.migrateSave(data);
+    if (num(data.version, 0) !== M.SAVE_VERSION) return M.migrateSave(data);
+    data.party = (Array.isArray(data.party) ? data.party : []).map(fillMon).filter(Boolean);
+    data.box = (Array.isArray(data.box) ? data.box : []).map(fillMon).filter(Boolean);
+    if (!isObj(data.dex)) data.dex = { seen: {}, caught: {} };
+    if (!isObj(data.dex.seen)) data.dex.seen = {};
+    if (!isObj(data.dex.caught)) data.dex.caught = {};
+    if (typeof data.follower !== 'string') data.follower = null;
+    data.steps = num(data.steps, 0);
+    if (!Array.isArray(data.petted)) data.petted = [];
+    if (data.lastSeenAt === undefined) data.lastSeenAt = null;
+    // The party cannot be longer than the party: the rest wait in the garden.
+    if (data.party.length > M.PARTY_MAX) data.box = data.party.splice(M.PARTY_MAX).concat(data.box);
+    return data;
+  };
+
+  /**
    * migrateSave(data) -> the current shape.
    * v1 (the flat Pokémon game before the kit): { pokemon:[{species,name,friendship}],
    * dex:['pikachu'], follower:<index> }. Old saves must keep loading.
@@ -612,6 +641,13 @@
    */
   M.section = function (save) {
     if (!isObj(save)) return M.saveDefaults();
+    // The engine fills, migrates and repairs the section when the world is made
+    // (see `save` in manifest.js). This reads it — and still does the whole job
+    // for a bare save, because a module has to work without a world around it.
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
+      const section = KIT.modules.saveSection(save, 'mons');
+      if (section) return section;
+    }
     save.modules = isObj(save.modules) ? save.modules : {};
     const cur = save.modules.mons;
     if (!isObj(cur) || num(cur.version, 0) !== M.SAVE_VERSION || !Array.isArray(cur.party)) {

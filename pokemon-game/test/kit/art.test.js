@@ -56,13 +56,30 @@ test('every js/art/*.js registers through the kit registries without errors', ()
   assert.deepEqual(w2, []); assert.equal(tiles.size() >= 70, true);
 });
 
-test('js/kit never references PKMN, modules or content', () => {
-  const kitDir = path.join(__dirname, '..', '..', 'js', 'kit');
+test('js/kit never names a particular module, game or piece of content', () => {
+  // The kit OWNS the module system (js/kit/core/modules.js defines KIT.modules),
+  // so calling it is fine. What is not fine is the engine knowing which modules
+  // exist: `KIT.mons`, `js/modules/home`, a Pokémon anywhere. The layering only
+  // holds if it is checked, because breaking it is one convenient line away.
+  const root = path.join(__dirname, '..', '..');
+  const kitDir = path.join(root, 'js', 'kit');
   const walk = (dir) => fs.readdirSync(dir).flatMap(f => { const p = path.join(dir, f); return fs.statSync(p).isDirectory() ? walk(p) : [p]; });
+  const moduleIds = fs.readdirSync(path.join(root, 'js', 'modules'), { withFileTypes: true })
+    .filter(d => d.isDirectory()).map(d => d.name);
+  assert.ok(moduleIds.length >= 2, 'there are modules to be ignorant of (' + moduleIds.join(', ') + ')');
+
   for (const f of walk(kitDir).filter(f => f.endsWith('.js'))) {
     const src = fs.readFileSync(f, 'utf8');
     assert.ok(!/\bPKMN\b/.test(src), `${f} references PKMN`);
-    assert.ok(!/KIT\.modules\./.test(src), `${f} references KIT.modules.*`);
     assert.ok(!/js\/content\//.test(src), `${f} references js/content`);
+    assert.ok(!/js\/modules\//.test(src), `${f} references js/modules`);
+    for (const id of moduleIds) {
+      assert.ok(!(new RegExp('KIT\\.' + id + '\\b')).test(src), `${f} reaches into the ${id} module`);
+    }
   }
+
+  // and only the one file may define the module system
+  const owners = walk(kitDir).filter(f => f.endsWith('.js'))
+    .filter(f => /KIT\.modules\s*=/.test(fs.readFileSync(f, 'utf8')));
+  assert.deepEqual(owners.map(f => path.relative(root, f)), ['js/kit/core/modules.js']);
 });

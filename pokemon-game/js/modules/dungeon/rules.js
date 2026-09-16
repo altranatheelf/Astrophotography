@@ -29,22 +29,37 @@
   D.migrations = [];
 
   /**
-   * ensure(save) -> the module's own section of the save, filled in and migrated.
-   * Safe to call on every access; it never throws and never loses what is there.
+   * repair(data) -> the same object, with its shape put right. In place: whoever
+   * is holding the section keeps holding the right one. The engine calls this
+   * after filling and migrating (see `save` in manifest.js).
    */
-  D.ensure = function (save) {
-    if (!isObj(save)) return D.defaults();
-    const mods = save.modules = isObj(save.modules) ? save.modules : {};
-    let data = isObj(mods.dungeon) ? mods.dungeon : {};
-    for (const m of D.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
+  D.repair = function (data) {
     const base = D.defaults();
     data.version = D.VERSION;
     data.torch = isObj(data.torch) ? { lit: !!data.torch.lit, radius: num(data.torch.radius, 0) } : base.torch;
     data.blocks = isObj(data.blocks) ? data.blocks : {};
     data.switches = isObj(data.switches) ? data.switches : {};
     data.pushes = num(data.pushes, 0);
-    mods.dungeon = data;
     return data;
+  };
+
+  /**
+   * ensure(save) -> the module's own section of the save.
+   * The engine has usually filled it already; this still does the whole job for
+   * a bare save, so the module works with no world around it. Never throws, never
+   * loses what is there.
+   */
+  D.ensure = function (save) {
+    if (!isObj(save)) return D.repair(D.defaults());
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('dungeon')) {
+      const section = KIT.modules.saveSection(save, 'dungeon');
+      if (section) return section;
+    }
+    const mods = save.modules = isObj(save.modules) ? save.modules : {};
+    let data = isObj(mods.dungeon) ? mods.dungeon : {};
+    for (const m of D.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
+    mods.dungeon = D.repair(data);
+    return mods.dungeon;
   };
 
   // ---- the content slice (project.packs.dungeon) --------------------------------
@@ -76,6 +91,10 @@
   };
   /** tuning(project) -> the pack, with every default filled in. */
   D.tuning = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('dungeon')) {
+      const p = KIT.modules.pack(project, 'dungeon');
+      if (p) return p;
+    }
     const pack = (project && project.packs && project.packs.dungeon) || {};
     const out = D.contentDefaults();
     for (const k of Object.keys(out)) if (pack[k] !== undefined && pack[k] !== null) out[k] = pack[k];

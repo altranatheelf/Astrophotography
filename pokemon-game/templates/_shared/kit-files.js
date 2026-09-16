@@ -11,7 +11,8 @@
 /** The engine, in the order docs/KIT-API.md gives. */
 const CORE = [
   'js/kit/core/util.js', 'js/kit/core/events.js', 'js/kit/core/rng.js', 'js/kit/core/registry.js',
-  'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/pixels.js', 'js/kit/core/assets.js',
+  'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/modules.js',
+  'js/kit/core/pixels.js', 'js/kit/core/assets.js',
   'js/kit/core/input.js', 'js/kit/core/audio.js', 'js/kit/core/storage.js',
   'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js',
   'js/kit/script/text.js', 'js/kit/script/conditions.js', 'js/kit/script/commands.js',
