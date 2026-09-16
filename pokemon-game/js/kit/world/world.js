@@ -102,6 +102,33 @@
     world.refreshPages = refreshPages;
 
     /** enterMap(id, x, y, dir) -> Promise: swaps the map, places the heroes, runs init/enter slots. */
+    /**
+     * shift(name, opts) — step into another layer of the same place (or back, with null).
+     * Position and story state are kept; tiles, objects, light and music change around you.
+     */
+    world.shift = async function (name, opts) {
+      opts = opts || {};
+      const before = save.dimension || null;
+      const to = name || null;
+      if (to === before) return before;
+      const map = project.maps[world.map ? world.map.id : null];
+      if (to && !(map && map.dimensions && map.dimensions[to])) {
+        (KIT.log || console).warn(`[world] this place has no layer called '${to}'`);
+        return before;
+      }
+      save.dimension = to;
+      world.map = KIT.mapView(project, save, world.map.id);
+      buildEntities();
+      events.emit('dimensionChanged', { map: world.map.id, from: before, to });
+      if (ports.audio && world.map.music !== undefined && world.map.music !== world.currentMusic) {
+        world.currentMusic = world.map.music;
+        ports.audio.music(world.map.music || null, { fade: opts.ms || 400 });
+      }
+      if (opts.runEnter !== false) await runSlotsForMap('enter');
+      return to;
+    };
+    world.dimension = () => save.dimension || null;
+
     world.enterMap = async function (mapId, x, y, dir, opts) {
       const from = world.map ? world.map.id : null;
       if (from) { for (const s of world.systems) if (s.onMapLeave) s.onMapLeave(world); events.emit('mapLeave', { map: from }); }

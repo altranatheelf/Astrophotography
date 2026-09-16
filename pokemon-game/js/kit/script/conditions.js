@@ -264,6 +264,18 @@
 
   const warned = new Set();
   /** test(cond, ctx) -> boolean. null/undefined = true. Unknown kinds are false (warned once). */
+  reg.add({
+    id: 'dimension', label: 'Which layer of the place', icon: 'shift',
+    doc: 'True when this place is currently in the named layer of reality (empty means the ordinary one).',
+    fields: [{ key: 'is', type: 'string', default: '', label: 'Layer' }],
+    test(cond, ctx) {
+      const w = ctx && ctx.world;
+      const now = (w && (typeof w.dimension === 'function' ? w.dimension() : (w.save && w.save.dimension))) || '';
+      return String(now || '') === String(cond.is || '');
+    },
+    describe(cond) { return cond.is ? `the place is “${cond.is}”` : 'the place is ordinary'; },
+  });
+
   C.test = function (cond, ctx) {
     if (cond === null || cond === undefined) return true;
     if (!KIT.isObject(cond) || typeof cond.kind !== 'string') return false;

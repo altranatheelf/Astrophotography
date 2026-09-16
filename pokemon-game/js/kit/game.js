@@ -182,6 +182,13 @@
         if (o.wait === false || !(o.ms > 0)) return Promise.resolve();
         return new Promise((res) => setTimeout(res, o.ms));
       },
+      async shift(o) {
+        const w = G.world;
+        if (!w || !w.shift) return;
+        await w.shift(o.to || null, { ms: o.ms });
+        if (KIT.atmosphere && w.map && w.map.atmosphere) KIT.atmosphere.set(w.map.atmosphere, { ms: o.ms == null ? 300 : o.ms });
+        queueAutosave();
+      },
       light(o) {
         const e = resolve(o.target || 'self', currentEntity());
         if (!e) return Promise.resolve();

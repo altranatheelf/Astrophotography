@@ -24,9 +24,20 @@
    * mapView(project, save, mapId) -> view
    * `save` may be null (editor preview): then there is no overlay and no object state.
    */
-  KIT.mapView = function mapView(project, save, mapId) {
+  /**
+   * mapView(project, save, mapId, opts) — the map as the runtime sees it.
+   * opts.dimension names a layer of reality declared on the map (map.dimensions):
+   * the same place, otherwise. A dimension changes tiles, hides or reveals objects,
+   * and can bring its own light and music; everything else about the map is shared,
+   * so the two never drift apart.
+   */
+  KIT.mapView = function mapView(project, save, mapId, opts) {
     const map = project && project.maps ? project.maps[mapId] : null;
     if (!map) throw new Error(`mapView: unknown map '${mapId}'`);
+    const dimName = (opts && opts.dimension !== undefined) ? opts.dimension : (save && save.dimension) || null;
+    const dim = (dimName && map.dimensions && map.dimensions[dimName]) || null;
+    const dimTiles = (dim && dim.tiles) || null;
+    const dimObjects = (dim && dim.objects) || null;
     const overlay = (save && save.overlays && save.overlays[mapId]) || null;
     const objectState = (save && save.objects) || {};
     const width = map.width, height = map.height;
@@ -40,6 +51,10 @@
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, layer)) return o[layer];
+      if (dimTiles) {
+        const d = dimTiles[`${x},${y}`];
+        if (d && Object.prototype.hasOwnProperty.call(d, layer)) return d[layer];
+      }
       const arr = map.layers && map.layers[layer];
       return arr ? (arr[index(x, y)] == null ? null : arr[index(x, y)]) : null;
     }
@@ -49,6 +64,10 @@
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, 'collision')) return o.collision;
+      if (dimTiles) {
+        const d = dimTiles[`${x},${y}`];
+        if (d && Object.prototype.hasOwnProperty.call(d, 'collision')) return d.collision;
+      }
       return map.collision ? (map.collision[index(x, y)] == null ? null : map.collision[index(x, y)]) : null;
     }
 
@@ -105,7 +124,12 @@
     const objects = (map.objects || []).concat((overlay && overlay.objects) || []);
     const key = (objOrId) => `${mapId}:${typeof objOrId === 'string' ? objOrId : objOrId.id}`;
     const stateOf = (objOrId) => objectState[key(objOrId)] || null;
-    const isHidden = (obj) => { const s = stateOf(obj); return !!(s && s.hidden); };
+    const isHidden = (obj) => {
+      const d = dimObjects && dimObjects[obj.id];
+      if (d && d.hidden !== undefined) return !!d.hidden;      // this layer of reality decides
+      const s = stateOf(obj);
+      return !!(s && s.hidden);
+    };
     /** Where the object is right now (a moved object remembers its place in the save). */
     function positionOf(obj) {
       const s = stateOf(obj);
@@ -184,7 +208,11 @@
     }
 
     return {
-      id: mapId, map, project, save, width, height, kind: map.kind, music: map.music,
+      id: mapId, map, project, save, width, height, kind: map.kind,
+      dimension: dimName || null,
+      dimensions: map.dimensions ? Object.keys(map.dimensions) : [],
+      music: (dim && dim.music) || map.music,
+      atmosphere: (dim && dim.atmosphere) || (map.props && map.props.atmosphere) || null,
       index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, passable, hopTarget, connectionAt, interactTarget,
       objects, objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
       setBlockers(list) { blockers = list || []; },

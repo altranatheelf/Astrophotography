@@ -730,6 +730,38 @@
     },
   });
   defs.push({
+    id: 'shift', label: 'Shift', group: 'Movement', icon: 'shift', blocking: true, editor: { favourite: true },
+    doc: 'Step into another layer of this same place — or back to the ordinary one. You keep your position; the world changes around you.',
+    fields: [
+      { key: 'to', type: 'string', default: '', label: 'Layer', doc: 'The name of a layer this map declares. Empty means back to the ordinary one.' },
+      { key: 'effect', type: 'enum', options: ['none', 'flash', 'fade', 'blink'], default: 'flash', label: 'How it happens' },
+      { key: 'ms', type: 'number', min: 0, default: 300 },
+    ],
+    async run(ctx, cmd) {
+      const ms = cmd.ms == null ? 300 : cmd.ms;
+      const effect = cmd.effect || 'flash';
+      if (effect === 'fade') await port(ctx, 'screen', 'fadeOut')({ ms: ms, color: '#000000' });
+      else if (effect === 'flash') await port(ctx, 'screen', 'flash')({ color: '#ffffff', ms: Math.max(80, ms / 2) });
+      else if (effect === 'blink') await port(ctx, 'screen', 'flash')({ color: '#000000', ms: Math.max(60, ms / 3) });
+      await port(ctx, 'map', 'shift')({ to: cmd.to || null, ms });
+      if (effect === 'fade') await port(ctx, 'screen', 'fadeIn')({ ms });
+    },
+    summary(cmd) { return cmd.to ? `Shift into “${cmd.to}”` : 'Shift back'; },
+    text: {
+      toLine(cmd) { const rest = pairsOf(reg.get('shift'), cmd, ['to']); return `@shift ${cmd.to ? V.format(cmd.to) : 'back'}${rest ? ' ' + rest : ''}`; },
+      fromLine(line) {
+        const m = /^@shift(?:\s+(.*))?$/.exec(line.trim());
+        if (!m || !m[1]) return null;
+        const first = V.scan(m[1], 0, '');                       // a layer name may be quoted
+        if (!first || first.error) return null;
+        if (/^[A-Za-z_][\w\-.]*=/.test(m[1].trim())) return null;   // '@shift key=value' is the generic form
+        const cmd = { t: 'shift', to: (first.value === 'back' || first.value === 'none') ? '' : first.value };
+        for (const tk of V.tokenize(m[1].slice(first.end))) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
+        return cmd;
+      },
+    },
+  });
+  defs.push({
     id: 'light', label: 'Light', group: 'Character', icon: 'sparkle', blocking: false,
     doc: 'Give something a light, or take it away. Works on the hero (a lantern) or any event.',
     fields: [

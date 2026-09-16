@@ -316,6 +316,21 @@
     m.collision = fillLayer(src.collision, n, null);
     m.objects = (Array.isArray(src.objects) ? src.objects : []).map(P.fillObject);
     m.props = isObj(src.props) ? src.props : {};
+    // Layers of reality: the same place, otherwise. Sparse by design — only what differs.
+    m.dimensions = {};
+    if (isObj(src.dimensions)) {
+      for (const k of Object.keys(src.dimensions)) {
+        const d = isObj(src.dimensions[k]) ? src.dimensions[k] : {};
+        m.dimensions[k] = {
+          name: typeof d.name === 'string' && d.name ? d.name : titleCase(k),
+          tiles: isObj(d.tiles) ? d.tiles : {},
+          objects: isObj(d.objects) ? d.objects : {},
+          music: d.music === undefined ? null : d.music,
+          atmosphere: isObj(d.atmosphere) ? d.atmosphere : null,
+          note: typeof d.note === 'string' ? d.note : '',
+        };
+      }
+    }
     return m;
   };
   P.fillItem = function (raw, id) {
