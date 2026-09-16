@@ -79,6 +79,43 @@ Everything is a registry, so a module adds the same way the kit does:
 7. **Version your save.** If the shape changes, add a migration; old saves must
    keep loading.
 
+## The modules that ship with the engine
+
+Three, none of which the engine knows anything about. Each one is `js/modules/<id>/`
+with its own README, its own test in `test/modules/<id>.test.js`, and nothing at
+all in `js/kit/`. Where they meet each other is tested in
+`test/modules/integration.test.js`.
+
+| | what it adds | owns | registers | enabled by |
+|---|---|---|---|---|
+| **`mons`**<br>*Pokémon* | Befriending instead of fighting: an encounter in the tall grass, a timing-ring catch you can talk or feed your way through, the Pokédex, a garden everyone lives in, a follower who walks behind you, and friendship that grows as you walk together. | `save.modules.mons` · `project.packs.mons` · `map.props.encounters` · `map.props.garden` | registry `monSpecies` · ref kind `ref:mon` · commands `givePokemon` `encounter` `friendship` `openParty` `openDex` `monCard` · conditions `has` `dexCount` `friendship` `partyFull` · item kinds `ball` `berry` · systems `mons-encounters` (35) `mons-follower` (38) `mons-garden` (39) · scenes `mons-catch` `mons-party` `mons-dex` `mons-card` · menus `mons-party` (10) `mons-dex` (12) · sprites `mon:<species>[:shiny]` · panel `mons-encounters` · field editor `mons-ref` · validator `mons-encounters` · 87 `mons-*` strings | the demo |
+| **`home`**<br>*What there is to do afterwards* | A room you decorate yourself, a board of odd jobs your friends go out on while the clock runs (real time between sessions counts), the moods of the ones who stayed, and the odd present left at the door. Works with or without `mons`. | `save.modules.home` · `project.packs.home` · `save.overlays[map]` (furniture) · the in-game clock, when the engine's own is off | item kind `furniture` · object type `job-board` · commands `placeFurniture` `giveJob` `collectJob` `moodSet` `openJobBoard` · conditions `jobDone` `jobsReady` `hasFurniture` `mood` · system `home` (60) · scenes `home-place` `home-board` `home-jobs` · menus `home-jobs` (14) `home-decorate` (16) · panel `home` · 48 `home-*` strings | the demo |
+| **`dungeon`**<br>*Room to room in the dark* | A whole genre as an add-on: a key and a locked door, blocks you shove about, plates and gates, one-way ledges, and a lantern you carry into the dark. | `save.modules.dungeon` · `project.packs.dungeon` · `map.props.atmosphere` | object types `dungeon-door` `dungeon-block` `dungeon-switch` `dungeon-gate` `dungeon-guard` · commands `openDoor` `pushBlock` `torch` `setSwitch` · conditions `switch` `torchLit` · behaviour `pace` · system `dungeon` (35) · menu `dungeon-lantern` · presets `locked-door` `switch-and-gate` · 16 `dun-*` tiles · icons `dun-key` `dun-torch-icon` · panel `dungeon` · validator `dungeon` · 14 `dungeon-*` strings | the `dungeon` template |
+
+**The pause menu, in one order.** Module entries sit above the engine's own
+(Save is 20): `10` Party · `12` Pokédex · `14` Jobs · `16` Decorate · `18` free.
+Pick a number in that run, leave a gap, and the menu stays readable when two
+modules are on at once.
+
+**Strings are namespaced and kebab-cased**, like the kit's own (`got-item`,
+`save-prompt`): `mons-menu-party`, `home-jobs-title`. A module never names
+another module's string. Content does not carry them either —
+`tools/build-demo.js` strips module defaults out of `project.strings` after
+normalizing, so the module stays the one place its words live and the Terms
+panel still lists them all.
+
+**Where two modules overlap, one of them owns it and the other asks.**
+Friendship is one number, kept by whoever owns the creatures; `home` hands job
+friendship over through the `friendship` command in the `commands` registry, and
+does nothing at all when no module registered one. A friend's name and face come
+from one place: `home`'s roster carries a **registered sprite id**, so both
+modules draw the same portrait through `KIT.registry('sprites')`. The mood is
+`home`'s, and `mons` asks for it through `KIT.mons.provideMood(fn)`. Petting and
+feeding are `mons`'s, and it says so with `world.events.emit('friendCared', …)`,
+which `home` listens for. Every one of those joins goes through the engine or a
+published provider hook — never through the other module's files or save shape —
+and every one of them works when the other module is absent.
+
 ## Turning it on
 
 `project.modules` lists the modules a game uses. The Project panel in Creator
@@ -92,3 +129,30 @@ node tools/new-module.js jobs --label "Jobs" --describe "Errands your friends ca
 ```
 writes `js/modules/jobs/` with a manifest, a save section, a command, a system,
 a panel, a test and a README — all working, all obviously replaceable.
+`--into games/mill-lane` puts it in a game instead of in this repo.
+
+## Loading one
+
+The page loads a module's files with ordinary `<script>` tags, **before**
+`js/main.js` (see `docs/ENGINE-HOOKS.md` §9 for why), and the manifest is last:
+
+```html
+<script src="js/modules/home/rules.js"></script>
+<script src="js/modules/home/register.js"></script>
+<script src="js/modules/home/scenes.js"></script>
+<script src="js/modules/home/panel.js"></script>
+<script src="js/modules/home/manifest.js"></script>
+```
+
+In Node — the demo builder, the tests — `tools/load-modules.js` does the same
+thing from one list, so what the demo is built against is what the page runs:
+
+```js
+require('./tools/load-modules.js').load(KIT, ['mons', 'home']);
+```
+
+## What the engine still owes a module
+
+`docs/ENGINE-HOOKS.md` is the punch list: seventeen places where a module had to
+work around something the engine does not offer, with the workaround it used and
+the fix that would serve every module. Read it before inventing an eighteenth.

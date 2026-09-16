@@ -279,7 +279,7 @@
       metAt: o.metAt == null ? (o.mapName == null ? (o.map == null ? '' : String(o.map)) : String(o.mapName)) : String(o.metAt),
       favouriteBerry: o.favouriteBerry || berries[KIT.hash(uid, 'berry') % berries.length] || null,
     };
-    mon.mood = (o.mood || M.moodFor(mon, { day: 0 }).id);
+    mon.mood = (o.mood || M.moodFor(mon, { day: 0, derived: true }).id);
     return mon;
   };
 
@@ -297,8 +297,24 @@
    * as a personality and not as noise. Shy while you are strangers, bright once
    * you are not.
    */
+  /**
+   * provideMood(fn) — another module may own how a friend is feeling (the home
+   * module keeps a mood that drifts and reacts to what you do). It hands us
+   * `fn(mon, { project, save, day }) -> { id, label } | null`, where `label` is
+   * already the words to show. Nothing here knows who that module is, and with
+   * nobody offering, the derived mood below is the answer.
+   */
+  M.moodProvider = null;
+  M.provideMood = function (fn) { M.moodProvider = typeof fn === 'function' ? fn : null; };
+
   M.moodFor = function (mon, opts) {
     const o = opts || {};
+    if (M.moodProvider && !o.derived) {
+      try {
+        const given = M.moodProvider(mon, o);
+        if (given && given.id) return { id: given.id, label: given.label || given.id, given: true };
+      } catch (e) { (KIT.log || console).error('[mons] mood provider threw', e); }
+    }
     const tier = M.friendshipTier(mon && mon.friendship);
     let pool;
     if (o.pool && o.pool.length) pool = o.pool.slice();
@@ -811,27 +827,42 @@
   };
 
   /**
-   * gardenSpots(area, view, count, rng) -> [{x,y}] — where the mons stand.
-   * Deterministic for a seed so the garden looks the same when you walk back in.
+   * gardenSpots(area, view, count, rng, near) -> [{x,y}] — where the mons stand.
+   *
+   * Deterministic for a seed, so the garden looks the same when you walk back
+   * in. Spots are drawn from the cells nearest `near` (the door you came in by,
+   * or the middle of the garden): a phone shows eight tiles across, and a friend
+   * you have to go looking for reads as a friend who is not there.
    */
-  M.gardenSpots = function (area, view, count, rng) {
+  M.gardenSpots = function (area, view, count, rng, near) {
     const r = typeof rng === 'function' ? rng : () => 0.5;
     const cells = [];
     const w = (view && view.width) || 0, h = (view && view.height) || 0;
+    let sx = 0, sy = 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         if (!M.inGarden(area, view, x, y)) continue;
         if (view.flagsAt && view.flagsAt(x, y).solid) continue;
         if (view.collisionAt && view.collisionAt(x, y) === 1) continue;
         cells.push({ x, y });
+        sx += x; sy += y;
       }
     }
+    if (!cells.length) return [];
+    const cx = near && near.x != null ? near.x : sx / cells.length;
+    const cy = near && near.y != null ? near.y : sy / cells.length;
+    cells.sort((a2, b2) => {
+      const da = (a2.x - cx) * (a2.x - cx) + (a2.y - cy) * (a2.y - cy);
+      const db = (b2.x - cx) * (b2.x - cx) + (b2.y - cy) * (b2.y - cy);
+      return da - db || a2.y - b2.y || a2.x - b2.x;
+    });
+    const n = Math.max(1, Math.min(cells.length, Math.max(count * 3, 10)));
     const out = [];
     const used = new Set();
-    for (let i = 0; i < count && cells.length; i++) {
+    for (let i = 0; i < count; i++) {
       let pick = -1;
       for (let tries = 0; tries < 24; tries++) {
-        const k = Math.floor(r() * cells.length) % cells.length;
+        const k = Math.floor(r() * n) % n;
         if (!used.has(k)) { pick = k; break; }
       }
       if (pick < 0) { pick = cells.findIndex((c, k) => !used.has(k)); if (pick < 0) break; }

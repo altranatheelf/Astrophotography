@@ -21,6 +21,7 @@
     null, null, null, null, null, null, null, null, null, null, null, null, null, null,
     null, null, null, null, null, null, null, null, null, null, null, null, null, null
   ],
+  "dimensions": {},
   "height": 10,
   "id": "lab",
   "kind": "indoor",

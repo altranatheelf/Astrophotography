@@ -9,10 +9,11 @@ const R = (f) => require(path.join(__dirname, '..', '..', f));
 R('js/kit/world/map.js'); R('js/kit/world/entities.js'); R('js/kit/world/world.js'); R('js/kit/systems/index.js');
 global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) R(f);
-// The demo enables the `home` module (project.modules), so its item kind, object
-// type and commands have to be registered before the demo can be validated —
-// exactly as index.html does before boot.
-R('js/modules/home/rules.js'); R('js/modules/home/register.js'); KIT.home.registerAll(KIT);
+// The demo enables the `mons` and `home` modules (project.modules), so their
+// item kinds, object types, commands and conditions have to be registered
+// before the demo can be validated — exactly as index.html does before boot.
+// tools/load-modules.js is the same list tools/build-demo.js builds against.
+require(path.join(__dirname, '..', '..', 'tools/load-modules.js')).load(KIT, ['mons', 'home']);
 for (const f of ['js/content/demo/project.js', 'js/content/demo/maps/home.js', 'js/content/demo/maps/garden.js', 'js/content/demo/maps/lab.js', 'js/content/demo/maps/route.js', 'js/content/demo/maps/town.js']) R(f);
 
 function load() {
@@ -37,11 +38,10 @@ test('demo: normalizes with no errors and validates clean', () => {
   const { project, problems } = load();
   const errors = problems.filter(p => p.severity === 'error');
   assert.deepEqual(errors, []);
-  // 'ball' and 'berry' are item kinds the mons module owns; with only `home`
-  // loaded the itemKinds registry is not empty, so validate says it has not
-  // heard of them. Every other warning would be a real problem.
+  // Both modules the demo enables are loaded, so nothing in the content is
+  // unknown: no warnings at all.
   const warns = problems.filter(p => p.severity === 'warn');
-  assert.deepEqual(warns.filter(p => p.code !== 'unknown-item-kind').map(p => p.code), []);
+  assert.deepEqual(warns.map(p => p.code), []);
   assert.ok(Object.keys(project.maps).length >= 4, 'every demo map loaded');
   assert.ok(project.meta.pitch.length > 40, 'the two-sentence pitch is filled in');
   assert.ok(Object.values(project.maps).reduce((n, m) => n + m.objects.length, 0) >= 20);
@@ -51,7 +51,7 @@ test('demo: exporting again produces identical files (stable, git-friendly)', ()
   const { project } = load();
   const a = KIT.project.exportFiles(project);
   const b = KIT.project.exportFiles(KIT.project.normalize(KIT.project.fromContent('demo')).project);
-  assert.deepEqual(Object.keys(a).sort(), ['maps/garden.js', 'maps/home.js', 'maps/lab.js', 'maps/route.js', 'project.js'].concat(['maps/town.js']).sort());
+  assert.deepEqual(Object.keys(a).sort(), ['maps/garden.js', 'maps/home.js', 'maps/lab.js', 'maps/route.js', 'maps/town.js', 'project.js']);
   for (const k of Object.keys(a)) assert.equal(a[k], b[k], k);
 });
 

@@ -1,0 +1,9 @@
+/* This game's own look. The engine ships a dark, plain frame; everything here
+   overrides it. Change the colours and it stops looking like anyone else's. */
+:root {
+  --game-bg: #0b0d12;          /* around the screen */
+  --game-frame: #1b2130;       /* the screen's border */
+  --text-bg: #ffffff;          /* the dialogue box */
+  --text-fg: #17181d;
+  --text-border: #2a2f3d;
+}

@@ -171,5 +171,43 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`) 
 
 `editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that.
 
+## main.js — modules
+`KIT.module(def)` registers a manifest (`{ id, version, label, requires, describe, register(KIT), save, content }`; see `docs/MODULES.md`) ·
+`KIT.modules.all()` `loaded()` `get(id)` `has(id)` `order(ids) -> { order, missing, cycles }` (a pure topological sort) `activate(project)` (registers the modules `project.modules` names, in dependency order; a missing requirement or a cycle is a banner) ·
+`KIT.banner(text)` · `KIT.PRISTINE_HTML` (the page as authored — `KIT.storage.publish` rebuilds from this, never from the live DOM).
+`tools/load-modules.js` is the Node-side equivalent for the build and the tests: `require('./tools/load-modules.js').load(KIT, ['mons','home'])` requires each module's files in order and calls `activate`.
+
+## The module namespaces
+Each module owns one global under `KIT`, one key in `save.modules` and one in `project.packs`. Nothing in `js/kit/**` mentions any of them; a module that is loaded but not listed in `project.modules` registers nothing and its namespace is inert. The full API of each is in its own `js/modules/<id>/README.md` — this is the surface another module or a game script may use.
+
+### `KIT.mons` — Pokémon (`js/modules/mons/`)
+Save `save.modules.mons` · content `project.packs.mons` · registry `monSpecies` · ref kind `ref:mon`.
+Species: `registerSpecies(list)` `species(id)` `speciesList()` `speciesName(id)` `speciesColor(id)` `bst(src)` `rarity(id, project)` `rarityForBst(n)` ·
+Content/state: `pack(project)` `contentDefaults()` `section(save)` `read(save)` `migrateSave(data)` `saveDefaults()` `t(project, key, vars)` ·
+The friends: `create(opts)` `add(s, mon, opts)` `all(s)` `find(s, uid)` `owns(s, id)` `move(s, uid, where)` `reorder` `partyFull(s)` `setFollower(s, uid)` `follower(s)` `displayName(mon, project)` ·
+Friendship (**the one number**): `addFriendship(mon, d)` `setFriendship(mon, v)` `friendshipTier(n)` `walkFriendship(s, steps, opts)` `pet(s, uid, opts)` `giveBerry(s, uid, opts)` `resumeBonus(s, elapsedMs, opts)` `newVisit(s)` ·
+Mood: `moodFor(mon, { project, save, day })` `moodLabel(project, mon, opts)` `provideMood(fn)` — **another module may own how a friend feels**; `fn(mon, o) -> { id, label }`, `label` already in words ·
+Catching: `profile(project, id)` `newCatchState(opts)` `applyAction(state, action, opts)` `catchChance(opts)` `ringBand` `ringQuality` `resolveThrow` `shouldFlee` ·
+Dex and encounters: `see(s, id)` `markCaught(s, id, at)` `dexCounts(s)` `isNew(s, id)` `encounterTable(map, project)` `rollEncounter(table, region, rng)` `gardenArea(map)` `gardenSpots(...)` ·
+Art (**the one place a portrait comes from**): `portrait(id)` `icon(id, size)` `artFor(mon)` `iconFor(mon, size)` `spriteId(id, shiny)` `ensureSprite(id, shiny)` `spriteFor(mon)` `placeholder(w,h,color)` `typeColor(t)` ·
+Doing: `grant(ctx, opts)` `startEncounter(ctx, opts)` `adjustFriendship(ctx, opts)` `starterHook(world)` `openScene(id, ctx, params)`.
+Emits on the world bus: `monsChanged`, `friendCared { uid, what }` (somebody was petted or fed), `sessionResumed` (only if nobody else did).
+
+### `KIT.home` — what there is to do afterwards (`js/modules/home/`)
+Save `save.modules.home` · content `project.packs.home`.
+Clock (**the one clock**): `now(save)` `addMinutes(save, n)` `clockText(save)` `durationText(min)` `touch(save)` `resume(save, now, tuning)` — all against the kit's own `save.clock`, and the system only drives it when `project.settings.clock` does not ·
+Content/state: `pack(project)` `tuning(project)` `contentDefaults()` `tuningDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` ·
+Who is here: `provideRoster(fn)` `roster(project, save)` `worker(project, save, uid)` `friendshipBand(n)` — the roster comes from `KIT.mons` when it is loaded, the heroes when it is not, and `fn` when a module provides one. Each entry is `{ uid, name, kind, type, types, friendship, sprite }` and `sprite` is a **registered sprite id** ·
+Friendship: `awardFriendship(ctx, uid, amount)` — hands it to whoever owns the friend, through the `friendship` command in the `commands` registry; a quiet no-op when nobody does ·
+Jobs: `JOB_FIELDS` `templatesOf(page)` `boardTemplates(project, board)` `startJob(save, opts)` `collectJob(save, id, opts)` `jobsOut(save)` `jobsReady(save, now)` `isOut(save, uid)` `isReady(job, now)` `remaining(job, now)` `jobLine(project, worker, job, reward)` ·
+Moods (**the one mood**): `MOODS` `MOOD_IDS` `moodOf(save, uid)` `setMood(save, uid, mood, now)` `react(save, uid, event, now)` `driftMoods(save, project, now)` `nextMood(...)` `moodLine(project, worker, mood)` `moodLabel(project, mood)` `moodFor(project, save, uid)` ·
+Furniture: `furnitureItems(project)` `place(save, opts)` `pickUp(save, id)` `placedOn(save, map)` `itemName(project, id)` ·
+Gifts and housekeeping: `rollGifts(save, project, now)` `placeGift(save, project, gift)` `sweep(world, opts)` `live(world)`.
+
+### `KIT.dungeon` — room-to-room crawling (`js/modules/dungeon/`)
+Save `save.modules.dungeon` · content `project.packs.dungeon`. Used by the `dungeon` template.
+`tuning(project)` `contentDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` `hasKey` `isOpen` `tryOpen` `blockAt` `setBlock` `canPush` `switchOn` `setSwitch` `plateHeld` `gateOpen` `switchNames` `torchLight` `lightTorch` `putOut` `isDark` `describe` — all pure; `live(world)` `onMapEnter` `tick` `entityFor` `pushEntity` `fixDarkness` are the wiring, and `panel.js` is a form. The dark is the kit's own `KIT.atmosphere` (`map.props.atmosphere = { darkness, ambient }`), and the lantern is `hero.data.light`.
+
 ## Still to build
-`modules/mons/*` (catching, the Pokédex, the garden, followers). Everything else — `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` — is written and covered by `npm test` plus the three browser play-throughs (`e2e/walk.js`, `e2e/import.js`, `e2e/editor.js`).
+Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus four browser play-throughs (`e2e/walk.js`, `e2e/import.js`, `e2e/editor.js`, `e2e/vision.js`).
+What the engine still **owes** its modules — seventeen hooks each of them had to work around — is the punch list in `docs/ENGINE-HOOKS.md`.

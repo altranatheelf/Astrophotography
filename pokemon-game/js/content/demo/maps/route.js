@@ -35,6 +35,7 @@
     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null
   ],
+  "dimensions": {},
   "height": 24,
   "id": "route",
   "kind": "outdoor",

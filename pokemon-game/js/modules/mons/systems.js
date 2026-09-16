@@ -21,23 +21,24 @@
    */
   function install(world) {
     if (!world || world._mons) return world && world._mons;
-    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, resumed: false };
+    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, awayDone: false, awayPending: 0 };
     const section = M.section(world.save);
 
     // --- the session gap ------------------------------------------------------
     // ARCHITECTURE §10 says the world emits `sessionResumed { elapsedMs }`; it
-    // does not (see README, "the missing hook"), so we work it out from our own
-    // section and emit it ourselves — other modules can listen either way.
-    const elapsed = M.elapsedSince(section, Date.now());
-    section.lastSeenAt = new Date().toISOString();
-    if (elapsed > 0) {
-      world.events.emit('sessionResumed', { elapsedMs: elapsed });
-      const pack = M.pack(world.project);
-      const gained = M.resumeBonus(section, elapsed, { hours: num(pack.awayHours, 20), bonus: num(pack.awayBonus, 4) });
-      if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
-        Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
-      }
-    }
+    // does not (see README, "the missing hook"). There must still be only ONE
+    // session gap in a game, whichever module notices it, so:
+    //   · `save.clock.lastSeenAt` is the stamp — the field the kit already has
+    //     in the save shape, not a second one of our own;
+    //   · we listen for `sessionResumed` first, so a module that owns the clock
+    //     (and can turn the gap into in-game minutes) gets to announce it;
+    //   · if nobody has by the first update tick, we announce it ourselves and
+    //     latch `world._sessionResumed` so it is said exactly once.
+    state.offs.push(world.events.on('sessionResumed', (p) => {
+      awayBonus(world, p && p.elapsedMs);
+    }));
+    state.awayPending = gapMs(world);
+    stampSeen(world);
 
     // --- steps: encounters, and friendship for walking together --------------
     state.offs.push(world.events.on('step', (p) => {
@@ -57,6 +58,60 @@
       return await talkToFollower(world, heroIndex);
     };
     return state;
+  }
+
+  /**
+   * gapMs(world) — how long ago somebody last said "we are still here".
+   * `save.clock.lastSeenAt` wins because the module that owns the clock keeps it
+   * fresh every second; our own section stamp is only the fallback when mons is
+   * the only module in the game.
+   */
+  function gapMs(world) {
+    const save = world.save;
+    const clock = (save && save.clock) || {};
+    const stamp = clock.lastSeenAt || M.section(save).lastSeenAt;
+    return M.elapsedSince({ lastSeenAt: stamp }, Date.now());
+  }
+
+  /** The one stamp: the kit's own `save.clock.lastSeenAt`, mirrored into our section. */
+  function stampSeen(world) {
+    const stamp = new Date().toISOString();
+    const save = world.save;
+    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
+    save.clock.lastSeenAt = stamp;
+    M.section(save).lastSeenAt = stamp;
+    return stamp;
+  }
+
+  /** Everyone you have befriended gets a little something for a long gap — once. */
+  function awayBonus(world, elapsedMs) {
+    const state = world._mons;
+    if (!state || state.awayDone) return;
+    state.awayDone = true;
+    state.awayPending = 0;
+    const section = M.section(world.save);
+    const pack = M.pack(world.project);
+    const gained = M.resumeBonus(section, num(elapsedMs, 0), { hours: num(pack.awayHours, 20), bonus: num(pack.awayBonus, 4) });
+    if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
+      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
+    }
+    return gained;
+  }
+
+  /**
+   * settleAway(world) — the fallback, one tick after install: nobody else owns
+   * the clock, so we say how long we were away ourselves.
+   */
+  function settleAway(world) {
+    const state = world._mons;
+    if (!state || state.awayDone) return;
+    const elapsed = state.awayPending;
+    state.awayPending = 0;
+    if (!(elapsed > 0)) { state.awayDone = true; return; }
+    if (world._sessionResumed) { awayBonus(world, elapsed); return; }
+    world._sessionResumed = true;
+    world.events.emit('sessionResumed', { elapsedMs: elapsed, minutesAdded: 0 });
+    awayBonus(world, elapsed);
   }
 
   function uninstall(world) {
@@ -130,13 +185,13 @@
     E.faceToward(comp, h);
     const pack = M.pack(world.project);
     const day = (world.save.clock && world.save.clock.day) || 1;
-    const mood = M.moodFor(mon, { day });
+    const moodText = M.moodLabel(world.project, mon, { day, project: world.project, save: world.save });
     M.addFriendship(mon, 1);
     comp.data.balloon = { kind: '♥', start: (root.performance ? performance.now() : Date.now()), ms: 900 };
     if (world.ports && world.ports.io && world.ports.io.say) {
       await world.ports.io.say({
         who: M.displayName(mon, world.project),
-        text: M.t(world.project, 'mons-follower-line', { name: M.displayName(mon, world.project), mood: M.t(world.project, mood.label) }),
+        text: M.t(world.project, 'mons-follower-line', { name: M.displayName(mon, world.project), mood: moodText }),
       });
     }
     return true;
@@ -159,11 +214,15 @@
     const area = M.gardenArea(view);
     if (!area) return;
     const section = M.section(world.save);
-    const list = M.all(section);
+    // Everyone you own is out here — except whoever is already walking behind
+    // you, who is standing right there.
+    const following = world.companion && world.companion.data ? world.companion.data.monUid : null;
+    const list = M.all(section).filter(m => m && m.uid !== following);
     if (!list.length) return;
     const seed = KIT.hash(view.id, list.length, 'garden');
     const rng = KIT.rng(seed);
-    const spots = M.gardenSpots(area, view, list.length, rng);
+    const hero = world.hero();
+    const spots = M.gardenSpots(area, view, list.length, rng, hero ? { x: hero.x, y: hero.y } : null);
     const objects = [];
     list.forEach((mon, i) => {
       const at = spots[i];
@@ -201,7 +260,7 @@
     if (!state || !state.gardenIds.length) return;
     state.sparkle -= dt;
     if (state.sparkle > 0) return;
-    state.sparkle = 2.2;
+    state.sparkle = 5;
     for (const e of world.entities) {
       const mon = e.data && e.data.mon;
       if (!mon || !mon.shiny) continue;
@@ -214,7 +273,18 @@
     const reg = KIT.registry('systems');
     reg.add({
       id: 'mons-encounters', name: 'Pokémon encounters', order: 35, replace: true,
-      update(world) { install(world); },
+      // The gap is settled on the first *update*, never on map entry: that gives
+      // every other system its turn at onMapEnter first, so the module that owns
+      // the clock announces the gap and we only fall back when nobody does.
+      update(world, dt) {
+        install(world);
+        settleAway(world);
+        // Keep the stamp fresh while we play, so a long session is never mistaken
+        // for a long absence. (A module that owns the clock does this every
+        // second; this is what happens when nobody else is here to.)
+        world._monsSeen = (world._monsSeen || 0) + (dt || 0);
+        if (world._monsSeen >= 20) { world._monsSeen = 0; stampSeen(world); }
+      },
       onMapEnter(world) { install(world); },
       onMapLeave(world) { /* the listeners live as long as the world does */ },
     });
@@ -229,8 +299,7 @@
       onMapEnter(world) {
         install(world);
         M.newVisit(M.section(world.save));
-        const s = M.section(world.save);
-        s.lastSeenAt = new Date().toISOString();
+        stampSeen(world);
         try { fillGarden(world); } catch (e) { (KIT.log || console).error('[mons] garden', e); }
       },
       onMapLeave(world) {
@@ -241,6 +310,7 @@
   };
 
   M._install = install;
+  M._settleAway = settleAway;
   M._uninstall = uninstall;
   M._syncFollower = syncFollower;
   M._fillGarden = fillGarden;

@@ -29,6 +29,7 @@
     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null
   ],
+  "dimensions": {},
   "height": 18,
   "id": "town",
   "kind": "outdoor",

@@ -100,7 +100,8 @@
 #mons-scene[hidden] { display: none; }
 #mons-scene[data-kind="catch"] { background: rgba(6,7,12,.72); flex-direction: column; justify-content: space-between; padding: 8px; }
 .mons-portrait { image-rendering: pixelated; display: block; }
-.mons-types { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.mons-types { display: flex; gap: 4px; flex-wrap: wrap; padding: 2px 0; }
+.mons-catch-top .mons-types { justify-content: center; }
 .mons-type { font-family: var(--font-ui); font-size: 8px; color: #fff; padding: 3px 6px; border-radius: 999px; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
 .mons-catch-top { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 6px; }
 .mons-catch-name { font-family: var(--font-ui); font-size: clamp(10px,3vw,14px); color: #ffe9a8; text-shadow: 0 2px 0 #5a3c00; }
@@ -113,14 +114,22 @@
 .mons-ball.is-wobble { animation: mons-wobble .42s ease-in-out; }
 @keyframes mons-wobble { 0%,100% { transform: translateX(-50%) rotate(0); } 30% { transform: translateX(-50%) rotate(-22deg); } 70% { transform: translateX(-50%) rotate(22deg); } }
 .mons-ring { position: absolute; border: 3px solid #ffffff; border-radius: 50%; opacity: .9; pointer-events: none; }
-.mons-band { position: absolute; border: 3px dashed #7ee08a; border-radius: 50%; opacity: .85; pointer-events: none; }
+.mons-band { position: absolute; border: 3px solid rgba(126, 224, 138, .35); border-radius: 50%; box-sizing: content-box; pointer-events: none; }
 .mons-catch-bottom { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .mons-msg { background: rgba(10,11,16,.85); color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 14px; min-height: 1.4em; text-align: center; }
 .mons-acts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .mons-acts .kit-uibtn { background: var(--paper, #f4f6fc); justify-content: center; min-height: 44px; }
 .mons-acts .kit-uibtn.is-selected { background: #eaf0ff; border-color: #3b4b8a; }
-.mons-tap { width: 100%; min-height: 56px; justify-content: center; background: #3b4b8a; color: #fff; }
-.mons-panel { background: var(--paper, #f4f6fc); color: var(--ink, #23243a); border: 3px solid #2b2b3a; border-radius: 10px; box-shadow: inset 0 0 0 2px #dfe3ef, 0 6px 0 rgba(0,0,0,.35); padding: 10px; width: min(460px, 96%); max-height: 94%; overflow: auto; }
+.mons-acts .kit-uibtn.is-empty { opacity: .5; }
+.mons-acts .kit-uibtn.mons-tap { grid-column: 1 / -1; min-height: 56px; background: #2f7d45; color: #fff; border-color: #7ee08a; }
+.mons-panel { background: var(--paper, #f4f6fc); color: var(--ink, #23243a); border: 3px solid #2b2b3a; border-radius: 10px; box-shadow: inset 0 0 0 2px #dfe3ef, 0 6px 0 rgba(0,0,0,.35); padding: 10px; width: min(460px, 96%); max-height: 94%; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+/* The panel is a column: everything keeps its size, the one scrolling part
+   takes whatever height is left, so the detail and the buttons never move. */
+.mons-panel > * { flex: 0 0 auto; }
+.mons-panel > .mons-scroll { flex: 1 1 auto; overflow: auto; min-height: 112px; }
+.mons-scroll > * { flex: 0 0 auto; }
+.mons-row-btn { width: 100%; align-items: center; padding: 6px 8px; }
+.mons-row-btn.is-selected { background: #eaf0ff; border-color: #3b4b8a; }
 .mons-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
 .mons-head .mons-title { font-family: var(--font-ui); font-size: 11px; color: #3b4b8a; flex: 1 1 auto; }
 .mons-count { font-family: var(--font-ui); font-size: 9px; color: #3b4b8a; opacity: .8; }
@@ -132,6 +141,8 @@
 .mons-hearts { color: #d8465c; letter-spacing: 1px; font-size: 13px; }
 .mons-section { font-family: var(--font-ui); font-size: 9px; color: #3b4b8a; padding: 10px 4px 4px; }
 .mons-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.mons-tier { font-family: var(--font-ui); font-size: 9px; color: #3b4b8a; }
+.mons-mood { font-size: 12px; opacity: .7; }
 .mons-cell { border: 2px solid transparent; border-radius: 8px; padding: 4px; background: #e9edf8; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
 .mons-cell.is-selected { border-color: #3b4b8a; background: #dfe8ff; }
 .mons-cell-num { font-family: var(--font-ui); font-size: 7px; opacity: .6; }
@@ -212,8 +223,6 @@
       const bottom = make('div.mons-catch-bottom');
       nodes.msg = make('div.mons-msg', { text: '' });
       bottom.appendChild(nodes.msg);
-      nodes.balls = make('div.mons-count', { text: '' });
-      bottom.appendChild(nodes.balls);
       nodes.actions = make('div.mons-acts');
       bottom.appendChild(nodes.actions);
       el.appendChild(bottom);
@@ -238,8 +247,6 @@
         nodes.actions.appendChild(b);
       });
       markSelected(Array.from(nodes.actions.children), actIndex);
-      const ballItem = (acts.find(a => a.kind === 'throw') || {}).item;
-      nodes.balls.textContent = ballItem ? t(project, 'mons-balls-left', { count: itemCount(ballItem) }) : '';
     }
 
     function showRing() {
@@ -249,10 +256,14 @@
       UI.clear(nodes.actions);
       const b = UI.button('ring-tap', t(project, 'mons-tap-ring'), 'mons-tap');
       nodes.actions.appendChild(b);
+      // The green band is drawn as a thick ring, so "in the green" is literal:
+      // its inner edge is (centre - width), its outer edge is (centre + width).
       const size = Math.min(nodes.stage.clientWidth || 200, nodes.stage.clientHeight || 160);
       const bandEl = make('div.mons-band');
-      const bd = Math.max(16, size * band.center);
-      bandEl.style.width = bd + 'px'; bandEl.style.height = bd + 'px';
+      const inner = Math.max(6, size * Math.max(0, band.center - band.width));
+      const thick = Math.max(3, size * band.width);
+      bandEl.style.width = inner + 'px'; bandEl.style.height = inner + 'px';
+      bandEl.style.borderWidth = thick + 'px';
       const ring = make('div.mons-ring');
       nodes.stage.appendChild(bandEl);
       nodes.stage.appendChild(ring);
@@ -461,7 +472,7 @@
       panel.appendChild(head);
 
       rows = [];
-      const list = make('div.kit-list');
+      const list = make('div.kit-list.mons-scroll');
       const party = s.party || [];
       const box = s.box || [];
       if (!party.length && !box.length) {
@@ -513,7 +524,7 @@
       body.appendChild(make('div.mons-hearts', { text: hearts(M.friendshipTier(mon.friendship).hearts) }));
       const day = ((game && game.world && game.world.save && game.world.save.clock) || {}).day || 1;
       body.appendChild(make('div.mons-row-sub', {
-        text: M.speciesName(mon.id) + ' · ' + t(project, M.moodFor(mon, { day }).label) +
+        text: M.speciesName(mon.id) + ' · ' + M.moodLabel(project, mon, { day, project, save: (game && game.world && game.world.save) || null }) +
           (s.follower === mon.uid ? ' · ' + t(project, 'mons-following') : ''),
       }));
       inner.appendChild(body);
@@ -529,7 +540,7 @@
       const mon = r.mon;
       const sp = M.species(mon.id) || {};
       const box = make('div.mons-detail');
-      box.appendChild(portraitEl(mon, 3));
+      box.appendChild(portraitEl(mon, 2));
       const body = make('div');
       body.appendChild(typeChips(mon.id));
       body.appendChild(make('div.mons-blurb', { text: sp.blurb || '' }));
@@ -617,7 +628,10 @@
       head.appendChild(make('div.mons-count', { text: t(project, 'mons-dex-count', M.dexCounts(s)) }));
       panel.appendChild(head);
 
-      const grid = make('div.mons-grid');
+      detail = make('div.mons-detail-host');
+      panel.appendChild(detail);
+
+      const grid = make('div.mons-grid.mons-scroll');
       cells = [];
       all.forEach(sp => {
         const seen = !!(s.dex && s.dex.seen && s.dex.seen[sp.id]);
@@ -633,8 +647,6 @@
       });
       panel.appendChild(grid);
 
-      detail = make('div.mons-detail-host');
-      panel.appendChild(detail);
       const foot = make('div.kit-row');
       foot.appendChild(UI.button('close', t(project, 'mons-close'), 'is-primary'));
       panel.appendChild(foot);
@@ -661,7 +673,8 @@
       const box = make('div.mons-detail');
       box.appendChild(portraitEl(c.sp.id, 3, { silhouette: !c.caught }));
       const body = make('div');
-      body.appendChild(make('div.mons-row-name', { text: (c.seen ? c.sp.name : '???') + ' · ' + M.rarityLabel(project, c.sp.id) }));
+      // an unmet species does not give away how rare it is
+      body.appendChild(make('div.mons-row-name', { text: c.seen ? (c.sp.name + ' · ' + M.rarityLabel(project, c.sp.id)) : '???' }));
       if (c.seen) body.appendChild(typeChips(c.sp.id));
       body.appendChild(make('div.mons-blurb', { text: c.seen ? (c.sp.blurb || '') : t(project, 'mons-dex-unseen') }));
       const entry = s.dex && s.dex.caught ? s.dex.caught[c.sp.id] : null;
@@ -720,9 +733,13 @@
       const body = make('div');
       body.appendChild(make('div.mons-row-name', { text: M.speciesName(m.id) }));
       body.appendChild(typeChips(m.id));
-      body.appendChild(make('div.mons-hearts', { text: hearts(M.friendshipTier(m.friendship).hearts) + '  ' + t(project, M.friendshipTier(m.friendship).label) }));
+      const tier = M.friendshipTier(m.friendship);
+      const heartRow = make('div.mons-row');
+      heartRow.appendChild(make('span.mons-hearts', { text: hearts(tier.hearts) }));
+      heartRow.appendChild(make('span.mons-tier', { text: t(project, tier.label) }));
+      body.appendChild(heartRow);
       const day = ((game && game.world && game.world.save && game.world.save.clock) || {}).day || 1;
-      body.appendChild(make('div.mons-row-sub', { text: t(project, M.moodFor(m, { day }).label) }));
+      body.appendChild(make('div.mons-mood', { text: M.moodLabel(project, m, { day, project, save: (game && game.world && game.world.save) || null }) }));
       body.appendChild(make('div.mons-meta', {
         text: t(project, 'mons-met-at', { where: m.metAt || t(project, 'mons-met-unknown'), when: whenText(m.caughtAt && m.caughtAt.date) }),
       }));
@@ -750,6 +767,17 @@
       scene._off = UI.onAction(el, (action) => { if (action.slice(0, 3) === 'do:') handle(action.slice(3)); });
     }
 
+    /**
+     * Say out loud that somebody was looked after. A module that keeps how a
+     * friend is feeling (the home module does) listens for this; nothing here
+     * knows or cares whether anybody is.
+     */
+    function cared(who, what) {
+      const world = game && game.world;
+      if (!world || !world.events) return;
+      world.events.emit('friendCared', { uid: who, what, at: Date.now() });
+    }
+
     function floatHeart() {
       const h = make('div.mons-heart-float', { text: '♥' });
       h.style.left = '46%';
@@ -766,7 +794,7 @@
       if (what === 'close') { scene.finish(null); return; }
       if (what === 'pet') {
         const gained = M.pet(s, uid, { bonus: num(pack.petBonus, 3) });
-        if (gained > 0) { floatHeart(); KIT.audio.play('sparkle'); msg.textContent = t(project, 'mons-pet-done', { name: M.displayName(m, project) }); }
+        if (gained > 0) { floatHeart(); KIT.audio.play('sparkle'); msg.textContent = t(project, 'mons-pet-done', { name: M.displayName(m, project) }); cared(uid, 'petted'); }
         else msg.textContent = t(project, 'mons-pet-again', { name: M.displayName(m, project) });
       } else if (what === 'berry') {
         const save = (game && game.world && game.world.save) || {};
@@ -780,6 +808,7 @@
         floatHeart();
         KIT.audio.play('item');
         msg.textContent = t(project, berry === m.favouriteBerry ? 'mons-berry-favourite' : 'mons-berry-given', { name: M.displayName(m, project), n: gained });
+        cared(uid, 'fed');
       } else if (what === 'take') {
         if (M.partyFull(s)) { msg.textContent = t(project, 'mons-party-full'); return; }
         M.move(s, uid, 'party');
@@ -837,14 +866,17 @@
     // label afterwards. (See README, "the missing hook".)
     const menus = KIT.registry('menus');
     const liveLabel = (def, key) => { def.label = (game) => M.t(game && game.project, key); return def; };
+    // The pause menu, in one order across every module the demo ships:
+    //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
+    //   Save (20), Two players (30), Settings (40)…
     liveLabel(menus.add({
-      id: 'mons-party', order: 12, replace: true,
+      id: 'mons-party', order: 10, replace: true,
       label: M.t(null, 'mons-menu-party'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); const n = (s.party || []).length; return n ? String(n) : ''; },
       async open(game) { await KIT.scenes.run('mons-party', { game, project: game && game.project }); return null; },
     }), 'mons-menu-party');
     liveLabel(menus.add({
-      id: 'mons-dex', order: 14, replace: true,
+      id: 'mons-dex', order: 12, replace: true,
       label: M.t(null, 'mons-menu-dex'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); return String(M.dexCounts(s).caught); },
       async open(game) { await KIT.scenes.run('mons-dex', { game, project: game && game.project }); return null; },

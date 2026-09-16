@@ -74,8 +74,9 @@
     { key: 'moodDriftMinutes', type: 'number', min: 10, default: 120, label: 'Minutes between mood drifts' },
     { key: 'suitedSpeed', type: 'number', min: 0.1, max: 2, default: 0.75, label: 'Speed when the job suits them', doc: 'A job that suits a friend takes this much of the time.' },
     { key: 'jobFriendship', type: 'number', min: 0, default: 8, label: 'Friendship for finishing a job' },
-    { key: 'petFriendship', type: 'number', min: 0, default: 6, label: 'Friendship for a visit' },
-    { key: 'feedFriendship', type: 'number', min: 0, default: 10, label: 'Friendship for a treat' },
+    // Petting and feeding are not ours. Whoever owns the friends owns those
+    // numbers (the mons module keeps them in `packs.mons.petBonus` /
+    // `berryBonus`), so there is one friendship number and one place it moves.
     { key: 'giftFriendship', type: 'number', min: 0, default: 60, label: 'Friendship before gifts start' },
     { key: 'giftChance', type: 'number', min: 0, max: 1, default: 0.15, label: 'Chance of a gift, per friend per day' },
     { key: 'maxGifts', type: 'number', min: 0, max: 20, default: 3, label: 'Most gifts waiting at once' },
@@ -153,7 +154,11 @@
     const t = Object.assign(H.tuningDefaults(), tuning || {});
     const nowMs = nowIso == null ? Date.now() : (typeof nowIso === 'number' ? nowIso : Date.parse(nowIso));
     const stamp = new Date(nowMs).toISOString();
-    const seen = data.seenAt ? Date.parse(data.seenAt) : NaN;
+    // One stamp for the whole game. Ours mirrors `save.clock.lastSeenAt`, which
+    // is the field the kit already has in the save shape and the one another
+    // module will have written if it got here first.
+    const stampedAt = data.seenAt || ((save && save.clock) || {}).lastSeenAt;
+    const seen = stampedAt ? Date.parse(stampedAt) : NaN;
     data.seenAt = stamp;
     save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
     save.clock.lastSeenAt = stamp;
@@ -203,11 +208,23 @@
       out.push({
         uid, kind: 'mon', name,
         type: String(types[0] || ''), types: types.map(String),
-        friendship: num(m.friendship, 0), sprite: m.sprite || m.id || m.species || null,
+        friendship: num(m.friendship, 0), sprite: monSprite(M, m),
       });
     });
     return out.length ? out : null;
   }
+  /**
+   * The id of a *registered* sprite for this friend, so the screens that show a
+   * face look it up in the `sprites` registry like any other picture — no second
+   * copy of the portrait code lives here.
+   */
+  function monSprite(M, m) {
+    if (M && typeof M.spriteFor === 'function') {
+      try { const id = M.spriteFor(m); if (id) return id; } catch (e) { /* fall through */ }
+    }
+    return m.sprite || null;
+  }
+
   function heroRoster(project, save) {
     const heroes = (project && project.heroes) || [];
     return heroes.map((h, i) => {
@@ -236,6 +253,33 @@
     const found = H.roster(project, save).find(w => w.uid === uid);
     return found || { uid: String(uid || ''), kind: 'gone', name: String(uid || 'Someone'), type: '', types: [], friendship: 0, sprite: null };
   };
+  /**
+   * awardFriendship(ctx, uid, amount) -> true when somebody took it.
+   * Friendship is not this module's number. When a module that owns creatures is
+   * loaded it registers a `friendship` command, and that command is the only
+   * thing that writes it; with no such module there is nothing to write to and
+   * this quietly does nothing. Nothing here knows what mons is.
+   */
+  H.awardFriendship = function (ctx, uid, amount) {
+    const n = Math.round(num(amount, 0));
+    if (!ctx || !uid || !n) return false;
+    try {
+      if (!KIT.registry.exists('commands') || !KIT.registry('commands').has('friendship')) return false;
+      KIT.commands.exec(ctx, { t: 'friendship', who: 'uid', uid: String(uid), op: 'add', amount: n });
+      return true;
+    } catch (e) { (KIT.log || console).error('[home] friendship', e); return false; }
+  };
+
+  /**
+   * Whoever owns the friends may own their mood too. `H.moodOf` stays the
+   * answer: this is how another module asks for it (see register.js, which
+   * offers it to the mons module's garden card).
+   */
+  H.moodFor = function (project, save, uid) {
+    const rec = H.moodOf(save, uid);
+    return { id: rec.mood, label: H.moodLabel(project, rec.mood) };
+  };
+
   /** friendshipBand(n) -> 'new' | 'warm' | 'close'. The line you get back depends on it. */
   H.friendshipBand = function (n) {
     const v = num(n, 0);
@@ -393,7 +437,7 @@
     const band = H.friendshipBand(worker && worker.friendship);
     const item = reward && reward.item ? itemName(project, reward.item) : '';
     const vars = { who: (worker && worker.name) || 'They', title: (job && job.title) || 'the job', item, count: (reward && reward.count) || 0 };
-    const key = reward ? `home.job-back-${band}` : `home.job-back-empty`;
+    const key = reward ? `home-job-back-${band}` : `home-job-back-empty`;
     return KIT.strings.get(project, key, vars);
   };
   function itemName(project, id) {
@@ -432,14 +476,17 @@
     const data = H.ensure(save);
     const m = data.moods[uid];
     if (m && typeof m === 'object' && H.MOOD_IDS.includes(m.mood)) return m;
-    return { mood: 'calm', changedAt: 0, bucket: null };
+    return { mood: 'calm', changedAt: 0 };
   };
-  /** setMood(save, uid, mood, now) -> the record. */
+  /**
+   * setMood(save, uid, mood, now) -> the record.
+   * `changedAt` is also when we last settled this friend's mood, so setting one
+   * by hand (a treat, a job well done) restarts their drift from that minute.
+   */
   H.setMood = function (save, uid, mood, now) {
     const data = H.ensure(save);
     const id = H.MOOD_IDS.includes(mood) ? mood : 'calm';
-    const prev = data.moods[uid] || {};
-    data.moods[uid] = { mood: id, changedAt: num(now, H.now(save)), bucket: prev.bucket == null ? null : prev.bucket };
+    data.moods[uid] = { mood: id, changedAt: num(now, H.now(save)) };
     return data.moods[uid];
   };
   /** react(save, uid, event, now) -> the new mood after `fed`/`petted`/`worked`/`ignored`. */
@@ -479,14 +526,15 @@
     const out = [];
     for (const w of H.roster(project, save)) {
       if (H.isOut(save, w.uid)) continue;
-      const rec = data.moods[w.uid] || { mood: 'calm', changedAt: minute, bucket: null };
-      if (rec.bucket == null) { data.moods[w.uid] = { mood: rec.mood, changedAt: minute, bucket }; continue; }
-      if (bucket <= rec.bucket) continue;
-      const steps = Math.min(12, bucket - rec.bucket);
+      const rec = data.moods[w.uid];
+      if (!rec) { data.moods[w.uid] = { mood: 'calm', changedAt: minute }; continue; }
+      const from = Math.floor(num(rec.changedAt, 0) / per);
+      if (bucket <= from) continue;
+      const steps = Math.min(12, bucket - from);
       let mood = rec.mood;
-      for (let i = 1; i <= steps; i++) mood = H.nextMood(mood, w.uid, rec.bucket + i, seed);
+      for (let i = 1; i <= steps; i++) mood = H.nextMood(mood, w.uid, from + i, seed);
       if (mood !== rec.mood) out.push({ uid: w.uid, from: rec.mood, to: mood, name: w.name });
-      data.moods[w.uid] = { mood, changedAt: minute, bucket };
+      data.moods[w.uid] = { mood, changedAt: minute };
     }
     return out;
   };
@@ -535,7 +583,7 @@
       const gift = {
         id: KIT.uid('gift'), from: w.uid, fromName: w.name, day,
         item, count: 1, map: spot.map, x: spot.x, y: spot.y,
-        note: KIT.strings.get(project, 'home.gift-note', { who: w.name, item: itemName(project, item) }),
+        note: KIT.strings.get(project, 'home-gift-note', { who: w.name, item: itemName(project, item) }),
         taken: false,
       };
       data.gifts.push(gift);
@@ -553,8 +601,10 @@
   H.giftObject = function (project, gift) {
     const raw = {
       id: 'home-gift-' + gift.id, name: 'A present', type: 'item', x: gift.x, y: gift.y, note: '',
+      // `once` stays off: the engine's own item pickup already marks the object
+      // done and hides it, and `once` would swallow the note with it.
       pages: [{
-        layer: 'below', through: true, visible: true, once: true,
+        layer: 'below', through: true, visible: true, once: false,
         props: { item: gift.item, count: gift.count || 1, look: null },
         on: { step: [{ t: 'say', text: gift.note || '' }] },
       }],

@@ -23,12 +23,39 @@
   /** hasArt(id) -> whether this species has real art (the Pokédex says so). */
   M.hasArt = function (id) { return !!M.rawPortrait(id); };
 
+  /**
+   * placeholder(w, h, color) — KIT.pixels.silhouette in the species colour, with
+   * a darker rim: two silhouettes, the smaller one laid inside the bigger one.
+   * At 4× on the catch screen a flat disc reads as a bug; a rim reads as "we
+   * know who this is, nobody has drawn them yet".
+   */
+  M.placeholder = function (w, h, color) {
+    const outer = KIT.pixels.silhouette(w, h, color);
+    const inset = 2;
+    if (w <= inset * 2 + 4 || h <= inset * 2 + 4) return outer;
+    const inner = KIT.pixels.silhouette(w - inset * 2, h - inset * 2, color);
+    const rows = outer.rows.slice();
+    let any = false;
+    for (let y = 0; y < inner.rows.length; y++) {
+      const line = (rows[y + inset] || '').split('');
+      if (!line.length) continue;
+      for (let x = 0; x < inner.rows[y].length; x++) {
+        if (inner.rows[y][x] === '.') continue;
+        line[x + inset] = 'i';
+        any = true;
+      }
+      rows[y + inset] = line.join('');
+    }
+    if (!any) return outer;
+    return { w, h, palette: { s: shift(color, -0.32), i: color }, rows };
+  };
+
   /** portrait(id) -> 32×32 art. Always something; never throws. */
   M.portrait = function (id) {
     const key = String(id || '');
     if (portraits.has(key)) return portraits.get(key);
     let art = M.rawPortrait(key);
-    if (!art) art = KIT.pixels.silhouette(32, 32, M.speciesColor(key));
+    if (!art) art = M.placeholder(32, 32, M.speciesColor(key));
     portraits.set(key, art);
     return art;
   };
@@ -40,8 +67,8 @@
     if (icons.has(key)) return icons.get(key);
     let art;
     try { art = KIT.pixels.downscale(M.portrait(id), s); }
-    catch (e) { art = KIT.pixels.silhouette(s, s, M.speciesColor(id)); }
-    if (!art || !art.rows || !art.rows.length) art = KIT.pixels.silhouette(s, s, M.speciesColor(id));
+    catch (e) { art = M.placeholder(s, s, M.speciesColor(id)); }
+    if (!art || !art.rows || !art.rows.length) art = M.placeholder(s, s, M.speciesColor(id));
     icons.set(key, art);
     return art;
   };
@@ -57,13 +84,19 @@
     for (const k of Object.keys(art.palette)) palette[k] = shift(art.palette[k]);
     return { w: art.w, h: art.h, size: art.size, palette, rows: art.rows, frames: art.frames };
   };
-  function shift(hex) {
+  /** shift(hex) -> the shiny palette; shift(hex, -k) -> the same colour k darker. */
+  function shift(hex, dark) {
     if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
     const n = parseInt(hex.slice(1), 16);
     let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-    r = Math.min(255, Math.round(r * 0.82 + 40));
-    g = Math.min(255, Math.round(g * 0.95 + 26));
-    b = Math.min(255, Math.round(b * 1.0 + 48));
+    if (dark != null) {
+      const k = 1 + Number(dark);
+      r = Math.max(0, Math.round(r * k)); g = Math.max(0, Math.round(g * k)); b = Math.max(0, Math.round(b * k));
+    } else {
+      r = Math.min(255, Math.round(r * 0.82 + 40));
+      g = Math.min(255, Math.round(g * 0.95 + 26));
+      b = Math.min(255, Math.round(b * 1.0 + 48));
+    }
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 

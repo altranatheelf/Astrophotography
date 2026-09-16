@@ -179,8 +179,26 @@
         ask: !!cfg.ask && justChosen, notify: justChosen,
       })).catch(e => (KIT.log || console).error('[mons] starter', e));
     };
-    const off = world.events.on('varChanged', (p) => { if (p && p.name === cfg.var) grantIfNeeded(true); });
-    grantIfNeeded(false);
+    /**
+     * The variable is set *inside* the script that sets it — the lab stand still
+     * has lines to say afterwards. Asking for a nickname there would push a name
+     * box under the script's own message box and wedge both: the box below waits
+     * for an answer it can never be given. So we wait for the main thread to
+     * finish saying its piece, and only then say hello.
+     */
+    const grantWhenQuiet = (justChosen) => {
+      let tries = 0;
+      const attempt = () => {
+        const busy = (KIT.interpreter && KIT.interpreter.mainBusy && KIT.interpreter.mainBusy()) ||
+          (world && world.busy) ||
+          (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
+        if (busy && tries++ < 600) { setTimeout(attempt, 100); return; }   // a minute, then give up waiting
+        grantIfNeeded(justChosen);
+      };
+      attempt();
+    };
+    const off = world.events.on('varChanged', (p) => { if (p && p.name === cfg.var) grantWhenQuiet(true); });
+    grantIfNeeded(false);            // catching a save up is quiet: no prompt, no fanfare
     return off;
   };
 

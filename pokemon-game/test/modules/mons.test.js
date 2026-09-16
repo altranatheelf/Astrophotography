@@ -595,7 +595,7 @@ test('mons: missing art falls back to a silhouette in the species colour, never 
   assert.deepEqual(KIT.pixels.validate(drawn), []);
   const fallback = M.portrait('snorlax');
   assert.deepEqual(KIT.pixels.validate(fallback), []);
-  assert.deepEqual(Object.values(fallback.palette), [M.speciesColor('snorlax')]);
+  assert.ok(Object.values(fallback.palette).includes(M.speciesColor('snorlax')), 'in the species colour');
   assert.deepEqual(KIT.pixels.dims(fallback), { w: 32, h: 32 });
   // even a species that does not exist
   assert.deepEqual(KIT.pixels.validate(M.portrait('not-a-pokemon')), []);
@@ -670,10 +670,11 @@ test('mons: walking in the tall grass meets somebody, and the garden fills up', 
   M.add(M.section(save), M.create({ uid: 'g1', id: 'mew', shiny: true, map: 'route', metAt: 'Route 1' }));
   await world.enterMap('garden', 7, 8, 'up');
   const garden = world.entities.filter(e => e.id.indexOf('mons-garden-') === 0);
-  assert.equal(garden.length, 2, 'both of them are out there');
+  assert.equal(garden.length, 1, 'the one not already walking behind you is out there');
   assert.ok(garden.every(e => e.behaviour.kind === 'wander'), 'roaming, not standing');
   assert.ok(garden.every(e => e.page.on.interact[0].t === 'monCard'), 'and you can talk to them');
-  assert.ok(garden.some(e => e.sprite === 'mon:mew:shiny'), 'the shiny one is drawn shiny');
+  assert.equal(garden[0].sprite, 'mon:mew:shiny', 'and the shiny one is drawn shiny');
+  assert.ok(world.companion && world.companion.data.monUid !== garden[0].id.replace('mons-garden-', ''), 'the follower is not out there twice');
 
   // the project is never written to: the mons live in the map *view*
   assert.equal(p.maps.garden.objects.some(o => o.mons), false, 'the garden map itself is untouched');
@@ -682,7 +683,7 @@ test('mons: walking in the tall grass meets somebody, and the garden fills up', 
   await world.enterMap('town', 12, 8, 'down');
   assert.equal(p.maps.town.objects.some(o => o.mons), false);
   const corner = world.entities.filter(e => e.id.indexOf('mons-garden-') === 0);
-  assert.equal(corner.length, 2, 'they are out in the town garden as well');
+  assert.equal(corner.length, 1, 'out in the town garden as well');
   for (const e of corner) assert.equal(world.map.region(e.x, e.y), 3, 'inside the fence');
 
   // and a map that is not a garden has none of them
@@ -701,8 +702,31 @@ test('mons: a session gap gives everyone a little something, once', () => {
   let heard = null;
   world.events.on('sessionResumed', (e) => { heard = e; });
   M._install(world);
-  assert.ok(heard && heard.elapsedMs > 24 * 3600 * 1000, 'the world hears about the gap');
+  assert.equal(heard, null, 'install waits: a module that owns the clock announces the gap first');
+  M._settleAway(world);
+  assert.ok(heard && heard.elapsedMs > 24 * 3600 * 1000, 'nobody did, so the world hears about it from us');
   assert.equal(M.read(save).party[0].friendship, 104);
   assert.ok(s.lastSeenAt, 'and the clock is reset, so it does not pay twice');
   assert.ok(M.elapsedSince(s, Date.now()) < 5000);
+  M._settleAway(world);
+  assert.equal(M.read(save).party[0].friendship, 104, 'and it is paid exactly once');
+});
+
+test('mons: when another module owns the clock, the gap is announced once, by them', () => {
+  const p = project();
+  const save = blankSave();
+  const s = M.section(save);
+  M.add(s, M.create({ uid: 'a', id: 'pikachu', friendship: 100 }));
+  save.clock = { day: 1, minutes: 480, lastSeenAt: new Date(Date.now() - 30 * 3600 * 1000).toISOString() };
+
+  const world = KIT.world.create({ project: Object.assign({}, p, { maps: {} }), save, rng: KIT.rng(1), ports: {} });
+  const heard = [];
+  world.events.on('sessionResumed', (e) => heard.push(e));
+  M._install(world);
+  // Somebody else (the home module, in the demo) owns the clock and says so.
+  world._sessionResumed = true;
+  world.events.emit('sessionResumed', { elapsedMs: 30 * 3600 * 1000, minutesAdded: 1800 });
+  M._settleAway(world);
+  assert.equal(heard.length, 1, 'said once, by the module that owns the clock');
+  assert.equal(M.read(save).party[0].friendship, 104, 'and we still pay the away bonus');
 });

@@ -21,6 +21,7 @@
     null, null, null, null, null, null, null, null, null, null, null, null,
     null, null, null, null, null, null, null, null, null, null, null, null
   ],
+  "dimensions": {},
   "height": 10,
   "id": "home",
   "kind": "indoor",
@@ -127,6 +128,14 @@
                 "who": "Mom"
               },
               {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "One ball for each friend you make. {pause} The berries are for when they are shy.",
+                "who": "Mom"
+              },
+              {
                 "count": 5,
                 "item": "pokeball",
                 "notify": true,
@@ -137,14 +146,6 @@
                 "item": "berry",
                 "notify": true,
                 "t": "give"
-              },
-              {
-                "bg": "window",
-                "face": null,
-                "position": "bottom",
-                "t": "say",
-                "text": "One ball for each friend you make. {pause} The berries are for when they are shy.",
-                "who": "Mom"
               },
               {
                 "kind": "♥",
@@ -432,6 +433,14 @@
                 "who": ""
               },
               {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "Somewhere in here is a home.",
+                "who": ""
+              },
+              {
                 "count": 2,
                 "item": "pot-plant",
                 "notify": true,
@@ -463,14 +472,6 @@
                 "t": "setVar",
                 "value": true,
                 "var": null
-              },
-              {
-                "bg": "window",
-                "face": null,
-                "position": "bottom",
-                "t": "say",
-                "text": "Somewhere in here is a home.",
-                "who": ""
               }
             ]
           },

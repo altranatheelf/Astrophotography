@@ -13,60 +13,68 @@
 
   // ---- strings: every line the module can say ---------------------------------
   H.STRINGS = [
-    { id: 'home.menu-jobs', default: 'Jobs' },
-    { id: 'home.menu-decorate', default: 'Decorate' },
-    { id: 'home.board-title', default: 'Job board' },
-    { id: 'home.board-empty', default: 'The board is bare today.' },
-    { id: 'home.board-hint', default: 'Pick a job, then pick who goes.' },
-    { id: 'home.who-title', default: 'Who should go?' },
-    { id: 'home.who-empty', default: 'Nobody is free to go just now.' },
-    { id: 'home.who-busy', default: '{who} is already out.' },
-    { id: 'home.who-wrong', default: 'This one is meant for someone else.' },
-    { id: 'home.sent', default: '{who} sets off. Back in about {time}.' },
-    { id: 'home.jobs-title', default: 'Jobs' },
-    { id: 'home.jobs-none', default: 'Nobody is out on a job. Find a job board.' },
-    { id: 'home.jobs-out', default: 'Out' },
-    { id: 'home.jobs-ready', default: 'Home and waiting' },
-    { id: 'home.jobs-garden', default: 'At home' },
-    { id: 'home.jobs-left', default: '{time} left' },
-    { id: 'home.jobs-waiting', default: 'waiting for you' },
-    { id: 'home.collect-all', default: 'Welcome everyone home' },
-    { id: 'home.job-back-new', default: '{who} is back. {pause} “Here. I found {count} {item}.”' },
-    { id: 'home.job-back-warm', default: '{who} comes running back. {pause} “{title} went well! Look — {count} {item} for you.”' },
-    { id: 'home.job-back-close', default: '{who} is home before you even called. {pause} “I kept thinking about you the whole way. {count} {item} — all yours.”' },
-    { id: 'home.job-back-empty', default: '{who} is home from {title}, tired and pleased with themselves.' },
-    { id: 'home.gift-note', default: '“Left at the door, with no note but a very pleased {who}.” {pause} It is a {item}.' },
-    { id: 'home.gift-toast', default: '{who} left something at the door.' },
-    { id: 'home.mood-happy', default: '{who} is bouncing about.' },
-    { id: 'home.mood-calm', default: '{who} is dozing in the sun.' },
-    { id: 'home.mood-sleepy', default: '{who} is half asleep.' },
-    { id: 'home.mood-restless', default: '{who} keeps pacing the fence.' },
-    { id: 'home.mood-lonely', default: '{who} looks up every time the door goes.' },
-    { id: 'home.place-title', default: 'Where shall it go?' },
-    { id: 'home.place-empty', default: 'Nothing in the bag to put down yet.' },
-    { id: 'home.place-hint', default: 'Move it with the pad · Z puts it down · X stops' },
-    { id: 'home.place-rotate', default: 'Turn' },
-    { id: 'home.place-put', default: 'Put down' },
-    { id: 'home.place-take', default: 'Pick up' },
-    { id: 'home.place-done', default: 'Done' },
-    { id: 'home.placed', default: 'Put the {item} down.' },
-    { id: 'home.picked-up', default: 'Picked the {item} back up.' },
-    { id: 'home.no-room', default: 'It will not fit there.' },
-    { id: 'home.in-the-way', default: 'Something is already there.' },
-    { id: 'home.against-wall', default: 'Not into the wall.' },
-    { id: 'home.away-summary', default: 'While you were away: {minutes} minutes passed at home.' },
-    { id: 'home.ready-toast', default: '{count} back from a job.' },
+    { id: 'home-menu-jobs', default: 'Jobs' },
+    { id: 'home-menu-decorate', default: 'Decorate' },
+    { id: 'home-board-title', default: 'Job board' },
+    { id: 'home-board-empty', default: 'The board is bare today.' },
+    { id: 'home-board-hint', default: 'Pick a job, then pick who goes.' },
+    { id: 'home-who-title', default: 'Who should go?' },
+    { id: 'home-who-empty', default: 'Nobody is free to go just now.' },
+    { id: 'home-who-busy', default: '{who} is already out.' },
+    { id: 'home-who-wrong', default: 'This one is meant for someone else.' },
+    { id: 'home-sent', default: '{who} sets off. Back in about {time}.' },
+    { id: 'home-jobs-title', default: 'Jobs' },
+    { id: 'home-jobs-none', default: 'Nobody is out on a job. Find a job board.' },
+    { id: 'home-jobs-out', default: 'Out' },
+    { id: 'home-jobs-ready', default: 'Home and waiting' },
+    { id: 'home-jobs-garden', default: 'At home' },
+    { id: 'home-jobs-left', default: '{time} left' },
+    { id: 'home-jobs-waiting', default: 'waiting for you' },
+    { id: 'home-collect-all', default: 'Welcome everyone home' },
+    { id: 'home-job-back-new', default: '{who} is back. {pause} “Here. I found {count} {item}.”' },
+    { id: 'home-job-back-warm', default: '{who} comes running back. {pause} “{title} went well! Look — {count} {item} for you.”' },
+    { id: 'home-job-back-close', default: '{who} is home before you even called. {pause} “I kept thinking about you the whole way. {count} {item} — all yours.”' },
+    { id: 'home-job-back-empty', default: '{who} is home from {title}, tired and pleased with themselves.' },
+    { id: 'home-gift-note', default: '“Left at the door, with no note but a very pleased {who}.” {pause} It is a {item}.' },
+    { id: 'home-gift-toast', default: '{who} left something at the door.' },
+    { id: 'home-mood-happy', default: '{who} is bouncing about.' },
+    { id: 'home-mood-calm', default: '{who} is dozing in the sun.' },
+    { id: 'home-mood-sleepy', default: '{who} is half asleep.' },
+    { id: 'home-mood-restless', default: '{who} keeps pacing the fence.' },
+    { id: 'home-mood-lonely', default: '{who} looks up every time the door goes.' },
+    // The one-word version, for a list. Registered like everything else, so the
+    // Terms panel can reword a mood without touching the sentence above it.
+    { id: 'home-mood-name-happy', default: 'Happy' },
+    { id: 'home-mood-name-calm', default: 'Calm' },
+    { id: 'home-mood-name-sleepy', default: 'Sleepy' },
+    { id: 'home-mood-name-restless', default: 'Restless' },
+    { id: 'home-mood-name-lonely', default: 'Lonely' },
+    { id: 'home-place-title', default: 'Where shall it go?' },
+    { id: 'home-place-empty', default: 'Nothing in the bag to put down yet.' },
+    { id: 'home-place-hint', default: 'Move it with the pad · Z puts it down · X stops' },
+    { id: 'home-place-rotate', default: 'Turn' },
+    { id: 'home-place-put', default: 'Put down' },
+    { id: 'home-place-take', default: 'Pick up' },
+    { id: 'home-place-done', default: 'Done' },
+    { id: 'home-placed', default: 'Put the {item} down.' },
+    { id: 'home-picked-up', default: 'Picked the {item} back up.' },
+    { id: 'home-no-room', default: 'It will not fit there.' },
+    { id: 'home-in-the-way', default: 'Something is already there.' },
+    { id: 'home-against-wall', default: 'Not into the wall.' },
+    { id: 'home-away-summary', default: 'While you were away: {minutes} minutes passed at home.' },
+    { id: 'home-ready-toast', default: '{count} back from a job.' },
   ];
 
   // ---- mood helpers used by the scenes ----------------------------------------
   /** moodLine(project, worker, mood) -> the one-line picture of a friend at home. */
   H.moodLine = function (project, worker, mood) {
     const id = H.MOOD_IDS.includes(mood) ? mood : 'calm';
-    return KIT.strings.get(project, 'home.mood-' + id, { who: (worker && worker.name) || 'They' });
+    return KIT.strings.get(project, 'home-mood-' + id, { who: (worker && worker.name) || 'They' });
   };
-  H.moodLabel = function (mood) {
-    const def = H.MOODS.find(m => m.id === mood);
-    return def ? def.label : 'Calm';
+  /** moodLabel(project, mood) -> the one word, from the Terms table. */
+  H.moodLabel = function (project, mood) {
+    const id = H.MOOD_IDS.includes(mood) ? mood : 'calm';
+    return KIT.strings.get(project, 'home-mood-name-' + id);
   };
 
   // ---- one place that knows how to run the module against a live world ---------
@@ -116,7 +124,18 @@
     if (typeof H.registerScenes === 'function') H.registerScenes();
     if (typeof H.registerPanel === 'function') H.registerPanel();
 
-    // --- item kind: furniture ---------------------------------------------------
+    // --- item kinds ---------------------------------------------------------------
+    // The engine's own default kind first: `project.items[].kind` defaults to
+    // 'item' and the kit registers nothing for it, so the moment any module
+    // registers a kind, every plain keepsake in every project turns into an
+    // `unknown-item-kind` warning. See docs/ENGINE-HOOKS.md §16.
+    if (!KIT.registry('itemKinds').has('item')) {
+      KIT.registry('itemKinds').add({
+        id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
+        fields: [], use() { return false; },
+      });
+    }
+
     KIT.registry('itemKinds').add({
       id: 'furniture', label: 'Furniture', doc: 'Something you can carry home and put down. Using it opens the placement screen.',
       fields: H.FURNITURE_FIELDS,
@@ -311,10 +330,11 @@
     // we time jobs against.
     KIT.registry('systems').add({
       id: 'home', order: 60,
-      onMapEnter(world) { H.sweep(world, { quiet: false }); },
+      onMapEnter(world) { listen(world); H.sweep(world, { quiet: false }); },
       update(world, dt) {
         const project = world.project, save = world.save;
         if (!project || !save) return;
+        listen(world);
         const t = H.tuning(project);
         const engineClock = project.settings && project.settings.clock && project.settings.clock.enabled && (project.settings.clock.minutesPerSecond || 0) > 0;
         if (!engineClock && t.driveClock && num(t.minutesPerSecond, 0) > 0 && !world.busy) {
@@ -340,7 +360,10 @@
     // cannot register one. We add the entry with a plain label and put the
     // re-wordable one on afterwards — add() returns the stored definition.
     const jobsMenu = menus.add({
-      id: 'home-jobs', order: 12, label: 'Jobs',
+      // The pause menu, in one order across every module the demo ships:
+      //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
+      //   Save (20), Two players (30), Settings (40)…
+      id: 'home-jobs', order: 14, label: 'Jobs',
       value: (game) => {
         const w = game && game.world;
         if (!w) return undefined;
@@ -351,15 +374,49 @@
       },
       async open(game) { await KIT.scenes.run('home-jobs', { game }); return null; },
     });
-    jobsMenu.label = (game) => KIT.strings.get(game && game.project, 'home.menu-jobs');
+    jobsMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-jobs');
 
     const decorateMenu = menus.add({
-      id: 'home-decorate', order: 14, label: 'Decorate',
+      id: 'home-decorate', order: 16, label: 'Decorate',
       when: (game) => !!(game && game.project && H.furnitureItems(game.project).length),
       async open(game) { await KIT.scenes.run('home-place', { game }); return null; },
     });
-    decorateMenu.label = (game) => KIT.strings.get(game && game.project, 'home.menu-decorate');
+    decorateMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-decorate');
+
+    // --- one mood, wherever a friend is shown -------------------------------------
+    // A module that owns creatures shows how they are feeling on its own screens.
+    // We keep a mood that drifts and reacts to what you do, so we offer it; a
+    // module that does not want it simply has no `provideMood`. Nothing here
+    // reads that module's state, and with it absent this line does nothing.
+    const owner = KIT.mons;
+    if (owner && typeof owner.provideMood === 'function') {
+      owner.provideMood((mon, o) => {
+        const uid = mon && mon.uid;
+        if (!uid) return null;
+        const save = (o && o.save && o.save.modules) ? o.save : ((KIT.game && KIT.game.state) || null);
+        const project = (o && o.project) || (KIT.game && KIT.game.project) || null;
+        if (!save || !save.modules || !save.modules.home) return null;   // nothing decided yet
+        return H.moodFor(project, save, uid);
+      });
+    }
   };
+
+  /**
+   * listen(world) — wire this world up once.
+   * `friendCared { uid, what }` is how a module that owns creatures says one of
+   * them was petted, fed or ignored. We keep the mood, so we move it. Nothing
+   * here knows which module that is, and no module has to send it.
+   */
+  function listen(world) {
+    if (!world || !world.events || world._homeListening) return;
+    world._homeListening = true;
+    world.events.on('friendCared', (p) => {
+      try {
+        if (!p || !p.uid) return;
+        H.react(world.save, p.uid, p.what || 'petted', H.now(world.save));
+      } catch (e) { (KIT.log || console).error('[home] friendCared', e); }
+    });
+  }
 
   /**
    * sweep(world, opts) -> { resumed, ready, drifted, gifts }
@@ -376,11 +433,18 @@
     // frame: that is when time at home catches up. Otherwise we only re-stamp,
     // so the stamp stays fresh and playing for an hour never counts as "away".
     let resumed = { elapsedMs: 0, minutesAdded: 0 };
-    const seenMs = data.seenAt ? Date.parse(data.seenAt) : NaN;
+    const stampedAt = data.seenAt || ((save.clock || {}).lastSeenAt);
+    const seenMs = stampedAt ? Date.parse(stampedAt) : NaN;
     const gapMs = Number.isFinite(seenMs) ? Date.now() - seenMs : 0;
     if (o.resume || gapMs > H.AWAY_GAP_MS) {
       resumed = H.resume(save, null, tuning);
-      if (resumed.minutesAdded > 0 && world.events) world.events.emit('sessionResumed', { elapsedMs: resumed.elapsedMs, minutesAdded: resumed.minutesAdded });
+      // One session gap per world, said once, by whoever noticed it first. This
+      // module owns the clock, so it is normally us — the latch is what stops a
+      // second module saying it again. (The engine should do this; ENGINE-HOOKS 1.)
+      if (resumed.elapsedMs > 0 && world.events && !world._sessionResumed) {
+        world._sessionResumed = true;
+        world.events.emit('sessionResumed', { elapsedMs: resumed.elapsedMs, minutesAdded: resumed.minutesAdded });
+      }
     } else {
       H.touch(save);
     }
@@ -395,13 +459,13 @@
       live.rebuild();
       if (world.ports && world.ports.io && world.ports.io.toast) {
         const first = gifts.find(g => g.map === world.map.id);
-        if (first) world.ports.io.toast({ text: KIT.strings.get(project, 'home.gift-toast', { who: first.fromName || first.from }) });
+        if (first) world.ports.io.toast({ text: KIT.strings.get(project, 'home-gift-toast', { who: first.fromName || first.from }) });
       }
     }
     const ready = H.jobsReady(save, now);
     if (ready.length && !world._homeAnnounced && world.ports && world.ports.io && world.ports.io.toast && !o.quiet) {
       world._homeAnnounced = true;
-      world.ports.io.toast({ text: KIT.strings.get(project, 'home.ready-toast', { count: ready.length }) });
+      world.ports.io.toast({ text: KIT.strings.get(project, 'home-ready-toast', { count: ready.length }) });
     }
     if (!ready.length) world._homeAnnounced = false;
     return { resumed, ready, drifted, gifts };

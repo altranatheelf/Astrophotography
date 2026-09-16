@@ -1,0 +1,39 @@
+// tools/kit-node.js — loads the Kit in Node, so tools/build-content.js can
+// build this game's content files without a browser.
+//
+// Written by `node tools/new-game.js`; the two lists below are the only things
+// in it that are about THIS game. If you move the kit, change KIT_REL.
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+/** Where the Kit lives, relative to this file. */
+const KIT_REL = '{{KIT_REL}}';
+/** This game's own art files, relative to the game folder. */
+const ART_FILES = {{ART_FILES}};
+/** The module folders this game loads, relative to the game folder. */
+const MODULE_FILES = {{MODULE_FILES}};
+/** The modules this game turns on. */
+const MODULES = {{MODULE_IDS}};
+
+const KIT_ROOT = path.resolve(__dirname, KIT_REL);
+const GAME_ROOT = path.resolve(__dirname, '..');
+if (!fs.existsSync(path.join(KIT_ROOT, 'js/kit/core/util.js'))) {
+  console.error(`Cannot find the Kit at ${KIT_ROOT}.\nEdit KIT_REL at the top of tools/kit-node.js to point at it.`);
+  process.exit(2);
+}
+
+const { NODE } = require(path.join(KIT_ROOT, 'templates/_shared/kit-files.js'));
+for (const f of NODE) require(path.join(KIT_ROOT, f));
+require(path.join(KIT_ROOT, 'js/main.js'));          // gives us KIT.module / KIT.modules, and boots nothing headless
+
+const KIT = globalThis.KIT;
+for (const f of ART_FILES.concat(MODULE_FILES)) {
+  const p = path.join(GAME_ROOT, f);
+  if (fs.existsSync(p)) require(p);
+}
+if (MODULES.length) KIT.modules.activate({ modules: MODULES });
+
+module.exports = KIT;
+module.exports.KIT_ROOT = KIT_ROOT;
+module.exports.GAME_ROOT = GAME_ROOT;

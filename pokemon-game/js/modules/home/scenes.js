@@ -33,6 +33,29 @@
     document.head.appendChild(el);
   }
 
+  /**
+   * onlyAction(el, fn) — UI.onAction, except that the click stops here.
+   *
+   * Our screens are opened from the pause menu and draw into the same host
+   * (#pause-menu), and the menu scene keeps its own delegated click listener on
+   * that host the whole time it is on the stack. Without this, one tap on
+   * "welcome them home" is also read as a tap on whatever pause-menu row
+   * happened to share its index, and the menu paints itself back over us.
+   * Listening in the capture phase and stopping the event is the smallest fix a
+   * module can make; see docs/ENGINE-HOOKS.md §15 for the one the engine should.
+   */
+  function onlyAction(el, fn) {
+    const handler = (e) => {
+      const t = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+      if (!t || !el.contains(t)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      fn(t.getAttribute('data-action'), t, e);
+    };
+    el.addEventListener('click', handler, true);
+    return () => el.removeEventListener('click', handler, true);
+  }
+
   /** panel(title, rows, opts) — the same list shape the pause menu uses. */
   function panel(title, rows, opts) {
     const host = UI.el('pause-menu');
@@ -76,6 +99,38 @@
     host.classList.remove('home-placing');
     UI.clear(host);
   }
+  /**
+   * A tiny canvas of a friend's face. `w.sprite` is a *registered sprite id* —
+   * whoever owns the friends put it in the `sprites` registry — so this is the
+   * kit's own art path and there is no second copy of anybody's portrait code
+   * in this module.
+   */
+  function faceArt(spriteId) {
+    if (!spriteId) return null;
+    try {
+      const def = KIT.registry('sprites').get(spriteId);
+      if (!def) return null;
+      const cv = UI.artCanvas(standingFrame(def), 2, '#8a8a9a');
+      cv.className = 'kit-home-art';
+      return cv;
+    } catch (e) { return null; }
+  }
+
+  /**
+   * One still picture out of a sprite definition, whatever shape it is: a plain
+   * art, a frame list, or the kit's four-direction walk cycle (`frames.down`).
+   * Facing the reader is what a row in a list wants.
+   */
+  function standingFrame(def) {
+    const frames = def && def.frames;
+    if (frames && !Array.isArray(frames)) {
+      const rows = frames.down || frames.up || frames.left || frames.right;
+      const first = Array.isArray(rows) ? rows[0] : null;
+      if (first) return { w: def.w || 16, h: def.h || 16, palette: def.palette || {}, rows: first };
+    }
+    return KIT.pixels.artOf ? KIT.pixels.artOf(def) : (def.art || def);
+  }
+
   /** A tiny canvas of a tile, so a row of furniture looks like the thing itself. */
   function tileArt(tileId) {
     try {
@@ -176,9 +231,9 @@
           const v = H.variants(f.item)[0];
           out.push({ label: f.item.name || f.id, value: '×' + f.count, action: 'pick:' + f.id, art: tileArt(v.tile) });
         }
-        if (!list.length) out.push({ label: S(project(), 'home.place-empty'), disabled: true, action: 'none' });
-        if (H.placedOn(save(), mapId()).length) out.push({ label: S(project(), 'home.place-take'), action: 'take' });
-        out.push({ label: S(project(), 'home.place-done'), action: 'back' });
+        if (!list.length) out.push({ label: S(project(), 'home-place-empty'), disabled: true, action: 'none' });
+        if (H.placedOn(save(), mapId()).length) out.push({ label: S(project(), 'home-place-take'), action: 'take' });
+        out.push({ label: S(project(), 'home-place-done'), action: 'back' });
         return out;
       }
 
@@ -186,39 +241,39 @@
         const p = project();
         if (mode === 'choose') {
           rows = chooserRows();
-          ui = panel(S(p, 'home.menu-decorate'), rows, { hint: KIT.input.isTouch() ? 'Tap a line' : 'Arrows · Z chooses · X closes' });
+          ui = panel(S(p, 'home-menu-decorate'), rows, { hint: KIT.input.isTouch() ? 'Tap a line' : 'Arrows · Z chooses · X closes' });
           index = Math.min(index, Math.max(0, rows.length - 1));
           UI.select(ui.list, index);
         } else if (mode === 'place') {
           const item = itemDef();
           const vs = H.variants(item);
           const can = H.canPlace(p, save(), mapId(), item, variant, cx, cy);
-          const title = `${S(p, 'home.place-title')} · ${(item && item.name) || itemId} (${vs[variant % vs.length].label})`;
+          const title = `${S(p, 'home-place-title')} · ${(item && item.name) || itemId} (${vs[variant % vs.length].label})`;
           rows = [];
           ui = panel(title, rows, {
             overMap: true,
-            hint: S(p, 'home.place-hint'),
+            hint: S(p, 'home-place-hint'),
             buttons: [
-              { action: 'rotate', label: S(p, 'home.place-rotate'), disabled: vs.length < 2 },
-              { action: 'put', label: S(p, 'home.place-put'), primary: true, disabled: !can.ok },
-              { action: 'back', label: S(p, 'home.place-done') },
+              { action: 'rotate', label: S(p, 'home-place-rotate'), disabled: vs.length < 2 },
+              { action: 'put', label: S(p, 'home-place-put'), primary: true, disabled: !can.ok },
+              { action: 'back', label: S(p, 'home-place-done') },
             ],
           });
         } else {
           const rec = H.placedAt(save(), mapId(), cx, cy);
           const name = rec ? (H.itemName(p, rec.item) || rec.item) : '—';
           rows = [];
-          ui = panel(`${S(p, 'home.place-take')} · ${name}`, rows, {
+          ui = panel(`${S(p, 'home-place-take')} · ${name}`, rows, {
             overMap: true,
-            hint: S(p, 'home.place-hint'),
+            hint: S(p, 'home-place-hint'),
             buttons: [
-              { action: 'put', label: S(p, 'home.place-take'), primary: true, disabled: !rec },
-              { action: 'back', label: S(p, 'home.place-done') },
+              { action: 'put', label: S(p, 'home-place-take'), primary: true, disabled: !rec },
+              { action: 'back', label: S(p, 'home-place-done') },
             ],
           });
         }
         if (off) off();
-        off = UI.onAction(ui.host, (action, el) => {
+        off = onlyAction(ui.host, (action, el) => {
           if (el.hasAttribute('data-index')) index = Number(el.getAttribute('data-index')) || 0;
           act(action);
         });
@@ -245,14 +300,14 @@
         const can = H.canPlace(p, save(), mapId(), item, variant, cx, cy);
         if (!can.ok) {
           KIT.audio.play('bump');
-          const key = can.reason === 'occupied' ? 'home.in-the-way' : can.reason === 'wall' ? 'home.against-wall' : 'home.no-room';
+          const key = can.reason === 'occupied' ? 'home-in-the-way' : can.reason === 'wall' ? 'home-against-wall' : 'home-no-room';
           KIT.toast(S(p, key));
           return;
         }
         H.place(save(), mapId(), itemId, item, variant, cx, cy);
         KIT.commands.state.give({ world, project: p }, itemId, -1);
         KIT.audio.play('item');
-        KIT.toast(S(p, 'home.placed', { item: item.name || itemId }));
+        KIT.toast(S(p, 'home-placed', { item: item.name || itemId }));
         syncWorld();
         if (bagCount(itemId) <= 0) { mode = 'choose'; clearGhosts(); index = 0; }
         build();
@@ -267,7 +322,7 @@
         if (!id) return;
         KIT.commands.state.give({ world, project: p }, id, 1);
         KIT.audio.play('select');
-        KIT.toast(S(p, 'home.picked-up', { item: H.itemName(p, id) || id }));
+        KIT.toast(S(p, 'home-picked-up', { item: H.itemName(p, id) || id }));
         syncWorld();
         build();
         if (KIT.game && KIT.game.save) KIT.game.save('autosave');
@@ -379,9 +434,9 @@
               action: 'job:' + t.id, disabled: closed,
             };
           });
-          if (!templates.length) rows.push({ label: S(p, 'home.board-empty'), disabled: true, action: 'none' });
+          if (!templates.length) rows.push({ label: S(p, 'home-board-empty'), disabled: true, action: 'none' });
           rows.push({ label: S(p, 'ok'), action: 'back' });
-          ui = panel(boardTitle || S(p, 'home.board-title'), rows, { hint: S(p, 'home.board-hint') });
+          ui = panel(boardTitle || S(p, 'home-board-title'), rows, { hint: S(p, 'home-board-hint') });
         } else {
           const roster = H.roster(p, save());
           rows = [];
@@ -389,19 +444,19 @@
             const fit = H.suitability(chosen, w);
             const out = H.isOut(save(), w.uid);
             rows.push({
-              label: w.name,
+              label: w.name, art: faceArt(w.sprite),
               value: out ? 'out' : fit === 'wrong' ? '—' : H.durationText(H.jobMinutes(chosen, w, H.tuning(p))) + (fit === 'suits' || fit === 'needed' ? ' ·  suits them' : ''),
               action: 'who:' + w.uid, disabled: out || fit === 'wrong',
             });
           }
-          if (!rows.some(r => !r.disabled)) rows.push({ label: S(p, 'home.who-empty'), disabled: true, action: 'none' });
+          if (!rows.some(r => !r.disabled)) rows.push({ label: S(p, 'home-who-empty'), disabled: true, action: 'none' });
           rows.push({ label: S(p, 'cancel'), action: 'back' });
-          ui = panel(`${chosen.title} — ${S(p, 'home.who-title')}`, rows, { hint: chosen.desc || '' });
+          ui = panel(`${chosen.title} — ${S(p, 'home-who-title')}`, rows, { hint: chosen.desc || '' });
         }
         index = Math.min(index, Math.max(0, rows.length - 1));
         UI.select(ui.list, index);
         if (off) off();
-        off = UI.onAction(ui.host, (action, el) => {
+        off = onlyAction(ui.host, (action, el) => {
           if (el.hasAttribute('data-index')) index = Number(el.getAttribute('data-index')) || 0;
           act.call(this_scene, action);
         });
@@ -430,12 +485,12 @@
           const out = H.startJob(save(), { template: chosen, who: uid, worker, now: H.now(save()), tuning: H.tuning(p), board: chosen.board });
           if (!out.ok) {
             KIT.audio.play('bump');
-            KIT.toast(S(p, out.reason === 'busy' ? 'home.who-busy' : 'home.who-wrong', { who: worker.name }));
+            KIT.toast(S(p, out.reason === 'busy' ? 'home-who-busy' : 'home-who-wrong', { who: worker.name }));
             return;
           }
           H.react(save(), uid, 'worked', H.now(save()));
           KIT.audio.play('sparkle');
-          KIT.toast(S(p, 'home.sent', { who: worker.name, time: H.durationText(out.job.minutes) }));
+          KIT.toast(S(p, 'home-sent', { who: worker.name, time: H.durationText(out.job.minutes) }));
           if (KIT.game && KIT.game.save) KIT.game.save('autosave');
           step = 'jobs'; index = 0; build();
         }
@@ -488,26 +543,26 @@
         const out = H.jobsOut(save()).filter(j => !H.isReady(j, now));
         rows = [];
         if (ready.length) {
-          rows.push({ section: S(p, 'home.jobs-ready') });
-          for (const j of ready) rows.push({ label: `${j.whoName || j.who} — ${j.title}`, value: S(p, 'home.jobs-waiting'), action: 'collect:' + j.id });
-          if (ready.length > 1) rows.push({ label: S(p, 'home.collect-all'), action: 'collect-all' });
+          rows.push({ section: S(p, 'home-jobs-ready') });
+          for (const j of ready) rows.push({ label: `${j.whoName || j.who} — ${j.title}`, value: S(p, 'home-jobs-waiting'), action: 'collect:' + j.id });
+          if (ready.length > 1) rows.push({ label: S(p, 'home-collect-all'), action: 'collect-all' });
         }
         if (out.length) {
-          rows.push({ section: S(p, 'home.jobs-out') });
-          for (const j of out) rows.push({ label: `${j.whoName || j.who} — ${j.title}`, value: S(p, 'home.jobs-left', { time: H.durationText(H.remaining(j, now)) }), action: 'none', disabled: true });
+          rows.push({ section: S(p, 'home-jobs-out') });
+          for (const j of out) rows.push({ label: `${j.whoName || j.who} — ${j.title}`, value: S(p, 'home-jobs-left', { time: H.durationText(H.remaining(j, now)) }), action: 'none', disabled: true });
         }
         const home = H.roster(p, save()).filter(w => !H.isOut(save(), w.uid));
         if (home.length) {
-          rows.push({ section: S(p, 'home.jobs-garden') });
-          for (const w of home) rows.push({ label: w.name, value: H.moodLabel(H.moodOf(save(), w.uid).mood), action: 'mood:' + w.uid });
+          rows.push({ section: S(p, 'home-jobs-garden') });
+          for (const w of home) rows.push({ label: w.name, value: H.moodLabel(p, H.moodOf(save(), w.uid).mood), action: 'mood:' + w.uid, art: faceArt(w.sprite) });
         }
-        if (!ready.length && !out.length) rows.push({ label: S(p, 'home.jobs-none'), disabled: true, action: 'none' });
+        if (!ready.length && !out.length) rows.push({ label: S(p, 'home-jobs-none'), disabled: true, action: 'none' });
         rows.push({ label: S(p, 'ok'), action: 'back' });
-        ui = panel(`${S(p, 'home.jobs-title')} · ${H.clockText(save())}`, rows, {});
+        ui = panel(`${S(p, 'home-jobs-title')} · ${H.clockText(save())}`, rows, {});
         index = Math.min(index, Math.max(0, ui.rows.length - 1));
         UI.select(ui.list, index);
         if (off) off();
-        off = UI.onAction(ui.host, (action, el) => {
+        off = onlyAction(ui.host, (action, el) => {
           if (el.hasAttribute('data-index')) index = Number(el.getAttribute('data-index')) || 0;
           act.call(this_scene, action);
         });
@@ -520,6 +575,10 @@
         const r = H.collectJob(save(), job.id, { now: H.now(save()), worker, tuning: H.tuning(p) });
         if (!r.ok) return;
         if (r.reward && world.events) world.events.emit('itemChanged', { id: r.reward.item, delta: r.reward.count, count: (save().inventory || {})[r.reward.item] || 0 });
+        // Friendship is not ours to keep: hand it to the module that owns this
+        // friend, through the command it registered. With no such module the
+        // job still pays its reward and nothing else happens.
+        if (r.friendship) H.awardFriendship(world.makeCtx(null, (world.hero() || {}).id || 'p1'), job.who, r.friendship);
         KIT.audio.play('item');
         await KIT.scenes.run('dialogue', { text: H.jobLine(p, worker, r.job, r.reward) });
         if (KIT.game && KIT.game.save) KIT.game.save('autosave');

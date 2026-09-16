@@ -11,21 +11,19 @@ const KIT = require(path.join(root, 'test/kit/_load.js'));
 global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) require(path.join(root, f));
 require(path.join(root, 'js/kit/world/map.js'));
-// The home module: its item kind, object type, commands and conditions have to
-// be registered before normalize() sees the demo, or its content cannot be
-// filled in or validated. (js/modules/home)
-require(path.join(root, 'js/modules/home/rules.js'));
-require(path.join(root, 'js/modules/home/register.js'));
-KIT.home.registerAll(KIT);
-// The mons module, for the same reason: its species registry backs ref:mon, and
-// its validator checks the encounter tables the route now carries.
-for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) require(path.join(root, f));
-for (const f of ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'panel']) require(path.join(root, 'js/modules/mons/' + f + '.js'));
-KIT.mons.registerSpecies(global.PKMN.POKEMON);
-KIT.mons.registerStrings();
-KIT.mons.registerScript();
-KIT.mons.registerItems();
-KIT.mons.registerEditor();
+
+// The strings the ENGINE itself ships, before any module adds its own. Modules
+// own their words: the demo content must not carry a frozen copy of them (see
+// the end of this file).
+const KIT_STRINGS = new Set(KIT.registry('strings').ids());
+
+// The modules the demo enables. They have to be registered before normalize()
+// sees the demo, or their item kinds, object types, commands, conditions and
+// ref:mon fields cannot be filled in or validated. tools/load-modules.js is the
+// one place that knows which files each module needs, so this is exactly the
+// set index.html loads and test/kit/demo.test.js checks against.
+const DEMO_MODULES = ['mons', 'home'];
+require(path.join(root, 'tools/load-modules.js')).load(KIT, DEMO_MODULES);
 
 const S = (lines) => { const r = KIT.screenplay.parse(lines.join('\n')); if (r.problems.length) throw new Error('screenplay: ' + JSON.stringify(r.problems)); return r.commands; };
 
@@ -233,7 +231,7 @@ const raw = {
   version: 3,
   meta: { id: 'demo', title: 'Our Adventure', subtitle: 'for you ♥',
     pitch: 'Two friends share one phone to wander a small town and befriend the Pokémon they meet. Everything you make friends with keeps living in the garden while you are away.' },
-  modules: [],
+  modules: DEMO_MODULES.slice(),
   settings: { tileSize: 16, viewport: { w: 16, h: 12 }, textSpeed: 'normal', coop: { enabled: false }, clock: { enabled: false } },
   strings: { 'got-item': 'Got {count} {item}!' },
   heroes: [{ id: 'p1', name: 'Player 1', sprite: 'hero-boy', recolor: {} }, { id: 'p2', name: 'Player 2', sprite: 'hero-girl', recolor: {} }],
@@ -308,13 +306,16 @@ const raw = {
   // A box of odds and ends by the bedroom door: the furniture starts here.
   home.objects.push(obj('moving-box', 'Moving box', 'sign', 2, 6, [
     page({ layer: 'same', props: { look: 'crate' }, once: true, on: { interact: S([
+      // Everything the box SAYS comes first, then the four `notify` toasts:
+      // nothing waits for the player behind a toast. (Same shape as Mom's
+      // parcel — a line after a notify reads as the script having stopped.)
       '"A box of odds and ends, left over from moving in."',
+      '"Somewhere in here is a home."',
       '@give item=pot-plant count=2 notify=true',
       '@give item=rug count=1 notify=true',
       '@give item=table-set count=1 notify=true',
       '@give item=cushion count=2 notify=true',
       '@set boxEmptied = true',
-      '"Somewhere in here is a home."',
     ]) } }),
     page({ when: { kind: 'var', name: 'boxEmptied', op: '==', value: true }, layer: 'same', props: { look: 'crate' },
       on: { interact: S(['"An empty box. It has done its work."']) } }),
@@ -379,7 +380,7 @@ const raw = {
       giftFriendship: 1, giftChance: 0.2, maxGifts: 2,
     },
     giftItems: ['berry', 'golden-berry'],
-    giftSpot: { map: 'home', x: 5, y: 8 },     // just inside the front door
+    giftSpot: { map: 'home', x: 4, y: 8 },     // a clear square just inside the front door
     workers: 'auto',
   };
 
@@ -451,9 +452,11 @@ const raw = {
   momPage.on.interact = S([
     'Mom: Good morning, {p1}! {pause} You and {p2} slept late again.',
     'Mom: Take these — you will want them out there.',
+    'Mom: One ball for each friend you make. {pause} The berries are for when they are shy.',
+    // Every line Mom says comes before the gifts land, so the two `notify` toasts
+    // are the last thing the script does: nothing waits for the player behind them.
     '@give item=pokeball count=5 notify=true',
     '@give item=berry count=3 notify=true',
-    'Mom: One ball for each friend you make. {pause} The berries are for when they are shy.',
     '@balloon target=self kind=♥',
     '@set chapter = 1',
   ]);
@@ -469,6 +472,26 @@ const raw = {
 }
 
 const { project, problems } = KIT.project.normalize(raw);
+
+// normalize() fills `project.strings` with every registered default, modules
+// included. A module owns its own words, so leaving them here would freeze a
+// copy of them in the content: the Terms panel reads the registry and only
+// treats project.strings as an override, so dropping the untouched module
+// defaults changes nothing on screen and keeps the demo honest about what it
+// owns. Anything an author has actually reworded (it differs from the default)
+// stays.
+{
+  const reg = KIT.registry('strings');
+  let dropped = 0;
+  for (const key of Object.keys(project.strings || {})) {
+    if (KIT_STRINGS.has(key)) continue;                      // the engine's own
+    if (!reg.has(key)) continue;                             // not a module's either: leave it
+    if (project.strings[key] !== reg.get(key).default) continue;  // reworded on purpose
+    delete project.strings[key];
+    dropped++;
+  }
+  if (dropped) console.log(`left ${dropped} module string(s) to their modules`);
+}
 const errors = problems.filter(p => p.severity === 'error');
 for (const p of problems) console.log(`${p.severity === 'error' ? 'ERROR' : 'warn '} [${p.code}] ${p.message} ${JSON.stringify(p.where || {})}`);
 if (errors.length) { console.error(`\n${errors.length} error(s) — not written.`); process.exit(1); }

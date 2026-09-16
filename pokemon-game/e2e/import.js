@@ -20,7 +20,7 @@ const ROOT = path.join(__dirname, '..');
 const SCRATCH = process.env.KIT_IMPORT_DIR ||
   '/tmp/claude-0/-home-user-Astrophotography/19812bb4-4e6f-5d04-84c2-78d4b1a8e91f/scratchpad/kit/import/demo-import';
 const SHOTS = process.env.KIT_SHOTS ||
-  '/tmp/claude-0/-home-user-Astrophotography/19812bb4-4e6f-5d04-84c2-78d4b1a8e91f/scratchpad/kit/kit/shots';
+  '/tmp/claude-0/-home-user-Astrophotography/19812bb4-4e6f-5d04-84c2-78d4b1a8e91f/scratchpad/kit/shots';
 const IGNORE = /fonts\.googleapis|fonts\.gstatic|ERR_CERT|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_FAILED.*fonts/i;
 
 // The two fixtures, and the colours their generators painted into the PNGs —

@@ -19,6 +19,7 @@ you, and the Pokédex remembers where and when you met each one.
 | `scenes.js` | The catch scene, the party, the Pokédex, the garden card, and the two pause-menu entries. |
 | `panel.js` | Creator Mode: the Encounters panel, the `ref:mon` picker, the encounter-table validator. |
 | `manifest.js` | `KIT.module({...})` — the save slice, the content slice, and `register()`. |
+| `e2e.node.js` | The browser play-through (Node + Playwright). Not loaded by the page. |
 
 Load order is exactly that list; `index.html` loads them **before** `js/main.js`
 (see "the missing hooks" below).
@@ -30,15 +31,15 @@ Load order is exactly that list; `index.html` loads them **before** `js/main.js`
 | `monSpecies` (new) | the 32 species from `js/data/pokemon.js` |
 | `commands` | `givePokemon` `encounter` `friendship` `openParty` `openDex` (+ `monCard`, used by the garden) |
 | `conditions` | `has` `dexCount` `friendship` `partyFull` |
-| `itemKinds` | `ball` `berry` |
+| `itemKinds` | `item` (the engine's own default, if nobody has registered it — see `docs/ENGINE-HOOKS.md` §16) · `ball` · `berry` |
 | `systems` | `mons-encounters` (35) `mons-follower` (38) `mons-garden` (39) |
 | `scenes` | `mons-catch` `mons-party` `mons-dex` `mons-card` |
-| `menus` | `mons-party` (12) `mons-dex` (14) |
+| `menus` | `mons-party` (10) `mons-dex` (12) |
 | `editorPanels` | `mons-encounters` |
 | `fieldEditors` | `mons-ref` (for `ref:mon`) |
 | `validators` | `mons-encounters` |
 | `sprites` | `mon:<species>` and `mon:<species>:shiny`, built on first use |
-| `strings` | ~70 `mons-*` keys — every word the player reads |
+| `strings` | 87 `mons-*` keys — every word the player reads. Kebab-case, like the kit's own. |
 | ref kind | `KIT.schema.refKind('mon', …)`, so any `ref:mon` field gets a picker with portraits |
 
 ## What it owns
@@ -132,68 +133,79 @@ friendship: 70, ask: true }` makes the module watch that variable instead: the
 moment the stands set it, you get the Pokémon (and a nickname prompt). Loading a
 save that already has it set catches up quietly, without the prompt.
 
+## Where this module meets another one
+
+It never reaches into another module's files or save shape. Three joins, all
+through the engine or a published hook, all fine when the other side is absent:
+
+| | |
+|---|---|
+| **Friendship** | Ours, and the only copy of the number. Another module adds to it through the `friendship` command in the `commands` registry. |
+| **The mood** | A module that keeps a mood that drifts can take it over: `KIT.mons.provideMood(fn)`, `fn(mon, { project, save, day }) -> { id, label }` with `label` already in words. With nobody offering, `M.moodFor` derives it from friendship and the day, as before. |
+| **Petting and feeding** | Ours, and we say so: `world.events.emit('friendCared', { uid, what })` after a pet or a berry. Nobody has to listen. |
+| **The session gap** | We listen for `sessionResumed` first and only announce it ourselves — one tick later, latched on `world._sessionResumed` — if nobody who owns a clock did. The stamp is the kit's own `save.clock.lastSeenAt`. |
+
+`test/modules/integration.test.js` is where those are held in place.
+
 ## The missing hooks
 
-Five things the kit does not have yet. Each is worked around in this module only;
-none of them touches `js/kit/**` or `js/main.js`.
+The full punch list, with the fix each one wants, is **`docs/ENGINE-HOOKS.md`**.
+The ones this module runs into, each worked around in this folder only:
 
-1. **`sessionResumed` is documented but never emitted.**
-   `docs/ARCHITECTURE.md` §10 lists `sessionResumed { elapsedMs }` among the
-   world's events and §"saves" says `lastSeenAt` drives it, but nothing in
-   `js/kit/world/world.js` emits it.
-   *Worked around:* `systems.js` keeps its own `lastSeenAt` in the save section,
-   works out the gap when it first sees a world, and emits `sessionResumed` on
-   `world.events` itself so other modules can listen either way.
+1. **`sessionResumed` is documented but never emitted** (§1) — `systems.js`
+   measures the gap from `save.clock.lastSeenAt`, listens first, and emits it
+   itself only when nothing else has.
+2. **A module cannot add a non-map-object interact target** (§5) — `systems.js`
+   wraps `world.interact` **on the world instance** so the follower can be
+   talked to.
+3. **`KIT.module` does not exist until `js/main.js` has run** (§9) —
+   `index.html` loads the modules first (so `KIT.PRISTINE_HTML` contains them)
+   and `manifest.js` registers on `DOMContentLoaded`.
+4. **The `menus` registry types `label` as text** (§4) — the entry is added with
+   a plain string and given its re-wordable label afterwards.
+5. **The project is validated before modules are registered** (§3) — console
+   noise only; this module's demo content deliberately uses no module commands.
+6. **Content cannot mention a module's commands without failing the kit's own
+   tests** (§10) — the lab starters go through `packs.mons.starters` instead.
+7. **Nothing says when the main script thread goes quiet** (§11) — the starter
+   hook fires from a `varChanged` listener *inside* the stand's script, and a
+   name box opened there lands under the script's own message box and wedges
+   both. `actions.js` waits for the thread to finish first.
+8. **The kit never registers its own default `item` kind** (§16) — registering
+   `ball` and `berry` would otherwise make every plain keepsake in the project
+   warn, so we register `item` first if nobody has.
 
-2. **A module cannot add an interact target that is not a map object.**
-   `world.interact()` only searches `world.entities`, and the follower is
-   `world.companion`, so talking to it is impossible from outside the kit.
-   *Worked around:* `systems.js` wraps `world.interact` **on the world instance**
-   (never the kit file) and falls through to the follower when nothing else
-   answered. A `world.events.emit('interactMissed', {hero})`, or letting a system
-   declare extra interact targets, would replace this cleanly.
-
-3. **`KIT.module` does not exist until `js/main.js` has run**, although main.js's
-   own comment says a manifest may load before or after it. Loading the modules
-   *after* main.js would work, but then `KIT.PRISTINE_HTML` — captured while
-   main.js runs, and the only thing `KIT.storage.publish` rebuilds from — would
-   not contain the module `<script>` tags, so published games would lose the
-   module.
-   *Worked around:* `index.html` loads the modules before main.js and
-   `manifest.js` registers on `DOMContentLoaded`, whose listener it adds first
-   and which therefore runs before boot. Defining `KIT.module` in its own tiny
-   file (or having main.js drain a queue) would fix it properly.
-
-4. **The `menus` registry types `label` as text**, but `js/kit/scenes/menu.js`
-   calls `def.label(game)` when it is a function — so a menu entry whose label
-   comes from the Terms table is rejected by its own registry's schema.
-   *Worked around:* `scenes.js` adds the entry with the plain default string and
-   assigns the function to the stored definition afterwards.
-
-5. **The project is validated before modules are registered.**
-   `js/main.js` calls `KIT.storage.loadProject()` (which normalizes and
-   validates) and only then `KIT.modules.activate(project)`, so every module
-   command and object type in the content is reported as unknown in the console
-   at boot, even though it works a moment later. Activating the modules named in
-   the loaded project *before* validating it would silence that.
-   *Not worked around* — it is console noise only, and this module's demo content
-   deliberately uses no module commands (see above).
-
-Two smaller notes, both outside this module's files:
+Two smaller ones, both outside this module's files:
 
 * `js/sprites/*.js` assign to `window` directly instead of using the
   `window/globalThis` shim every other file has, so they cannot be `require`d in
-  Node without a shim. `test/modules/mons.test.js` sets one for the length of the
-  require and removes it again.
-* In a world built without `KIT.game`, hero 2 stays `solid`, so the player cannot
-  step back onto the tile they just came from. `KIT.game.setCoop(false)` clears
-  it; a bare `KIT.world.create` does not.
+  Node without one. `test/modules/mons.test.js` and `tools/load-modules.js` both
+  shim it for the length of the require.
+* In a world built without `KIT.game`, hero 2 stays `solid`, so the player
+  cannot step back onto the tile they just came from.
 
 ## Tests
 
-`test/modules/mons.test.js` — 24 tests: rarity buckets across the whole roster,
+`test/modules/mons.test.js` — 25 tests: rarity buckets across the whole roster,
 catch chance with clamps and berries, the ring, wobbles, fleeing, a whole catch
 driven through `applyAction`, the weighted encounter roll's determinism, party
 overflow, friendship clamps and tiers, the dex, the v1 save migration, the
 commands and conditions through `KIT.interpreter.fakeCtx`, the art fallbacks, and
-a live world walking in the grass and filling the garden.
+a live world walking in the grass and filling the garden, and the session gap
+being announced exactly once whether or not another module owns the clock.
+
+`test/modules/integration.test.js` — 12 more, where this module meets `home`.
+
+`js/modules/mons/e2e.node.js` — the browser play-through (Node + Playwright, not
+part of the page):
+
+```
+export NODE_PATH=$(npm root -g)
+KIT_SHOTS=/tmp/shots node js/modules/mons/e2e.node.js
+```
+
+29 checks: it starts the demo on Route 1 with a lucky `KIT.game.rngOverride`,
+forces an encounter, plays the whole catch scene (berry, timing ring, wobbles,
+nickname), checks the party and the Pokédex, walks with the follower and talks to
+it, goes to the garden, opens a card and pets somebody, then saves, reloads and
+checks that every nickname, heart and "met at" came back.

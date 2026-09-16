@@ -125,7 +125,12 @@
   M.t = function (project, id, vars) { return KIT.strings.get(project, id, vars); };
   /** tierLabel / moodLabel / rarityLabel — the words for the three derived states. */
   M.tierLabel = function (project, n) { return M.t(project, M.friendshipTier(n).label); };
-  M.moodLabel = function (project, mon, opts) { return M.t(project, M.moodFor(mon, opts).label); };
+  /** moodLabel(project, mon, opts) -> the words for a mood, wherever it came from. */
+  M.moodLabel = function (project, mon, opts) {
+    const mood = M.moodFor(mon, opts);
+    // A mood another module gave us arrives as words already; ours is a Terms key.
+    return mood.given ? String(mood.label) : M.t(project, mood.label);
+  };
   M.rarityLabel = function (project, id) { return M.t(project, 'mons-rarity-' + M.rarity(id, project)); };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

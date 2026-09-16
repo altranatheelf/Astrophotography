@@ -1,12 +1,13 @@
 {
   "name": "pokemon-game",
   "private": true,
-  "description": "Kit: a top-down story-adventure engine with a built-in creator mode, plus the Pokémon module.",
+  "description": "Kit: a top-down story-adventure engine with a built-in creator mode, plus the mons, home and dungeon modules.",
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
-    "e2e": "NODE_PATH=$(npm root -g) node e2e/walk.js && NODE_PATH=$(npm root -g) node e2e/import.js && NODE_PATH=$(npm root -g) node e2e/editor.js",
+    "e2e": "NODE_PATH=$(npm root -g) node e2e/walk.js && NODE_PATH=$(npm root -g) node e2e/import.js && NODE_PATH=$(npm root -g) node e2e/editor.js && NODE_PATH=$(npm root -g) node e2e/vision.js",
     "build": "node tools/build.js",
     "sheet": "node tools/sprite-sheet.js /tmp/sheet.png 4",
-    "import": "node tools/import.js"
+    "import": "node tools/import.js",
+    "demo": "node tools/build-demo.js"
   }
 }

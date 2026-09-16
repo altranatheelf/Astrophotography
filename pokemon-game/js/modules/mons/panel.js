@@ -17,6 +17,14 @@
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
   function make(spec, opts) { return UI.make(spec, opts); }
+  /** The editor's own button look, not the runtime's (this panel lives in the dark shell). */
+  function edBtn(label, title, onTap, cls) {
+    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
+    b.type = 'button';
+    if (title) b.title = title;
+    b.onclick = onTap;
+    return b;
+  }
   function monCanvas(id, scale) {
     const cv = UI.artCanvas(M.portrait(id), scale || 2, M.speciesColor(id));
     cv.className = 'mons-portrait';
@@ -171,12 +179,10 @@
           if (e) e.weight = Math.max(0, Number(w.value) || 0);
         });
         row.appendChild(w);
-        const del = UI.button('x', '✕');
-        del.onclick = () => write(ed, mapId, (t) => {
+        row.appendChild(edBtn('✕', 'Take ' + M.speciesName(entry.id) + ' out of this table', () => write(ed, mapId, (t) => {
           t.byRegion[region] = (t.byRegion[region] || []).filter(x => x.id !== entry.id);
           if (!t.byRegion[region].length) delete t.byRegion[region];
-        });
-        row.appendChild(del);
+        })));
         block.appendChild(row);
       }
       const add = make('div.ed-row');
@@ -187,13 +193,11 @@
         o.textContent = `${sp.name} · ${M.rarityLabel(project, sp.id)}`;
         sel.appendChild(o);
       }
-      const addBtn = UI.button('add', '＋ Add');
-      addBtn.onclick = () => write(ed, mapId, (t) => {
+      add.appendChild(sel);
+      add.appendChild(edBtn('＋ Add', 'Put this one in the table', () => write(ed, mapId, (t) => {
         const l = t.byRegion[region] || (t.byRegion[region] = []);
         if (!l.some(e => e.id === sel.value)) l.push({ id: sel.value, weight: 5 });
-      });
-      add.appendChild(sel);
-      add.appendChild(addBtn);
+      })));
       block.appendChild(add);
       el.appendChild(block);
     }

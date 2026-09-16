@@ -59,55 +59,76 @@ reward and a line that is warmer the better they know you. The clock counts
 ## Moods and presents
 
 Friends still at home drift between `happy · calm · sleepy · restless · lonely`
-one step per `moodDriftMinutes`, seeded by the save, so a replay drifts exactly
-the same way. They react to what you do (`fed`, `petted`, `worked`, `ignored`).
+one step per `moodDriftMinutes` since `changedAt`, seeded by the save, so a
+replay drifts exactly the same way — and anything that sets a mood by hand
+restarts that clock. They react to what you do (`fed`, `petted`, `worked`, `ignored`).
 A friend who likes you enough and is in a good mood may, at most once a day,
 leave a present at the door — an ordinary `item` object in the house overlay
 with a note on it.
 
-Every number is in `project.packs.home.tuning`, editable in the Home panel.
+Every number is in `project.packs.home.tuning`, editable in the Home panel —
+except the ones for petting and feeding, which belong to whoever owns the
+friends (see below).
 
 ## What it owns
 
 * Save: `save.modules.home` —
-  `{ version, jobs:[{ id, job, board, title, who, whoName, startedAt, minutes, reward, count, flag, done, collectedAt }], gifts:[], moods:{ uid:{ mood, changedAt, bucket } }, placed, furniture:[], seenAt, log:[] }`
+  `{ version, jobs:[{ id, job, board, title, who, whoName, startedAt, minutes, reward, count, flag, done, collectedAt }], gifts:[], moods:{ uid:{ mood, changedAt } }, placed, furniture:[], seenAt, log:[] }`
   `furniture` is the record needed to pick a piece back up; `placed` is how many
   are out. Migrations go in `KIT.home.migrations` and run in `KIT.home.ensure`.
 * Content: `project.packs.home` — `{ tuning:{…}, giftItems:[], giftSpot, workers }`.
-* Registered ids: item kind `furniture`; object type `job-board`; commands
+* Registered ids: item kinds `item` (the engine's own default — see
+  `docs/ENGINE-HOOKS.md` §16) and `furniture`; object type `job-board`; commands
   `placeFurniture giveJob collectJob moodSet openJobBoard`; conditions
   `jobDone jobsReady hasFurniture mood`; system `home` (order 60); scenes
-  `home-place home-board home-jobs`; menus `home-jobs home-decorate`; editor
-  panel `home`; strings `home.*`.
+  `home-place home-board home-jobs`; menus `home-jobs` (order 14)
+  `home-decorate` (16); editor panel `home`; 48 strings, all `home-*`
+  (kebab-case, like the kit's own — never `home.something`).
+
+## Where this module meets another one
+
+It never reaches into another module's files or save shape. Four joins, all
+through the engine or a published hook, all fine when the other side is absent:
+
+| | |
+|---|---|
+| **Who the friends are** | `H.roster` asks `KIT.mons` when it is loaded (names, types, and a **registered sprite id** for the face), the heroes when it is not, and `H.provideRoster(fn)` beats both. |
+| **Friendship** | Not ours. `H.awardFriendship(ctx, uid, n)` runs the `friendship` command out of the `commands` registry; with no module registering one it does nothing. `petFriendship`/`feedFriendship` are gone from the tuning — the module that owns the friends owns those numbers. |
+| **The mood** | Ours, and we offer it: `KIT.mons.provideMood(fn)` (if that hook exists) so the garden card shows the same mood the Jobs screen does. |
+| **Being petted or fed** | Theirs. They say so with `world.events.emit('friendCared', { uid, what })` and we move the mood; nobody has to send it. |
+
+`test/modules/integration.test.js` is where those four are held in place.
 
 ## What the engine still owes us
 
-1. **`sessionResumed` is documented but never emitted** (`docs/ARCHITECTURE.md`
-   §8.4, `docs/DESIGN.md` 6). The clock system keeps `save.clock.lastSeenAt` in
-   the shape but nothing writes it or measures the gap. This module stamps
-   `save.modules.home.seenAt` (and `save.clock.lastSeenAt`) itself in
-   `KIT.home.touch`, measures the gap in `KIT.home.resume`, and emits
-   `sessionResumed { elapsedMs, minutesAdded }` on the world bus so other
-   modules can already listen for it. When the kit does this properly, delete
-   `H.resume`'s stamping and listen instead.
-2. **A module's `save` and `content` declarations are never read.**
-   `KIT.module({ save, content })` is in `docs/MODULES.md`, but nothing in
-   `js/main.js` or `js/kit/game.js` fills `save.modules.<key>` from `defaults()`,
-   runs the `migrate` chain, or validates `project.packs.<key>` against
-   `content.fields`. `KIT.home.ensure(save)` and `KIT.home.pack(project)` do
-   both by hand, on every entry point.
-3. **No `interact` event on the world bus** (again documented in §8.4). Without
-   it an object type cannot react to the A button on its own, so `job-board`
-   ships an `on.interact` default page carrying `@openJobBoard`. That is a fine
-   outcome — the author can see and change it — but a module that wants to react
-   *without* a visible script has nowhere to hook.
-4. **The renderer cannot draw a ghost.** The placement screen fakes one with a
-   `through`, non-solid entity whose `look` is the tile and whose `opacity`
-   pulses. It works, but a `world.markers` list the renderer draws (tile art,
-   tint, outline) would be the honest primitive — Creator Mode's tools already
-   have `preview(ctx, ed)` for exactly this.
-5. **`KIT.mapView` captures `save.overlays[mapId]` once.** A map entered before
-   its overlay existed never sees new overlay tiles, so anything writing an
-   overlay must rebuild the view. `H.live(world).rebuild()` and the placement
-   screen's `syncWorld()` do that. Reading `save.overlays[mapId]` lazily inside
-   the view would remove the trap.
+The full punch list, with the fix each one wants, is **`docs/ENGINE-HOOKS.md`**.
+The ones this module runs into:
+
+1. **`sessionResumed` is documented but never emitted** (§1). We stamp
+   `save.clock.lastSeenAt` — the kit's own field, so there is one stamp for the
+   whole game — measure the gap in `KIT.home.resume`, and emit
+   `sessionResumed { elapsedMs, minutesAdded }` once, latching
+   `world._sessionResumed` so no second module says it again.
+2. **A module's `save` and `content` declarations are never read** (§2).
+   `KIT.home.ensure(save)` and `KIT.home.pack(project)` do both by hand, on
+   every entry point.
+3. **No `interact` event on the world bus** (§5). Without it an object type
+   cannot react to the A button on its own, so `job-board` ships an
+   `on.interact` default page carrying `@openJobBoard`. A fine outcome — the
+   author can see and change it — but a module that wants to react *without* a
+   visible script has nowhere to hook.
+4. **The renderer cannot draw a ghost** (§7). The placement screen fakes one
+   with a `through`, non-solid entity whose `look` is the tile and whose
+   `opacity` pulses.
+5. **The `menus` registry will not take a function `label`** (§4). The two pause-menu
+   entries are added with a plain label and have the re-wordable one assigned
+   onto the returned definition straight afterwards (`register.js`).
+6. **`KIT.mapView` captures `save.overlays[mapId]` once** (§6). Anything
+   writing an overlay must rebuild the view; `H.live(world).rebuild()` and the
+   placement screen's `syncWorld()` do.
+7. **The pause menu keeps its click listener while we are on top of it** (§15).
+   Our screens draw into `#pause-menu`, so `scenes.js` delegates clicks in the
+   capture phase and stops them (`onlyAction`).
+8. **The kit never registers its own default `item` kind** (§16), so the moment
+   we register `furniture`, every plain keepsake in the project would start
+   warning. We register `item` first, if nobody has.

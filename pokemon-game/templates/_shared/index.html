@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Loaded without blocking: if the font never arrives the fallback stack is fine. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" media="print" onload="this.media='all'">
+{{STYLES}}
+<!-- Your look. Everything in here is yours to change. -->
+<link rel="stylesheet" href="look.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Creator Mode uses these two; they stay empty (and hidden) while you play. -->
+  <div id="mode-strip" hidden></div>
+
+  <main id="stage">
+    <div id="screen">
+      <canvas id="game-canvas" aria-label="Game screen"></canvas>
+      <div id="chapter" class="overlay" hidden></div>
+      <div id="dialogue" class="overlay" hidden></div>
+      <div id="choice" class="overlay" hidden></div>
+      <div id="pause-menu" class="overlay" hidden></div>
+      <div id="toast" class="overlay" hidden></div>
+      <div id="screen-title" class="overlay" hidden></div>
+    </div>
+    <div id="controls" class="kit-controls"></div>
+  </main>
+
+  <div id="editor" hidden></div>
+</div>
+
+<!-- `npm run share` writes your world in here; empty means "use the content files". -->
+<script id="project-data" type="application/json"></script>
+
+{{SCRIPTS}}
+</body>
+</html>

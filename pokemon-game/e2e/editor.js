@@ -27,6 +27,9 @@ const IGNORE = /fonts\.googleapis|fonts\.gstatic|ERR_CERT|ERR_NAME_NOT_RESOLVED|
 
 const CARDS_TAB = '.ed-script-views button:nth-child(1)';
 const TEXT_TAB = '.ed-script-views button:nth-child(2)';
+// The panels the kit itself ships. Modules add their own (the demo enables mons
+// and home, which bring one each), so the check is "every kit panel is there",
+// not "there are exactly this many tabs".
 const PANELS = ['tiles', 'objects', 'script', 'scripts', 'fragments', 'dialogue', 'map',
   'project', 'vars', 'items', 'strings', 'problems', 'data', 'import'];
 
@@ -138,7 +141,12 @@ async function run(browser, label, size, opts) {
   check(!!st0.mapId, `Creator Mode opened on “${st0.mapId}”`);
   check(await page.isVisible('.ed-toolbar'), 'the toolbar is there');
   check(await page.isVisible('.ed-tabs'), 'the panel tabs are there');
-  check((await page.$$('.ed-tabs > .ed-tab')).length === PANELS.length, `${PANELS.length} panels are listed`);
+  const tabIds = await page.$$eval('.ed-tabs > .ed-tab', els => els.map(e => e.dataset.panel));
+  const missingTabs = PANELS.filter(id => !tabIds.includes(id));
+  const extraTabs = tabIds.filter(id => !PANELS.includes(id));
+  check(missingTabs.length === 0,
+    `all ${PANELS.length} kit panels are listed${missingTabs.length ? ' (missing ' + missingTabs.join(', ') + ')' : ''}` +
+    (extraTabs.length ? ` · plus the module panel(s) ${extraTabs.join(', ')}` : ''));
   const startMap = await page.evaluate(() => KIT.game.project.start.map);
   check(st0.mapId === startMap, `it opened the map the game starts on (${startMap})`);
   await shot(page, label, '01-open');
@@ -284,14 +292,15 @@ async function run(browser, label, size, opts) {
   await shot(page, label, '12-back');
 
   // --- 9. every panel, for a human to look at ----------------------------------------
-  for (const id of PANELS) {
+  const everyPanel = await page.$$eval('.ed-tabs > .ed-tab', els => els.map(e => e.dataset.panel));
+  for (const id of everyPanel) {
     await openPanel(page, id);
     const body = await page.$(`.ed-panel-body[data-panel="${id}"]`);
     const visible = body ? await body.isVisible() : false;
     if (!visible) check(false, `the ${id} panel opens`);
     await shot(page, label, 'panel-' + id);
   }
-  check(true, `all ${PANELS.length} panels opened and were photographed`);
+  check(true, `all ${everyPanel.length} panels opened and were photographed`);
   // Nothing may be wider than the panel: a phone must not scroll sideways.
   const overflow = await page.evaluate(() => {
     const host = KIT.editor.el.panel;

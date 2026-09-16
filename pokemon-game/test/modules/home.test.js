@@ -439,7 +439,7 @@ test('home: everything is registered, with fields, so Creator Mode can form itse
   assert.ok(KIT.registry('objectTypes').get('job-board'));
   assert.ok(KIT.registry('systems').get('home'));
   assert.ok(KIT.registry('menus').get('home-jobs'));
-  assert.ok(KIT.registry('strings').has('home.job-back-close'));
+  assert.ok(KIT.registry('strings').has('home-job-back-close'));
   // a board placed in Creator Mode opens itself with no scripting
   const page = KIT.project.fillPage({}, 'job-board');
   assert.deepStrictEqual(page.on.interact, [{ t: 'openJobBoard' }]);
