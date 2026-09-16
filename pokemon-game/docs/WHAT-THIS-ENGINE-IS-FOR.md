@@ -42,7 +42,11 @@ no.*
 
 **Authored from a phone or a laptop, by you, alone.** Every panel thumb-sized,
 the project a file you can move between devices, and no install anywhere. *RPG
-Maker: a Windows desktop application.*
+Maker: a Windows desktop application.* — done: Creator Mode runs on both, and
+Project › “This game, on your other device” saves the whole thing as one file to
+send yourself, or puts it on the clipboard, and opens one the same way. No
+server, no account, nothing through anybody else's computer. `e2e/devices.js`
+does the round trip in two browsers that share nothing.
 
 ## Where each piece stands
 
@@ -64,9 +68,9 @@ Maker: a Windows desktop application.*
 | One clock: the day, the hour, and the gap between sessions | **done** |
 | Runs remembered across New Game (the `meta` section) | **done** — `@remember`, the `meta` condition, `{meta:key}` in a line |
 | Cast: people, relationships, knowledge | **done** — and a panel that draws the graph |
+| A game moved between a phone and a laptop | **done** — one file, both ways, no server |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
-| Project sync between phone and laptop | next |
 
 ## The rule
 

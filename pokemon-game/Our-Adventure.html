@@ -483,6 +483,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-feel-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
 .ed-feel-fill.is-warm { background: linear-gradient(90deg, #4f8bf0, #7fe0a0); }
 .ed-feel-fill.is-cold { background: linear-gradient(90deg, #e07f7f, #8f5c6d); }
+.ed-file { flex: 1 1 auto; min-width: 0; min-height: 40px; color: #cbd6e8; font: inherit; font-size: 12px; }
+.ed-file::file-selector-button { min-height: 32px; margin-right: 8px; padding: 4px 10px; border-radius: 6px; background: #1d2532; color: #cbd6e8; border: 1px solid #2f3a4f; font: inherit; font-size: 12px; }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
@@ -776,6 +778,12 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 .ed-empty strong { color: #dbe4f2; font-weight: 600; }
 .ed-empty .ed-hint { margin: 0; max-width: 34ch; }
 .ed-empty-row { justify-content: center; margin: 4px 0 0; }
+
+/* The paste box is a doorway, not a workspace: it must not eat the phone screen
+   the buttons under it are on. Last in the file, so it beats .ed-json's own
+   min-height rather than tying with it. */
+textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre-wrap; }
+
 </style>
 </head>
 <body>
@@ -3191,6 +3199,87 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     return false;
   };
 
+  // ---- moving a game between a phone and a laptop --------------------------------
+  // There is no server, no account and nothing to install, so the bridge is a
+  // file. One file, holding the whole project: download it on the laptop, send it
+  // to yourself however you already send things, open it on the phone. Both ways.
+  // The draft each device autosaves is its own; this is how you hand the work over.
+  const FILE_KIND = 'kit-game';
+  const FILE_VERSION = 1;
+
+  /** fileName(project) -> 'mill-lane.kitgame.json' */
+  S.fileName = function (project) {
+    const id = (project && project.meta && project.meta.id) || 'game';
+    return `${id}.kitgame.json`;
+  };
+
+  /**
+   * toFile(project, extra) -> the text of one portable file.
+   * It carries a stamp saying what it is and when it left, so the other end can
+   * refuse a file that is not one of these rather than half-loading it.
+   */
+  S.toFile = function (project, extra) {
+    return S.exportText(Object.assign({
+      kind: FILE_KIND,
+      version: FILE_VERSION,
+      savedAt: new Date().toISOString(),
+      title: (project && project.meta && project.meta.title) || '',
+      project,
+    }, extra || {}));
+  };
+
+  /**
+   * fromFile(text) -> { ok, project, savedAt, title, reason }
+   * Tolerant on purpose: a bare project (what an older export, or a hand-written
+   * file, looks like) is accepted too. Anything else says why, in words.
+   */
+  S.fromFile = function (text) {
+    let data;
+    try { data = S.importText(text); }
+    catch (e) { return { ok: false, reason: 'That is not a game file — it is not even JSON.' }; }
+    if (!data || typeof data !== 'object') return { ok: false, reason: 'That file is empty.' };
+    if (data.kind === FILE_KIND && data.project) {
+      if (Number(data.version) > FILE_VERSION) {
+        return { ok: false, reason: 'That file was saved by a newer version of the engine than this one.' };
+      }
+      return { ok: true, project: data.project, savedAt: data.savedAt || null, title: data.title || '' };
+    }
+    // a bare project: it has maps, or it says which version it is
+    if (data.maps || data.version === 3) {
+      return { ok: true, project: data, savedAt: null, title: (data.meta && data.meta.title) || '' };
+    }
+    return { ok: false, reason: 'That is a JSON file, but it is not a game: no maps in it.' };
+  };
+
+  /** saveToFile(project) -> bool — hand the whole game to the device as one file. */
+  S.saveToFile = function (project) { return S.download(S.fileName(project), S.toFile(project)); };
+
+  /**
+   * copyToClipboard(text) -> bool. On a phone, downloading a file and finding it
+   * again is a lot of taps; pasting into a message to yourself is two.
+   */
+  S.copyToClipboard = async function (text) {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* not allowed here; fall through */ }
+    try {
+      if (typeof document === 'undefined') return false;
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (e) { return false; }
+  };
+
   /** captureHtml() -> the page as it was before any script touched the DOM (main.js records it). */
   S.captureHtml = function () {
     if (KIT.PRISTINE_HTML) return KIT.PRISTINE_HTML;
@@ -3753,7 +3842,16 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const p = KIT.deepClone(old || {});
     const out = {
       version: 3,
-      meta: { id: p.id || KIT.slug(p.title || 'our-adventure'), title: p.title || 'Our Adventure', subtitle: p.subtitle || '', author: p.author || '', pitch: p.pitch || '' },
+      // A v2 project is flat, but a file that has been through somebody's hands may
+      // carry a `meta` as well; prefer whatever is actually there.
+      meta: (() => {
+        const m = isObj(p.meta) ? p.meta : {};
+        const title = m.title || p.title || 'Our Adventure';
+        return {
+          id: m.id || p.id || KIT.slug(title), title,
+          subtitle: m.subtitle || p.subtitle || '', author: m.author || p.author || '', pitch: m.pitch || p.pitch || '',
+        };
+      })(),
       modules: [], settings: {}, strings: p.strings || {}, heroes: [], start: p.start || {}, vars: p.vars || {}, items: {}, scripts: {},
       fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {},
     };
@@ -3794,7 +3892,11 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     let p = project || {};
     const problems = [], applied = [];
     let v = Number(p.version);
-    if (!Number.isFinite(v)) v = (p.meta && p.world) ? P.VERSION : 2;
+    // No version number: guess from the shape. v2 was flat (`title`, `id` at the
+    // top); v3 put them in `meta`. A hand-written or hand-edited file is common
+    // enough — it is what the portable game file looks like — that guessing wrong
+    // and quietly running a migration over it would lose the author's title.
+    if (!Number.isFinite(v)) v = isObj(p.meta) ? P.VERSION : 2;
     if (v < 2) v = 2;
     const reg = KIT.registry('migrations');
     let guard = 0;
@@ -28444,6 +28546,10 @@ PKMN.TILES.register([
     return body;
   }
 
+  // The last thing the “other device” section said. It outlives the panel, because
+  // the act it reports on — opening a game — rebuilds the panel.
+  const moveState = { said: null, open: false };
+
   // ---------------------------------------------------------------- Project ----------
   // The author's order, not the schema's: the two sentences matter more than the id.
   function metaFields() {
@@ -28556,6 +28662,77 @@ PKMN.TILES.register([
           onChange(path, v) { setAt(['settings'].concat(path), v, 'Setting'); },
         }));
       });
+
+      // ---- moving the game between devices -----------------------------------
+      // The one thing the editor could not do: get a game OUT. Creator Mode runs
+      // on a phone and on a laptop, and each one keeps its own draft in its own
+      // browser — so without this, work done on the phone stays on the phone.
+      // There is no server and no account: the bridge is a file you send to
+      // yourself however you already send things.
+      const moveBody = section(host, 'This game, on your other device', moveState.open === true, (body) => {
+        body.appendChild(make('div.ed-hint', {
+          text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
+        }));
+        const S = KIT.storage;
+        // Opening a game rebuilds this whole panel (the project changed), which
+        // would throw the answer away the moment it is given. So the last thing
+        // said lives outside the panel and is put back when it redraws.
+        const status = make('div.ed-hint');
+        const say = (text, ok) => {
+          moveState.said = text ? { text, ok } : null;
+          status.textContent = text || '';
+          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+        };
+        if (moveState.said) say(moveState.said.text, moveState.said.ok);
+
+        const out = make('div.ed-row');
+        out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
+          const name = S.fileName(p);
+          const done = await S.saveToFile(p);
+          say(done ? `Saved as ${name}. Send it to your other device and open it there.`
+            : 'This browser would not save a file. Try Copy instead — it puts the same thing on the clipboard.', done);
+        }, 'primary'));
+        out.appendChild(btn('Copy', 'Put the whole game on the clipboard (easier on a phone)', async () => {
+          const done = await S.copyToClipboard(S.toFile(p));
+          say(done ? 'Copied. Paste it into a message to yourself, then use Paste on the other device.'
+            : 'The clipboard is not available here. Use Save a copy instead.', done);
+        }));
+        body.appendChild(out);
+
+        const inRow = make('div.ed-row');
+        const file = make('input');
+        file.type = 'file';
+        file.accept = '.json,.kitgame.json,application/json';
+        file.className = 'ed-file';
+        file.onchange = () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => openGame(String(r.result || ''), f.name, say);
+          r.onerror = () => say('That file could not be read.', false);
+          r.readAsText(f);
+        };
+        inRow.appendChild(file);
+        body.appendChild(inRow);
+
+        const pasteRow = make('div.ed-row');
+        const paste = make('textarea.ed-json.ed-paste');
+        paste.placeholder = 'or paste a game here';
+        paste.spellcheck = false;
+        paste.rows = 3;
+        pasteRow.appendChild(paste);
+        body.appendChild(pasteRow);
+        body.appendChild(btn('Open what is pasted', 'Replace this game with the pasted one', () => {
+          if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
+          openGame(paste.value, 'the pasted game', say);
+        }));
+        body.appendChild(status);
+        body.appendChild(make('div.ed-sub', {
+          text: 'Opening a game REPLACES the one you are editing. Ctrl+Z puts it back, and the one you replaced is still in the file you saved.',
+        }));
+      });
+      const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
+      if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
@@ -28907,6 +29084,39 @@ PKMN.TILES.register([
       el.status.textContent = `${el.ta.value.length} characters`;
     },
   });
+
+  /**
+   * openGame(text, what, say) — read a game file and put it in place of this one,
+   * as ONE undo step. It is checked before anything is replaced: a file that is
+   * not a game says so and changes nothing, and a game with problems in it is
+   * opened anyway with the problems reported, because half a game you can fix is
+   * better than a refusal.
+   */
+  function openGame(text, what, say) {
+    const read = KIT.storage.fromFile(text);
+    if (!read.ok) { say(read.reason, false); return; }
+    let normalized, problems;
+    try {
+      const n = P.normalize(read.project);
+      normalized = n.project;
+      problems = n.problems.filter(x => x.severity === 'error');
+    } catch (e) { say(`That game could not be read: ${e.message}`, false); return; }
+
+    const title = (normalized.meta && normalized.meta.title) || what;
+    const when = read.savedAt ? ` (saved ${String(read.savedAt).slice(0, 16).replace('T', ' ')})` : '';
+    // Said BEFORE the refresh, because the refresh rebuilds this panel — saying
+    // it afterwards would write into the element the rebuild has just discarded.
+    moveState.said = {
+      text: problems.length
+        ? `Opened “${title}”${when} — with ${problems.length} thing(s) to fix; the Problems panel lists them.`
+        : `Opened “${title}”${when}. Ctrl+Z puts the old one back.`,
+      ok: !problems.length,
+    };
+    moveState.open = true;                       // and leave the section open, so the answer is on screen
+    commit('Open a game', (doc) => doc.replace(normalized, { label: 'Open a game' }));
+    ED.refresh();
+    ED.toast(`Opened “${title}”`);
+  }
 
   function check(panel, apply) {
     const el = panel._el;

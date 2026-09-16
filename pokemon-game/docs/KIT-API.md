@@ -22,6 +22,8 @@ come earlier. `test/kit/_load.js` and `index.html` both use this order.)
 `KIT.deepClone(v)` · `KIT.deepEqual(a,b)` · `KIT.stableStringify(v, indent)` (sorted keys) ·
 `KIT.uid(prefix)` · `KIT.slug(s)` · `KIT.clamp(v,lo,hi)` · `KIT.isObject(v)`
 
+`KIT.storage.fileName(project)` → `<id>.kitgame.json` · `toFile(project)` · `fromFile(text) -> { ok, project, savedAt, title, reason }` · `saveToFile(project)` · `copyToClipboard(text)` — a whole game as one file, which is how it moves between a phone and a laptop. There is no server and no account; the file is the bridge. `fromFile` takes a bare project too (an older export, or one somebody wrote by hand) and refuses anything else in words a person can act on. Creator Mode: Project › “This game, on your other device”.
+
 `KIT.storage.meta()` / `saveMeta(patch)` — what the game remembers about the PLAYER rather than about the run: how many times they have started, what they called themselves, which endings they reached. It lives beside the saves and outside all of them, which is what makes it survive New Game. Authors write it with `@remember key = value` (`has` for a list, `+=` to count, `forget`), read it with the `meta` condition and say it with `{meta:key}` in a line.
 
 `KIT.labelOf(def, ctx, fallback)` — what to call a registry entry on screen. A

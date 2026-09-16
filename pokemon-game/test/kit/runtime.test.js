@@ -385,3 +385,67 @@ test('meta: the engine’s own four keys cannot be forgotten by accident', async
   assert.equal(S.meta().runs, null, 'runs is the engine’s, so it is set rather than deleted');
   assert.ok('endingsSeen' in S.meta());
 });
+
+// ---- moving a game between a phone and a laptop ---------------------------------
+test('the portable game file: one file, both ways, and rubbish refused', async () => {
+  delete globalThis.localStorage;
+  S._reset();
+  await S.ready();
+
+  const { project } = KIT.project.normalize({
+    version: 3, meta: { id: 'mill-lane', title: 'Mill Lane' },
+    heroes: [{ id: 'p1', name: 'You' }], maps: { lane: {} },
+    cast: { wren: { name: 'Wren' } },
+  });
+
+  assert.equal(S.fileName(project), 'mill-lane.kitgame.json');
+  const text = S.toFile(project);
+
+  // it says what it is, so the other end can refuse what it is not
+  const raw = JSON.parse(text);
+  assert.equal(raw.kind, 'kit-game');
+  assert.equal(raw.version, 1);
+  assert.equal(raw.title, 'Mill Lane');
+  assert.ok(raw.savedAt, 'and when it left');
+
+  const back = S.fromFile(text);
+  assert.equal(back.ok, true);
+  assert.equal(back.title, 'Mill Lane');
+  assert.equal(KIT.stableStringify(back.project), KIT.stableStringify(project),
+    'nothing changed on the way out and back');
+
+  // a bare project — an older export, or a file somebody wrote by hand
+  const bare = S.fromFile(JSON.stringify(project));
+  assert.equal(bare.ok, true);
+  assert.equal(bare.project.meta.title, 'Mill Lane');
+
+  // and everything else says why, in words a person can act on
+  for (const [bad, why] of [
+    ['hello', /not even JSON/],
+    ['{"a":1}', /not a game/],
+    ['null', /empty/],
+  ]) {
+    const r = S.fromFile(bad);
+    assert.equal(r.ok, false, bad);
+    assert.match(r.reason, why, bad);
+  }
+
+  // a file from a future version is refused rather than half-read
+  const future = S.fromFile(JSON.stringify({ kind: 'kit-game', version: 99, project }));
+  assert.equal(future.ok, false);
+  assert.match(future.reason, /newer version/);
+});
+
+test('a hand-written project keeps its own title', () => {
+  // A portable file is JSON somebody may open and edit. Guessing that a v3-shaped
+  // project with no version number is an OLD one would run a migration over it and
+  // silently rename their game.
+  const p = KIT.project.normalize({ meta: { id: 'mill-lane', title: 'Mill Lane' }, maps: { a: {} } }).project;
+  assert.equal(p.meta.title, 'Mill Lane');
+  assert.equal(p.meta.id, 'mill-lane');
+
+  // and a genuinely old, flat project still migrates
+  const old = KIT.project.migrate({ title: 'The Old Way' });
+  assert.deepEqual(old.applied, ['project-2-to-3']);
+  assert.equal(old.project.meta.title, 'The Old Way');
+});

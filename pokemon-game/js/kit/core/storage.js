@@ -289,6 +289,87 @@
     return false;
   };
 
+  // ---- moving a game between a phone and a laptop --------------------------------
+  // There is no server, no account and nothing to install, so the bridge is a
+  // file. One file, holding the whole project: download it on the laptop, send it
+  // to yourself however you already send things, open it on the phone. Both ways.
+  // The draft each device autosaves is its own; this is how you hand the work over.
+  const FILE_KIND = 'kit-game';
+  const FILE_VERSION = 1;
+
+  /** fileName(project) -> 'mill-lane.kitgame.json' */
+  S.fileName = function (project) {
+    const id = (project && project.meta && project.meta.id) || 'game';
+    return `${id}.kitgame.json`;
+  };
+
+  /**
+   * toFile(project, extra) -> the text of one portable file.
+   * It carries a stamp saying what it is and when it left, so the other end can
+   * refuse a file that is not one of these rather than half-loading it.
+   */
+  S.toFile = function (project, extra) {
+    return S.exportText(Object.assign({
+      kind: FILE_KIND,
+      version: FILE_VERSION,
+      savedAt: new Date().toISOString(),
+      title: (project && project.meta && project.meta.title) || '',
+      project,
+    }, extra || {}));
+  };
+
+  /**
+   * fromFile(text) -> { ok, project, savedAt, title, reason }
+   * Tolerant on purpose: a bare project (what an older export, or a hand-written
+   * file, looks like) is accepted too. Anything else says why, in words.
+   */
+  S.fromFile = function (text) {
+    let data;
+    try { data = S.importText(text); }
+    catch (e) { return { ok: false, reason: 'That is not a game file — it is not even JSON.' }; }
+    if (!data || typeof data !== 'object') return { ok: false, reason: 'That file is empty.' };
+    if (data.kind === FILE_KIND && data.project) {
+      if (Number(data.version) > FILE_VERSION) {
+        return { ok: false, reason: 'That file was saved by a newer version of the engine than this one.' };
+      }
+      return { ok: true, project: data.project, savedAt: data.savedAt || null, title: data.title || '' };
+    }
+    // a bare project: it has maps, or it says which version it is
+    if (data.maps || data.version === 3) {
+      return { ok: true, project: data, savedAt: null, title: (data.meta && data.meta.title) || '' };
+    }
+    return { ok: false, reason: 'That is a JSON file, but it is not a game: no maps in it.' };
+  };
+
+  /** saveToFile(project) -> bool — hand the whole game to the device as one file. */
+  S.saveToFile = function (project) { return S.download(S.fileName(project), S.toFile(project)); };
+
+  /**
+   * copyToClipboard(text) -> bool. On a phone, downloading a file and finding it
+   * again is a lot of taps; pasting into a message to yourself is two.
+   */
+  S.copyToClipboard = async function (text) {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* not allowed here; fall through */ }
+    try {
+      if (typeof document === 'undefined') return false;
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (e) { return false; }
+  };
+
   /** captureHtml() -> the page as it was before any script touched the DOM (main.js records it). */
   S.captureHtml = function () {
     if (KIT.PRISTINE_HTML) return KIT.PRISTINE_HTML;

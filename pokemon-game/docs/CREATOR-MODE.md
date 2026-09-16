@@ -129,13 +129,35 @@ place in the editor.
 | **Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
 | **Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
 | **Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
-| **Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings |
+| **Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
+| **Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it |
 | **Variables** | Switches and Variables: declare them, see every read and every write |
 | **Items** | What Events give and conditions ask about |
 | **Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
 | **Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
 | **Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
 | **Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
+
+## Working on your phone and on your computer
+
+Both. Creator Mode is the same editor either way, and every panel is thumb-sized.
+
+What it cannot do by itself is be in two places at once: each browser keeps its
+own draft, in its own storage, so work done on the phone stays on the phone until
+you move it. **Project › This game, on your other device** is how:
+
+* **↓ Save a copy** writes the whole game — maps, people, scripts, art — as one
+  `<name>.kitgame.json`. Send it to yourself however you already send things.
+* **Copy** puts the same thing on the clipboard, which on a phone is two taps
+  instead of a trip through the Files app.
+* **Choose File**, or the paste box, opens one. It checks the file first: a file
+  that is not a game says so and changes nothing.
+
+Opening a game REPLACES the one you are editing, as one undo step — `Ctrl+Z`
+puts it back, and the one you replaced is still in the file you saved.
+
+No server, no account, and nothing goes through anybody else's computer. Your
+game is a file you own, the way a document is.
 
 ## Keys
 

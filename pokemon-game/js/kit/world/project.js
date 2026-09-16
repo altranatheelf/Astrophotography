@@ -253,7 +253,16 @@
     const p = KIT.deepClone(old || {});
     const out = {
       version: 3,
-      meta: { id: p.id || KIT.slug(p.title || 'our-adventure'), title: p.title || 'Our Adventure', subtitle: p.subtitle || '', author: p.author || '', pitch: p.pitch || '' },
+      // A v2 project is flat, but a file that has been through somebody's hands may
+      // carry a `meta` as well; prefer whatever is actually there.
+      meta: (() => {
+        const m = isObj(p.meta) ? p.meta : {};
+        const title = m.title || p.title || 'Our Adventure';
+        return {
+          id: m.id || p.id || KIT.slug(title), title,
+          subtitle: m.subtitle || p.subtitle || '', author: m.author || p.author || '', pitch: m.pitch || p.pitch || '',
+        };
+      })(),
       modules: [], settings: {}, strings: p.strings || {}, heroes: [], start: p.start || {}, vars: p.vars || {}, items: {}, scripts: {},
       fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {},
     };
@@ -294,7 +303,11 @@
     let p = project || {};
     const problems = [], applied = [];
     let v = Number(p.version);
-    if (!Number.isFinite(v)) v = (p.meta && p.world) ? P.VERSION : 2;
+    // No version number: guess from the shape. v2 was flat (`title`, `id` at the
+    // top); v3 put them in `meta`. A hand-written or hand-edited file is common
+    // enough — it is what the portable game file looks like — that guessing wrong
+    // and quietly running a migration over it would lose the author's title.
+    if (!Number.isFinite(v)) v = isObj(p.meta) ? P.VERSION : 2;
     if (v < 2) v = 2;
     const reg = KIT.registry('migrations');
     let guard = 0;

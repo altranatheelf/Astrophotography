@@ -238,6 +238,10 @@
     return body;
   }
 
+  // The last thing the “other device” section said. It outlives the panel, because
+  // the act it reports on — opening a game — rebuilds the panel.
+  const moveState = { said: null, open: false };
+
   // ---------------------------------------------------------------- Project ----------
   // The author's order, not the schema's: the two sentences matter more than the id.
   function metaFields() {
@@ -350,6 +354,77 @@
           onChange(path, v) { setAt(['settings'].concat(path), v, 'Setting'); },
         }));
       });
+
+      // ---- moving the game between devices -----------------------------------
+      // The one thing the editor could not do: get a game OUT. Creator Mode runs
+      // on a phone and on a laptop, and each one keeps its own draft in its own
+      // browser — so without this, work done on the phone stays on the phone.
+      // There is no server and no account: the bridge is a file you send to
+      // yourself however you already send things.
+      const moveBody = section(host, 'This game, on your other device', moveState.open === true, (body) => {
+        body.appendChild(make('div.ed-hint', {
+          text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
+        }));
+        const S = KIT.storage;
+        // Opening a game rebuilds this whole panel (the project changed), which
+        // would throw the answer away the moment it is given. So the last thing
+        // said lives outside the panel and is put back when it redraws.
+        const status = make('div.ed-hint');
+        const say = (text, ok) => {
+          moveState.said = text ? { text, ok } : null;
+          status.textContent = text || '';
+          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+        };
+        if (moveState.said) say(moveState.said.text, moveState.said.ok);
+
+        const out = make('div.ed-row');
+        out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
+          const name = S.fileName(p);
+          const done = await S.saveToFile(p);
+          say(done ? `Saved as ${name}. Send it to your other device and open it there.`
+            : 'This browser would not save a file. Try Copy instead — it puts the same thing on the clipboard.', done);
+        }, 'primary'));
+        out.appendChild(btn('Copy', 'Put the whole game on the clipboard (easier on a phone)', async () => {
+          const done = await S.copyToClipboard(S.toFile(p));
+          say(done ? 'Copied. Paste it into a message to yourself, then use Paste on the other device.'
+            : 'The clipboard is not available here. Use Save a copy instead.', done);
+        }));
+        body.appendChild(out);
+
+        const inRow = make('div.ed-row');
+        const file = make('input');
+        file.type = 'file';
+        file.accept = '.json,.kitgame.json,application/json';
+        file.className = 'ed-file';
+        file.onchange = () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => openGame(String(r.result || ''), f.name, say);
+          r.onerror = () => say('That file could not be read.', false);
+          r.readAsText(f);
+        };
+        inRow.appendChild(file);
+        body.appendChild(inRow);
+
+        const pasteRow = make('div.ed-row');
+        const paste = make('textarea.ed-json.ed-paste');
+        paste.placeholder = 'or paste a game here';
+        paste.spellcheck = false;
+        paste.rows = 3;
+        pasteRow.appendChild(paste);
+        body.appendChild(pasteRow);
+        body.appendChild(btn('Open what is pasted', 'Replace this game with the pasted one', () => {
+          if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
+          openGame(paste.value, 'the pasted game', say);
+        }));
+        body.appendChild(status);
+        body.appendChild(make('div.ed-sub', {
+          text: 'Opening a game REPLACES the one you are editing. Ctrl+Z puts it back, and the one you replaced is still in the file you saved.',
+        }));
+      });
+      const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
+      if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
@@ -701,6 +776,39 @@
       el.status.textContent = `${el.ta.value.length} characters`;
     },
   });
+
+  /**
+   * openGame(text, what, say) — read a game file and put it in place of this one,
+   * as ONE undo step. It is checked before anything is replaced: a file that is
+   * not a game says so and changes nothing, and a game with problems in it is
+   * opened anyway with the problems reported, because half a game you can fix is
+   * better than a refusal.
+   */
+  function openGame(text, what, say) {
+    const read = KIT.storage.fromFile(text);
+    if (!read.ok) { say(read.reason, false); return; }
+    let normalized, problems;
+    try {
+      const n = P.normalize(read.project);
+      normalized = n.project;
+      problems = n.problems.filter(x => x.severity === 'error');
+    } catch (e) { say(`That game could not be read: ${e.message}`, false); return; }
+
+    const title = (normalized.meta && normalized.meta.title) || what;
+    const when = read.savedAt ? ` (saved ${String(read.savedAt).slice(0, 16).replace('T', ' ')})` : '';
+    // Said BEFORE the refresh, because the refresh rebuilds this panel — saying
+    // it afterwards would write into the element the rebuild has just discarded.
+    moveState.said = {
+      text: problems.length
+        ? `Opened “${title}”${when} — with ${problems.length} thing(s) to fix; the Problems panel lists them.`
+        : `Opened “${title}”${when}. Ctrl+Z puts the old one back.`,
+      ok: !problems.length,
+    };
+    moveState.open = true;                       // and leave the section open, so the answer is on screen
+    commit('Open a game', (doc) => doc.replace(normalized, { label: 'Open a game' }));
+    ED.refresh();
+    ED.toast(`Opened “${title}”`);
+  }
 
   function check(panel, apply) {
     const el = panel._el;

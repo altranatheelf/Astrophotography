@@ -143,6 +143,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-feel-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
 .ed-feel-fill.is-warm { background: linear-gradient(90deg, #4f8bf0, #7fe0a0); }
 .ed-feel-fill.is-cold { background: linear-gradient(90deg, #e07f7f, #8f5c6d); }
+.ed-file { flex: 1 1 auto; min-width: 0; min-height: 40px; color: #cbd6e8; font: inherit; font-size: 12px; }
+.ed-file::file-selector-button { min-height: 32px; margin-right: 8px; padding: 4px 10px; border-radius: 6px; background: #1d2532; color: #cbd6e8; border: 1px solid #2f3a4f; font: inherit; font-size: 12px; }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
@@ -436,3 +438,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 .ed-empty strong { color: #dbe4f2; font-weight: 600; }
 .ed-empty .ed-hint { margin: 0; max-width: 34ch; }
 .ed-empty-row { justify-content: center; margin: 4px 0 0; }
+
+/* The paste box is a doorway, not a workspace: it must not eat the phone screen
+   the buttons under it are on. Last in the file, so it beats .ed-json's own
+   min-height rather than tying with it. */
+textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre-wrap; }
