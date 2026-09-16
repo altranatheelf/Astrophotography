@@ -8,7 +8,7 @@ const path = require('path');
 const KIT = require('./_load.js');
 const R = (f) => require(path.join(__dirname, '..', '..', f));
 R('js/kit/core/input.js');
-R('js/kit/core/audio.js');
+R('js/kit/core/audio.js'); R('js/kit/core/lang.js');
 R('js/kit/core/storage.js');
 R('js/kit/scenes/stack.js');
 R('js/main.js');

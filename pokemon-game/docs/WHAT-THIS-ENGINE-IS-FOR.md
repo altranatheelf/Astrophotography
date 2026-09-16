@@ -36,6 +36,13 @@ that graph while writing. *RPG Maker: switches, hand-counted.*
 silence, a line with no box, a name that is not a name yet, a font that changes
 when the voice does. *RPG Maker: a three-line box and a word-wrap plugin.*
 
+**A second language without a second game.** Every line a player can read is
+findable, and a translation is one text file keyed on the lines themselves — so
+moving a scene keeps its translation and rewording a line correctly asks for it
+again. *RPG Maker: ship a second copy of your project, which is why so few of
+its games exist in more than one language.* — done: Project › Languages hands
+out the file and takes it back, on a phone.
+
 **Other media inside the game.** Field recordings, photographs, documents,
 a radio that plays something real. The archive is part of the story. *RPG Maker:
 no.*
@@ -69,6 +76,7 @@ does the round trip in two browsers that share nothing.
 | Runs remembered across New Game (the `meta` section) | **done** — `@remember`, the `meta` condition, `{meta:key}` in a line |
 | Cast: people, relationships, knowledge | **done** — and a panel that draws the graph |
 | A game moved between a phone and a laptop | **done** — one file, both ways, no server |
+| A second language, without a second copy of the game | **done** — one text file, keyed on the lines themselves |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
 

@@ -71,7 +71,9 @@
     const save = (ctx.world && ctx.world.save) || {};
     const heroes = (project.heroes || []).map((h, i) => {
       const s = Array.isArray(save.heroes) ? save.heroes[i] : null;
-      return { id: h.id, name: s && s.name != null ? s.name : h.name };
+      // A name the player typed is theirs and is never touched. The one the
+      // writer put in the project is a line like any other, so it translates.
+      return { id: h.id, name: s && s.name != null ? s.name : T.translate(h.name) };
     });
     const obj = ctx.self && save.objects ? save.objects[ctx.self] : null;
     return {
@@ -89,6 +91,8 @@
   // ---- substitution ----------------------------------------------------------
 
   const fmt = (v) => (v === undefined || v === null ? '' : String(v));
+  /** translate(str) — the language hook. Without KIT.lang loaded this is identity. */
+  T.translate = (s) => (KIT.lang && KIT.lang.t ? KIT.lang.t(s) : s);
   /** Escape braces so a substituted value never becomes a code. */
   T.escape = (s) => String(s).replace(/\{/g, '{{').replace(/\}/g, '}}');
   T.unescape = (s) => String(s).replace(/\{\{/g, '{').replace(/\}\}/g, '}');
@@ -105,7 +109,7 @@
     hero: (ctx) => heroName(ctx, ctx.hero == null ? 0 : ctx.hero),
     var: (ctx, arg) => fmt(ctx.vars && ctx.vars[arg]),
     self: (ctx, arg) => fmt(ctx.self && ctx.self[arg]),
-    item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? String(it.name) : fmt(arg); },
+    item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? T.translate(String(it.name)) : fmt(arg); },
     arg: (ctx, arg) => fmt(ctx.args && ctx.args[arg]),
     // What survives New Game: {meta:runs}, {meta:lastEnding}, anything @remember
     // has written. This is how somebody opens with “you were here before”.
@@ -115,7 +119,7 @@
     },
     // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
     // are her pronouns, so a line can be written once for anybody.
-    who: (ctx, arg) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
+    who: (ctx, arg) => T.translate(KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
     they: (ctx, arg) => pronoun(ctx, arg, 0, 'they'),
     them: (ctx, arg) => pronoun(ctx, arg, 1, 'them'),
     their: (ctx, arg) => pronoun(ctx, arg, 2, 'their'),
@@ -140,7 +144,12 @@
   T.substitute = function (str, ctx) {
     if (str === null || str === undefined) return '';
     const c = T.contextFrom(ctx) || {};
-    return String(str).replace(TAG, (m, name, arg) => {
+    // The translation happens FIRST, on the line as it was written — braces,
+    // codes and all. A translator sees `{p1} found {item:lantern}.` and moves
+    // the pieces around to suit their grammar, which is the whole point; if we
+    // substituted first they would be handed a sentence with a name already
+    // baked into the middle of it and no way to move it.
+    return String(T.translate(str)).replace(TAG, (m, name, arg) => {
       if (m === '{{' || m === '}}') return m;
       const fn = T.tags[name];
       if (typeof fn !== 'function') return m;
@@ -281,7 +290,7 @@
     if (project && project.strings && has(project.strings, key) && typeof project.strings[key] === 'string') tpl = project.strings[key];
     else if (KIT.registry.exists('strings') && KIT.registry('strings').has(key)) tpl = KIT.registry('strings').get(key).default;
     else tpl = key;
-    return String(tpl).replace(/\{([a-zA-Z_][\w-]*)\}/g, (m, name) => (vars && has(vars, name) ? fmt(vars[name]) : m));
+    return String(T.translate(tpl)).replace(/\{([a-zA-Z_][\w-]*)\}/g, (m, name) => (vars && has(vars, name) ? fmt(vars[name]) : m));
   };
   /** defaults() -> { key: defaultText } for every registered string. */
   STR.defaults = function () {

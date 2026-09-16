@@ -386,6 +386,9 @@
     if (!canvas) throw new Error('KIT.game.boot: no #game-canvas in the page');
 
     const s = settings();
+    // Which language to play in is a property of this device, not of a save
+    // file: you do not change language by loading a different slot.
+    if (KIT.lang) KIT.lang.bind(G.project, s.language);
     KIT.audio.setEnabled(s.sound !== false);
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);

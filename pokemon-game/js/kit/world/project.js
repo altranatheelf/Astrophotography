@@ -39,13 +39,16 @@
   // are big); everything else is a plain KIT.schema field list.
   const F = P.fields = {
     meta: [
-      idField('id'), { key: 'title', type: 'string', default: 'Our Adventure' }, { key: 'subtitle', type: 'string' }, { key: 'author', type: 'string' },
-      { key: 'pitch', type: 'text', doc: 'Two sentences: who the hero is and what they want.' }, { key: 'created', type: 'string', optional: true },
+      idField('id'), { key: 'title', type: 'string', default: 'Our Adventure', shown: true }, { key: 'subtitle', type: 'string', shown: true }, { key: 'author', type: 'string' },
+      { key: 'pitch', type: 'text', translate: false, doc: 'Two sentences: who the hero is and what they want.' }, { key: 'created', type: 'string', optional: true },
     ],
     settings: [
       { key: 'tileSize', type: 'number', integer: true, min: 8, max: 64, default: 16 },
       { key: 'viewport', type: 'group', fields: [{ key: 'w', type: 'number', integer: true, min: 4, default: 16 }, { key: 'h', type: 'number', integer: true, min: 4, default: 12 }] },
       { key: 'textSpeed', type: 'enum', options: ['slow', 'normal', 'fast', 'instant'], default: 'normal' },
+      { key: 'language', type: 'string', default: 'en', label: 'Written in',
+        doc: 'The language the lines in this project are actually typed in. Translations sit beside it, keyed on these lines.' },
+      { key: 'languageName', type: 'string', default: 'English', label: 'Called', doc: 'What to call that language in the menu.' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Everybody sounds like',
         doc: 'The voice for anyone with none of their own. Empty is the engine default.' },
       { key: 'zoom', type: 'enum', options: ['auto', 'small', 'normal', 'large'], default: 'auto' },
@@ -64,14 +67,14 @@
       ] },
       { key: 'encounterRate', type: 'number', min: 0, max: 100, default: 12 },
     ],
-    hero: [idField('id'), { key: 'name', type: 'string', default: 'Player' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
+    hero: [idField('id'), { key: 'name', type: 'string', default: 'Player', shown: true }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
     var: [{ key: 'type', type: 'enum', options: ['number', 'bool', 'string'], default: 'number' }, { key: 'label', type: 'string' }, { key: 'group', type: 'string' }],
     // The cast: who is in this story, as people rather than as sprites on maps.
     // An NPC on a map may BE one of these (`object.props.who`), or may not be
     // anybody in particular; somebody in the cast need never appear on a map.
     person: [
-      idField('id'), { key: 'name', type: 'string', default: '' },
+      idField('id'), { key: 'name', type: 'string', default: '', shown: true },
       { key: 'pronouns', type: 'string', default: '', doc: 'they/them — for the {they:who} tags' },
       { key: 'sprite', type: 'ref:sprite' }, { key: 'face', type: 'ref:face' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, doc: 'What they sound like while their words appear' },
@@ -97,7 +100,7 @@
       { key: 'w', type: 'number', integer: true, min: 0, default: 0 }, { key: 'h', type: 'number', integer: true, min: 0, default: 0 },
       { key: 'from', type: 'string', optional: true, doc: 'The tool and file it came from' }, { key: 'note', type: 'note', optional: true },
     ],
-    item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string' }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
+    item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string', shown: true }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
     script: [
       { key: 'label', type: 'string' }, { key: 'trigger', type: 'enum', options: ['call', 'auto', 'parallel'], default: 'call' }, { key: 'when', type: 'condition' },
       { key: 'params', type: 'list', of: { type: 'string' } }, { key: 'body', type: 'script' }, { key: 'note', type: 'note' },
@@ -108,7 +111,7 @@
     worldMap: [{ key: 'x', type: 'number', default: 0 }, { key: 'y', type: 'number', default: 0 }, { key: 'folder', type: 'string' }],
     connection: [{ key: 'a', type: 'ref:map', nullable: false }, { key: 'side', type: 'enum', options: ['n', 's', 'e', 'w'], default: 's' }, { key: 'b', type: 'ref:map', nullable: false }, { key: 'offset', type: 'number', integer: true, default: 0 }],
     map: [
-      idField('id'), { key: 'name', type: 'string' }, { key: 'width', type: 'number', integer: true, min: 1, max: 512, default: 20 }, { key: 'height', type: 'number', integer: true, min: 1, max: 512, default: 15 },
+      idField('id'), { key: 'name', type: 'string', shown: true }, { key: 'width', type: 'number', integer: true, min: 1, max: 512, default: 20 }, { key: 'height', type: 'number', integer: true, min: 1, max: 512, default: 15 },
       { key: 'kind', type: 'string', default: 'outdoor' }, { key: 'music', type: 'ref:music' }, { key: 'note', type: 'note' },
     ],
     object: [idField('id'), { key: 'name', type: 'string' }, { key: 'type', type: 'string', default: 'npc' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'note', type: 'note' }],
@@ -485,6 +488,16 @@
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
     p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
     p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
+    // Languages are deliberately not schema-shaped: the keys ARE the authored
+    // lines, so any pattern a field could impose would be a lie. Validated by
+    // hand instead — a table of strings to strings, and nothing else.
+    p.languages = {};
+    if (isObj(src.languages)) for (const k of Object.keys(src.languages)) {
+      const d = isObj(src.languages[k]) ? src.languages[k] : {};
+      const lines = {};
+      if (isObj(d.lines)) for (const key of Object.keys(d.lines)) if (typeof d.lines[key] === 'string') lines[key] = d.lines[key];
+      p.languages[k] = { name: typeof d.name === 'string' && d.name ? d.name : k, lines };
+    }
     p.assets = {}; if (isObj(src.assets)) for (const k of Object.keys(src.assets)) p.assets[k] = S.fill(F.asset, isObj(src.assets[k]) ? src.assets[k] : {});
     p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) p.scripts[k] = P.fillScript(src.scripts[k], k);
     p.fragments = (Array.isArray(src.fragments) ? src.fragments : []).map((f, i) => { const o = S.fill(F.fragment, isObj(f) ? f : {}); if (!o.id) o.id = `fragment-${i + 1}`; return o; });

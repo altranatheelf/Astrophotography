@@ -3029,6 +3029,338 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
 </script>
 <script>
+// ---- js/kit/core/lang.js ----
+// Languages: one lookup in front of the text pipeline, one walk over the
+// project to find everything a player reads, and one plain-text file a
+// translator can actually open.
+//
+// The key IS the English. Not an id, not a path — the line itself.
+//
+// That choice is the whole design. An id-keyed table (`msg_pier_014`) means
+// every line has a name somebody has to invent, keep unique, and keep attached
+// to the line when it moves; rename a map and half of them are wrong. Keying on
+// the text means a line can move anywhere in the project and keep its
+// translation, two places that say "You can't go that way." share one
+// translation for free, and editing the English *correctly* orphans the old
+// translation, which is what should happen — the line changed, so the Japanese
+// is now a lie. gettext worked this out in 1995 and everyone who ignored it
+// rebuilt it badly.
+//
+// What this is NOT: a runtime that swaps fonts, mirrors the UI for Arabic, or
+// picks plurals. Those are real and they are not here yet. What is here is the
+// part that has to exist first and is agony to retrofit: every string a player
+// can see is findable, addressable and replaceable, and nothing in the engine
+// concatenates a sentence out of pieces.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const L = KIT.lang = KIT.lang || {};
+  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+
+  // ---- state -----------------------------------------------------------------
+
+  let current = 'en';                 // the language being played
+  let table = null;                   // { source: translation } for `current`, or null for the original
+  let project = null;                 // where translations are read from
+  const misses = new Map();           // source -> how many times it was asked for and not found
+
+  /**
+   * The source language is a PROPERTY OF THE PROJECT, not a constant. A game
+   * written in Japanese keys its lines on Japanese and carries an `en` pack;
+   * nothing here privileges English except the default.
+   */
+  L.source = () => (project && project.settings && project.settings.language) || 'en';
+  L.SOURCE = 'en';                    // the default for a project that says nothing
+
+  /**
+   * bind(project, want) — point the lookup at a project and pick a language.
+   * `want` is the player's saved choice; without one the game plays in the
+   * language it was written in.
+   */
+  L.bind = function (p, want) {
+    project = p || null;
+    L.use(want || L.source());
+    return L;
+  };
+
+  /** known() -> every language this project can be played in, the one it was written in first. */
+  L.known = function () {
+    const src = L.source();
+    const out = [src];
+    const langs = (project && project.languages) || {};
+    for (const code of Object.keys(langs).sort()) if (code !== src) out.push(code);
+    return out;
+  };
+
+  /** nameOf(code) -> what to call it in a menu ('日本語'), falling back to the code. */
+  L.nameOf = function (code) {
+    if (code === L.source()) return (project && project.settings && project.settings.languageName) || code;
+    const d = project && project.languages && project.languages[code];
+    return (d && d.name) || code;
+  };
+
+  /**
+   * use(code) — switch language. An unknown code falls back to the source
+   * rather than throwing, because this is reachable from a menu and from a
+   * device setting written by a build that had a language this one does not.
+   */
+  L.use = function (code) {
+    const langs = (project && project.languages) || {};
+    const src = L.source();
+    if (code && code !== src && langs[code]) {
+      current = code;
+      table = langs[code].lines || {};
+    } else {
+      current = src;
+      table = null;
+    }
+    misses.clear();
+    if (KIT.events) KIT.events('kit').emit('languageChanged', { language: current });
+    return current;
+  };
+
+  L.current = () => current;
+  /** translating() — false when the game is being played in the language it was written in. */
+  L.translating = () => table !== null;
+
+  /**
+   * t(text) — the lookup. Untranslated text comes back unchanged and is
+   * remembered, so `missing()` is a real QA list rather than a guess.
+   *
+   * Deliberately NOT trimmed or normalised: a translator gets the line exactly
+   * as the writer typed it, trailing space and all, because in a typewriter box
+   * that trailing space is a beat.
+   */
+  L.t = function (text) {
+    if (table === null || typeof text !== 'string' || !text) return text;
+    if (has(table, text)) {
+      const v = table[text];
+      if (typeof v === 'string' && v !== '') return v;
+    }
+    misses.set(text, (misses.get(text) || 0) + 1);
+    return text;
+  };
+
+  /** missing() -> [{ text, asked }] — what this session wanted and did not have, most-wanted first. */
+  L.missing = function () {
+    return Array.from(misses, ([text, asked]) => ({ text, asked })).sort((a, b) => b.asked - a.asked);
+  };
+
+  // ---- finding every string a player can read --------------------------------
+  //
+  // Field-driven, like everything else here. A field is something a player reads
+  // when it is `type: 'text'` (prose, by definition) or when it is marked
+  // `shown: true` (a short string that happens to be player-facing: a speaker's
+  // name, a choice option). `type: 'note'` never is — that is the author talking
+  // to themselves. Nothing has a list of commands to keep up to date, so a module
+  // that adds a command gets its lines extracted on the day it is written.
+
+  /** shown(field) -> is this field something a player reads? */
+  L.shown = function (f) {
+    if (!f || f.translate === false) return false;
+    if (f.type === 'text') return true;
+    return f.type === 'string' && f.shown === true;
+  };
+
+  function place(where) {
+    if (!where) return '';
+    if (where.script) return `script ${where.script}`;
+    const bits = [];
+    if (where.map) bits.push(where.map);
+    if (where.object) bits.push(where.object);
+    if (where.page != null) bits.push(`page ${where.page + 1}`);
+    if (where.slot) bits.push(where.slot);
+    return bits.join(' · ');
+  }
+
+  /**
+   * extract(project) -> [{ text, where: string[] }] in the order a player would
+   * first meet them, deduplicated, with every place each line appears. The
+   * `where` list is what makes a translation file translatable: "Yes." is
+   * unanswerable on its own and obvious under `pier · mira · talk`.
+   */
+  L.extract = function (p) {
+    const P = KIT.project;
+    const found = new Map();
+    const note = (text, where) => {
+      if (typeof text !== 'string') return;
+      const s = text.trim() === '' ? '' : text;
+      if (!s) return;
+      let e = found.get(s);
+      if (!e) found.set(s, (e = { text: s, where: [] }));
+      if (where && e.where.length < 8 && !e.where.includes(where)) e.where.push(where);
+    };
+
+    // 1. every command, through its own field declarations
+    if (P && P.walkCommands) {
+      const reg = KIT.registry('commands');
+      P.walkCommands(p, (cmd, where) => {
+        const def = cmd && reg.get(cmd.t);
+        if (!def) return;
+        const at = place(where);
+        KIT.schema.walk(def.fields || [], cmd, (f, v) => { if (L.shown(f)) note(v, at); });
+      });
+    }
+
+    // 2. the project's own tables, through theirs
+    const F = (P && P.fields) || {};
+    const rowsOf = (box, fields, label) => {
+      if (!fields || !box) return;
+      const rows = Array.isArray(box) ? box.map((v, i) => [(v && v.id) || String(i + 1), v]) : Object.entries(box);
+      for (const [id, row] of rows) {
+        KIT.schema.walk(fields, row, (f, v) => { if (L.shown(f)) note(v, `${label} · ${id}`); });
+      }
+    };
+    rowsOf(p && p.items, F.item, 'item');
+    rowsOf(p && p.heroes, F.hero, 'hero');
+    rowsOf(p && p.maps, F.map, 'map');
+    rowsOf(p && p.cast, F.person, 'cast');
+    if (p && p.meta && F.meta) KIT.schema.walk(F.meta, p.meta, (f, v) => { if (L.shown(f)) note(v, 'the game itself'); });
+
+    // 3. the Terms table: the words the engine itself says
+    if (KIT.strings && KIT.strings.defaults) {
+      const defs = KIT.strings.defaults();
+      const over = (p && p.strings) || {};
+      for (const key of Object.keys(defs)) note(has(over, key) ? over[key] : defs[key], `terms · ${key}`);
+      for (const key of Object.keys(over)) if (!has(defs, key)) note(over[key], `terms · ${key}`);
+    }
+
+    return Array.from(found.values());
+  };
+
+  // ---- the file a translator opens -------------------------------------------
+  //
+  //   # pier · mira · talk
+  //   > Hello, traveller.
+  //   < こんにちは、旅人よ。
+  //
+  // `>` is what the game says now, `<` is your version, `#` is a note. A blank
+  // `<` means "leave it in English", which is a legitimate answer and how the
+  // file starts. Multi-line strings get one `>` per line and one `<` per line.
+  //
+  // Not JSON, not XLIFF, not .po. JSON because a translator should not be able
+  // to break the file with a quotation mark, and because a merge conflict in a
+  // JSON blob is unreadable. XLIFF because nobody who is not paid to has ever
+  // opened one. .po because it is nearly this, and worse to read on a phone.
+
+  const OUT = (s) => String(s).split('\n').map((l) => (l === '' ? '>' : '> ' + l)).join('\n');
+  const IN = (s) => String(s).split('\n').map((l) => (l === '' ? '<' : '< ' + l)).join('\n');
+
+  /**
+   * toText(project, code) -> the translation file for one language, with every
+   * line the project currently contains, already-translated ones filled in.
+   * Lines that have vanished from the project are kept at the bottom under a
+   * notice, because a translator who reworded a sentence should not silently
+   * lose an hour of work to a typo fix.
+   */
+  L.toText = function (p, code) {
+    const lines = L.extract(p);
+    const existing = (p && p.languages && p.languages[code] && p.languages[code].lines) || {};
+    const name = (p && p.languages && p.languages[code] && p.languages[code].name) || code;
+    const done = lines.filter((l) => existing[l.text]).length;
+    const live = new Set(lines.map((l) => l.text));
+    const orphans = Object.keys(existing).filter((k) => !live.has(k) && existing[k]);
+
+    const out = [
+      `# ${(p && p.meta && p.meta.title) || 'A game'} — ${name} (${code})`,
+      `# ${done} of ${lines.length} lines translated.`,
+      '#',
+      '# `>` is what the game says now. Put your version on the `<` line under it.',
+      '# Leave a `<` line empty and the game keeps the original.',
+      '# Lines starting with `#` are notes to you and are ignored.',
+      '#',
+      '# Keep anything in {curly braces} exactly as it is — {p1} is the player\'s',
+      '# name, {color:red} turns the text red, {pause} is a beat. You can move',
+      '# them around inside the sentence; just do not translate them.',
+      '',
+    ];
+    for (const l of lines) {
+      if (l.where.length) out.push('# ' + l.where.join('  ·  '));
+      out.push(OUT(l.text));
+      out.push(IN(existing[l.text] || ''));
+      out.push('');
+    }
+    if (orphans.length) {
+      out.push('# ' + '-'.repeat(60));
+      out.push(`# ${orphans.length} translation(s) below are for lines the game no longer has.`);
+      out.push('# Kept in case a line was only reworded. Delete them when you are sure.');
+      out.push('');
+      for (const k of orphans) { out.push(OUT(k)); out.push(IN(existing[k])); out.push(''); }
+    }
+    return out.join('\n');
+  };
+
+  /**
+   * fromText(text) -> { lines, problems }. Forgiving on purpose: a translator
+   * working in a phone notes app will lose a `<`, and losing their afternoon to
+   * a parse error is not an acceptable answer. Anything unreadable becomes a
+   * problem with a line number and the rest of the file still loads.
+   */
+  L.fromText = function (text) {
+    const lines = {};
+    const problems = [];
+    const rows = String(text || '').split(/\r?\n/);
+    let src = null, dst = null, srcAt = 0;
+    const commit = () => {
+      if (src === null) return;
+      const s = src.join('\n');
+      if (s !== '') {
+        if (has(lines, s)) problems.push({ line: srcAt, message: `this line appears twice; the later one wins`, text: s });
+        lines[s] = dst === null ? '' : dst.join('\n');
+      }
+      src = dst = null;
+    };
+    rows.forEach((row, i) => {
+      const at = i + 1;
+      if (/^\s*#/.test(row)) return;                     // a note
+      if (row === '>' || row.startsWith('> ')) {
+        if (dst !== null) commit();                      // a new pair starts
+        if (src === null) { src = []; srcAt = at; }
+        src.push(row === '>' ? '' : row.slice(2));
+        return;
+      }
+      if (row === '<' || row.startsWith('< ')) {
+        if (src === null) { problems.push({ line: at, message: 'a `<` with no `>` above it — skipped' }); return; }
+        if (dst === null) dst = [];
+        dst.push(row === '<' ? '' : row.slice(2));
+        return;
+      }
+      if (row.trim() === '') { commit(); return; }
+      problems.push({ line: at, message: 'not a `>` line, a `<` line or a `#` note — skipped', text: row });
+    });
+    commit();
+    return { lines, problems };
+  };
+
+  /**
+   * put(project, code, { name, lines }) — install a language. Returns what it
+   * did, because the editor says it out loud ("412 lines, 8 still in English").
+   */
+  L.put = function (p, code, pack) {
+    if (!p || !code) return { added: 0, blank: 0 };
+    p.languages = p.languages || {};
+    const lines = (pack && pack.lines) || {};
+    const filled = Object.keys(lines).filter((k) => lines[k]);
+    p.languages[code] = {
+      name: (pack && pack.name) || (p.languages[code] && p.languages[code].name) || code,
+      lines,
+    };
+    if (p === project && code === current) table = p.languages[code].lines;
+    return { added: filled.length, blank: Object.keys(lines).length - filled.length };
+  };
+
+  /** coverage(project, code) -> { total, translated, missing[] } for the editor and for a build check. */
+  L.coverage = function (p, code) {
+    const all = L.extract(p);
+    const lines = (p && p.languages && p.languages[code] && p.languages[code].lines) || {};
+    const missing = all.filter((l) => !lines[l.text]);
+    return { total: all.length, translated: all.length - missing.length, missing };
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/kit/core/storage.js ----
 // KIT.storage (§4.3): everything that outlives a page load — the editor draft,
 // save slots, settings, the meta record that survives New Game — plus the
@@ -3757,13 +4089,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // are big); everything else is a plain KIT.schema field list.
   const F = P.fields = {
     meta: [
-      idField('id'), { key: 'title', type: 'string', default: 'Our Adventure' }, { key: 'subtitle', type: 'string' }, { key: 'author', type: 'string' },
-      { key: 'pitch', type: 'text', doc: 'Two sentences: who the hero is and what they want.' }, { key: 'created', type: 'string', optional: true },
+      idField('id'), { key: 'title', type: 'string', default: 'Our Adventure', shown: true }, { key: 'subtitle', type: 'string', shown: true }, { key: 'author', type: 'string' },
+      { key: 'pitch', type: 'text', translate: false, doc: 'Two sentences: who the hero is and what they want.' }, { key: 'created', type: 'string', optional: true },
     ],
     settings: [
       { key: 'tileSize', type: 'number', integer: true, min: 8, max: 64, default: 16 },
       { key: 'viewport', type: 'group', fields: [{ key: 'w', type: 'number', integer: true, min: 4, default: 16 }, { key: 'h', type: 'number', integer: true, min: 4, default: 12 }] },
       { key: 'textSpeed', type: 'enum', options: ['slow', 'normal', 'fast', 'instant'], default: 'normal' },
+      { key: 'language', type: 'string', default: 'en', label: 'Written in',
+        doc: 'The language the lines in this project are actually typed in. Translations sit beside it, keyed on these lines.' },
+      { key: 'languageName', type: 'string', default: 'English', label: 'Called', doc: 'What to call that language in the menu.' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Everybody sounds like',
         doc: 'The voice for anyone with none of their own. Empty is the engine default.' },
       { key: 'zoom', type: 'enum', options: ['auto', 'small', 'normal', 'large'], default: 'auto' },
@@ -3782,14 +4117,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       ] },
       { key: 'encounterRate', type: 'number', min: 0, max: 100, default: 12 },
     ],
-    hero: [idField('id'), { key: 'name', type: 'string', default: 'Player' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
+    hero: [idField('id'), { key: 'name', type: 'string', default: 'Player', shown: true }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
     var: [{ key: 'type', type: 'enum', options: ['number', 'bool', 'string'], default: 'number' }, { key: 'label', type: 'string' }, { key: 'group', type: 'string' }],
     // The cast: who is in this story, as people rather than as sprites on maps.
     // An NPC on a map may BE one of these (`object.props.who`), or may not be
     // anybody in particular; somebody in the cast need never appear on a map.
     person: [
-      idField('id'), { key: 'name', type: 'string', default: '' },
+      idField('id'), { key: 'name', type: 'string', default: '', shown: true },
       { key: 'pronouns', type: 'string', default: '', doc: 'they/them — for the {they:who} tags' },
       { key: 'sprite', type: 'ref:sprite' }, { key: 'face', type: 'ref:face' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, doc: 'What they sound like while their words appear' },
@@ -3815,7 +4150,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       { key: 'w', type: 'number', integer: true, min: 0, default: 0 }, { key: 'h', type: 'number', integer: true, min: 0, default: 0 },
       { key: 'from', type: 'string', optional: true, doc: 'The tool and file it came from' }, { key: 'note', type: 'note', optional: true },
     ],
-    item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string' }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
+    item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string', shown: true }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
     script: [
       { key: 'label', type: 'string' }, { key: 'trigger', type: 'enum', options: ['call', 'auto', 'parallel'], default: 'call' }, { key: 'when', type: 'condition' },
       { key: 'params', type: 'list', of: { type: 'string' } }, { key: 'body', type: 'script' }, { key: 'note', type: 'note' },
@@ -3826,7 +4161,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     worldMap: [{ key: 'x', type: 'number', default: 0 }, { key: 'y', type: 'number', default: 0 }, { key: 'folder', type: 'string' }],
     connection: [{ key: 'a', type: 'ref:map', nullable: false }, { key: 'side', type: 'enum', options: ['n', 's', 'e', 'w'], default: 's' }, { key: 'b', type: 'ref:map', nullable: false }, { key: 'offset', type: 'number', integer: true, default: 0 }],
     map: [
-      idField('id'), { key: 'name', type: 'string' }, { key: 'width', type: 'number', integer: true, min: 1, max: 512, default: 20 }, { key: 'height', type: 'number', integer: true, min: 1, max: 512, default: 15 },
+      idField('id'), { key: 'name', type: 'string', shown: true }, { key: 'width', type: 'number', integer: true, min: 1, max: 512, default: 20 }, { key: 'height', type: 'number', integer: true, min: 1, max: 512, default: 15 },
       { key: 'kind', type: 'string', default: 'outdoor' }, { key: 'music', type: 'ref:music' }, { key: 'note', type: 'note' },
     ],
     object: [idField('id'), { key: 'name', type: 'string' }, { key: 'type', type: 'string', default: 'npc' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'note', type: 'note' }],
@@ -4203,6 +4538,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
     p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
     p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
+    // Languages are deliberately not schema-shaped: the keys ARE the authored
+    // lines, so any pattern a field could impose would be a lie. Validated by
+    // hand instead — a table of strings to strings, and nothing else.
+    p.languages = {};
+    if (isObj(src.languages)) for (const k of Object.keys(src.languages)) {
+      const d = isObj(src.languages[k]) ? src.languages[k] : {};
+      const lines = {};
+      if (isObj(d.lines)) for (const key of Object.keys(d.lines)) if (typeof d.lines[key] === 'string') lines[key] = d.lines[key];
+      p.languages[k] = { name: typeof d.name === 'string' && d.name ? d.name : k, lines };
+    }
     p.assets = {}; if (isObj(src.assets)) for (const k of Object.keys(src.assets)) p.assets[k] = S.fill(F.asset, isObj(src.assets[k]) ? src.assets[k] : {});
     p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) p.scripts[k] = P.fillScript(src.scripts[k], k);
     p.fragments = (Array.isArray(src.fragments) ? src.fragments : []).map((f, i) => { const o = S.fill(F.fragment, isObj(f) ? f : {}); if (!o.id) o.id = `fragment-${i + 1}`; return o; });
@@ -5542,7 +5887,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const save = (ctx.world && ctx.world.save) || {};
     const heroes = (project.heroes || []).map((h, i) => {
       const s = Array.isArray(save.heroes) ? save.heroes[i] : null;
-      return { id: h.id, name: s && s.name != null ? s.name : h.name };
+      // A name the player typed is theirs and is never touched. The one the
+      // writer put in the project is a line like any other, so it translates.
+      return { id: h.id, name: s && s.name != null ? s.name : T.translate(h.name) };
     });
     const obj = ctx.self && save.objects ? save.objects[ctx.self] : null;
     return {
@@ -5560,6 +5907,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // ---- substitution ----------------------------------------------------------
 
   const fmt = (v) => (v === undefined || v === null ? '' : String(v));
+  /** translate(str) — the language hook. Without KIT.lang loaded this is identity. */
+  T.translate = (s) => (KIT.lang && KIT.lang.t ? KIT.lang.t(s) : s);
   /** Escape braces so a substituted value never becomes a code. */
   T.escape = (s) => String(s).replace(/\{/g, '{{').replace(/\}/g, '}}');
   T.unescape = (s) => String(s).replace(/\{\{/g, '{').replace(/\}\}/g, '}');
@@ -5576,7 +5925,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     hero: (ctx) => heroName(ctx, ctx.hero == null ? 0 : ctx.hero),
     var: (ctx, arg) => fmt(ctx.vars && ctx.vars[arg]),
     self: (ctx, arg) => fmt(ctx.self && ctx.self[arg]),
-    item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? String(it.name) : fmt(arg); },
+    item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? T.translate(String(it.name)) : fmt(arg); },
     arg: (ctx, arg) => fmt(ctx.args && ctx.args[arg]),
     // What survives New Game: {meta:runs}, {meta:lastEnding}, anything @remember
     // has written. This is how somebody opens with “you were here before”.
@@ -5586,7 +5935,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     },
     // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
     // are her pronouns, so a line can be written once for anybody.
-    who: (ctx, arg) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
+    who: (ctx, arg) => T.translate(KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
     they: (ctx, arg) => pronoun(ctx, arg, 0, 'they'),
     them: (ctx, arg) => pronoun(ctx, arg, 1, 'them'),
     their: (ctx, arg) => pronoun(ctx, arg, 2, 'their'),
@@ -5611,7 +5960,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   T.substitute = function (str, ctx) {
     if (str === null || str === undefined) return '';
     const c = T.contextFrom(ctx) || {};
-    return String(str).replace(TAG, (m, name, arg) => {
+    // The translation happens FIRST, on the line as it was written — braces,
+    // codes and all. A translator sees `{p1} found {item:lantern}.` and moves
+    // the pieces around to suit their grammar, which is the whole point; if we
+    // substituted first they would be handed a sentence with a name already
+    // baked into the middle of it and no way to move it.
+    return String(T.translate(str)).replace(TAG, (m, name, arg) => {
       if (m === '{{' || m === '}}') return m;
       const fn = T.tags[name];
       if (typeof fn !== 'function') return m;
@@ -5752,7 +6106,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (project && project.strings && has(project.strings, key) && typeof project.strings[key] === 'string') tpl = project.strings[key];
     else if (KIT.registry.exists('strings') && KIT.registry('strings').has(key)) tpl = KIT.registry('strings').get(key).default;
     else tpl = key;
-    return String(tpl).replace(/\{([a-zA-Z_][\w-]*)\}/g, (m, name) => (vars && has(vars, name) ? fmt(vars[name]) : m));
+    return String(T.translate(tpl)).replace(/\{([a-zA-Z_][\w-]*)\}/g, (m, name) => (vars && has(vars, name) ? fmt(vars[name]) : m));
   };
   /** defaults() -> { key: defaultText } for every registered string. */
   STR.defaults = function () {
@@ -6665,7 +7019,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   defs.push({
     id: 'say', label: 'Show Text', mv: 'Show Text', group: 'Message', icon: 'speech', background: false, blocking: true, editor: { favourite: true },
     fields: [
-      { key: 'who', type: 'string', default: '', label: 'Speaker' },
+      { key: 'who', type: 'string', default: '', label: 'Speaker', shown: true },
       { key: 'face', type: 'ref:face' },
       { key: 'text', type: 'text', default: '' },
       { key: 'position', type: 'enum', options: ['top', 'middle', 'bottom'], default: 'bottom' },
@@ -6707,7 +7061,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     id: 'choice', label: 'Show Choices', mv: 'Show Choices', group: 'Message', icon: 'list', background: false, blocking: true, control: true, editor: { favourite: true },
     fields: [
       { key: 'prompt', type: 'text', default: '' },
-      { key: 'options', type: 'list', array: { min: 1 }, default: [], of: { type: 'group', fields: [{ key: 'text', type: 'string', default: '' }, { key: 'when', type: 'condition' }, { key: 'then', type: 'script' }] } },
+      { key: 'options', type: 'list', array: { min: 1 }, default: [], of: { type: 'group', fields: [{ key: 'text', type: 'string', default: '', shown: true }, { key: 'when', type: 'condition' }, { key: 'then', type: 'script' }] } },
       { key: 'cancel', type: 'enum', options: ['none', 'last', 'skip'], default: 'none', doc: 'B button: none = cannot cancel, last = picks the last option, skip = picks nothing' },
     ],
     async run(ctx, cmd) {
@@ -13912,14 +14266,60 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * darkness pass draws itself here so its light holes cut the darkness and not
    * the picture underneath it.
    */
-  let pad = null;
-  function scratch(w, h) {
+  const pads = {};
+  function scratch(w, h, which) {
     if (typeof document === 'undefined' || !document.createElement) return null;
-    if (!pad) pad = document.createElement('canvas');
+    const k = which || 'dark';
+    let pad = pads[k];
+    if (!pad) pad = pads[k] = document.createElement('canvas');
     if (pad.width !== w || pad.height !== h) { pad.width = w; pad.height = h; }
     return pad;
   }
   A.LAYERED_DARKNESS = true;          // a module can ask whether it still has to help
+  A.lightDetail = 'soft';             // 'soft' builds the dark at half size; 'full' at every pixel
+
+  /**
+   * One radial falloff, drawn once and then blitted.
+   *
+   * `createRadialGradient` plus two `addColorStop`s, per light, twice per frame,
+   * was the only thing measuring below 60: thirty-two lanterns on a dark map ran
+   * 56.5fps and the gradients were all of it. A gradient is a small program the
+   * rasteriser has to build; a sprite is a `drawImage`. Cached on the shape
+   * (softness) and the colour, both of which a game has a handful of, so the
+   * cache fills in the first second and never grows again.
+   */
+  const SPRITE_R = 128;
+  const sprites = new Map();
+  function falloff(key, inner, stop0, stop1) {
+    const had = sprites.get(key);
+    if (had !== undefined) return had;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = SPRITE_R * 2;
+    const c = cv.getContext('2d');
+    const g = c.createRadialGradient(SPRITE_R, SPRITE_R, SPRITE_R * inner, SPRITE_R, SPRITE_R, SPRITE_R);
+    g.addColorStop(0, stop0);
+    g.addColorStop(1, stop1);
+    c.fillStyle = g;
+    c.fillRect(0, 0, SPRITE_R * 2, SPRITE_R * 2);
+    if (sprites.size > 32) sprites.clear();   // a palette swap, not a leak
+    sprites.set(key, cv);
+    return cv;
+  }
+
+  /** Paint one light. Blit when we can, build the gradient when there is no DOM. */
+  function blot(c, key, inner, stop0, stop1, x, y, r) {
+    const sp = falloff(key, inner, stop0, stop1);
+    if (sp) { c.drawImage(sp, x - r, y - r, r * 2, r * 2); return; }
+    const g = c.createRadialGradient(x, y, r * inner, x, y, r);
+    g.addColorStop(0, stop0);
+    g.addColorStop(1, stop1);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  }
+
+  /** Forget the cached falloffs — after a palette change, or between tests. */
+  A.forgetLightSprites = function () { sprites.clear(); };
 
   A.draw = function (ctx, world, view) {
     const a = current;
@@ -13937,42 +14337,88 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     // Built on a layer and composited with `source-over`, the same floor reads
     // 135 against 51: the light shows you the room.
     if (a.darkness > 0.001) {
-      const lights = A.lights(world);
-      const layer = lights.length ? scratch(W, H) : null;
+      // Two things decide what this costs, and neither is the gradient.
+      //
+      // The first is how many lights are painted: the benchmark put 32 lanterns
+      // on a 16x12 patch of a map the camera only shows 12x9 of, and every one
+      // of them painted a 444px circle whether or not it was on screen. Lights
+      // off screen are skipped now.
+      //
+      // The second is fill rate. A light of radius 3 on a 74px tile is a 444px
+      // disc, and thirty of those, twice, is twelve million blended pixels a
+      // frame. But darkness has no detail in it — a flat fill and some soft
+      // holes — so it is built at half resolution and blown up on the way out.
+      // Four times fewer pixels, and you cannot see the difference.
+      const all = A.lights(world);
+      const S = Math.max(1, A.lightDetail === 'full' ? 1 : 2);
+      const lw = Math.max(1, Math.ceil(W / S)), lh = Math.max(1, Math.ceil(H / S));
+      const px = tilePx / S;
+      const lights = [];
+      for (const l of all) {
+        const r = Math.max(2, l.radius * (a.lightScale || 1) * 1.14 * px);   // 1.14: room for the flicker
+        const x = (l.x - camX) * px, y = (l.y - camY) * px;
+        if (x + r < 0 || x - r > lw || y + r < 0 || y - r > lh) continue;    // not on screen
+        lights.push(l);
+      }
+      const layer = lights.length ? scratch(lw, lh) : null;
       const lc = layer ? layer.getContext('2d') : null;
       const c = lc || ctx;
-      if (lc) { lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, W, H); }
-      else ctx.save();
+      const k = lc ? px : tilePx;                  // the units `c` is working in
+      ctx.save();
+      if (lc) {
+        lc.save();
+        lc.setTransform(1, 0, 0, 1, 0, 0);
+        lc.clearRect(0, 0, lw, lh);
+      }
       c.globalCompositeOperation = 'source-over';
       c.fillStyle = A.rgba(a.ambient, a.darkness);
-      c.fillRect(0, 0, W, H);
+      c.fillRect(0, 0, lc ? lw : W, lc ? lh : H);
       if (lights.length) {
         c.globalCompositeOperation = 'destination-out';
+        c.imageSmoothingEnabled = true;      // the falloff is a gradient, not pixel art
         for (const l of lights) {
           const flick = l.flicker ? 1 + Math.sin(time / 90 + KIT.hash(l.seed) % 100) * 0.06 * l.flicker + (KIT.hash(l.seed, Math.floor(time / 120)) % 100) / 100 * 0.04 * l.flicker : 1;
-          const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * tilePx);
-          const x = (l.x - camX) * tilePx, y = (l.y - camY) * tilePx;
-          const g = c.createRadialGradient(x, y, r * (1 - KIT.clamp(l.softness, 0, 0.95)), x, y, r);
-          g.addColorStop(0, 'rgba(0,0,0,1)');
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          c.fillStyle = g;
-          c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+          const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * k);
+          const x = (l.x - camX) * k, y = (l.y - camY) * k;
+          const soft = Math.round(KIT.clamp(l.softness, 0, 0.95) * 32) / 32;
+          blot(c, 'hole:' + soft, 1 - soft, 'rgba(0,0,0,1)', 'rgba(0,0,0,0)', x, y, r);
         }
-        c.globalCompositeOperation = 'source-over';
-        // the darkness, with its holes, over the frame — and nothing erased
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(layer, 0, 0);
-        // warm the lit area back up a little, so a lantern reads as a lantern
-        ctx.globalCompositeOperation = 'lighter';
+        if (lc) {
+          lc.restore();
+          // the darkness, with its holes, over the frame — and nothing erased
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(layer, 0, 0, lw, lh, 0, 0, W, H);
+        } else {
+          c.globalCompositeOperation = 'source-over';
+        }
+        // Warm the lit area back up a little, so a lantern reads as a lantern.
+        // Gathered on its own half-size layer for the same reason as the dark,
+        // then laid over the frame in one blit.
+        const glow = lc ? scratch(lw, lh, 'glow') : null;
+        const gc = glow ? glow.getContext('2d') : null;
+        const w2 = gc || ctx;
+        const k2 = gc ? px : tilePx;
+        if (gc) {
+          gc.save();
+          gc.setTransform(1, 0, 0, 1, 0, 0);
+          gc.clearRect(0, 0, lw, lh);
+        }
+        w2.globalCompositeOperation = 'lighter';
+        w2.imageSmoothingEnabled = true;
+        w2.globalAlpha = 0.18 * a.darkness;
         for (const l of lights) {
-          const r = Math.max(2, l.radius * (a.lightScale || 1) * tilePx);
-          const x = (l.x - camX) * tilePx, y = (l.y - camY) * tilePx;
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-          g.addColorStop(0, A.rgba(l.color, 0.18 * a.darkness));
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+          const r = Math.max(2, l.radius * (a.lightScale || 1) * k2);
+          const x = (l.x - camX) * k2, y = (l.y - camY) * k2;
+          const col = l.color || '#ffd9a0';
+          blot(w2, 'warm:' + col, 0, A.rgba(col, 1), 'rgba(0,0,0,0)', x, y, r);
+        }
+        if (gc) {
+          gc.restore();
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(glow, 0, 0, lw, lh, 0, 0, W, H);
         }
       }
       ctx.restore();
@@ -16246,6 +16692,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (!canvas) throw new Error('KIT.game.boot: no #game-canvas in the page');
 
     const s = settings();
+    // Which language to play in is a property of this device, not of a save
+    // file: you do not change language by loading a different slot.
+    if (KIT.lang) KIT.lang.bind(G.project, s.language);
     KIT.audio.setEnabled(s.sound !== false);
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);
@@ -28873,6 +29322,9 @@ PKMN.TILES.register([
   // the act it reports on — opening a game — rebuilds the panel.
   const moveState = { said: null, open: false };
 
+  // Same for the languages section: importing a translation redraws the panel.
+  const langState = { said: null, open: false, code: '' };
+
   // ---------------------------------------------------------------- Project ----------
   // The author's order, not the schema's: the two sentences matter more than the id.
   function metaFields() {
@@ -29056,6 +29508,134 @@ PKMN.TILES.register([
       });
       const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
       if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
+
+      // ---- languages ---------------------------------------------------------
+      // RPG Maker's answer to this is "ship a second copy of your game", which is
+      // why so few of its games exist in more than one language. Here a
+      // translation is one text file beside the project, keyed on the lines
+      // themselves, and the editor's whole job is to hand that file out and take
+      // it back.
+      const langBody = section(host, 'Languages', langState.open === true, (body) => {
+        const L = KIT.lang;
+        if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
+
+        const status = make('div.ed-hint');
+        const say = (text, ok) => {
+          langState.said = text ? { text, ok } : null;
+          status.textContent = text || '';
+          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+        };
+
+        const src = (p.settings && p.settings.language) || 'en';
+        const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
+        if (!langState.code) langState.code = others[0] || '';
+
+        body.appendChild(make('div.ed-hint', {
+          text: `This game is written in ${(p.settings && p.settings.languageName) || src}. A translation is one file: every line the game can say, with room underneath for your version. Lines are matched on the words themselves, so moving a scene around keeps its translation, and rewording a line correctly asks for it again.`,
+        }));
+
+        const total = L.extract(p).length;
+        body.appendChild(make('div.ed-sub', { text: `${total} line${total === 1 ? '' : 's'} a player can read.` }));
+
+        // which language this row is about
+        const pick = make('div.ed-row');
+        const sel = make('select');
+        for (const c of others) sel.appendChild(make('option', { text: `${(p.languages[c] && p.languages[c].name) || c} (${c})`, attrs: { value: c } }));
+        sel.appendChild(make('option', { text: others.length ? '+ another language…' : '+ add a language…', attrs: { value: '' } }));
+        sel.value = langState.code;
+        sel.onchange = () => {
+          if (!sel.value) {
+            const code = (root.prompt && root.prompt('Language code — two letters, the way a browser writes it: ja, fr, pt-BR')) || '';
+            const clean = String(code).trim();
+            if (!clean || clean === src) { sel.value = langState.code; return; }
+            const name = (root.prompt && root.prompt(`What is ${clean} called, in ${clean}?`, clean)) || clean;
+            langState.code = clean;
+            langState.said = { text: `Added ${name}. Save the file below, translate it, and bring it back.`, ok: true };
+            commit('Add a language', (doc) => doc.set(['languages', clean], { name: String(name).trim() || clean, lines: {} }, { label: 'Add a language' }));
+            return;
+          }
+          langState.code = sel.value;
+          ED.refresh();
+        };
+        pick.appendChild(sel);
+        body.appendChild(pick);
+
+        const code = langState.code;
+        if (code && p.languages && p.languages[code]) {
+          const cov = L.coverage(p, code);
+          const pct = cov.total ? Math.round((cov.translated / cov.total) * 100) : 100;
+          body.appendChild(make('div.ed-sub', { text: `${cov.translated} of ${cov.total} translated (${pct}%).` }));
+
+          const row = make('div.ed-row');
+          row.appendChild(btn('↓ Save the file', 'Every line, with your translations already in it', async () => {
+            const name = `${(p.meta && p.meta.id) || 'game'}.${code}.txt`;
+            const done = await KIT.storage.download(name, L.toText(p, code));
+            say(done ? `Saved as ${name}.` : 'This browser would not save a file — use Copy instead.', done);
+          }, 'primary'));
+          row.appendChild(btn('Copy', 'Put the file on the clipboard (easier on a phone)', async () => {
+            const done = await KIT.storage.copyToClipboard(L.toText(p, code));
+            say(done ? 'Copied. Paste it wherever you translate.' : 'The clipboard is not available here.', done);
+          }));
+          body.appendChild(row);
+
+          const take = (text, whence) => {
+            const r = L.fromText(text);
+            const n = Object.keys(r.lines).filter((k) => r.lines[k]).length;
+            if (!n && !r.problems.length) { say(`${whence} had no translations in it.`, false); return; }
+            const total = L.extract(p).length;
+            const bad = r.problems.length ? ` ${r.problems.length} line(s) could not be read (first at line ${r.problems[0].line}).` : '';
+            langState.said = { text: `${n} of ${total} lines translated.${bad}`, ok: !r.problems.length };
+            commit('Take a translation', (doc) => doc.set(['languages', code, 'lines'], r.lines, { label: 'Take a translation' }));
+          };
+
+          const inRow = make('div.ed-row');
+          const file = make('input');
+          file.type = 'file';
+          file.accept = '.txt,text/plain';
+          file.className = 'ed-file';
+          file.onchange = () => {
+            const f = file.files && file.files[0];
+            if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => take(String(rd.result || ''), f.name);
+            rd.onerror = () => say('That file could not be read.', false);
+            rd.readAsText(f);
+          };
+          inRow.appendChild(file);
+          body.appendChild(inRow);
+
+          const pasteRow = make('div.ed-row');
+          const paste = make('textarea.ed-json.ed-paste');
+          paste.placeholder = 'or paste a translated file here';
+          paste.spellcheck = false;
+          paste.rows = 3;
+          pasteRow.appendChild(paste);
+          body.appendChild(pasteRow);
+          body.appendChild(btn('Take what is pasted', 'Read the translations out of it', () => {
+            if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
+            take(paste.value, 'What you pasted');
+          }));
+
+          if (cov.missing.length) {
+            const det = make('details.ed-sub');
+            det.appendChild(make('summary', { text: `${cov.missing.length} still in ${src}` }));
+            for (const m of cov.missing.slice(0, 40)) det.appendChild(make('div.ed-sub', { text: '· ' + m.text.replace(/\n/g, ' ').slice(0, 80) }));
+            if (cov.missing.length > 40) det.appendChild(make('div.ed-sub', { text: `…and ${cov.missing.length - 40} more` }));
+            body.appendChild(det);
+          }
+
+          body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
+            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Ctrl+Z puts it back.`)) return;
+            langState.code = '';
+            langState.said = { text: 'Removed.', ok: true };
+            commit('Remove a language', (doc) => doc.del(['languages', code]));
+          }));
+        }
+        if (langState.said) say(langState.said.text, langState.said.ok);
+        body.appendChild(status);
+      });
+      const langBox = langBody.parentNode;
+      if (langBox) langBox.addEventListener('toggle', () => { langState.open = langBox.open; });
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));

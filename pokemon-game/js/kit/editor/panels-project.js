@@ -242,6 +242,9 @@
   // the act it reports on — opening a game — rebuilds the panel.
   const moveState = { said: null, open: false };
 
+  // Same for the languages section: importing a translation redraws the panel.
+  const langState = { said: null, open: false, code: '' };
+
   // ---------------------------------------------------------------- Project ----------
   // The author's order, not the schema's: the two sentences matter more than the id.
   function metaFields() {
@@ -425,6 +428,134 @@
       });
       const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
       if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
+
+      // ---- languages ---------------------------------------------------------
+      // RPG Maker's answer to this is "ship a second copy of your game", which is
+      // why so few of its games exist in more than one language. Here a
+      // translation is one text file beside the project, keyed on the lines
+      // themselves, and the editor's whole job is to hand that file out and take
+      // it back.
+      const langBody = section(host, 'Languages', langState.open === true, (body) => {
+        const L = KIT.lang;
+        if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
+
+        const status = make('div.ed-hint');
+        const say = (text, ok) => {
+          langState.said = text ? { text, ok } : null;
+          status.textContent = text || '';
+          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+        };
+
+        const src = (p.settings && p.settings.language) || 'en';
+        const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
+        if (!langState.code) langState.code = others[0] || '';
+
+        body.appendChild(make('div.ed-hint', {
+          text: `This game is written in ${(p.settings && p.settings.languageName) || src}. A translation is one file: every line the game can say, with room underneath for your version. Lines are matched on the words themselves, so moving a scene around keeps its translation, and rewording a line correctly asks for it again.`,
+        }));
+
+        const total = L.extract(p).length;
+        body.appendChild(make('div.ed-sub', { text: `${total} line${total === 1 ? '' : 's'} a player can read.` }));
+
+        // which language this row is about
+        const pick = make('div.ed-row');
+        const sel = make('select');
+        for (const c of others) sel.appendChild(make('option', { text: `${(p.languages[c] && p.languages[c].name) || c} (${c})`, attrs: { value: c } }));
+        sel.appendChild(make('option', { text: others.length ? '+ another language…' : '+ add a language…', attrs: { value: '' } }));
+        sel.value = langState.code;
+        sel.onchange = () => {
+          if (!sel.value) {
+            const code = (root.prompt && root.prompt('Language code — two letters, the way a browser writes it: ja, fr, pt-BR')) || '';
+            const clean = String(code).trim();
+            if (!clean || clean === src) { sel.value = langState.code; return; }
+            const name = (root.prompt && root.prompt(`What is ${clean} called, in ${clean}?`, clean)) || clean;
+            langState.code = clean;
+            langState.said = { text: `Added ${name}. Save the file below, translate it, and bring it back.`, ok: true };
+            commit('Add a language', (doc) => doc.set(['languages', clean], { name: String(name).trim() || clean, lines: {} }, { label: 'Add a language' }));
+            return;
+          }
+          langState.code = sel.value;
+          ED.refresh();
+        };
+        pick.appendChild(sel);
+        body.appendChild(pick);
+
+        const code = langState.code;
+        if (code && p.languages && p.languages[code]) {
+          const cov = L.coverage(p, code);
+          const pct = cov.total ? Math.round((cov.translated / cov.total) * 100) : 100;
+          body.appendChild(make('div.ed-sub', { text: `${cov.translated} of ${cov.total} translated (${pct}%).` }));
+
+          const row = make('div.ed-row');
+          row.appendChild(btn('↓ Save the file', 'Every line, with your translations already in it', async () => {
+            const name = `${(p.meta && p.meta.id) || 'game'}.${code}.txt`;
+            const done = await KIT.storage.download(name, L.toText(p, code));
+            say(done ? `Saved as ${name}.` : 'This browser would not save a file — use Copy instead.', done);
+          }, 'primary'));
+          row.appendChild(btn('Copy', 'Put the file on the clipboard (easier on a phone)', async () => {
+            const done = await KIT.storage.copyToClipboard(L.toText(p, code));
+            say(done ? 'Copied. Paste it wherever you translate.' : 'The clipboard is not available here.', done);
+          }));
+          body.appendChild(row);
+
+          const take = (text, whence) => {
+            const r = L.fromText(text);
+            const n = Object.keys(r.lines).filter((k) => r.lines[k]).length;
+            if (!n && !r.problems.length) { say(`${whence} had no translations in it.`, false); return; }
+            const total = L.extract(p).length;
+            const bad = r.problems.length ? ` ${r.problems.length} line(s) could not be read (first at line ${r.problems[0].line}).` : '';
+            langState.said = { text: `${n} of ${total} lines translated.${bad}`, ok: !r.problems.length };
+            commit('Take a translation', (doc) => doc.set(['languages', code, 'lines'], r.lines, { label: 'Take a translation' }));
+          };
+
+          const inRow = make('div.ed-row');
+          const file = make('input');
+          file.type = 'file';
+          file.accept = '.txt,text/plain';
+          file.className = 'ed-file';
+          file.onchange = () => {
+            const f = file.files && file.files[0];
+            if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => take(String(rd.result || ''), f.name);
+            rd.onerror = () => say('That file could not be read.', false);
+            rd.readAsText(f);
+          };
+          inRow.appendChild(file);
+          body.appendChild(inRow);
+
+          const pasteRow = make('div.ed-row');
+          const paste = make('textarea.ed-json.ed-paste');
+          paste.placeholder = 'or paste a translated file here';
+          paste.spellcheck = false;
+          paste.rows = 3;
+          pasteRow.appendChild(paste);
+          body.appendChild(pasteRow);
+          body.appendChild(btn('Take what is pasted', 'Read the translations out of it', () => {
+            if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
+            take(paste.value, 'What you pasted');
+          }));
+
+          if (cov.missing.length) {
+            const det = make('details.ed-sub');
+            det.appendChild(make('summary', { text: `${cov.missing.length} still in ${src}` }));
+            for (const m of cov.missing.slice(0, 40)) det.appendChild(make('div.ed-sub', { text: '· ' + m.text.replace(/\n/g, ' ').slice(0, 80) }));
+            if (cov.missing.length > 40) det.appendChild(make('div.ed-sub', { text: `…and ${cov.missing.length - 40} more` }));
+            body.appendChild(det);
+          }
+
+          body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
+            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Ctrl+Z puts it back.`)) return;
+            langState.code = '';
+            langState.said = { text: 'Removed.', ok: true };
+            commit('Remove a language', (doc) => doc.del(['languages', code]));
+          }));
+        }
+        if (langState.said) say(langState.said.text, langState.said.ok);
+        body.appendChild(status);
+      });
+      const langBox = langBody.parentNode;
+      if (langBox) langBox.addEventListener('toggle', () => { langState.open = langBox.open; });
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));

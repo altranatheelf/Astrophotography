@@ -250,7 +250,7 @@
   defs.push({
     id: 'say', label: 'Show Text', mv: 'Show Text', group: 'Message', icon: 'speech', background: false, blocking: true, editor: { favourite: true },
     fields: [
-      { key: 'who', type: 'string', default: '', label: 'Speaker' },
+      { key: 'who', type: 'string', default: '', label: 'Speaker', shown: true },
       { key: 'face', type: 'ref:face' },
       { key: 'text', type: 'text', default: '' },
       { key: 'position', type: 'enum', options: ['top', 'middle', 'bottom'], default: 'bottom' },
@@ -292,7 +292,7 @@
     id: 'choice', label: 'Show Choices', mv: 'Show Choices', group: 'Message', icon: 'list', background: false, blocking: true, control: true, editor: { favourite: true },
     fields: [
       { key: 'prompt', type: 'text', default: '' },
-      { key: 'options', type: 'list', array: { min: 1 }, default: [], of: { type: 'group', fields: [{ key: 'text', type: 'string', default: '' }, { key: 'when', type: 'condition' }, { key: 'then', type: 'script' }] } },
+      { key: 'options', type: 'list', array: { min: 1 }, default: [], of: { type: 'group', fields: [{ key: 'text', type: 'string', default: '', shown: true }, { key: 'when', type: 'condition' }, { key: 'then', type: 'script' }] } },
       { key: 'cancel', type: 'enum', options: ['none', 'last', 'skip'], default: 'none', doc: 'B button: none = cannot cancel, last = picks the last option, skip = picks nothing' },
     ],
     async run(ctx, cmd) {
