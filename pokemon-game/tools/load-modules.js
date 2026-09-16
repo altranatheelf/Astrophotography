@@ -18,6 +18,7 @@ const FILES = {
   mons: ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'scenes', 'panel', 'manifest'],
   home: ['rules', 'register', 'scenes', 'panel', 'manifest'],
   dungeon: ['rules', 'art', 'register', 'panel', 'manifest'],
+  bullet: ['rules', 'register', 'manifest'],
 };
 
 /** What a module needs from outside its own folder before it will load. */

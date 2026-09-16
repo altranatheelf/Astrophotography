@@ -411,6 +411,20 @@
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = '#10121a';
       ctx.fillRect(0, 0, W, H);
+      // A scene may own the screen outright (a battle, a title card, a minigame).
+      // Then the world is not drawn at all and the scene gets the whole frame.
+      const owner = KIT.scenes && KIT.scenes.opaqueTop ? KIT.scenes.opaqueTop() : null;
+      if (owner) {
+        ctx.fillStyle = owner.background || '#000000';
+        ctx.fillRect(0, 0, W, H);
+        const t = world && world.time != null ? world.time * 1000 : (root.performance ? performance.now() : 0);
+        KIT.scenes.draw(ctx, { W, H, tilePx, camX: 0, camY: 0, time: t, world: world || null, scale, owned: true });
+        drawPictures();
+        drawOverlays(world);
+        ctx.restore();
+        return;
+      }
+
       const view = world && world.map;
       if (!view) { ctx.restore(); return; }
 
@@ -458,6 +472,13 @@
           if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
           KIT.atmosphere.draw(ctx, world, { W, H, tilePx: tilePx * zoom, camX, camY, time });
         } catch (e) { (KIT.log || console).error('[atmosphere]', e); }
+      }
+      // A scene's own canvas: over the world and the atmosphere, under the
+      // pictures and the DOM. This is where a minigame, an overlay HUD or a
+      // battle arena draws itself.
+      if (KIT.scenes && KIT.scenes.draw) {
+        if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
+        KIT.scenes.draw(ctx, { W, H, tilePx: tilePx * zoom, camX, camY, time, world, scale, owned: false });
       }
       drawPictures();
       drawOverlays(world);

@@ -184,6 +184,15 @@ Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewri
 
 The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
 
+## scenes/stack — stable
+`KIT.scenes.push(scene|id, params)` · `run(...) -> Promise<result>` · `pop(result)` · `finish(scene, result)` · `replace` · `clear()` · `top()` · `ids()` · `stack` · `update(dt)` · `input(ev)` · `opaqueTop()` · `draw(ctx, view)`.
+
+A scene is `{ id, transparent, opaque, background, enter(params), exit(result), update(dt), input(ev), draw(ctx, view), suspend(by), resume() }`. Only the top scene gets input; every scene updates (so a map keeps animating under a message); `transparent` leaves the one below on screen; `suspend`/`resume` fire when a scene is covered and uncovered.
+
+**`draw(ctx, view)` is the scene's own canvas.** The renderer calls it every frame, bottom of the stack upwards, after the world and atmosphere and before the pictures and the DOM. `view` is `{ W, H, tilePx, camX, camY, time, world, scale, owned }` — `tilePx` and `camX/camY` are what the world is being drawn with, so a scene can line up with the map; `W`/`H` are the canvas, for one that ignores it.
+
+**`opaque: true`** says the world underneath need not be drawn: the renderer clears to `background` (default black) and hands the frame straight to the scene. That is a battle screen, a title card, a minigame — and it is *cheaper* than a map, because the whole world pass is skipped. `js/modules/bullet` is a worked example: an Undertale-style fight, 334 live bullets at 60fps.
+
 ## editor/* — Creator Mode (docs/EDITOR-CONTRACT.md, docs/CREATOR-MODE.md)
 Load order (after the game): `editor/ops.js  editor/editor.js  editor/tools.js  editor/inspector.js  editor/panels-map.js  editor/panels-objects.js  editor/script-editor.js  editor/panels-writing.js  editor/panels-project.js  editor/integration.js`.
 Everything visible is a registered panel (`editorPanels`), tool (`editorTools`) or field widget (`fieldEditors`); nothing writes to the project except through `KIT.editor.ops` or `KIT.editor.commit`, so undo covers all of it.

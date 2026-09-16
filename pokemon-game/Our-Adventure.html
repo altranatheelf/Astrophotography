@@ -335,6 +335,16 @@ body { overflow: hidden; }
   #chapter.is-in .kit-card, #toast.is-in { animation: none; }
 }
 
+/* The bullet fight's HP bar. A module drawing into the shared overlay host. */
+.bullet-hud { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+/* The fight owns the screen, so its HP sits at the bottom of it rather than in
+   the middle of the arena. */
+#pause-menu:has(.bullet-hud) { align-items: flex-end; padding-bottom: 6%; }
+.bullet-hp-label { font-family: var(--font-ui); font-size: 10px; color: #3b4b8a; }
+.bullet-hp { flex: 1 1 auto; min-width: 80px; height: 10px; background: #2a2f3d; border-radius: 5px; overflow: hidden; }
+.bullet-hp-fill { height: 100%; background: linear-gradient(90deg, #ffd23f, #ff2d55); transition: width 90ms linear; }
+.bullet-hp-num { font-family: var(--font-ui); font-size: 10px; color: #17181d; min-width: 52px; text-align: right; }
+
 </style>
 <style>
 /* css/editor.css */
@@ -14242,6 +14252,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = '#10121a';
       ctx.fillRect(0, 0, W, H);
+      // A scene may own the screen outright (a battle, a title card, a minigame).
+      // Then the world is not drawn at all and the scene gets the whole frame.
+      const owner = KIT.scenes && KIT.scenes.opaqueTop ? KIT.scenes.opaqueTop() : null;
+      if (owner) {
+        ctx.fillStyle = owner.background || '#000000';
+        ctx.fillRect(0, 0, W, H);
+        const t = world && world.time != null ? world.time * 1000 : (root.performance ? performance.now() : 0);
+        KIT.scenes.draw(ctx, { W, H, tilePx, camX: 0, camY: 0, time: t, world: world || null, scale, owned: true });
+        drawPictures();
+        drawOverlays(world);
+        ctx.restore();
+        return;
+      }
+
       const view = world && world.map;
       if (!view) { ctx.restore(); return; }
 
@@ -14289,6 +14313,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
           KIT.atmosphere.draw(ctx, world, { W, H, tilePx: tilePx * zoom, camX, camY, time });
         } catch (e) { (KIT.log || console).error('[atmosphere]', e); }
+      }
+      // A scene's own canvas: over the world and the atmosphere, under the
+      // pictures and the DOM. This is where a minigame, an overlay HUD or a
+      // battle arena draws itself.
+      if (KIT.scenes && KIT.scenes.draw) {
+        if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
+        KIT.scenes.draw(ctx, { W, H, tilePx: tilePx * zoom, camX, camY, time, world, scale, owned: false });
       }
       drawPictures();
       drawOverlays(world);
@@ -14357,9 +14388,23 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   const answer = await KIT.scenes.run('choice', { options })   // push, wait, pop
 //   KIT.scenes.push('map'); KIT.scenes.top().id
 //
-// A scene is `{ id, transparent, enter(params), exit(), update(dt), input(ev) }`
-// and finishes by calling `this.finish(result)`. Only the top scene is given
-// input; a `transparent` scene leaves the one below it on screen.
+// A scene is `{ id, transparent, opaque, enter(params), exit(), update(dt),
+// input(ev), draw(ctx, view) }` and finishes by calling `this.finish(result)`.
+// Only the top scene is given input; a `transparent` scene leaves the one below
+// it on screen.
+//
+// `draw(ctx, view)` is the scene's own canvas. The renderer calls it every
+// frame, bottom of the stack upwards, after the world and before the pictures
+// and the DOM overlays. `view` is `{ W, H, tilePx, camX, camY, time, world }` —
+// tilePx and camX/camY are what the world is being drawn with, so a scene can
+// line up with the map, and W/H are the canvas, so one that owns the screen can
+// ignore the map entirely.
+//
+// `opaque: true` says the world underneath need not be drawn at all: the
+// renderer clears to `background` (default black) and hands the frame straight
+// to the scene. That is what a battle screen, a title card or a minigame wants —
+// and it is the difference between a fight that happens IN the bedroom and a
+// fight that happens somewhere else.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -14633,6 +14678,34 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       return SCENES.push(sceneOrId, params);
     },
     clear() { while (stack.length) SCENES.finish(stack[stack.length - 1], null); },
+
+    /**
+     * opaqueTop() -> the topmost scene that says the world need not be drawn, or
+     * null. The renderer asks this before it draws anything: a scene that owns
+     * the screen saves the whole world pass, which is why a battle screen is
+     * cheap rather than expensive.
+     */
+    opaqueTop() {
+      for (let i = stack.length - 1; i >= 0; i--) if (stack[i].opaque) return stack[i];
+      return null;
+    },
+
+    /**
+     * draw(ctx, view) — every scene that wants the canvas, bottom upwards, so a
+     * scene pushed on top draws over the one below. A scene that throws is
+     * reported once and skipped; one bad frame must not take the game down.
+     */
+    draw(ctx, view) {
+      for (const s of stack) {
+        if (typeof s.draw !== 'function') continue;
+        try {
+          ctx.save();
+          s.draw(ctx, view);
+        } catch (e) {
+          if (!s.__drawFailed) { s.__drawFailed = true; (KIT.log || console).error(`[scene ${s.id}] draw threw`, e); }
+        } finally { ctx.restore(); }
+      }
+    },
 
     /** update(dt) — every scene ticks (so a map keeps animating under a message), fx last. */
     update(dt) {
@@ -35075,6 +35148,420 @@ PKMN.TILES.register([
   } else {
     KIT.module(DEF);
   }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+
+<!-- A bullet-hell fight: proof that a real-time battle can be written against
+     the public API alone. See js/modules/bullet/README.md. -->
+<script>
+// ---- js/modules/bullet/rules.js ----
+// The pure half of a bullet-hell battle: the arena, the soul, the patterns, and
+// what hits what. No DOM, no canvas, no timers — so it can be tested in Node,
+// which is the point of keeping it separate.
+//
+// This module exists to answer one question about the engine: can you write an
+// Undertale battle in it? Everything it had to work around is written down in
+// js/modules/bullet/README.md.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const B = KIT.bullet = KIT.bullet || {};
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+  B.VERSION = 1;
+
+  /** A fresh fight. The arena is in TILES, because that is the world's unit. */
+  B.create = function (o) {
+    o = o || {};
+    return {
+      box: { x: num(o.x, 5), y: num(o.y, 5), w: num(o.w, 7), h: num(o.h, 5) },
+      soul: { x: num(o.x, 5) + num(o.w, 7) / 2, y: num(o.y, 5) + num(o.h, 5) / 2, r: 0.22, speed: num(o.speed, 6), invuln: 0 },
+      hp: num(o.hp, 20), maxHp: num(o.hp, 20),
+      bullets: [], t: 0, turn: 'menu', over: null, grazed: 0, hits: 0,
+    };
+  };
+
+  /** Move the soul, clamped to the box. dir is { x, y } in -1..1. */
+  B.steer = function (f, dir, dt) {
+    const s = f.soul, b = f.box;
+    const dx = num(dir && dir.x, 0), dy = num(dir && dir.y, 0);
+    const len = Math.hypot(dx, dy) || 1;
+    s.x = KIT.clamp(s.x + (dx / len) * s.speed * dt, b.x + s.r, b.x + b.w - s.r);
+    s.y = KIT.clamp(s.y + (dy / len) * s.speed * dt, b.y + s.r, b.y + b.h - s.r);
+    return s;
+  };
+
+  /**
+   * A bullet is data, so a pattern is data too. `move` names a function in
+   * B.movers, which is a registry an author can add to — the same shape the rest
+   * of the engine uses.
+   */
+  B.spawn = function (f, o) {
+    const b = {
+      x: num(o.x, 0), y: num(o.y, 0), vx: num(o.vx, 0), vy: num(o.vy, 0),
+      r: num(o.r, 0.2), damage: num(o.damage, 3), life: num(o.life, 6), age: 0,
+      move: o.move || 'straight', art: o.art || null, look: o.look || 'bullet',
+      data: o.data || {}, dead: false,
+    };
+    f.bullets.push(b);
+    return b;
+  };
+
+  B.movers = {
+    straight(b, f, dt) { b.x += b.vx * dt; b.y += b.vy * dt; },
+    sine(b, f, dt) {
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      const a = num(b.data.amp, 0.6), w = num(b.data.freq, 3);
+      b.x += Math.cos(b.age * w) * a * dt * 3;
+    },
+    homing(b, f, dt) {
+      const dx = f.soul.x - b.x, dy = f.soul.y - b.y, d = Math.hypot(dx, dy) || 1;
+      const turn = num(b.data.turn, 1.5);
+      b.vx += (dx / d) * turn * dt; b.vy += (dy / d) * turn * dt;
+      const sp = Math.hypot(b.vx, b.vy), max = num(b.data.speed, 4);
+      if (sp > max) { b.vx = b.vx / sp * max; b.vy = b.vy / sp * max; }
+      b.x += b.vx * dt; b.y += b.vy * dt;
+    },
+    orbit(b, f, dt) {
+      const cx = num(b.data.cx, f.box.x + f.box.w / 2), cy = num(b.data.cy, f.box.y + f.box.h / 2);
+      const rad = num(b.data.radius, 2), w = num(b.data.speed, 2), phase = num(b.data.phase, 0);
+      b.x = cx + Math.cos(b.age * w + phase) * rad;
+      b.y = cy + Math.sin(b.age * w + phase) * rad;
+    },
+  };
+
+  /**
+   * One step of the fight. Returns what happened, so the scene can make noise
+   * about it without the rules knowing what noise is.
+   */
+  B.step = function (f, dt, dir) {
+    f.t += dt;
+    if (f.soul.invuln > 0) f.soul.invuln = Math.max(0, f.soul.invuln - dt);
+    if (dir) B.steer(f, dir, dt);
+
+    const events = { hit: 0, grazed: 0, gone: 0 };
+    for (const b of f.bullets) {
+      if (b.dead) continue;
+      b.age += dt;
+      const mover = B.movers[b.move] || B.movers.straight;
+      mover(b, f, dt);
+      if (b.age > b.life) { b.dead = true; events.gone++; continue; }
+
+      const dx = b.x - f.soul.x, dy = b.y - f.soul.y;
+      const d = Math.hypot(dx, dy);
+      if (d < b.r + f.soul.r) {
+        if (f.soul.invuln <= 0) {
+          f.hp = Math.max(0, f.hp - b.damage);
+          f.soul.invuln = 0.9;
+          f.hits++;
+          events.hit += b.damage;
+        }
+      } else if (d < b.r + f.soul.r + 0.25 && !b.data.grazed) {
+        b.data.grazed = true;
+        f.grazed++;
+        events.grazed++;
+      }
+    }
+    f.bullets = f.bullets.filter(b => !b.dead);
+    if (f.hp <= 0) f.over = 'lost';
+    return events;
+  };
+
+  /**
+   * A PATTERN is a list of { at, spawn } — spawn at that second into the turn.
+   * Data, so an author can write one in content and the editor can form itself
+   * from it. `B.runPattern` is called every step and fires what is due.
+   */
+  B.pattern = function (steps) {
+    return { steps: (steps || []).slice().sort((a, b) => a.at - b.at), fired: 0, t: 0 };
+  };
+  B.runPattern = function (f, p, dt) {
+    p.t += dt;
+    let n = 0;
+    while (p.fired < p.steps.length && p.steps[p.fired].at <= p.t) {
+      const s = p.steps[p.fired++];
+      for (const o of [].concat(s.spawn || [])) { B.spawn(f, o); n++; }
+    }
+    return n;
+  };
+  B.patternDone = function (f, p) { return p.fired >= p.steps.length && !f.bullets.length; };
+
+  /** A few patterns to start from, so a fight is one line to try. */
+  B.PATTERNS = {
+    rain(f, count) {
+      const steps = [];
+      for (let i = 0; i < (count || 18); i++) {
+        steps.push({ at: i * 0.18, spawn: { x: f.box.x + (i * 0.7) % f.box.w, y: f.box.y - 0.5, vy: 3.5, r: 0.18, damage: 2 } });
+      }
+      return B.pattern(steps);
+    },
+    sweep(f, count) {
+      const steps = [];
+      for (let i = 0; i < (count || 14); i++) {
+        steps.push({ at: i * 0.2, spawn: { x: f.box.x - 0.5, y: f.box.y + 0.5 + (i % 4), vx: 4, r: 0.2, damage: 3, move: 'sine', data: { amp: 0.8, freq: 4 } } });
+      }
+      return B.pattern(steps);
+    },
+    hunt(f, count) {
+      const steps = [];
+      for (let i = 0; i < (count || 6); i++) {
+        const side = i % 4;
+        const at = i * 0.5;
+        const x = side === 0 ? f.box.x - 0.5 : side === 1 ? f.box.x + f.box.w + 0.5 : f.box.x + f.box.w / 2;
+        const y = side === 2 ? f.box.y - 0.5 : side === 3 ? f.box.y + f.box.h + 0.5 : f.box.y + f.box.h / 2;
+        steps.push({ at, spawn: { x, y, vx: 0, vy: 0, r: 0.22, damage: 4, life: 5, move: 'homing', data: { turn: 2.2, speed: 3.2 } } });
+      }
+      return B.pattern(steps);
+    },
+    ring(f, count) {
+      const n = count || 12;
+      const cx = f.box.x + f.box.w / 2, cy = f.box.y + f.box.h / 2;
+      const steps = [];
+      for (let i = 0; i < n; i++) {
+        steps.push({ at: 0.1, spawn: { x: cx, y: cy, r: 0.18, damage: 2, life: 4, move: 'orbit', data: { cx, cy, radius: 1.8, speed: 1.6, phase: (i / n) * Math.PI * 2 } } });
+      }
+      return B.pattern(steps);
+    },
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/modules/bullet/register.js ----
+// The live half: the art, the scene, the command that starts a fight.
+//
+// Everything here is written against the engine's PUBLIC API only — no changes
+// to js/kit. Where that was awkward, the workaround is commented with WORKAROUND
+// and collected in README.md, because that list is the actual finding.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const B = KIT.bullet = KIT.bullet || {};
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+  let registered = false;
+  B.registerAll = function () {
+    if (registered) return;
+    registered = true;
+
+    // --- art -------------------------------------------------------------------
+    const tiles = KIT.registry('tiles');
+    tiles.addAll([
+      { id: 'bullet', name: 'Bullet', group: 'bullet', palette: { w: '#ffffff', k: '#c0c8d8' },
+        rows: ['................', '................', '................', '................',
+               '.....kkkkkk.....', '....kwwwwwwk....', '...kwwwwwwwwk...', '...kwwwwwwwwk...',
+               '...kwwwwwwwwk...', '...kwwwwwwwwk...', '....kwwwwwwk....', '.....kkkkkk.....',
+               '................', '................', '................', '................'] },
+      { id: 'bullet-bone', name: 'Bone', group: 'bullet', palette: { w: '#ffffff', k: '#b8bece' },
+        rows: ['................', '................', '..kwk......kwk..', '..wwww....wwww..',
+               '..kwwwwwwwwwwk..', '...wwwwwwwwww...', '...wwwwwwwwww...', '..kwwwwwwwwwwk..',
+               '..wwww....wwww..', '..kwk......kwk..', '................', '................',
+               '................', '................', '................', '................'] },
+      { id: 'soul', name: 'Soul', group: 'bullet', palette: { r: '#ff2d55', d: '#a01030' },
+        rows: ['................', '................', '...dd......dd...', '..drrd....drrd..',
+               '.drrrrd..drrrrd.', '.drrrrrddrrrrrd.', '.drrrrrrrrrrrrd.', '..drrrrrrrrrrd..',
+               '...drrrrrrrrd...', '....drrrrrrd....', '.....drrrrd.....', '......drrd......',
+               '.......dd.......', '................', '................', '................'] },
+      { id: 'arena', name: 'Arena edge', group: 'bullet', palette: { w: '#ffffff' },
+        rows: Array.from({ length: 16 }, (_, y) => (y === 0 || y === 15 ? 'wwwwwwwwwwwwwwww' : 'w..............w')) },
+    ]);
+
+    // --- the scene ---------------------------------------------------------------
+    KIT.registry('scenes').add({ id: 'bullet-fight', name: 'A fight', create: fightScene });
+
+    // --- the command that starts one ---------------------------------------------
+    KIT.registry('commands').add({
+      id: 'fight', label: 'Bullet Fight', group: 'Battle', icon: 'npc', blocking: true,
+      doc: 'A real-time bullet pattern the player dodges. Returns when they survive it or run out of heart.',
+      fields: [
+        { key: 'pattern', type: 'enum', options: ['rain', 'sweep', 'hunt', 'ring'], default: 'rain' },
+        { key: 'count', type: 'number', integer: true, min: 1, max: 200, default: 16 },
+        { key: 'hp', type: 'number', integer: true, min: 1, default: 20 },
+        { key: 'onLose', type: 'script', default: [] },
+      ],
+      async run(ctx, cmd) {
+        const r = await KIT.scenes.run('bullet-fight', { game: KIT.game, pattern: cmd.pattern, count: cmd.count, hp: cmd.hp });
+        if (r === 'lost' && cmd.onLose && cmd.onLose.length) await ctx.runList(cmd.onLose, ['onLose']);
+        return r;
+      },
+      summary(cmd) { return `${cmd.pattern} × ${cmd.count}`; },
+      text: {
+        toLine(cmd) { return `@fight ${cmd.pattern} ${cmd.count}`; },
+        fromLine(line) {
+          const m = /^@fight\s+(\w+)(?:\s+(\d+))?$/.exec(line.trim());
+          return m ? { t: 'fight', pattern: m[1], count: m[2] ? Number(m[2]) : 16 } : null;
+        },
+      },
+    });
+  };
+
+  function fightScene() {
+    let game = null, world = null, fight = null, pattern = null, hud = null, self = null;
+    const held = { x: 0, y: 0 };
+
+    return {
+      id: 'bullet-fight',
+      // The fight OWNS the screen: the world is not drawn under it, and this
+      // scene gets the whole frame to itself. That is what makes it a battle
+      // screen rather than an arena painted over whatever room you were in.
+      opaque: true,
+      background: '#000000',
+      enter(params) {
+        self = this;
+        game = (params && params.game) || KIT.game;
+        world = game.world || null;
+        // The arena is in its own space now, not the map's, so it is placed in
+        // tiles from the top-left of the screen and does not care where you were.
+        fight = B.create({ x: 0, y: 0, w: num(params.w, 9), h: num(params.h, 6), hp: num(params.hp, 20) });
+        const make = B.PATTERNS[params.pattern] || B.PATTERNS.rain;
+        pattern = make(fight, num(params.count, 16));
+        if (world) world.busy = true;
+        hud = buildHud();
+      },
+      exit() {
+        if (world) world.busy = false;
+        if (hud && hud.remove) hud.remove();
+      },
+      update(dt) {
+        if (!fight || fight.over) return;
+        // Held input is fine: KIT.input.state(player) gives what is down right
+        // now, which is exactly what continuous movement needs. (input(ev) only
+        // fires on the press edge, so `held` below is just the fallback.)
+        const st = KIT.input.state ? KIT.input.state(1) : null;
+        const dir = st ? { x: (st.right ? 1 : 0) - (st.left ? 1 : 0), y: (st.down ? 1 : 0) - (st.up ? 1 : 0) } : held;
+        B.runPattern(fight, pattern, dt);
+        const ev = B.step(fight, dt, dir);
+        if (ev.hit) {
+          KIT.audio.play('bump');
+          if (KIT.fx && KIT.fx.shake) KIT.fx.shake({ power: 4, ms: 180 });
+        }
+        if (ev.grazed) KIT.audio.play('blip');
+        updateHud();
+        if (fight.hp <= 0) { self.finish('lost'); return; }
+        if (B.patternDone(fight, pattern)) self.finish('survived');
+      },
+      /**
+       * The scene's own canvas. `view` gives W/H and the tile size the world is
+       * drawn at, so the arena is sized in the same units as the rest of the
+       * game and a bullet is the size of a thing on a map.
+       */
+      draw(ctx, view) {
+        if (!fight) return;
+        const px = view.tilePx || 32;
+        const b = fight.box;
+        // centre the arena on the screen
+        const ox = Math.round((view.W - b.w * px) / 2);
+        const oy = Math.round((view.H - b.h * px) / 2);
+        const at = (x, y) => [ox + x * px, oy + y * px];
+
+        // the box
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(2, px / 8);
+        ctx.strokeRect(ox - ctx.lineWidth / 2, oy - ctx.lineWidth / 2,
+          b.w * px + ctx.lineWidth, b.h * px + ctx.lineWidth);
+
+        // the bullets and the soul, drawn from the same registered art the map
+        // uses — KIT.pixels.artOf is how the renderer itself resolves a tile.
+        const sprite = (id, cx, cy, size) => {
+          const art = KIT.pixels.artOf(KIT.tiles.def(id));
+          if (!art) return false;
+          const d = KIT.pixels.dims(art);
+          const sc = (size || px) / d.w;
+          KIT.pixels.draw(ctx, art, Math.round(cx - d.w * sc / 2), Math.round(cy - d.h * sc / 2), { scale: sc });
+          return true;
+        };
+        for (const bu of fight.bullets) {
+          const [x, y] = at(bu.x - b.x, bu.y - b.y);
+          if (!sprite(bu.look === 'bone' ? 'bullet-bone' : 'bullet', x, y, bu.r * 4 * px)) {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(x, y, bu.r * px, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+        const s = fight.soul;
+        const [sx, sy] = at(s.x - b.x, s.y - b.y);
+        ctx.globalAlpha = s.invuln > 0 ? (Math.floor(fight.t * 20) % 2 ? 0.25 : 1) : 1;
+        if (!sprite('soul', sx, sy, s.r * 4 * px)) {
+          ctx.fillStyle = '#ff2d55';
+          ctx.beginPath(); ctx.arc(sx, sy, s.r * px, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      },
+      input(ev) {
+        if (!ev || !ev.key) return true;
+        const on = ev.down !== false;
+        if (ev.key === 'left') held.x = on ? -1 : 0;
+        else if (ev.key === 'right') held.x = on ? 1 : 0;
+        else if (ev.key === 'up') held.y = on ? -1 : 0;
+        else if (ev.key === 'down') held.y = on ? 1 : 0;
+        return true;
+      },
+    };
+
+
+    function buildHud() {
+      if (typeof document === 'undefined') return null;
+      const host = KIT.ui.el('pause-menu');
+      if (!host) return null;
+      KIT.ui.clear(host);
+      host.hidden = false;
+      const box = KIT.ui.make('div.kit-panel.bullet-hud');
+      box.appendChild(KIT.ui.make('div.bullet-hp-label', { text: 'HP' }));
+      const bar = KIT.ui.make('div.bullet-hp');
+      const fill = KIT.ui.make('div.bullet-hp-fill');
+      bar.appendChild(fill);
+      box.appendChild(bar);
+      const n = KIT.ui.make('div.bullet-hp-num', { text: '' });
+      box.appendChild(n);
+      host.appendChild(box);
+      return { fill, n, remove() { host.hidden = true; KIT.ui.clear(host); } };
+    }
+    function updateHud() {
+      if (!hud) return;
+      hud.fill.style.width = Math.max(0, (fight.hp / fight.maxHp) * 100) + '%';
+      hud.n.textContent = fight.hp + ' / ' + fight.maxHp;
+    }
+  }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/modules/bullet/manifest.js ----
+// A bullet-hell fight, as a module. It exists to prove (or disprove) that an
+// Undertale-style battle can be written against this engine's public API.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const B = KIT.bullet = KIT.bullet || {};
+
+  const DEF = {
+    id: 'bullet',
+    version: 1,
+    label: 'Bullet fight',
+    requires: [],
+    describe: 'A real-time pattern you dodge with the d-pad, the way Undertale does it.',
+    register(kit) { KIT.bullet.registerAll(kit); },
+    save: {
+      key: 'bullet',
+      defaults: () => ({ version: 1, fights: 0, hitsTaken: 0, grazes: 0 }),
+      migrate: [],
+      repair: (d) => { d.fights = Number(d.fights) || 0; d.hitsTaken = Number(d.hitsTaken) || 0; d.grazes = Number(d.grazes) || 0; return d; },
+    },
+    content: {
+      key: 'bullet',
+      defaults: () => ({ soulColor: '#ff2d55', grazeSound: 'blip' }),
+      fields: [
+        { key: 'soulColor', type: 'color', default: '#ff2d55', label: 'Soul colour' },
+        { key: 'grazeSound', type: 'ref:sound', nullable: true, default: 'blip', label: 'Graze sound' },
+      ],
+    },
+  };
+  B.MANIFEST = DEF;
+  if (typeof KIT.module !== 'function') (KIT.log || console).error('[bullet] KIT.module is missing');
+  else KIT.module(DEF);
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

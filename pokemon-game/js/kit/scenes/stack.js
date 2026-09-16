@@ -5,9 +5,23 @@
 //   const answer = await KIT.scenes.run('choice', { options })   // push, wait, pop
 //   KIT.scenes.push('map'); KIT.scenes.top().id
 //
-// A scene is `{ id, transparent, enter(params), exit(), update(dt), input(ev) }`
-// and finishes by calling `this.finish(result)`. Only the top scene is given
-// input; a `transparent` scene leaves the one below it on screen.
+// A scene is `{ id, transparent, opaque, enter(params), exit(), update(dt),
+// input(ev), draw(ctx, view) }` and finishes by calling `this.finish(result)`.
+// Only the top scene is given input; a `transparent` scene leaves the one below
+// it on screen.
+//
+// `draw(ctx, view)` is the scene's own canvas. The renderer calls it every
+// frame, bottom of the stack upwards, after the world and before the pictures
+// and the DOM overlays. `view` is `{ W, H, tilePx, camX, camY, time, world }` —
+// tilePx and camX/camY are what the world is being drawn with, so a scene can
+// line up with the map, and W/H are the canvas, so one that owns the screen can
+// ignore the map entirely.
+//
+// `opaque: true` says the world underneath need not be drawn at all: the
+// renderer clears to `background` (default black) and hands the frame straight
+// to the scene. That is what a battle screen, a title card or a minigame wants —
+// and it is the difference between a fight that happens IN the bedroom and a
+// fight that happens somewhere else.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -281,6 +295,34 @@
       return SCENES.push(sceneOrId, params);
     },
     clear() { while (stack.length) SCENES.finish(stack[stack.length - 1], null); },
+
+    /**
+     * opaqueTop() -> the topmost scene that says the world need not be drawn, or
+     * null. The renderer asks this before it draws anything: a scene that owns
+     * the screen saves the whole world pass, which is why a battle screen is
+     * cheap rather than expensive.
+     */
+    opaqueTop() {
+      for (let i = stack.length - 1; i >= 0; i--) if (stack[i].opaque) return stack[i];
+      return null;
+    },
+
+    /**
+     * draw(ctx, view) — every scene that wants the canvas, bottom upwards, so a
+     * scene pushed on top draws over the one below. A scene that throws is
+     * reported once and skipped; one bad frame must not take the game down.
+     */
+    draw(ctx, view) {
+      for (const s of stack) {
+        if (typeof s.draw !== 'function') continue;
+        try {
+          ctx.save();
+          s.draw(ctx, view);
+        } catch (e) {
+          if (!s.__drawFailed) { s.__drawFailed = true; (KIT.log || console).error(`[scene ${s.id}] draw threw`, e); }
+        } finally { ctx.restore(); }
+      }
+    },
 
     /** update(dt) — every scene ticks (so a map keeps animating under a message), fx last. */
     update(dt) {
