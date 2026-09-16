@@ -81,6 +81,8 @@
       self: (obj && obj.self) || {},
       items: project.items || {},
       args: ctx.args || {},
+      meta: (KIT.storage && KIT.storage.meta) ? KIT.storage.meta() : (save.meta || {}),
+      project,                      // the cast tags read project.cast
     };
   };
 
@@ -105,7 +107,33 @@
     self: (ctx, arg) => fmt(ctx.self && ctx.self[arg]),
     item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? String(it.name) : fmt(arg); },
     arg: (ctx, arg) => fmt(ctx.args && ctx.args[arg]),
+    // What survives New Game: {meta:runs}, {meta:lastEnding}, anything @remember
+    // has written. This is how somebody opens with “you were here before”.
+    meta: (ctx, arg) => {
+      const v = ctx.meta && ctx.meta[arg];
+      return Array.isArray(v) ? v.join(', ') : fmt(v);
+    },
+    // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
+    // are her pronouns, so a line can be written once for anybody.
+    who: (ctx, arg) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
+    they: (ctx, arg) => pronoun(ctx, arg, 0, 'they'),
+    them: (ctx, arg) => pronoun(ctx, arg, 1, 'them'),
+    their: (ctx, arg) => pronoun(ctx, arg, 2, 'their'),
   });
+
+  /**
+   * A person's `pronouns` field is written the way people write it — 'she/her',
+   * 'they/them', 'he/him/his'. Slot 2 (the possessive) is worked out when it is
+   * not given, because most people only write two.
+   */
+  const POSSESSIVE = { they: 'their', she: 'her', he: 'his', it: 'its', ze: 'zir', xe: 'xyr' };
+  function pronoun(ctx, who, slot, fallback) {
+    const p = KIT.cast && KIT.cast.person ? KIT.cast.person(ctx.project, who) : null;
+    const parts = String((p && p.pronouns) || '').split('/').map(x => x.trim()).filter(Boolean);
+    if (parts[slot]) return parts[slot];
+    if (slot === 2 && parts[0]) return POSSESSIVE[parts[0].toLowerCase()] || (parts[1] ? parts[1] : fallback);
+    return fallback;
+  }
 
   const TAG = /\{\{|\}\}|\{([a-zA-Z_][\w-]*)(?::([^{}]*))?\}/g;
   /** substitute(str, ctx) -> str with template tags replaced. Escaped braces ({{ }}) are kept for tokenize(); codes are untouched. */

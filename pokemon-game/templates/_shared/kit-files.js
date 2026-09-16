@@ -14,7 +14,7 @@ const CORE = [
   'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/modules.js',
   'js/kit/core/pixels.js', 'js/kit/core/assets.js',
   'js/kit/core/input.js', 'js/kit/core/audio.js', 'js/kit/core/storage.js',
-  'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js',
+  'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js', 'js/kit/world/cast.js',
   'js/kit/script/text.js', 'js/kit/script/conditions.js', 'js/kit/script/commands.js',
   'js/kit/script/screenplay.js', 'js/kit/script/interpreter.js',
   'js/kit/world/map.js', 'js/kit/world/entities.js', 'js/kit/world/world.js', 'js/kit/systems/index.js',
@@ -34,7 +34,8 @@ const ART = [
 const EDITOR = [
   'js/kit/editor/ops.js', 'js/kit/editor/editor.js', 'js/kit/editor/tools.js', 'js/kit/editor/inspector.js',
   'js/kit/editor/panels-map.js', 'js/kit/editor/panels-objects.js', 'js/kit/editor/script-editor.js',
-  'js/kit/editor/panels-writing.js', 'js/kit/editor/panels-project.js', 'js/kit/editor/integration.js',
+  'js/kit/editor/panels-writing.js', 'js/kit/editor/panels-project.js', 'js/kit/editor/panel-cast.js',
+  'js/kit/editor/integration.js',
 ];
 
 /** The entry point. Always last. */

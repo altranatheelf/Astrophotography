@@ -28,6 +28,9 @@
     // loaded from a slot, or one written before the module existed. A module's
     // own code can then assume `save.modules.<key>` is there and current.
     if (KIT.modules && KIT.modules.ensureSaves) KIT.modules.ensureSaves(save);
+    // The cast as it was written — who has met whom, who already knows what —
+    // goes into the save once, and everything that happens after is the save's.
+    if (KIT.cast && KIT.cast.start) KIT.cast.start(project, save);
 
     const world = {
       project, save, events, rng, ports,

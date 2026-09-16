@@ -161,6 +161,9 @@
   S.meta = function () { return metaCache || (metaCache = Object.assign({}, DEFAULT_META)); };
   S.saveMeta = function (patch) {
     metaCache = Object.assign({}, S.meta(), patch || {});
+    // null forgets a key rather than remembering the word "null" — the `forget`
+    // half of the @remember command.
+    for (const k of Object.keys(patch || {})) if (patch[k] === null && !(k in DEFAULT_META)) delete metaCache[k];
     return S.set(key('meta'), metaCache).then(() => metaCache);
   };
 

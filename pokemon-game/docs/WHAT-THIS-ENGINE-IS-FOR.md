@@ -56,14 +56,16 @@ Maker: a Windows desktop application.*
 | Creator Mode: paint, place, write, play here, on a phone | **done** |
 | Import from Tiled, RPG Maker MV, Aseprite | **done** |
 | Save and project formats with migrations | **done** |
-| Runs remembered across New Game (the `meta` section) | **partly** — stored, not yet exposed to authors |
-| Atmosphere: light, fog, grain, vignette, letterbox, palette | **in progress** |
-| Camera: zoom, anchor, pan, look-at, framing | **in progress** |
-| Parallax layers | **in progress** |
-| Scenes that run at once (`meanwhile`) | **in progress** |
-| Layers of reality (map variants, swap as a verb) | next |
-| Cast: people, relationships, knowledge | next |
+| Atmosphere: light, fog, grain, vignette, letterbox, palette | **done** — real light sources, composited on their own layer |
+| Camera: zoom, anchor, pan, look-at, framing | **done** |
+| Scenes that run at once (`meanwhile`) | **done** |
+| Layers of reality (map variants, shifting as a verb) | **done** |
+| Markers: things drawn on the map that are not in it | **done** |
+| One clock: the day, the hour, and the gap between sessions | **done** |
+| Runs remembered across New Game (the `meta` section) | **done** — `@remember`, the `meta` condition, `{meta:key}` in a line |
+| Cast: people, relationships, knowledge | **done** — and a panel that draws the graph |
 | The archive: documents, recordings, photographs | next |
+| Parallax layers | next |
 | Project sync between phone and laptop | next |
 
 ## The rule

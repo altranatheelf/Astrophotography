@@ -476,6 +476,13 @@ textarea.is-bad { border-color: #b03434; }
 .ed-chip.is-preset { background: #1d2c47; border-color: #3d5c8f; }
 /* A module this project asks for that is not on the page. */
 .ed-chip-warn { border-color: #8f5c3d; color: #e8c3a8; }
+.ed-kv-num { flex: 0 0 auto; min-width: 34px; text-align: right; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #c3cfe2; }
+/* A feeling, from hostile through nothing in particular to close. The middle is
+   zero, so the bar grows left or right from there. */
+.ed-feel { position: relative; flex: 1 1 auto; min-width: 60px; height: 6px; border-radius: 3px; background: #1a212d; overflow: hidden; }
+.ed-feel-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.ed-feel-fill.is-warm { background: linear-gradient(90deg, #4f8bf0, #7fe0a0); }
+.ed-feel-fill.is-cold { background: linear-gradient(90deg, #e07f7f, #8f5c6d); }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
@@ -1230,6 +1237,18 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     },
     default(f) { return f.default != null ? KIT.deepClone(f.default) : {}; },
   });
+  /** A table of numbers: `feels`, and anything else that is id → how much. */
+  S.defineType('numbers', {
+    validate(f, v, ctx, path, errors) {
+      if (!KIT.isObject(v)) return err(errors, path, 'must be a table of numbers', 'type');
+      for (const k of Object.keys(v)) {
+        if (!isNum(v[k])) { err(errors, path.concat(k), 'must be a number', 'type'); continue; }
+        if (f.min != null && v[k] < f.min) err(errors, path.concat(k), `must be at least ${f.min}`, 'min');
+        if (f.max != null && v[k] > f.max) err(errors, path.concat(k), `must be at most ${f.max}`, 'max');
+      }
+    },
+    default(f) { return f.default != null ? KIT.deepClone(f.default) : {}; },
+  });
   // script / condition: minimal handlers; commands.js / conditions.js install the real ones.
   S.defineType('script', {
     validate(f, v, ctx, path, errors) {
@@ -1452,6 +1471,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   S.registryRefKind('preset', 'presets');
   S.projectRefKind('map', 'maps');
   S.projectRefKind('item', 'items');
+  S.projectRefKind('cast', 'cast');        // a person in the story
+  S.projectRefKind('fact', 'facts');       // a thing that can be known
   S.projectRefKind('script', 'scripts');
   S.refKind('var', {  // undeclared vars are allowed (null = unknown); the validator warns separately
     has(id, ctx) { const p = ctx && ctx.project; if (!p || !p.vars) return null; return Object.prototype.hasOwnProperty.call(p.vars, id) ? true : null; },
@@ -3042,6 +3063,9 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   S.meta = function () { return metaCache || (metaCache = Object.assign({}, DEFAULT_META)); };
   S.saveMeta = function (patch) {
     metaCache = Object.assign({}, S.meta(), patch || {});
+    // null forgets a key rather than remembering the word "null" — the `forget`
+    // half of the @remember command.
+    for (const k of Object.keys(patch || {})) if (patch[k] === null && !(k in DEFAULT_META)) delete metaCache[k];
     return S.set(key('meta'), metaCache).then(() => metaCache);
   };
 
@@ -3541,6 +3565,29 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     hero: [idField('id'), { key: 'name', type: 'string', default: 'Player' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
     var: [{ key: 'type', type: 'enum', options: ['number', 'bool', 'string'], default: 'number' }, { key: 'label', type: 'string' }, { key: 'group', type: 'string' }],
+    // The cast: who is in this story, as people rather than as sprites on maps.
+    // An NPC on a map may BE one of these (`object.props.who`), or may not be
+    // anybody in particular; somebody in the cast need never appear on a map.
+    person: [
+      idField('id'), { key: 'name', type: 'string', default: '' },
+      { key: 'pronouns', type: 'string', default: '', doc: 'they/them — for the {they:who} tags' },
+      { key: 'sprite', type: 'ref:sprite' }, { key: 'face', type: 'ref:face' },
+      { key: 'group', type: 'string', doc: 'Family, the village, the other place…' },
+      { key: 'met', type: 'bool', default: false, doc: 'Do we know them before the game starts?' },
+      { key: 'knows', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Knows from the start' },
+      { key: 'feels', type: 'numbers', default: {}, label: 'Feels about', doc: 'castId → −100..100' },
+      { key: 'tags', type: 'list', of: { type: 'string' }, default: [] },
+      { key: 'note', type: 'note' },
+    ],
+    // A fact is a thing that can be KNOWN. Declaring one is optional — telling
+    // somebody an undeclared fact works — but a declared one has a label the
+    // editor can show you, which is the difference between a cast and a pile of
+    // switches.
+    fact: [
+      idField('id'), { key: 'label', type: 'string', default: '' },
+      { key: 'secret', type: 'bool', default: false, doc: 'Hide the label in panels that a player might see' },
+      { key: 'group', type: 'string' }, { key: 'note', type: 'note' },
+    ],
     asset: [
       { key: 'kind', type: 'enum', options: ['image'], default: 'image' },
       { key: 'src', type: 'string', default: '', doc: 'A path next to the page, or a data: URI' },
@@ -3915,6 +3962,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});
     p.vars = {}; if (isObj(src.vars)) for (const k of Object.keys(src.vars)) p.vars[k] = P.fillVar(src.vars[k], k);
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
+    p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
+    p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
     p.assets = {}; if (isObj(src.assets)) for (const k of Object.keys(src.assets)) p.assets[k] = S.fill(F.asset, isObj(src.assets[k]) ? src.assets[k] : {});
     p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) p.scripts[k] = P.fillScript(src.scripts[k], k);
     p.fragments = (Array.isArray(src.fragments) ? src.fragments : []).map((f, i) => { const o = S.fill(F.fragment, isObj(f) ? f : {}); if (!o.id) o.id = `fragment-${i + 1}`; return o; });
@@ -4886,6 +4935,279 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
+<script>
+// ---- js/kit/world/cast.js ----
+// KIT.cast (§8.7): the people in the story, what they know, and what they feel
+// about each other.
+//
+// Switches do not scale to this. "Mira mentions the orchard, but only if she has
+// heard about it, and only from someone she trusts, and not in front of Wren"
+// is four switches per fact per person in RPG Maker, counted by hand, and it
+// rots the first time you rename anything. Here it is three tables:
+//
+//   project.cast    who exists                { id, name, face, sprite, pronouns, knows[], feels{}, tags[] }
+//   project.facts   what can be known         { id, label, note, secret }
+//   save.cast       who knows what, now       { met, knows:{ fact: { at, from } }, feels:{ who: n } }
+//
+// and four questions a page can ask: do they know this, how do they feel about
+// somebody, have we met, who else knows.
+//
+// The engine models it and gets out of the way. It has no opinion about what a
+// fact means, what a feeling of 40 is, or whether knowing something is good.
+//
+//   KIT.cast.tell(save, 'mira', 'the-orchard', { from: 'wren' })
+//   KIT.cast.knows(save, 'mira', 'the-orchard')       -> { at, from } | null
+//   KIT.cast.feel(save, 'mira', 'wren', +10)          -> the new number
+//   KIT.cast.whoKnows(project, save, 'the-orchard')   -> ['wren', 'mira']
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const C = KIT.cast = KIT.cast || {};
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+  /** How a feeling is scored. The middle is nothing in particular. */
+  C.FEELING_MIN = -100;
+  C.FEELING_MAX = 100;
+  /** Named bands, so content and panels can say a word instead of a number. */
+  C.BANDS = [
+    { id: 'hostile', label: 'Hostile', upTo: -60 },
+    { id: 'wary', label: 'Wary', upTo: -20 },
+    { id: 'neutral', label: 'Neutral', upTo: 19 },
+    { id: 'warm', label: 'Warm', upTo: 59 },
+    { id: 'close', label: 'Close', upTo: 100 },
+  ];
+  /** band(n) -> { id, label } */
+  C.band = function (n) {
+    const v = KIT.clamp(num(n, 0), C.FEELING_MIN, C.FEELING_MAX);
+    for (const b of C.BANDS) if (v <= b.upTo) return b;
+    return C.BANDS[C.BANDS.length - 1];
+  };
+
+  // ---- the save side ---------------------------------------------------------
+  /** section(save) -> save.cast, created if it is not there. */
+  C.section = function (save) {
+    if (!isObj(save)) return {};
+    if (!isObj(save.cast)) save.cast = {};
+    return save.cast;
+  };
+  /** of(save, who) -> that person's record, created if it is not there. */
+  C.of = function (save, who) {
+    const s = C.section(save);
+    const id = String(who || '');
+    if (!id) return { met: false, knows: {}, feels: {} };
+    if (!isObj(s[id])) s[id] = { met: false, knows: {}, feels: {} };
+    const r = s[id];
+    if (!isObj(r.knows)) r.knows = {};
+    if (!isObj(r.feels)) r.feels = {};
+    return r;
+  };
+
+  /**
+   * start(project, save) — put the starting knowledge and feelings from
+   * `project.cast` into the save, without touching anything already there.
+   * Called when a world is made, so a new game begins with the cast as written
+   * and a loaded one keeps what has happened since.
+   */
+  C.start = function (project, save) {
+    const people = (project && project.cast) || {};
+    for (const id of Object.keys(people)) {
+      const def = people[id] || {};
+      const rec = C.of(save, id);
+      if (rec.started) continue;
+      rec.started = true;
+      for (const fact of def.knows || []) {
+        if (!rec.knows[fact]) rec.knows[fact] = { at: null, from: null };
+      }
+      for (const other of Object.keys(def.feels || {})) {
+        if (rec.feels[other] === undefined) rec.feels[other] = num(def.feels[other], 0);
+      }
+      if (def.met) rec.met = true;
+    }
+    return save;
+  };
+
+  // ---- knowing ---------------------------------------------------------------
+  /**
+   * tell(save, who, fact, opts) -> bool — true if this is NEWS to them.
+   *
+   * `opts.from` is who told them (a cast id, a hero id, or left out for
+   * "they worked it out"). `opts.at` is when, in the clock's absolute minutes,
+   * so a line can say "you told me that yesterday".
+   */
+  C.tell = function (save, who, fact, opts) {
+    const id = String(fact || '');
+    if (!id) return false;
+    const rec = C.of(save, who);
+    if (rec.knows[id]) return false;
+    const o = opts || {};
+    rec.knows[id] = {
+      at: o.at === undefined ? (save && save.clock ? ((Math.max(1, num(save.clock.day, 1)) - 1) * 1440 + num(save.clock.minutes, 0)) : null) : o.at,
+      from: o.from === undefined ? null : (o.from || null),
+    };
+    return true;
+  };
+  /** forget(save, who, fact) -> bool — they no longer know it. */
+  C.forget = function (save, who, fact) {
+    const rec = C.of(save, who);
+    const id = String(fact || '');
+    if (!rec.knows[id]) return false;
+    delete rec.knows[id];
+    return true;
+  };
+  /** knows(save, who, fact) -> { at, from } | null */
+  C.knows = function (save, who, fact) {
+    const s = C.section(save)[String(who || '')];
+    const k = s && s.knows && s.knows[String(fact || '')];
+    return k || null;
+  };
+  /** known(save, who) -> [factId] — everything this person knows. */
+  C.known = function (save, who) {
+    const s = C.section(save)[String(who || '')];
+    return s && s.knows ? Object.keys(s.knows) : [];
+  };
+  /** whoKnows(project, save, fact) -> [castId] — everybody who knows it, in cast order. */
+  C.whoKnows = function (project, save, fact) {
+    const id = String(fact || '');
+    const order = Object.keys((project && project.cast) || {});
+    const seen = C.section(save);
+    const out = order.filter(who => seen[who] && seen[who].knows && seen[who].knows[id]);
+    for (const who of Object.keys(seen)) {
+      if (out.includes(who)) continue;
+      if (seen[who] && seen[who].knows && seen[who].knows[id]) out.push(who);
+    }
+    return out;
+  };
+
+  /**
+   * spread(save, from, to, opts) -> [factId] — everything `from` knows that `to`
+   * did not. This is gossip, and it is deliberately a thing content asks for
+   * rather than something that happens by itself: people tell each other things
+   * when the story says they did.
+   *
+   * `opts.only` limits it to certain facts; `opts.not` holds some back.
+   */
+  C.spread = function (save, from, to, opts) {
+    const o = opts || {};
+    const only = o.only ? [].concat(o.only) : null;
+    const not = o.not ? [].concat(o.not) : [];
+    const told = [];
+    for (const fact of C.known(save, from)) {
+      if (only && !only.includes(fact)) continue;
+      if (not.includes(fact)) continue;
+      if (C.tell(save, to, fact, { from, at: o.at })) told.push(fact);
+    }
+    return told;
+  };
+
+  // ---- feeling ---------------------------------------------------------------
+  /** feels(save, who, about) -> a number from -100 to 100. Nobody starts with an opinion. */
+  C.feels = function (save, who, about) {
+    const s = C.section(save)[String(who || '')];
+    const v = s && s.feels ? s.feels[String(about || '')] : undefined;
+    return num(v, 0);
+  };
+  /** feel(save, who, about, delta) -> the new number. */
+  C.feel = function (save, who, about, delta) {
+    const rec = C.of(save, who);
+    const key = String(about || '');
+    const next = KIT.clamp(num(rec.feels[key], 0) + num(delta, 0), C.FEELING_MIN, C.FEELING_MAX);
+    rec.feels[key] = next;
+    return next;
+  };
+  /** setFeeling(save, who, about, value) -> the new number. */
+  C.setFeeling = function (save, who, about, value) {
+    const rec = C.of(save, who);
+    const next = KIT.clamp(num(value, 0), C.FEELING_MIN, C.FEELING_MAX);
+    rec.feels[String(about || '')] = next;
+    return next;
+  };
+  /**
+   * mutual(save, a, b) -> { ab, ba, both } — how they feel about each other and
+   * the lower of the two, because a friendship is only as warm as its cooler half.
+   */
+  C.mutual = function (save, a, b) {
+    const ab = C.feels(save, a, b), ba = C.feels(save, b, a);
+    return { ab, ba, both: Math.min(ab, ba) };
+  };
+
+  // ---- meeting ---------------------------------------------------------------
+  /** meet(save, who) -> bool — true the first time. */
+  C.meet = function (save, who) {
+    const rec = C.of(save, who);
+    if (rec.met) return false;
+    rec.met = true;
+    return true;
+  };
+  /** met(save, who) -> bool */
+  C.met = function (save, who) { const s = C.section(save)[String(who || '')]; return !!(s && s.met); };
+
+  // ---- reading the content ----------------------------------------------------
+  /** person(project, who) -> the cast entry, or null. */
+  C.person = function (project, who) {
+    const t = (project && project.cast) || {};
+    return t[String(who || '')] || null;
+  };
+  /** nameOf(project, who) -> what to call them on screen. */
+  C.nameOf = function (project, who) {
+    const p = C.person(project, who);
+    return (p && p.name) || String(who || '');
+  };
+  /** fact(project, id) -> the fact entry, or null. */
+  C.fact = function (project, id) {
+    const t = (project && project.facts) || {};
+    return t[String(id || '')] || null;
+  };
+  /** labelOfFact(project, id) -> what to call it while writing. */
+  C.labelOfFact = function (project, id) {
+    const f = C.fact(project, id);
+    return (f && f.label) || String(id || '');
+  };
+
+  /**
+   * graph(project, save) -> what to draw while writing:
+   *   people[]  { id, name, met, knows[{ id, label, from, at }], feels[{ id, name, value, band }] }
+   *   facts[]   { id, label, secret, knownBy[] }
+   * The point of a cast is being able to SEE it, so this is the engine's job and
+   * not the panel's.
+   */
+  C.graph = function (project, save) {
+    const cast = (project && project.cast) || {};
+    const facts = (project && project.facts) || {};
+    const ids = Object.keys(cast);
+    const people = ids.map((id) => {
+      const rec = C.section(save)[id] || { knows: {}, feels: {} };
+      return {
+        id,
+        name: C.nameOf(project, id),
+        met: !!rec.met,
+        knows: Object.keys(rec.knows || {}).map(f => ({
+          id: f, label: C.labelOfFact(project, f),
+          from: (rec.knows[f] && rec.knows[f].from) || null,
+          at: (rec.knows[f] && rec.knows[f].at) == null ? null : rec.knows[f].at,
+        })),
+        feels: Object.keys(rec.feels || {}).map(other => ({
+          id: other, name: C.nameOf(project, other),
+          value: num(rec.feels[other], 0), band: C.band(rec.feels[other]),
+        })).sort((a, b) => b.value - a.value),
+      };
+    });
+    const factIds = Array.from(new Set(Object.keys(facts).concat(
+      [].concat(...people.map(p => p.knows.map(k => k.id))))));
+    return {
+      people,
+      facts: factIds.map(id => ({
+        id, label: C.labelOfFact(project, id),
+        secret: !!(facts[id] && facts[id].secret),
+        declared: !!facts[id],
+        knownBy: C.whoKnows(project, save, id),
+      })),
+    };
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 
 <!-- Script language -->
 <script>
@@ -4973,6 +5295,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       self: (obj && obj.self) || {},
       items: project.items || {},
       args: ctx.args || {},
+      meta: (KIT.storage && KIT.storage.meta) ? KIT.storage.meta() : (save.meta || {}),
+      project,                      // the cast tags read project.cast
     };
   };
 
@@ -4997,7 +5321,33 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     self: (ctx, arg) => fmt(ctx.self && ctx.self[arg]),
     item: (ctx, arg) => { const it = ctx.items && ctx.items[arg]; return it && it.name != null ? String(it.name) : fmt(arg); },
     arg: (ctx, arg) => fmt(ctx.args && ctx.args[arg]),
+    // What survives New Game: {meta:runs}, {meta:lastEnding}, anything @remember
+    // has written. This is how somebody opens with “you were here before”.
+    meta: (ctx, arg) => {
+      const v = ctx.meta && ctx.meta[arg];
+      return Array.isArray(v) ? v.join(', ') : fmt(v);
+    },
+    // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
+    // are her pronouns, so a line can be written once for anybody.
+    who: (ctx, arg) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),
+    they: (ctx, arg) => pronoun(ctx, arg, 0, 'they'),
+    them: (ctx, arg) => pronoun(ctx, arg, 1, 'them'),
+    their: (ctx, arg) => pronoun(ctx, arg, 2, 'their'),
   });
+
+  /**
+   * A person's `pronouns` field is written the way people write it — 'she/her',
+   * 'they/them', 'he/him/his'. Slot 2 (the possessive) is worked out when it is
+   * not given, because most people only write two.
+   */
+  const POSSESSIVE = { they: 'their', she: 'her', he: 'his', it: 'its', ze: 'zir', xe: 'xyr' };
+  function pronoun(ctx, who, slot, fallback) {
+    const p = KIT.cast && KIT.cast.person ? KIT.cast.person(ctx.project, who) : null;
+    const parts = String((p && p.pronouns) || '').split('/').map(x => x.trim()).filter(Boolean);
+    if (parts[slot]) return parts[slot];
+    if (slot === 2 && parts[0]) return POSSESSIVE[parts[0].toLowerCase()] || (parts[1] ? parts[1] : fallback);
+    return fallback;
+  }
 
   const TAG = /\{\{|\}\}|\{([a-zA-Z_][\w-]*)(?::([^{}]*))?\}/g;
   /** substitute(str, ctx) -> str with template tags replaced. Escaped braces ({{ }}) are kept for tokenize(); codes are untouched. */
@@ -5336,7 +5686,17 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     return o && o.self ? o.self[key] : undefined;
   };
   C.count = (ctx, id) => Number((save(ctx).inventory || {})[id]) || 0;
-  C.meta = (ctx) => save(ctx).meta || (ctx && ctx.world && ctx.world.meta) || {};
+  /**
+   * The meta record: what the game remembers about the PLAYER rather than about
+   * the run — how many times they have started, what they called themselves,
+   * which endings they have reached. It lives in storage, beside the saves and
+   * outside all of them, which is what makes it survive New Game. A context may
+   * carry its own (a test, a tool with no storage around it).
+   */
+  C.meta = function (ctx) {
+    if (KIT.storage && typeof KIT.storage.meta === 'function') return KIT.storage.meta();
+    return save(ctx).meta || (ctx && ctx.world && ctx.world.meta) || {};
+  };
 
   /** compare(a, op, b): tolerant of undefined (reads as 0/false/'') and numeric strings. */
   C.compare = function (a, op, b) {
@@ -5490,6 +5850,57 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       fields: [{ key: 'key', type: 'string', min: 1 }, opField('>='), { key: 'value', type: 'scalar', default: 1 }],
       test(c, ctx) { return C.compare(C.meta(ctx)[c.key], c.op, c.value); },
       describe(c) { return `meta.${c.key} ${SYM[c.op] || c.op || '='} ${fmtValue(c.value)}`; },
+    },
+    // ---- the cast: what people know and how they feel ------------------------
+    {
+      id: 'knows', label: 'Knows', group: 'Cast', doc: 'Somebody in the cast has heard this.',
+      fields: [
+        { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+        { key: 'fact', type: 'ref:fact', nullable: false, label: 'Knows about' },
+        { key: 'from', type: 'ref:cast', nullable: true, default: null, label: 'Told by', doc: 'Blank: it does not matter who told them' },
+      ],
+      test(c, ctx) {
+        const k = KIT.cast && KIT.cast.knows(save(ctx), c.who, c.fact);
+        if (!k) return false;
+        return c.from ? k.from === c.from : true;
+      },
+      describe(c, ctx) {
+        const K = KIT.cast || {};
+        const who = K.nameOf ? K.nameOf(ctx && ctx.project, c.who) : c.who;
+        const what = K.labelOfFact ? K.labelOfFact(ctx && ctx.project, c.fact) : c.fact;
+        return `${who} knows about ${what}${c.from ? `, from ${K.nameOf ? K.nameOf(ctx && ctx.project, c.from) : c.from}` : ''}`;
+      },
+    },
+    {
+      id: 'feels', label: 'Feels', group: 'Cast', doc: 'How somebody feels about somebody else (−100 to 100).',
+      fields: [
+        { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+        { key: 'about', type: 'ref:cast', nullable: false, label: 'About' },
+        opField('>='),
+        { key: 'value', type: 'number', integer: true, min: -100, max: 100, default: 20 },
+        { key: 'mutual', type: 'bool', default: false, doc: 'Both of them have to feel it' },
+      ],
+      test(c, ctx) {
+        if (!KIT.cast) return false;
+        const s = save(ctx);
+        const v = c.mutual ? KIT.cast.mutual(s, c.who, c.about).both : KIT.cast.feels(s, c.who, c.about);
+        return C.compare(v, c.op, c.value);
+      },
+      describe(c, ctx) {
+        const K = KIT.cast || {};
+        const name = (id) => (K.nameOf ? K.nameOf(ctx && ctx.project, id) : id);
+        const band = K.band ? K.band(c.value).label.toLowerCase() : c.value;
+        return `${name(c.who)}${c.mutual ? ' and ' + name(c.about) : ' feels'} ${SYM[c.op] || c.op || '='} ${band} ${c.mutual ? 'about each other' : 'about ' + name(c.about)}`;
+      },
+    },
+    {
+      id: 'met', label: 'Met', group: 'Cast', doc: 'We have met this person.',
+      fields: [{ key: 'who', type: 'ref:cast', nullable: false, label: 'Who' }, { key: 'is', type: 'bool', default: true }],
+      test(c, ctx) { return !!(KIT.cast && KIT.cast.met(save(ctx), c.who)) === (c.is !== false); },
+      describe(c, ctx) {
+        const who = KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, c.who) : c.who;
+        return c.is === false ? `we have not met ${who}` : `we have met ${who}`;
+      },
     },
     {
       id: 'clock', label: 'Time of day', group: 'World', doc: 'In-game minute of the day is within from..to (wraps past midnight).',
@@ -6084,6 +6495,222 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       default: return v;
     }
   }
+  // ---- the cast: telling people things, and how they take it ------------------
+  // A story where somebody's line changes because of what they learned three
+  // scenes ago needs these four commands and nothing else. What a fact MEANS is
+  // the author's business; the engine only knows who has heard it.
+  defs.push({
+    id: 'tell', label: 'Tell', group: 'Cast', icon: 'say', blocking: false, background: true,
+    doc: 'Somebody learns something. Read it back with the Knows condition. Telling them twice changes nothing — they already knew.',
+    fields: [
+      { key: 'who', type: 'ref:cast', nullable: false, label: 'Who learns it' },
+      { key: 'fact', type: 'ref:fact', nullable: false, label: 'What' },
+      { key: 'forget', type: 'bool', default: false, label: 'Forget it instead' },
+      { key: 'from', type: 'ref:cast', nullable: true, default: null, label: 'Told by',
+        when: { field: 'forget', eq: false },
+        doc: 'Blank: they worked it out. The Knows condition can ask who told them.' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const news = cmd.forget ? KIT.cast.forget(s, cmd.who, cmd.fact)
+        : KIT.cast.tell(s, cmd.who, cmd.fact, { from: cmd.from || null });
+      if (news && ctx.emit) ctx.emit('castChanged', { who: cmd.who, fact: cmd.fact, forgot: !!cmd.forget });
+    },
+    summary(cmd, ctx) {
+      const K = KIT.cast || {};
+      const who = K.nameOf ? K.nameOf(ctx && ctx.project, cmd.who) : cmd.who;
+      const what = K.labelOfFact ? K.labelOfFact(ctx && ctx.project, cmd.fact) : cmd.fact;
+      if (cmd.forget) return `${who} forgets ${what}`;
+      return `${who} learns ${what}${cmd.from ? ` from ${K.nameOf ? K.nameOf(ctx && ctx.project, cmd.from) : cmd.from}` : ''}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.who || '') || !V.WORD.test(cmd.fact || '')) return null;
+        if (cmd.forget) return cmd.from ? null : `@tell ${cmd.who} forgets ${cmd.fact}`;   // “forgot it, from” means nothing
+        return `@tell ${cmd.who} ${cmd.fact}${cmd.from ? ` from ${cmd.from}` : ''}`;
+      },
+      fromLine(line) {
+        let m = /^@tell\s+(\S+)\s+forgets\s+(\S+)$/.exec(line.trim());
+        if (m) return { t: 'tell', who: m[1], fact: m[2], forget: true };
+        m = /^@tell\s+(\S+)\s+(\S+)(?:\s+from\s+(\S+))?$/.exec(line.trim());
+        if (!m) return null;
+        const cmd = { t: 'tell', who: m[1], fact: m[2] };
+        if (m[3]) cmd.from = m[3];
+        return cmd;
+      },
+    },
+  });
+
+  defs.push({
+    id: 'spread', label: 'Word Gets Around', group: 'Cast', icon: 'say', blocking: false, background: true,
+    doc: 'Everything one person knows, passed to another. Gossip happens because the story says it did, never by itself.',
+    fields: [
+      { key: 'from', type: 'ref:cast', nullable: false, label: 'From' },
+      { key: 'to', type: 'ref:cast', nullable: false, label: 'To' },
+      { key: 'only', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Only these', doc: 'Empty: everything they know' },
+      { key: 'not', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Except these' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const told = KIT.cast.spread(s, cmd.from, cmd.to, {
+        only: (cmd.only || []).length ? cmd.only : null,
+        not: cmd.not || [],
+      });
+      if (told.length && ctx.emit) ctx.emit('castChanged', { who: cmd.to, from: cmd.from, facts: told });
+    },
+    summary(cmd, ctx) {
+      const name = (id) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, id) : id);
+      const what = (cmd.only || []).length ? `${cmd.only.length} thing(s)` : 'everything they know';
+      return `${name(cmd.from)} tells ${name(cmd.to)} ${what}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.from || '') || !V.WORD.test(cmd.to || '')) return null;
+        if ((cmd.only || []).length || (cmd.not || []).length) return null;    // the long form stays a card
+        return `@spread ${cmd.from} to ${cmd.to}`;
+      },
+      fromLine(line) {
+        const m = /^@spread\s+(\S+)\s+to\s+(\S+)$/.exec(line.trim());
+        return m ? { t: 'spread', from: m[1], to: m[2] } : null;
+      },
+    },
+  });
+
+  defs.push({
+    id: 'feel', label: 'Feel', group: 'Cast', icon: 'heart', blocking: false, background: true,
+    doc: 'Move how somebody feels about somebody else, from −100 to 100.',
+    fields: [
+      { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+      { key: 'about', type: 'ref:cast', nullable: false, label: 'About' },
+      { key: 'op', type: 'enum', options: ['by', 'set'], default: 'by' },
+      { key: 'value', type: 'number', integer: true, min: -200, max: 200, default: 10 },
+      { key: 'both', type: 'bool', default: false, label: 'Both ways', doc: 'The same change in the other direction too' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const move = (a, b) => (cmd.op === 'set' ? KIT.cast.setFeeling(s, a, b, cmd.value) : KIT.cast.feel(s, a, b, cmd.value));
+      const v = move(cmd.who, cmd.about);
+      if (cmd.both) move(cmd.about, cmd.who);
+      if (ctx.emit) ctx.emit('castChanged', { who: cmd.who, about: cmd.about, feels: v });
+    },
+    summary(cmd, ctx) {
+      const name = (id) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, id) : id);
+      const n = Number(cmd.value) || 0;
+      if (cmd.op === 'set') return `${name(cmd.who)} feels ${n} about ${name(cmd.about)}`;
+      return `${name(cmd.who)} ${cmd.both ? 'and ' + name(cmd.about) + ' warm' : 'warms'} ${n < 0 ? 'down' : 'up'} by ${Math.abs(n)}${cmd.both ? ' to each other' : ' to ' + name(cmd.about)}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.who || '') || !V.WORD.test(cmd.about || '')) return null;
+        const n = Number(cmd.value) || 0;
+        const arrow = cmd.both ? '<->' : '->';
+        if (cmd.op === 'set') return `@feel ${cmd.who} ${arrow} ${cmd.about} = ${n}`;
+        return `@feel ${cmd.who} ${arrow} ${cmd.about} ${n < 0 ? '-=' : '+='} ${Math.abs(n)}`;
+      },
+      fromLine(line) {
+        const m = /^@feel\s+(\S+)\s+(<->|->)\s+(\S+)\s*(=|\+=|-=)\s*(-?\d+)$/.exec(line.trim());
+        if (!m) return null;
+        const n = Number(m[5]);
+        return {
+          t: 'feel', who: m[1], about: m[3], both: m[2] === '<->',
+          op: m[4] === '=' ? 'set' : 'by',
+          value: m[4] === '-=' ? -n : n,
+        };
+      },
+    },
+  });
+
+  defs.push({
+    id: 'meet', label: 'Meet', group: 'Cast', icon: 'npc', blocking: false, background: true,
+    doc: 'We have met this person. The Met condition is how a page knows whether to introduce them.',
+    fields: [{ key: 'who', type: 'ref:cast', nullable: false, label: 'Who' }],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      if (KIT.cast.meet(s, cmd.who) && ctx.emit) ctx.emit('castChanged', { who: cmd.who, met: true });
+    },
+    summary(cmd, ctx) { return `we meet ${KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, cmd.who) : cmd.who}`; },
+    text: {
+      toLine(cmd) { return V.WORD.test(cmd.who || '') ? `@meet ${cmd.who}` : null; },
+      fromLine(line) { const m = /^@meet\s+(\S+)$/.exec(line.trim()); return m ? { t: 'meet', who: m[1] } : null; },
+    },
+  });
+
+  // ---- what survives New Game ------------------------------------------------
+  // A story variable is forgotten the moment somebody starts again. The meta
+  // record is not: it is the game's memory of the PLAYER rather than of the run,
+  // and it is where “you were here before” comes from. Read it with the `meta`
+  // condition or with {meta:key} in a line; write it only here.
+  defs.push({
+    id: 'remember', label: 'Remember', group: 'Progression', icon: 'var', blocking: false, background: true,
+    doc: 'Write something the game keeps across New Game — an ending reached, a name used, a count. Read it back with the Meta condition or {meta:key} in a line.',
+    fields: [
+      { key: 'key', type: 'string', min: 1, label: 'What to remember',
+        doc: 'Your own name for it. The engine keeps `runs`, `firstPlayed`, `endingsSeen` and `namesUsed` of its own.' },
+      { key: 'op', type: 'enum', options: ['set', 'add', 'count', 'forget'], default: 'set', label: 'How',
+        doc: 'set: one value · add: put it in a list, once · count: add to a number · forget: remove it' },
+      { key: 'value', type: 'scalar', default: '', when: { field: 'op', in: ['set', 'add'] } },
+      { key: 'by', type: 'number', default: 1, when: { field: 'op', eq: 'count' } },
+    ],
+    async run(ctx, cmd) {
+      const store = KIT.storage;
+      if (!store || typeof store.meta !== 'function') return;
+      const key = String(cmd.key || '').trim();
+      if (!key) return;
+      const meta = store.meta();
+      const op = cmd.op || 'set';
+      let value;
+      if (op === 'forget') value = null;
+      else if (op === 'count') value = (Number(meta[key]) || 0) + (Number(cmd.by) == null ? 1 : Number(cmd.by) || 0);
+      else if (op === 'add') {
+        const list = Array.isArray(meta[key]) ? meta[key].slice() : (meta[key] == null ? [] : [meta[key]]);
+        const v = T.substitute(cmd.value == null ? '' : cmd.value, ctx);
+        if (!list.includes(v)) list.push(v);
+        value = list;
+      } else {
+        value = typeof cmd.value === 'string' ? T.substitute(cmd.value, ctx) : cmd.value;
+      }
+      const patch = {};
+      patch[key] = value;
+      await store.saveMeta(patch);
+      if (ctx.emit) ctx.emit('metaChanged', { key, value });
+    },
+    summary(cmd) {
+      const op = cmd.op || 'set';
+      if (op === 'forget') return `forget ${cmd.key}`;
+      if (op === 'count') return `${cmd.key} counts up by ${cmd.by == null ? 1 : cmd.by}`;
+      if (op === 'add') return `remember ${V.format(cmd.value)} in ${cmd.key}`;
+      return `remember ${cmd.key} = ${V.format(cmd.value)}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.key || '')) return null;
+        const op = cmd.op || 'set';
+        if (op === 'forget') return `@remember ${cmd.key} forget`;
+        if (op === 'count') return `@remember ${cmd.key} += ${Number(cmd.by) == null ? 1 : Number(cmd.by) || 0}`;
+        if (op === 'add') return `@remember ${cmd.key} has ${V.format(cmd.value)}`;
+        return `@remember ${cmd.key} = ${V.format(cmd.value)}`;
+      },
+      fromLine(line) {
+        const m = /^@remember\s+(\S+)\s+(.*)$/.exec(line.trim());
+        if (!m) return null;
+        const key = m[1], rest = m[2].trim();
+        if (rest === 'forget') return { t: 'remember', key, op: 'forget' };
+        const read = (text) => { const v = V.scan(text.trim(), 0, ''); return v ? v.value : text.trim(); };
+        const plus = /^\+=\s*(.*)$/.exec(rest);
+        if (plus) return { t: 'remember', key, op: 'count', by: Number(read(plus[1])) || 0 };
+        const has = /^has\s+(.*)$/.exec(rest);
+        if (has) return { t: 'remember', key, op: 'add', value: read(has[1]) };
+        const eq = /^=\s*(.*)$/.exec(rest);
+        if (eq) return { t: 'remember', key, op: 'set', value: read(eq[1]) };
+        return null;
+      },
+    },
+  });
+
   defs.push({
     id: 'setVar', label: 'Control Variables', mv: 'Control Variables', group: 'Progression', icon: 'var', blocking: false, editor: { favourite: true },
     fields: [
@@ -7783,6 +8410,9 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     // loaded from a slot, or one written before the module existed. A module's
     // own code can then assume `save.modules.<key>` is there and current.
     if (KIT.modules && KIT.modules.ensureSaves) KIT.modules.ensureSaves(save);
+    // The cast as it was written — who has met whom, who already knows what —
+    // goes into the save once, and everything that happens after is the save's.
+    if (KIT.cast && KIT.cast.start) KIT.cast.start(project, save);
 
     const world = {
       project, save, events, rng, ports,
@@ -24311,6 +24941,61 @@ PKMN.TILES.register([
     },
   });
 
+  // ---- numbers (key/value rows, and the value is a slider) ----------------------------
+  // `feels` is the one that matters: a row per person, and the number is a
+  // feeling, so it reads better as something you drag than as something you type.
+  FE.add({
+    id: 'numbers', types: ['numbers'],
+    mount(el, f, value, onChange, ctx) {
+      let table = KIT.isObject(value) ? Object.assign({}, value) : {};
+      const lo = f.min == null ? -100 : f.min, hi = f.max == null ? 100 : f.max;
+      const listEl = make('div.ed-list');
+      const commit = () => { onChange(Object.assign({}, table)); paint(); };
+      const choices = () => {
+        const p = ctx && ctx.project;
+        return f.optionsFrom === 'cast' || f.key === 'feels'
+          ? Object.keys((p && p.cast) || {}) : null;
+      };
+      function paint() {
+        clear(listEl);
+        const keys = Object.keys(table);
+        for (const k of keys) {
+          const row = make('div.ed-item.ed-kv');
+          const who = choices();
+          const p = ctx && ctx.project;
+          const name = (who && p && p.cast && p.cast[k] && p.cast[k].name) || k;
+          row.appendChild(make('span.ed-kv-key', { text: name }));
+          const val = make('input.ed-kv-val');
+          val.type = 'range'; val.min = String(lo); val.max = String(hi); val.step = '5';
+          val.value = String(Number(table[k]) || 0);
+          const out = make('span.ed-kv-num', { text: String(Number(table[k]) || 0) });
+          val.oninput = () => { table[k] = Number(val.value); out.textContent = val.value; onChange(Object.assign({}, table)); };
+          row.appendChild(val); row.appendChild(out);
+          row.appendChild(btn('✕', 'Remove', () => { delete table[k]; commit(); }));
+          listEl.appendChild(row);
+        }
+        if (!keys.length) listEl.appendChild(make('div.ed-sub', { text: 'Nobody in particular.' }));
+      }
+      el.appendChild(listEl);
+      const addRow = make('div.ed-row');
+      const who = choices();
+      let pick;
+      if (who) {
+        pick = make('select');
+        for (const id of who) { const o = make('option', { text: (((ctx.project.cast || {})[id] || {}).name) || id }); o.value = id; pick.appendChild(o); }
+      } else { pick = make('input'); pick.type = 'text'; pick.placeholder = 'who'; }
+      addRow.appendChild(pick);
+      addRow.appendChild(btn('＋ Add', 'Add somebody', () => {
+        const k = String(pick.value || '').trim();
+        if (!k || table[k] !== undefined) return;
+        table[k] = 0; commit();
+      }));
+      el.appendChild(addRow);
+      paint();
+      return { set(v) { const next = KIT.isObject(v) ? Object.assign({}, v) : {}; if (!KIT.deepEqual(next, table)) { table = next; paint(); } } };
+    },
+  });
+
   // ---- script ----------------------------------------------------------------------
   /** scriptSummary(commands) -> the first line, the way the Events panel shows a slot. */
   INS.scriptSummary = function (cmds, ctx) {
@@ -28450,6 +29135,174 @@ PKMN.TILES.register([
     bar.appendChild(btn('Cancel', 'Forget this import', () => clear(el.report)));
     el.report.appendChild(bar);
     if (errs.length) el.report.appendChild(make('div.ed-hint.ed-warn', { text: 'There are errors above. Importing anyway is allowed — the project will just have things to fix.' }));
+  }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/editor/panel-cast.js ----
+// Creator Mode — the Cast panel.
+//
+// A cast is only worth having if you can SEE it. This panel is that view: every
+// person, what they know and who told them, how they feel about everybody else,
+// and — the other way round — every fact and who has heard it.
+//
+// It shows the game as it is RIGHT NOW when a game is running, and as it is
+// WRITTEN when one is not, and says which. That distinction is the whole use of
+// it: "Mira should know by now" is a question about the run, and "Mira starts
+// out knowing" is a question about the project.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const ED = KIT.editor = KIT.editor || {};
+  if (!KIT.registry || !KIT.registry.exists('editorPanels')) return;
+
+  const make = (spec, opts) => KIT.ui.make(spec, opts);
+  const clear = (el) => KIT.ui.clear(el);
+  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  function btn(label, title, fn, cls) {
+    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
+    b.type = 'button';
+    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
+    return b;
+  }
+  function section(host, title, open, build) {
+    const box = make('details.ed-sec');
+    box.open = open !== false;
+    box.appendChild(make('summary', { text: title }));
+    const body = make('div.ed-sec-body');
+    box.appendChild(body);
+    host.appendChild(box);
+    build(body);
+    return box;
+  }
+
+  /**
+   * The save to read. A running game's, when there is one: then the panel is a
+   * window into the story as it actually stands. Otherwise an empty one seeded
+   * from the project, which is the story as written.
+   */
+  function saveFor(project) {
+    const live = KIT.game && KIT.game.world && KIT.game.world.save;
+    if (live) return { save: live, live: true };
+    return { save: KIT.cast.start(project, { vars: {} }), live: false };
+  }
+
+  const state = { view: 'people', query: '', open: {} };
+
+  KIT.registry('editorPanels').add({
+    id: 'cast', label: 'Cast', icon: 'npc', order: 56,
+    mount(host) { this._host = host; this.refresh(ED); },
+    refresh(ed) {
+      const host = this._host;
+      if (!host || !KIT.cast) return;
+      const project = ed.state.project;
+      const { save, live } = saveFor(project);
+      const graph = KIT.cast.graph(project, save);
+
+      // Redrawing on every keystroke elsewhere would fight the search box.
+      const sig = JSON.stringify([state.view, state.query, live, graph]);
+      if (sig === this._sig && document.activeElement && host.contains(document.activeElement)) return;
+      this._sig = sig;
+      clear(host);
+
+      host.appendChild(make('div.ed-hint', {
+        text: live
+          ? 'The story as it stands in the game you are playing. Close the game to see it as written.'
+          : 'The story as written: what everyone starts out knowing. Play, and this shows what has happened since.',
+      }));
+
+      const tabs = make('div.ed-chips');
+      for (const [id, label] of [['people', 'People'], ['facts', 'What is known']]) {
+        const c = btn((state.view === id ? '✓ ' : '') + label, null, () => { state.view = id; this._sig = ''; this.refresh(ED); }, 'ed-chip');
+        c.setAttribute('aria-pressed', String(state.view === id));
+        tabs.appendChild(c);
+      }
+      host.appendChild(tabs);
+
+      const search = make('input.ed-obj-search');
+      search.type = 'search';
+      search.placeholder = state.view === 'people' ? 'Find somebody' : 'Find something known';
+      search.value = state.query;
+      search.oninput = () => { state.query = search.value; this._sig = ''; this.refresh(ED); };
+      host.appendChild(search);
+
+      const q = state.query.trim().toLowerCase();
+      if (state.view === 'people') drawPeople(host, project, graph, q, live);
+      else drawFacts(host, project, graph, q);
+
+      if (!graph.people.length) {
+        host.appendChild(make('div.ed-empty', {
+          text: 'Nobody yet. A person is an entry in project.cast — a name, and what they know when the story starts. Add one in the Data panel, or write @tell in a script and come back.',
+        }));
+      }
+    },
+  });
+
+  function drawPeople(host, project, graph, q, live) {
+    const people = graph.people.filter(p => !q || p.name.toLowerCase().includes(q) || p.id.includes(q));
+    for (const person of people) {
+      const def = (project.cast || {})[person.id] || {};
+      const title = `${person.name}${person.met ? '' : ' · not met'}`;
+      const box = section(host, title, state.open[person.id] === true, (body) => {
+        if (def.pronouns) body.appendChild(make('div.ed-sub', { text: def.pronouns }));
+        if (def.group) body.appendChild(make('div.ed-sub', { text: def.group }));
+        if (def.note) body.appendChild(make('div.ed-note-text', { text: def.note }));
+
+        body.appendChild(make('div.ed-panel-title', { text: 'Knows' }));
+        if (!person.knows.length) body.appendChild(make('div.ed-sub', { text: 'Nothing yet.' }));
+        for (const k of person.knows) {
+          const row = make('div.ed-item');
+          row.appendChild(make('span.ed-item-name', { text: k.label }));
+          const from = k.from ? `from ${KIT.cast.nameOf(project, k.from)}` : 'worked it out';
+          row.appendChild(make('span.ed-item-value', { text: from }));
+          body.appendChild(row);
+        }
+
+        body.appendChild(make('div.ed-panel-title', { text: 'Feels' }));
+        if (!person.feels.length) body.appendChild(make('div.ed-sub', { text: 'Nothing about anybody.' }));
+        for (const f of person.feels) {
+          const row = make('div.ed-item');
+          row.appendChild(make('span.ed-item-name', { text: f.name }));
+          const bar = make('span.ed-feel');
+          const fill = make('span.ed-feel-fill');
+          fill.style.width = Math.abs(f.value) / 2 + '%';
+          fill.style.marginLeft = f.value < 0 ? (50 - Math.abs(f.value) / 2) + '%' : '50%';
+          fill.classList.add(f.value < 0 ? 'is-cold' : 'is-warm');
+          bar.appendChild(fill);
+          row.appendChild(bar);
+          row.appendChild(make('span.ed-item-value', { text: `${f.band.label} ${f.value > 0 ? '+' : ''}${f.value}` }));
+          body.appendChild(row);
+        }
+      });
+      box.addEventListener('toggle', () => { state.open[person.id] = box.open; });
+    }
+    if (q && !people.length) host.appendChild(make('div.ed-sub', { text: 'Nobody by that name.' }));
+  }
+
+  function drawFacts(host, project, graph, q) {
+    const facts = graph.facts.filter(f => !q || f.label.toLowerCase().includes(q) || f.id.includes(q));
+    for (const fact of facts) {
+      const row = make('div.ed-item');
+      const name = make('span.ed-item-name', { text: fact.label });
+      if (fact.secret) name.appendChild(make('span.ed-badge', { text: 'secret' }));
+      if (!fact.declared) {
+        const b = make('span.ed-badge.ed-chip-warn', { text: 'not written down' });
+        b.title = 'Somebody knows this, but project.facts has no entry for it, so it has no label of its own.';
+        name.appendChild(b);
+      }
+      row.appendChild(name);
+      row.appendChild(make('span.ed-item-value', {
+        text: fact.knownBy.length
+          ? fact.knownBy.map(id => KIT.cast.nameOf(project, id)).join(', ')
+          : 'nobody knows',
+      }));
+      host.appendChild(row);
+    }
+    if (q && !facts.length) host.appendChild(make('div.ed-sub', { text: 'Nothing by that name.' }));
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

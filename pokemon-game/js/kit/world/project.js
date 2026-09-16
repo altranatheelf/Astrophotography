@@ -65,6 +65,29 @@
     hero: [idField('id'), { key: 'name', type: 'string', default: 'Player' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
     var: [{ key: 'type', type: 'enum', options: ['number', 'bool', 'string'], default: 'number' }, { key: 'label', type: 'string' }, { key: 'group', type: 'string' }],
+    // The cast: who is in this story, as people rather than as sprites on maps.
+    // An NPC on a map may BE one of these (`object.props.who`), or may not be
+    // anybody in particular; somebody in the cast need never appear on a map.
+    person: [
+      idField('id'), { key: 'name', type: 'string', default: '' },
+      { key: 'pronouns', type: 'string', default: '', doc: 'they/them — for the {they:who} tags' },
+      { key: 'sprite', type: 'ref:sprite' }, { key: 'face', type: 'ref:face' },
+      { key: 'group', type: 'string', doc: 'Family, the village, the other place…' },
+      { key: 'met', type: 'bool', default: false, doc: 'Do we know them before the game starts?' },
+      { key: 'knows', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Knows from the start' },
+      { key: 'feels', type: 'numbers', default: {}, label: 'Feels about', doc: 'castId → −100..100' },
+      { key: 'tags', type: 'list', of: { type: 'string' }, default: [] },
+      { key: 'note', type: 'note' },
+    ],
+    // A fact is a thing that can be KNOWN. Declaring one is optional — telling
+    // somebody an undeclared fact works — but a declared one has a label the
+    // editor can show you, which is the difference between a cast and a pile of
+    // switches.
+    fact: [
+      idField('id'), { key: 'label', type: 'string', default: '' },
+      { key: 'secret', type: 'bool', default: false, doc: 'Hide the label in panels that a player might see' },
+      { key: 'group', type: 'string' }, { key: 'note', type: 'note' },
+    ],
     asset: [
       { key: 'kind', type: 'enum', options: ['image'], default: 'image' },
       { key: 'src', type: 'string', default: '', doc: 'A path next to the page, or a data: URI' },
@@ -439,6 +462,8 @@
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});
     p.vars = {}; if (isObj(src.vars)) for (const k of Object.keys(src.vars)) p.vars[k] = P.fillVar(src.vars[k], k);
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
+    p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
+    p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
     p.assets = {}; if (isObj(src.assets)) for (const k of Object.keys(src.assets)) p.assets[k] = S.fill(F.asset, isObj(src.assets[k]) ? src.assets[k] : {});
     p.scripts = {}; if (isObj(src.scripts)) for (const k of Object.keys(src.scripts)) p.scripts[k] = P.fillScript(src.scripts[k], k);
     p.fragments = (Array.isArray(src.fragments) ? src.fragments : []).map((f, i) => { const o = S.fill(F.fragment, isObj(f) ? f : {}); if (!o.id) o.id = `fragment-${i + 1}`; return o; });

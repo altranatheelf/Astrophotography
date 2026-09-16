@@ -19,6 +19,7 @@ const files = [
   'js/kit/world/document.js',
   'js/kit/world/project.js',
   'js/kit/world/tiles.js',
+  'js/kit/world/cast.js',
   'js/kit/script/text.js',
   'js/kit/script/conditions.js',
   'js/kit/script/commands.js',

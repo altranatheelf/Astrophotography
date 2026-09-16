@@ -253,6 +253,19 @@ deterministic (per-cell seed `KIT.hash(seed, x, y)`), re-run within radius
 (rule size) after a terrain edit. Baked tiles are stored in `ground`/`deco` so
 the runtime never needs rules; the runtime overlay can call `bake` too.
 
+### 6.2b The cast (`project.cast`, `project.facts`)
+```js
+cast: { mira: { id, name:'Mira', pronouns:'they/them', sprite, face, group:'The house',
+                met:false, knows:['the-door'], feels:{ wren:30 }, tags:[], note:'' } }
+facts: { 'the-door': { id, label:'The door in the orchard', secret:false, group, note } }
+```
+People, rather than sprites on maps: somebody in the cast need never appear on a
+map, and an NPC on a map need not be anybody in particular. `KIT.cast` is the
+whole surface (KIT-API §world/cast); `@tell` / `@spread` / `@feel` / `@meet` are
+the script side, `knows` / `feels` / `met` the conditions, and the Cast panel
+draws the graph both ways — per person, and per fact. A fact need not be
+declared; the panel marks an undeclared one so you can write it down later.
+
 ### 6.3 Characters, faces, icons, audio
 Characters: existing format (`frames:{down,up,left}` × 3, right = mirrored),
 registered in `sprites`. Faces: `faces` registry (`{ id, art }`, 48×48 pixel or
@@ -267,8 +280,11 @@ or `{ id, kind:'file', src }`; `KIT.audio.play(id)`, `startMusic(id)`, `stopMusi
   vars:{}, inventory:{ berry:3 }, objects:{ 'town:mom':{ self:{}, hidden:false } },
   overlays:{ home:{ tiles:{ '5,6':{ deco:'plant' } }, objects:[] } },
   modules:{ mons:{...} }, clock:{ day:1, minutes:480, lastSeenAt:ISO }, timer:{ running:false, secondsLeft:0 },
+  cast:{ mira:{ met:true, knows:{ 'the-door':{ at:1920, from:'wren' } }, feels:{ wren:55 } } },
   music:{ current:'town', saved:null } }
-meta (separate key, survives New Game): { runs:0, firstPlayed, endingsSeen:[], namesUsed:[] }
+meta (separate key, survives New Game): { runs:0, firstPlayed, endingsSeen:[], namesUsed:[], … }
+  — plus whatever @remember has written. It is the game's memory of the PLAYER
+  rather than of the run, which is why it lives outside every save.
 ```
 Loading a save whose objects/maps no longer exist ignores those entries. Save
 migrations are a registry chain like project migrations. Export/import as text.

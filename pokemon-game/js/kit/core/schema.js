@@ -144,6 +144,18 @@
     },
     default(f) { return f.default != null ? KIT.deepClone(f.default) : {}; },
   });
+  /** A table of numbers: `feels`, and anything else that is id → how much. */
+  S.defineType('numbers', {
+    validate(f, v, ctx, path, errors) {
+      if (!KIT.isObject(v)) return err(errors, path, 'must be a table of numbers', 'type');
+      for (const k of Object.keys(v)) {
+        if (!isNum(v[k])) { err(errors, path.concat(k), 'must be a number', 'type'); continue; }
+        if (f.min != null && v[k] < f.min) err(errors, path.concat(k), `must be at least ${f.min}`, 'min');
+        if (f.max != null && v[k] > f.max) err(errors, path.concat(k), `must be at most ${f.max}`, 'max');
+      }
+    },
+    default(f) { return f.default != null ? KIT.deepClone(f.default) : {}; },
+  });
   // script / condition: minimal handlers; commands.js / conditions.js install the real ones.
   S.defineType('script', {
     validate(f, v, ctx, path, errors) {

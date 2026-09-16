@@ -314,3 +314,74 @@ test('scenes: a scene with neither hook is no trouble at all', () => {
     assert.equal(plain.suspended, false);
   } finally { KIT.scenes.clear(); reg.remove('t-plain'); }
 });
+
+// ---- what the game remembers about the PLAYER, not the run ---------------------
+test('meta: @remember writes what survives New Game, and lines can say it back', async () => {
+  delete globalThis.localStorage;
+  S._reset();
+  S.forceAdapter = null;
+  S.projectId('remember-test');
+  await S.ready();
+
+  const cmds = KIT.commands;
+  const def = KIT.registry('commands').get('remember');
+  assert.ok(def, 'the engine has a way to remember something');
+
+  const project = KIT.project.normalize({
+    meta: { id: 'remember-test' }, maps: { a: {} },
+    heroes: [{ id: 'p1', name: 'Wren' }],
+  }).project;
+  const ctx = KIT.interpreter.fakeCtx({ project, save: { vars: {}, heroes: [{ name: 'Wren' }] } });
+
+  await cmds.exec(ctx, { t: 'remember', key: 'lastEnding', op: 'set', value: 'the door' });
+  assert.equal(S.meta().lastEnding, 'the door');
+
+  // a list, and putting the same thing in twice does not make two of it
+  await cmds.exec(ctx, { t: 'remember', key: 'endings', op: 'add', value: 'the door' });
+  await cmds.exec(ctx, { t: 'remember', key: 'endings', op: 'add', value: 'the window' });
+  await cmds.exec(ctx, { t: 'remember', key: 'endings', op: 'add', value: 'the door' });
+  assert.deepEqual(S.meta().endings, ['the door', 'the window']);
+
+  // counting
+  await cmds.exec(ctx, { t: 'remember', key: 'visits', op: 'count', by: 1 });
+  await cmds.exec(ctx, { t: 'remember', key: 'visits', op: 'count', by: 2 });
+  assert.equal(S.meta().visits, 3);
+
+  // a value written through a tag is the substituted one
+  await cmds.exec(ctx, { t: 'remember', key: 'calledThemselves', op: 'set', value: '{p1}' });
+  assert.equal(S.meta().calledThemselves, 'Wren');
+
+  // the condition reads it
+  const cond = KIT.registry('conditions').get('meta');
+  assert.equal(cond.test({ kind: 'meta', key: 'visits', op: '>=', value: 3 }, ctx), true);
+  assert.equal(cond.test({ kind: 'meta', key: 'visits', op: '>', value: 3 }, ctx), false);
+  assert.equal(cond.test({ kind: 'meta', key: 'neverSet', op: '>=', value: 1 }, ctx), false);
+
+  // and a line can say it back
+  assert.equal(KIT.text.plain('You have been here {meta:visits} times.', ctx), 'You have been here 3 times.');
+  assert.equal(KIT.text.plain('Last time: {meta:lastEnding}.', ctx), 'Last time: the door.');
+  assert.equal(KIT.text.plain('You found: {meta:endings}.', ctx), 'You found: the door, the window.');
+  assert.equal(KIT.text.plain('Nothing yet: {meta:neverSet}.', ctx), 'Nothing yet: .');
+
+  // forgetting
+  await cmds.exec(ctx, { t: 'remember', key: 'lastEnding', op: 'forget' });
+  assert.equal(S.meta().lastEnding, undefined);
+  assert.deepEqual(S.meta().endings, ['the door', 'the window'], 'and only that one');
+
+  // it really is written down, so it survives a reload as well as a New Game:
+  // the cache is dropped and the record read back from the adapter.
+  const key = 'kit.' + S.info().projectId + '.meta';
+  const stored = await S.get(key);
+  assert.equal(stored.visits, 3, 'under ' + key);
+  assert.equal(stored.calledThemselves, 'Wren');
+});
+
+test('meta: the engine’s own four keys cannot be forgotten by accident', async () => {
+  delete globalThis.localStorage;
+  S._reset();
+  await S.ready();
+  await S.saveMeta({ runs: 3 });
+  await S.saveMeta({ runs: null });
+  assert.equal(S.meta().runs, null, 'runs is the engine’s, so it is set rather than deleted');
+  assert.ok('endingsSeen' in S.meta());
+});

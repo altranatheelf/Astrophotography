@@ -136,6 +136,13 @@ textarea.is-bad { border-color: #b03434; }
 .ed-chip.is-preset { background: #1d2c47; border-color: #3d5c8f; }
 /* A module this project asks for that is not on the page. */
 .ed-chip-warn { border-color: #8f5c3d; color: #e8c3a8; }
+.ed-kv-num { flex: 0 0 auto; min-width: 34px; text-align: right; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #c3cfe2; }
+/* A feeling, from hostile through nothing in particular to close. The middle is
+   zero, so the bar grows left or right from there. */
+.ed-feel { position: relative; flex: 1 1 auto; min-width: 60px; height: 6px; border-radius: 3px; background: #1a212d; overflow: hidden; }
+.ed-feel-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.ed-feel-fill.is-warm { background: linear-gradient(90deg, #4f8bf0, #7fe0a0); }
+.ed-feel-fill.is-cold { background: linear-gradient(90deg, #e07f7f, #8f5c6d); }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }

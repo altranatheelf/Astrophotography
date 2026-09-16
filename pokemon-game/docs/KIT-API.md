@@ -22,6 +22,8 @@ come earlier. `test/kit/_load.js` and `index.html` both use this order.)
 `KIT.deepClone(v)` · `KIT.deepEqual(a,b)` · `KIT.stableStringify(v, indent)` (sorted keys) ·
 `KIT.uid(prefix)` · `KIT.slug(s)` · `KIT.clamp(v,lo,hi)` · `KIT.isObject(v)`
 
+`KIT.storage.meta()` / `saveMeta(patch)` — what the game remembers about the PLAYER rather than about the run: how many times they have started, what they called themselves, which endings they reached. It lives beside the saves and outside all of them, which is what makes it survive New Game. Authors write it with `@remember key = value` (`has` for a list, `+=` to count, `forget`), read it with the `meta` condition and say it with `{meta:key}` in a line.
+
 `KIT.labelOf(def, ctx, fallback)` — what to call a registry entry on screen. A
 `label` may be text or a function of the context (`(game) => KIT.strings.get(game.project, 'x')`),
 so an entry can take its name from the Terms table; this resolves either, falling
@@ -66,6 +68,22 @@ Project v3 shape: see §5 — `version meta modules settings strings heroes star
 ## world/tiles — stable
 `KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, probability, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
 Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', warpLook, encounter, terrainTag, probability, animMs }`.
+
+## world/cast — stable
+The people in the story, what they know, and how they feel about each other — the thing switches do not scale to.
+
+Content: `project.cast[id] = { name, pronouns, sprite, face, group, met, knows:[factId], feels:{ castId: −100..100 }, tags, note }` · `project.facts[id] = { label, secret, group, note }`. A fact need not be declared: telling somebody an undeclared one works, and the Cast panel marks it “not written down” so you can tidy up later.
+Save: `save.cast[id] = { met, knows:{ factId: { at, from } }, feels:{ castId: n } }`. `KIT.cast.start(project, save)` seeds it once, when the world is made; everything after that is the save's.
+
+`tell(save, who, fact, { from, at }) -> bool` (true when it is news; the first person to say it stays on the record) · `forget` · `knows(save, who, fact) -> { at, from } | null` · `known(save, who)` · `whoKnows(project, save, fact)` ·
+`spread(save, from, to, { only, not }) -> [factId]` — gossip, which happens because the story said so and never by itself ·
+`feels(save, who, about)` · `feel(save, who, about, delta)` · `setFeeling` · `mutual(save, a, b) -> { ab, ba, both }` (a friendship is only as warm as its cooler half) · `band(n) -> { id, label }` (hostile…close) ·
+`meet(save, who)` · `met` · `person(project, who)` · `nameOf` · `fact(project, id)` · `labelOfFact` ·
+`graph(project, save) -> { people[], facts[] }` — what the Cast panel draws, because a cast is only worth having if you can see it.
+
+Scripts: `@tell who fact [from who]` · `@tell who forgets fact` · `@spread a to b` · `@feel a -> b += 10` (`<->` for both ways, `=` to set) · `@meet who`.
+Conditions: `knows` (optionally `from` somebody in particular) · `feels` (with `mutual`) · `met`.
+Lines: `{who:mira}` · `{they:mira}` `{them:mira}` `{their:mira}` — from their `pronouns`, so a line can be written once for anybody.
 
 ## world/map — stable
 `KIT.mapView(project, save, mapId) -> view` — the authored map composed with `save.overlays[mapId]`.

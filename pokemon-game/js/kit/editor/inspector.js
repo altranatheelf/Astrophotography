@@ -1136,6 +1136,61 @@
     },
   });
 
+  // ---- numbers (key/value rows, and the value is a slider) ----------------------------
+  // `feels` is the one that matters: a row per person, and the number is a
+  // feeling, so it reads better as something you drag than as something you type.
+  FE.add({
+    id: 'numbers', types: ['numbers'],
+    mount(el, f, value, onChange, ctx) {
+      let table = KIT.isObject(value) ? Object.assign({}, value) : {};
+      const lo = f.min == null ? -100 : f.min, hi = f.max == null ? 100 : f.max;
+      const listEl = make('div.ed-list');
+      const commit = () => { onChange(Object.assign({}, table)); paint(); };
+      const choices = () => {
+        const p = ctx && ctx.project;
+        return f.optionsFrom === 'cast' || f.key === 'feels'
+          ? Object.keys((p && p.cast) || {}) : null;
+      };
+      function paint() {
+        clear(listEl);
+        const keys = Object.keys(table);
+        for (const k of keys) {
+          const row = make('div.ed-item.ed-kv');
+          const who = choices();
+          const p = ctx && ctx.project;
+          const name = (who && p && p.cast && p.cast[k] && p.cast[k].name) || k;
+          row.appendChild(make('span.ed-kv-key', { text: name }));
+          const val = make('input.ed-kv-val');
+          val.type = 'range'; val.min = String(lo); val.max = String(hi); val.step = '5';
+          val.value = String(Number(table[k]) || 0);
+          const out = make('span.ed-kv-num', { text: String(Number(table[k]) || 0) });
+          val.oninput = () => { table[k] = Number(val.value); out.textContent = val.value; onChange(Object.assign({}, table)); };
+          row.appendChild(val); row.appendChild(out);
+          row.appendChild(btn('✕', 'Remove', () => { delete table[k]; commit(); }));
+          listEl.appendChild(row);
+        }
+        if (!keys.length) listEl.appendChild(make('div.ed-sub', { text: 'Nobody in particular.' }));
+      }
+      el.appendChild(listEl);
+      const addRow = make('div.ed-row');
+      const who = choices();
+      let pick;
+      if (who) {
+        pick = make('select');
+        for (const id of who) { const o = make('option', { text: (((ctx.project.cast || {})[id] || {}).name) || id }); o.value = id; pick.appendChild(o); }
+      } else { pick = make('input'); pick.type = 'text'; pick.placeholder = 'who'; }
+      addRow.appendChild(pick);
+      addRow.appendChild(btn('＋ Add', 'Add somebody', () => {
+        const k = String(pick.value || '').trim();
+        if (!k || table[k] !== undefined) return;
+        table[k] = 0; commit();
+      }));
+      el.appendChild(addRow);
+      paint();
+      return { set(v) { const next = KIT.isObject(v) ? Object.assign({}, v) : {}; if (!KIT.deepEqual(next, table)) { table = next; paint(); } } };
+    },
+  });
+
   // ---- script ----------------------------------------------------------------------
   /** scriptSummary(commands) -> the first line, the way the Events panel shows a slot. */
   INS.scriptSummary = function (cmds, ctx) {

@@ -63,6 +63,8 @@
   S.registryRefKind('preset', 'presets');
   S.projectRefKind('map', 'maps');
   S.projectRefKind('item', 'items');
+  S.projectRefKind('cast', 'cast');        // a person in the story
+  S.projectRefKind('fact', 'facts');       // a thing that can be known
   S.projectRefKind('script', 'scripts');
   S.refKind('var', {  // undeclared vars are allowed (null = unknown); the validator warns separately
     has(id, ctx) { const p = ctx && ctx.project; if (!p || !p.vars) return null; return Object.prototype.hasOwnProperty.call(p.vars, id) ? true : null; },

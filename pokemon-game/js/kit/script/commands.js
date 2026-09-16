@@ -337,6 +337,222 @@
       default: return v;
     }
   }
+  // ---- the cast: telling people things, and how they take it ------------------
+  // A story where somebody's line changes because of what they learned three
+  // scenes ago needs these four commands and nothing else. What a fact MEANS is
+  // the author's business; the engine only knows who has heard it.
+  defs.push({
+    id: 'tell', label: 'Tell', group: 'Cast', icon: 'say', blocking: false, background: true,
+    doc: 'Somebody learns something. Read it back with the Knows condition. Telling them twice changes nothing — they already knew.',
+    fields: [
+      { key: 'who', type: 'ref:cast', nullable: false, label: 'Who learns it' },
+      { key: 'fact', type: 'ref:fact', nullable: false, label: 'What' },
+      { key: 'forget', type: 'bool', default: false, label: 'Forget it instead' },
+      { key: 'from', type: 'ref:cast', nullable: true, default: null, label: 'Told by',
+        when: { field: 'forget', eq: false },
+        doc: 'Blank: they worked it out. The Knows condition can ask who told them.' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const news = cmd.forget ? KIT.cast.forget(s, cmd.who, cmd.fact)
+        : KIT.cast.tell(s, cmd.who, cmd.fact, { from: cmd.from || null });
+      if (news && ctx.emit) ctx.emit('castChanged', { who: cmd.who, fact: cmd.fact, forgot: !!cmd.forget });
+    },
+    summary(cmd, ctx) {
+      const K = KIT.cast || {};
+      const who = K.nameOf ? K.nameOf(ctx && ctx.project, cmd.who) : cmd.who;
+      const what = K.labelOfFact ? K.labelOfFact(ctx && ctx.project, cmd.fact) : cmd.fact;
+      if (cmd.forget) return `${who} forgets ${what}`;
+      return `${who} learns ${what}${cmd.from ? ` from ${K.nameOf ? K.nameOf(ctx && ctx.project, cmd.from) : cmd.from}` : ''}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.who || '') || !V.WORD.test(cmd.fact || '')) return null;
+        if (cmd.forget) return cmd.from ? null : `@tell ${cmd.who} forgets ${cmd.fact}`;   // “forgot it, from” means nothing
+        return `@tell ${cmd.who} ${cmd.fact}${cmd.from ? ` from ${cmd.from}` : ''}`;
+      },
+      fromLine(line) {
+        let m = /^@tell\s+(\S+)\s+forgets\s+(\S+)$/.exec(line.trim());
+        if (m) return { t: 'tell', who: m[1], fact: m[2], forget: true };
+        m = /^@tell\s+(\S+)\s+(\S+)(?:\s+from\s+(\S+))?$/.exec(line.trim());
+        if (!m) return null;
+        const cmd = { t: 'tell', who: m[1], fact: m[2] };
+        if (m[3]) cmd.from = m[3];
+        return cmd;
+      },
+    },
+  });
+
+  defs.push({
+    id: 'spread', label: 'Word Gets Around', group: 'Cast', icon: 'say', blocking: false, background: true,
+    doc: 'Everything one person knows, passed to another. Gossip happens because the story says it did, never by itself.',
+    fields: [
+      { key: 'from', type: 'ref:cast', nullable: false, label: 'From' },
+      { key: 'to', type: 'ref:cast', nullable: false, label: 'To' },
+      { key: 'only', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Only these', doc: 'Empty: everything they know' },
+      { key: 'not', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Except these' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const told = KIT.cast.spread(s, cmd.from, cmd.to, {
+        only: (cmd.only || []).length ? cmd.only : null,
+        not: cmd.not || [],
+      });
+      if (told.length && ctx.emit) ctx.emit('castChanged', { who: cmd.to, from: cmd.from, facts: told });
+    },
+    summary(cmd, ctx) {
+      const name = (id) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, id) : id);
+      const what = (cmd.only || []).length ? `${cmd.only.length} thing(s)` : 'everything they know';
+      return `${name(cmd.from)} tells ${name(cmd.to)} ${what}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.from || '') || !V.WORD.test(cmd.to || '')) return null;
+        if ((cmd.only || []).length || (cmd.not || []).length) return null;    // the long form stays a card
+        return `@spread ${cmd.from} to ${cmd.to}`;
+      },
+      fromLine(line) {
+        const m = /^@spread\s+(\S+)\s+to\s+(\S+)$/.exec(line.trim());
+        return m ? { t: 'spread', from: m[1], to: m[2] } : null;
+      },
+    },
+  });
+
+  defs.push({
+    id: 'feel', label: 'Feel', group: 'Cast', icon: 'heart', blocking: false, background: true,
+    doc: 'Move how somebody feels about somebody else, from −100 to 100.',
+    fields: [
+      { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+      { key: 'about', type: 'ref:cast', nullable: false, label: 'About' },
+      { key: 'op', type: 'enum', options: ['by', 'set'], default: 'by' },
+      { key: 'value', type: 'number', integer: true, min: -200, max: 200, default: 10 },
+      { key: 'both', type: 'bool', default: false, label: 'Both ways', doc: 'The same change in the other direction too' },
+    ],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      const move = (a, b) => (cmd.op === 'set' ? KIT.cast.setFeeling(s, a, b, cmd.value) : KIT.cast.feel(s, a, b, cmd.value));
+      const v = move(cmd.who, cmd.about);
+      if (cmd.both) move(cmd.about, cmd.who);
+      if (ctx.emit) ctx.emit('castChanged', { who: cmd.who, about: cmd.about, feels: v });
+    },
+    summary(cmd, ctx) {
+      const name = (id) => (KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, id) : id);
+      const n = Number(cmd.value) || 0;
+      if (cmd.op === 'set') return `${name(cmd.who)} feels ${n} about ${name(cmd.about)}`;
+      return `${name(cmd.who)} ${cmd.both ? 'and ' + name(cmd.about) + ' warm' : 'warms'} ${n < 0 ? 'down' : 'up'} by ${Math.abs(n)}${cmd.both ? ' to each other' : ' to ' + name(cmd.about)}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.who || '') || !V.WORD.test(cmd.about || '')) return null;
+        const n = Number(cmd.value) || 0;
+        const arrow = cmd.both ? '<->' : '->';
+        if (cmd.op === 'set') return `@feel ${cmd.who} ${arrow} ${cmd.about} = ${n}`;
+        return `@feel ${cmd.who} ${arrow} ${cmd.about} ${n < 0 ? '-=' : '+='} ${Math.abs(n)}`;
+      },
+      fromLine(line) {
+        const m = /^@feel\s+(\S+)\s+(<->|->)\s+(\S+)\s*(=|\+=|-=)\s*(-?\d+)$/.exec(line.trim());
+        if (!m) return null;
+        const n = Number(m[5]);
+        return {
+          t: 'feel', who: m[1], about: m[3], both: m[2] === '<->',
+          op: m[4] === '=' ? 'set' : 'by',
+          value: m[4] === '-=' ? -n : n,
+        };
+      },
+    },
+  });
+
+  defs.push({
+    id: 'meet', label: 'Meet', group: 'Cast', icon: 'npc', blocking: false, background: true,
+    doc: 'We have met this person. The Met condition is how a page knows whether to introduce them.',
+    fields: [{ key: 'who', type: 'ref:cast', nullable: false, label: 'Who' }],
+    run(ctx, cmd) {
+      const s = ctx.save || (ctx.world && ctx.world.save);
+      if (!s || !KIT.cast) return;
+      if (KIT.cast.meet(s, cmd.who) && ctx.emit) ctx.emit('castChanged', { who: cmd.who, met: true });
+    },
+    summary(cmd, ctx) { return `we meet ${KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, cmd.who) : cmd.who}`; },
+    text: {
+      toLine(cmd) { return V.WORD.test(cmd.who || '') ? `@meet ${cmd.who}` : null; },
+      fromLine(line) { const m = /^@meet\s+(\S+)$/.exec(line.trim()); return m ? { t: 'meet', who: m[1] } : null; },
+    },
+  });
+
+  // ---- what survives New Game ------------------------------------------------
+  // A story variable is forgotten the moment somebody starts again. The meta
+  // record is not: it is the game's memory of the PLAYER rather than of the run,
+  // and it is where “you were here before” comes from. Read it with the `meta`
+  // condition or with {meta:key} in a line; write it only here.
+  defs.push({
+    id: 'remember', label: 'Remember', group: 'Progression', icon: 'var', blocking: false, background: true,
+    doc: 'Write something the game keeps across New Game — an ending reached, a name used, a count. Read it back with the Meta condition or {meta:key} in a line.',
+    fields: [
+      { key: 'key', type: 'string', min: 1, label: 'What to remember',
+        doc: 'Your own name for it. The engine keeps `runs`, `firstPlayed`, `endingsSeen` and `namesUsed` of its own.' },
+      { key: 'op', type: 'enum', options: ['set', 'add', 'count', 'forget'], default: 'set', label: 'How',
+        doc: 'set: one value · add: put it in a list, once · count: add to a number · forget: remove it' },
+      { key: 'value', type: 'scalar', default: '', when: { field: 'op', in: ['set', 'add'] } },
+      { key: 'by', type: 'number', default: 1, when: { field: 'op', eq: 'count' } },
+    ],
+    async run(ctx, cmd) {
+      const store = KIT.storage;
+      if (!store || typeof store.meta !== 'function') return;
+      const key = String(cmd.key || '').trim();
+      if (!key) return;
+      const meta = store.meta();
+      const op = cmd.op || 'set';
+      let value;
+      if (op === 'forget') value = null;
+      else if (op === 'count') value = (Number(meta[key]) || 0) + (Number(cmd.by) == null ? 1 : Number(cmd.by) || 0);
+      else if (op === 'add') {
+        const list = Array.isArray(meta[key]) ? meta[key].slice() : (meta[key] == null ? [] : [meta[key]]);
+        const v = T.substitute(cmd.value == null ? '' : cmd.value, ctx);
+        if (!list.includes(v)) list.push(v);
+        value = list;
+      } else {
+        value = typeof cmd.value === 'string' ? T.substitute(cmd.value, ctx) : cmd.value;
+      }
+      const patch = {};
+      patch[key] = value;
+      await store.saveMeta(patch);
+      if (ctx.emit) ctx.emit('metaChanged', { key, value });
+    },
+    summary(cmd) {
+      const op = cmd.op || 'set';
+      if (op === 'forget') return `forget ${cmd.key}`;
+      if (op === 'count') return `${cmd.key} counts up by ${cmd.by == null ? 1 : cmd.by}`;
+      if (op === 'add') return `remember ${V.format(cmd.value)} in ${cmd.key}`;
+      return `remember ${cmd.key} = ${V.format(cmd.value)}`;
+    },
+    text: {
+      toLine(cmd) {
+        if (!V.WORD.test(cmd.key || '')) return null;
+        const op = cmd.op || 'set';
+        if (op === 'forget') return `@remember ${cmd.key} forget`;
+        if (op === 'count') return `@remember ${cmd.key} += ${Number(cmd.by) == null ? 1 : Number(cmd.by) || 0}`;
+        if (op === 'add') return `@remember ${cmd.key} has ${V.format(cmd.value)}`;
+        return `@remember ${cmd.key} = ${V.format(cmd.value)}`;
+      },
+      fromLine(line) {
+        const m = /^@remember\s+(\S+)\s+(.*)$/.exec(line.trim());
+        if (!m) return null;
+        const key = m[1], rest = m[2].trim();
+        if (rest === 'forget') return { t: 'remember', key, op: 'forget' };
+        const read = (text) => { const v = V.scan(text.trim(), 0, ''); return v ? v.value : text.trim(); };
+        const plus = /^\+=\s*(.*)$/.exec(rest);
+        if (plus) return { t: 'remember', key, op: 'count', by: Number(read(plus[1])) || 0 };
+        const has = /^has\s+(.*)$/.exec(rest);
+        if (has) return { t: 'remember', key, op: 'add', value: read(has[1]) };
+        const eq = /^=\s*(.*)$/.exec(rest);
+        if (eq) return { t: 'remember', key, op: 'set', value: read(eq[1]) };
+        return null;
+      },
+    },
+  });
+
   defs.push({
     id: 'setVar', label: 'Control Variables', mv: 'Control Variables', group: 'Progression', icon: 'var', blocking: false, editor: { favourite: true },
     fields: [

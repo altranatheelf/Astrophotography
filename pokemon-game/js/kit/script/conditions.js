@@ -64,7 +64,17 @@
     return o && o.self ? o.self[key] : undefined;
   };
   C.count = (ctx, id) => Number((save(ctx).inventory || {})[id]) || 0;
-  C.meta = (ctx) => save(ctx).meta || (ctx && ctx.world && ctx.world.meta) || {};
+  /**
+   * The meta record: what the game remembers about the PLAYER rather than about
+   * the run — how many times they have started, what they called themselves,
+   * which endings they have reached. It lives in storage, beside the saves and
+   * outside all of them, which is what makes it survive New Game. A context may
+   * carry its own (a test, a tool with no storage around it).
+   */
+  C.meta = function (ctx) {
+    if (KIT.storage && typeof KIT.storage.meta === 'function') return KIT.storage.meta();
+    return save(ctx).meta || (ctx && ctx.world && ctx.world.meta) || {};
+  };
 
   /** compare(a, op, b): tolerant of undefined (reads as 0/false/'') and numeric strings. */
   C.compare = function (a, op, b) {
@@ -218,6 +228,57 @@
       fields: [{ key: 'key', type: 'string', min: 1 }, opField('>='), { key: 'value', type: 'scalar', default: 1 }],
       test(c, ctx) { return C.compare(C.meta(ctx)[c.key], c.op, c.value); },
       describe(c) { return `meta.${c.key} ${SYM[c.op] || c.op || '='} ${fmtValue(c.value)}`; },
+    },
+    // ---- the cast: what people know and how they feel ------------------------
+    {
+      id: 'knows', label: 'Knows', group: 'Cast', doc: 'Somebody in the cast has heard this.',
+      fields: [
+        { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+        { key: 'fact', type: 'ref:fact', nullable: false, label: 'Knows about' },
+        { key: 'from', type: 'ref:cast', nullable: true, default: null, label: 'Told by', doc: 'Blank: it does not matter who told them' },
+      ],
+      test(c, ctx) {
+        const k = KIT.cast && KIT.cast.knows(save(ctx), c.who, c.fact);
+        if (!k) return false;
+        return c.from ? k.from === c.from : true;
+      },
+      describe(c, ctx) {
+        const K = KIT.cast || {};
+        const who = K.nameOf ? K.nameOf(ctx && ctx.project, c.who) : c.who;
+        const what = K.labelOfFact ? K.labelOfFact(ctx && ctx.project, c.fact) : c.fact;
+        return `${who} knows about ${what}${c.from ? `, from ${K.nameOf ? K.nameOf(ctx && ctx.project, c.from) : c.from}` : ''}`;
+      },
+    },
+    {
+      id: 'feels', label: 'Feels', group: 'Cast', doc: 'How somebody feels about somebody else (−100 to 100).',
+      fields: [
+        { key: 'who', type: 'ref:cast', nullable: false, label: 'Who' },
+        { key: 'about', type: 'ref:cast', nullable: false, label: 'About' },
+        opField('>='),
+        { key: 'value', type: 'number', integer: true, min: -100, max: 100, default: 20 },
+        { key: 'mutual', type: 'bool', default: false, doc: 'Both of them have to feel it' },
+      ],
+      test(c, ctx) {
+        if (!KIT.cast) return false;
+        const s = save(ctx);
+        const v = c.mutual ? KIT.cast.mutual(s, c.who, c.about).both : KIT.cast.feels(s, c.who, c.about);
+        return C.compare(v, c.op, c.value);
+      },
+      describe(c, ctx) {
+        const K = KIT.cast || {};
+        const name = (id) => (K.nameOf ? K.nameOf(ctx && ctx.project, id) : id);
+        const band = K.band ? K.band(c.value).label.toLowerCase() : c.value;
+        return `${name(c.who)}${c.mutual ? ' and ' + name(c.about) : ' feels'} ${SYM[c.op] || c.op || '='} ${band} ${c.mutual ? 'about each other' : 'about ' + name(c.about)}`;
+      },
+    },
+    {
+      id: 'met', label: 'Met', group: 'Cast', doc: 'We have met this person.',
+      fields: [{ key: 'who', type: 'ref:cast', nullable: false, label: 'Who' }, { key: 'is', type: 'bool', default: true }],
+      test(c, ctx) { return !!(KIT.cast && KIT.cast.met(save(ctx), c.who)) === (c.is !== false); },
+      describe(c, ctx) {
+        const who = KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx && ctx.project, c.who) : c.who;
+        return c.is === false ? `we have not met ${who}` : `we have met ${who}`;
+      },
     },
     {
       id: 'clock', label: 'Time of day', group: 'World', doc: 'In-game minute of the day is within from..to (wraps past midnight).',
