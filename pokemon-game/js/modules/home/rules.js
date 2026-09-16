@@ -83,10 +83,10 @@
   // ---- content (project.packs.home) ------------------------------------------
   /** The numbers the author tunes. Every one of them lives in content, none in code. */
   H.TUNING = [
-    { key: 'driveClock', type: 'bool', default: true, label: 'Run the clock for me', doc: 'Advance the in-game clock even when the engine clock setting is off, so jobs can finish.' },
-    { key: 'minutesPerSecond', type: 'number', min: 0, max: 120, default: 6, label: 'In-game minutes per second', doc: 'How fast that clock runs while you play.' },
-    { key: 'awayMinutesPerRealMinute', type: 'number', min: 0, max: 60, default: 1, label: 'Minutes gained per real minute away', doc: 'Time that passes for your friends between sessions.' },
-    { key: 'awayCapMinutes', type: 'number', min: 0, default: 4320, label: 'Most minutes a gap can add', doc: 'Three days by default: a month away does not skip the whole story.' },
+    // How fast the clock runs, and what a gap between sessions is worth, are the
+    // GAME's settings, not this module's: Project › Clock. Jobs are timed against
+    // whatever that clock says.
+
     { key: 'moodDriftMinutes', type: 'number', min: 10, default: 120, label: 'Minutes between mood drifts' },
     { key: 'suitedSpeed', type: 'number', min: 0.1, max: 2, default: 0.75, label: 'Speed when the job suits them', doc: 'A job that suits a friend takes this much of the time.' },
     { key: 'jobFriendship', type: 'number', min: 0, default: 8, label: 'Friendship for finishing a job' },
@@ -131,13 +131,14 @@
     const day = Math.max(1, num(c.day, 1));
     return (day - 1) * H.DAY + Math.max(0, num(c.minutes, 0));
   };
-  /** addMinutes(save, n) -> the new absolute minute, with day/minutes renormalised. */
+  /**
+   * addMinutes(save, n) -> the new absolute minute.
+   * The engine owns the clock (KIT.clock); this is the module's name for it, so
+   * a caller reading about jobs does not have to change vocabulary.
+   */
   H.addMinutes = function (save, n) {
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    const total = H.now(save) + Math.max(0, Math.round(num(n, 0)));
-    save.clock.day = Math.floor(total / H.DAY) + 1;
-    save.clock.minutes = total % H.DAY;
-    return total;
+    KIT.clock.add(save, Math.max(0, Math.round(num(n, 0))));
+    return H.now(save);
   };
   /** clockText(save) -> 'Day 2 · 08:30'. */
   H.clockText = function (save) {
@@ -153,46 +154,10 @@
     return r ? `${h}h ${r}m` : `${h}h`;
   };
 
-  /** Longer than this between two stamps and we call it a session gap, not a slow frame. */
-  H.AWAY_GAP_MS = 30000;
-
-  /** touch(save, nowIso) -> the stamp. Says "we are still here" without adding any time. */
-  H.touch = function (save, nowIso) {
-    const data = H.ensure(save);
-    const nowMs = nowIso == null ? Date.now() : (typeof nowIso === 'number' ? nowIso : Date.parse(nowIso));
-    const stamp = new Date(nowMs).toISOString();
-    data.seenAt = stamp;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    return stamp;
-  };
-
-  /**
-   * resume(save, nowIso, tuning) -> { elapsedMs, minutesAdded }
-   * The gap between sessions, turned into in-game minutes and added to the
-   * clock, so a job left running overnight is waiting when you come back.
-   * The first call only stamps the clock (nothing to catch up on yet).
-   */
-  H.resume = function (save, nowIso, tuning) {
-    const data = H.ensure(save);
-    const t = Object.assign(H.tuningDefaults(), tuning || {});
-    const nowMs = nowIso == null ? Date.now() : (typeof nowIso === 'number' ? nowIso : Date.parse(nowIso));
-    const stamp = new Date(nowMs).toISOString();
-    // One stamp for the whole game. Ours mirrors `save.clock.lastSeenAt`, which
-    // is the field the kit already has in the save shape and the one another
-    // module will have written if it got here first.
-    const stampedAt = data.seenAt || ((save && save.clock) || {}).lastSeenAt;
-    const seen = stampedAt ? Date.parse(stampedAt) : NaN;
-    data.seenAt = stamp;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    if (!Number.isFinite(seen) || nowMs <= seen) return { elapsedMs: 0, minutesAdded: 0 };
-    const elapsedMs = nowMs - seen;
-    const raw = (elapsedMs / 60000) * Math.max(0, t.awayMinutesPerRealMinute);
-    const minutesAdded = Math.min(Math.max(0, t.awayCapMinutes), Math.floor(raw));
-    if (minutesAdded > 0) H.addMinutes(save, minutesAdded);
-    return { elapsedMs, minutesAdded };
-  };
+  // The clock — running it, stamping it, measuring the gap between sessions — is
+  // the engine's: `settings.clock`, `KIT.clock` and the `sessionResumed` event.
+  // This module listens for that event and catches its jobs up; it does not keep
+  // a second clock of its own, and neither should anything else.
 
   // ---- who can work -----------------------------------------------------------
   // The module is happy either way: with the mons module the workers are the

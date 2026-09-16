@@ -210,15 +210,11 @@
         "y": 8
       },
       "tuning": {
-        "awayCapMinutes": 4320,
-        "awayMinutesPerRealMinute": 1,
-        "driveClock": true,
         "feedFriendship": 10,
         "giftChance": 0.2,
         "giftFriendship": 1,
         "jobFriendship": 8,
         "maxGifts": 2,
-        "minutesPerSecond": 6,
         "moodDriftMinutes": 90,
         "petFriendship": 6,
         "suitedSpeed": 0.75
@@ -234,9 +230,11 @@
       "berryBonus": 10,
       "defaultProfile": "friendly",
       "difficulty": "gentle",
+      "encounters": {},
       "favouriteBerryBonus": 5,
       "followStepBonus": 1,
       "followers": true,
+      "garden": null,
       "goldenBerry": "golden-berry",
       "petBonus": 3,
       "profiles": [
@@ -328,6 +326,7 @@
           }
         }
       ],
+      "rarity": {},
       "shinyChance": 0.02,
       "starters": {
         "ask": true,
@@ -426,9 +425,12 @@
   },
   "settings": {
     "clock": {
-      "enabled": false,
-      "minutesPerSecond": 0,
-      "minutesPerStep": 1
+      "awayCapMinutes": 4320,
+      "awayMinutesPerRealMinute": 1,
+      "enabled": true,
+      "minutesPerSecond": 6,
+      "minutesPerStep": 1,
+      "stampEverySeconds": 20
     },
     "coop": {
       "enabled": false

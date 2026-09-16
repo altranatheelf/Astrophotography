@@ -308,7 +308,8 @@ module systems. Each: `{ id, order, update(world, dt) }` and optional
 ### 8.4 Events (bus on `world.events`)
 `step {hero,x,y,tile,region}` `interact {hero,object}` `mapEnter {map}` `mapLeave {map}`
 `varChanged {name,old,value}` `selfChanged {objectKey,key}` `itemChanged {id,delta}`
-`objectStateChanged {objectKey}` `clockTick {minutes}` `sessionResumed {elapsedMs}`
+`objectStateChanged {objectKey}` `clockTick {minutes}` `sessionResumed {elapsedMs,minutesAdded}`
+`interactMissed {hero,x,y,dir}` (A was pressed and nothing answered)
 `scriptStart/scriptEnd {id}` `sceneChange {id}` + module events. Systems and
 modules listen; nothing polls except `tick` slots.
 
@@ -323,8 +324,14 @@ d-pad + A/B/menu per player (pointer events, `touch-action:none`, one pointer
 per pad, ≥ 56 px targets); swipe on canvas; `KIT.input.state(player)`, `onPress`.
 Audio: WebAudio synth (existing recipes) + file playback; silent until first
 gesture; unlock on `pointerup`/`touchend`; iOS: resume context on visibility.
-Clock: in-game minutes advance with steps and time (`settings.clock`); wall-clock
-`lastSeenAt` → `sessionResumed`. `timer` command drives `save.timer`.
+Clock (`KIT.clock`): two different things, both here. The RUNNING clock advances
+in-game minutes with steps and time when `settings.clock.enabled`. The GAP is
+measured whether or not that is on: `save.clock.lastSeenAt` is re-stamped every
+`stampEverySeconds`, and `world.update` emits `sessionResumed { elapsedMs,
+minutesAdded }` once, at the end of the first tick, so every system has its
+listeners on. `awayMinutesPerRealMinute` (capped by `awayCapMinutes`) turns the
+gap into in-game minutes. `timer` command drives `save.timer`.
+`KIT.clock.of/add/stamp/gap/resume/settings`.
 
 ## 9. Script language
 

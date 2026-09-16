@@ -239,6 +239,22 @@
     }
     world.runSlotsForMap = runSlotsForMap;
 
+    /**
+     * interactTargets(hero) -> [{ x, y, answer(hero) }] — things that are not map
+     * objects and would still like to be talked to: a follower walking behind
+     * you, somebody in a vehicle, a door a module drew itself. A system adds one
+     * with `world.addInteractTarget(fn)`, where fn(hero) returns such a list.
+     *
+     * The map's own objects always answer first; these are asked afterwards, in
+     * the order they were added, and the first one at the right square wins.
+     */
+    const extraTargets = [];
+    world.addInteractTarget = function (fn) {
+      if (typeof fn !== 'function') return () => {};
+      extraTargets.push(fn);
+      return () => { const i = extraTargets.indexOf(fn); if (i >= 0) extraTargets.splice(i, 1); };
+    };
+
     /** interact(heroIndex) -> Promise<boolean> — the A button. */
     world.interact = async function (heroIndex) {
       if (world.busy) return false;
@@ -254,6 +270,22 @@
       // an object under the hero's own feet (a sign mat, an item) may also react
       const under = world.entities.find(e => e.x === h.x && e.y === h.y && e.layer === 'below' && e.page && e.page.on && e.page.on.interact);
       if (under) { await world.runSlot(under, 'interact', h.id); return true; }
+
+      // nothing on the map answered: ask whatever else is standing there
+      for (const fn of extraTargets.slice()) {
+        let list = null;
+        try { list = fn(h); } catch (e) { (KIT.log || console).error('[world] interactTarget', e); }
+        for (const target of list || []) {
+          if (!target || !spots.some(sp => sp.x === target.x && sp.y === target.y)) continue;
+          if (typeof target.answer !== 'function') continue;
+          const answered = await target.answer(h);
+          if (answered !== false) return true;
+        }
+      }
+
+      // and still nothing. A module may want to know: this is the mirror of the
+      // `step` event, and it is how an object type reacts without a page.
+      events.emit('interactMissed', { hero: h, x: t.first.x, y: t.first.y, dir: h.dir });
       return false;
     };
 
@@ -321,6 +353,13 @@
     world.update = function (dt) {
       world.time += dt;
       for (const s of world.systems) { try { s.update(world, dt); } catch (e) { (KIT.log || console).error(`[system ${s.id}]`, e); } }
+      // How long were we away? Said once, at the end of the FIRST tick, so every
+      // system has installed its listeners and no module has to guess whether it
+      // is the one that should announce it. KIT.clock does the measuring.
+      if (!world._resumeSaid) {
+        world._resumeSaid = true;
+        if (KIT.clock && KIT.clock.resume) KIT.clock.resume(world);
+      }
     };
 
     // Keep pages fresh when the story state changes.

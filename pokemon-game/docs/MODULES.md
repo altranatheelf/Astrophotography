@@ -167,8 +167,9 @@ a panel, a test and a README — all working, all obviously replaceable.
 
 ## Loading one
 
-The page loads a module's files with ordinary `<script>` tags, **before**
-`js/main.js` (see `docs/ENGINE-HOOKS.md` §9 for why), and the manifest is last:
+The page loads a module's files with ordinary `<script>` tags, after the engine
+and before `js/main.js` — so `main.js` captures them in `KIT.PRISTINE_HTML` and
+the single-file build has them. The manifest is last:
 
 ```html
 <script src="js/modules/home/rules.js"></script>
@@ -188,5 +189,6 @@ require('./tools/load-modules.js').load(KIT, ['mons', 'home']);
 ## What the engine still owes a module
 
 `docs/ENGINE-HOOKS.md` is the punch list: seventeen places where a module had to
-work around something the engine does not offer, with the workaround it used and
-the fix that would serve every module. Read it before inventing an eighteenth.
+work around something the engine did not offer, with the workaround it used and
+the fix that would serve every module. Six are fixed and the entries say how;
+the rest are open. Read it before inventing an eighteenth.

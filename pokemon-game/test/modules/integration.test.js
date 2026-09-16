@@ -45,43 +45,55 @@ test('integration: both modules load together, in dependency order', () => {
   assert.ok(KIT.modules.has('mons') && KIT.modules.has('home'));
 });
 
-test('integration: one clock — the engine clock wins, and home only drives it when nothing else does', () => {
+test('integration: one clock, and it is the engine’s', () => {
+  // Neither module keeps a clock. The engine runs it (settings.clock), and both
+  // modules read save.clock — so there is one time of day in the game and no
+  // question of which module is right about it.
+  const p = project({ settings: { clock: { enabled: true, minutesPerSecond: 6 } } });
   const save = blankSave();
-  // The kit's own clock system is off by default (settings.clock.enabled), so
-  // home drives it; with the engine clock on, home keeps its hands off.
-  const off = project();
-  const on = project({ settings: { clock: { enabled: true, minutesPerSecond: 6 } } });
-  const sys = KIT.registry('systems').get('home');
+  const w = world(p, save);
+  const clock = KIT.registry('systems').get('clock');
 
-  const w1 = world(off, save);
-  sys.update(w1, 1);
-  assert.ok(H.now(save) > 480, 'with no engine clock, home moves the minutes on');
+  clock.update(w, 10);
+  assert.equal(H.now(save), 480 + 60, 'ten seconds at six minutes a second is an hour');
 
-  const save2 = blankSave();
-  const w2 = world(on, save2);
-  sys.update(w2, 1);
-  assert.equal(H.now(save2), 480, 'with the engine clock on, home adds nothing of its own');
+  // and with the clock switched off, nothing moves it
+  const still = blankSave();
+  const w2 = world(project(), still);
+  clock.update(w2, 10);
+  KIT.registry('systems').get('home').update(w2, 10);
+  assert.equal(H.now(still), 480, 'the world waits for you');
 });
 
-test('integration: one session gap — said once, by whoever owns the clock', () => {
-  const p = project();
+test('integration: one session gap — measured by the engine, heard by everybody', () => {
+  const p = project({ settings: { clock: { enabled: true, awayMinutesPerRealMinute: 1, awayCapMinutes: 4320 } } });
   const save = blankSave();
   M.add(M.section(save), M.create({ uid: 'a', id: 'pikachu', friendship: 100 }));
-  // Both modules read the same stamp: the kit's own save.clock.lastSeenAt.
-  save.clock.lastSeenAt = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
-  H.ensure(save).seenAt = save.clock.lastSeenAt;
+  save.clock.lastSeenAt = new Date(Date.now() - 30 * 3600 * 1000).toISOString();   // away 30 hours
 
   const w = world(p, save);
   const heard = [];
   w.events.on('sessionResumed', (e) => heard.push(e));
-  M._install(w);                                  // mons notices the gap but waits
-  H.sweep(w, { quiet: true });                    // home owns the clock and announces it
-  M._settleAway(w);                               // mons sees the latch and says nothing more
 
+  w.update(1 / 60);                              // the first tick: systems install, then the gap is said
   assert.equal(heard.length, 1, 'exactly one sessionResumed');
-  assert.ok(heard[0].minutesAdded > 0, 'and it carries the minutes home turned the gap into');
-  assert.equal(M.read(save).party[0].friendship, 104, 'mons still paid its away bonus, once');
-  assert.ok(H.now(save) > 480, 'and the in-game clock moved on while we were away');
+  assert.ok(heard[0].elapsedMs > 29 * 3600 * 1000, 'and it says how long it really was');
+  assert.equal(heard[0].minutesAdded, 1800, 'thirty hours at a minute a minute');
+  assert.equal(H.now(save), 480 + 1800, 'the in-game clock moved on while we were away');
+  assert.equal(M.read(save).party[0].friendship, 104, 'mons paid its away bonus, once');
+
+  w.update(1 / 60);
+  w.update(1 / 60);
+  assert.equal(heard.length, 1, 'and it is never said twice');
+
+  // coming back to a world that never left says nothing at all
+  const fresh = blankSave();
+  const w2 = world(p, fresh);
+  const quiet = [];
+  w2.events.on('sessionResumed', (e) => quiet.push(e));
+  w2.update(1 / 60);
+  assert.deepEqual(quiet, [], 'a new game was never away');
+  assert.ok(fresh.clock.lastSeenAt, 'but it is stamped, so the NEXT gap can be measured');
 });
 
 test('integration: one friendship number — home hands job friendship to the friends’ owner', () => {

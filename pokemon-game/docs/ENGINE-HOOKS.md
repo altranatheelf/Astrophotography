@@ -16,11 +16,11 @@ says why the engine is shaped the way it is.
 
 | | | |
 |---|---|---|
-| 1 | `sessionResumed` never emitted | open |
+| 1 | `sessionResumed` never emitted | **fixed** |
 | 2 | a module cannot own a piece of the save or the project | **fixed** |
 | 3 | the project is validated before the modules register | **fixed** |
 | 4 | `menus` will not take a function `label` | **fixed** |
-| 5 | no interact target that is not a map object | open |
+| 5 | no interact target that is not a map object | **fixed** |
 | 6 | `mapView` captures the overlay at construction | **fixed** |
 | 7–8 | see below | open |
 | 9 | `KIT.module` did not exist when a manifest loaded | **fixed** |
@@ -57,11 +57,27 @@ and whichever module notices the gap first announces it:
 `test/modules/integration.test.js` (“one session gap — said once, by whoever
 owns the clock”) is what stops that drifting.
 
-**The fix.** The `clock` system stamps `save.clock.lastSeenAt` on every autosave
-and on `world.update`, measures the gap when a world is created, and emits
-`sessionResumed { elapsedMs }` once. Then both modules delete their halves and
-just listen. A `minutesAdded` in the payload (or a project setting for
-“minutes gained per real minute away”) would let home delete its clock too.
+**Fixed.** There is one clock now and it is the engine's: `KIT.clock`, in
+`js/kit/systems/index.js`, with the settings under `settings.clock`.
+
+* `KIT.clock.gap(save)` measures how long ago somebody last said “we are still
+  here”; the clock system re-stamps every `stampEverySeconds` (20 by default), so
+  a session that ends in a crash still leaves an honest mark behind.
+* `world.update` calls `KIT.clock.resume(world)` at the end of its **first** tick
+  — after every system has installed its listeners, so no module has to guess
+  whether it is the one that should announce it. It emits `sessionResumed
+  { elapsedMs, minutesAdded }` exactly once, and not at all for a new game that
+  was never away.
+* `awayMinutesPerRealMinute` turns the gap into in-game minutes, capped by
+  `awayCapMinutes` (three days), so a month away does not skip the whole story. A
+  game that wants the gap and not the minutes leaves that setting at 0 and reads
+  `elapsedMs` itself.
+
+Both modules deleted their halves. home no longer drives a clock at all — its
+`driveClock`, `minutesPerSecond`, `awayMinutesPerRealMinute` and `awayCapMinutes`
+tuning moved to `settings.clock`, where they were always the game's business
+rather than one module's — and mons lost its stamp, its gap measurement and its
+fallback announcement. Both now do one thing: listen.
 
 ---
 
@@ -205,15 +221,27 @@ follower when the original returned false. home gives its object type a default
 first page carrying `@openJobBoard` — which is honest and visible, but means the
 behaviour lives in content rather than in the type.
 
-**The fix.** Either of:
+**Fixed.** Both, because they answer different questions.
 
-* `world.events.emit('interactMissed', { hero, x, y, dir })` when nothing
-  answered — three lines, and both cases become an ordinary listener; or
-* let a system declare extra interact targets (`system.interactTargets(world)`),
-  which also covers followers, vehicles and anything else off-map.
+`world.addInteractTarget(fn)` registers something that is not a map object and
+would still like to be talked to; `fn(hero)` returns `[{ x, y, answer(hero) }]`.
+The map's own objects always answer first, then these, in the order they were
+added. It returns a function that removes it again. mons' follower is four lines
+now, and nothing wraps `world.interact`:
 
-An `interact` event on the bus (the mirror of the `step` event, which does
-exist) would additionally let an object type react without a page.
+```js
+world.addInteractTarget(() => {
+  const comp = world.companion;
+  if (!comp || !comp.data || !comp.data.monUid) return [];
+  return [{ x: comp.x, y: comp.y, answer: (hero) => talkToFollower(world, hero) }];
+});
+```
+
+And when nothing at all answered, the world emits `interactMissed { hero, x, y,
+dir }` — the mirror of the `step` event. home listens for it so a job board whose
+pages the author deleted still opens: the type's default page carrying
+`@openJobBoard` is still the visible, editable way in, and this is the safety net
+underneath it.
 
 ---
 

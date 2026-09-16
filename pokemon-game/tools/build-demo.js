@@ -232,7 +232,13 @@ const raw = {
   meta: { id: 'demo', title: 'Our Adventure', subtitle: 'for you ♥',
     pitch: 'Two friends share one phone to wander a small town and befriend the Pokémon they meet. Everything you make friends with keeps living in the garden while you are away.' },
   modules: DEMO_MODULES.slice(),
-  settings: { tileSize: 16, viewport: { w: 16, h: 12 }, textSpeed: 'normal', coop: { enabled: false }, clock: { enabled: false } },
+  settings: {
+    tileSize: 16, viewport: { w: 16, h: 12 }, textSpeed: 'normal', coop: { enabled: false },
+    // One clock, the engine's. It runs while you play, and a gap between
+    // sessions is worth a minute of game time per real minute, up to three days
+    // — so an errand left running overnight is waiting for you in the morning.
+    clock: { enabled: true, minutesPerStep: 1, minutesPerSecond: 6, awayMinutesPerRealMinute: 1, awayCapMinutes: 4320 },
+  },
   strings: { 'got-item': 'Got {count} {item}!' },
   heroes: [{ id: 'p1', name: 'Player 1', sprite: 'hero-boy', recolor: {} }, { id: 'p2', name: 'Player 2', sprite: 'hero-girl', recolor: {} }],
   start: { map: 'home', x: 5, y: 6, dir: 'down' },
@@ -373,8 +379,6 @@ const raw = {
   // Every number the module turns, in content where the author can change it.
   raw.packs.home = {
     tuning: {
-      driveClock: true, minutesPerSecond: 6,
-      awayMinutesPerRealMinute: 1, awayCapMinutes: 4320,
       moodDriftMinutes: 90, suitedSpeed: 0.75,
       jobFriendship: 8, petFriendship: 6, feedFriendship: 10,
       giftFriendship: 1, giftChance: 0.2, maxGifts: 2,

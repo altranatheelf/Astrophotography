@@ -692,27 +692,7 @@ test('mons: walking in the tall grass meets somebody, and the garden fills up', 
 });
 
 test('mons: a session gap gives everyone a little something, once', () => {
-  const p = project();
-  const save = blankSave();
-  const s = M.section(save);
-  M.add(s, M.create({ uid: 'a', id: 'pikachu', friendship: 100 }));
-  s.lastSeenAt = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
-
-  const world = KIT.world.create({ project: Object.assign({}, p, { maps: {} }), save, rng: KIT.rng(1), ports: {} });
-  let heard = null;
-  world.events.on('sessionResumed', (e) => { heard = e; });
-  M._install(world);
-  assert.equal(heard, null, 'install waits: a module that owns the clock announces the gap first');
-  M._settleAway(world);
-  assert.ok(heard && heard.elapsedMs > 24 * 3600 * 1000, 'nobody did, so the world hears about it from us');
-  assert.equal(M.read(save).party[0].friendship, 104);
-  assert.ok(s.lastSeenAt, 'and the clock is reset, so it does not pay twice');
-  assert.ok(M.elapsedSince(s, Date.now()) < 5000);
-  M._settleAway(world);
-  assert.equal(M.read(save).party[0].friendship, 104, 'and it is paid exactly once');
-});
-
-test('mons: when another module owns the clock, the gap is announced once, by them', () => {
+  // The gap is the engine's to measure and announce; this module only listens.
   const p = project();
   const save = blankSave();
   const s = M.section(save);
@@ -722,11 +702,28 @@ test('mons: when another module owns the clock, the gap is announced once, by th
   const world = KIT.world.create({ project: Object.assign({}, p, { maps: {} }), save, rng: KIT.rng(1), ports: {} });
   const heard = [];
   world.events.on('sessionResumed', (e) => heard.push(e));
-  M._install(world);
-  // Somebody else (the home module, in the demo) owns the clock and says so.
-  world._sessionResumed = true;
-  world.events.emit('sessionResumed', { elapsedMs: 30 * 3600 * 1000, minutesAdded: 1800 });
-  M._settleAway(world);
-  assert.equal(heard.length, 1, 'said once, by the module that owns the clock');
-  assert.equal(M.read(save).party[0].friendship, 104, 'and we still pay the away bonus');
+
+  world.update(1 / 60);
+  assert.equal(heard.length, 1, 'the engine said it, once');
+  assert.ok(heard[0].elapsedMs > 24 * 3600 * 1000, 'and how long it really was');
+  assert.equal(M.read(save).party[0].friendship, 104, 'so everybody got their little something');
+  assert.ok(save.clock.lastSeenAt, 'and the stamp is fresh, so it cannot be paid twice');
+  assert.ok(Date.now() - Date.parse(save.clock.lastSeenAt) < 5000);
+
+  world.update(1 / 60);
+  world.update(1 / 60);
+  assert.equal(heard.length, 1, 'never said twice');
+  assert.equal(M.read(save).party[0].friendship, 104, 'and never paid twice');
+});
+
+test('mons: a gap that is not a gap pays nothing', () => {
+  const p = project();
+  const save = blankSave();
+  M.add(M.section(save), M.create({ uid: 'a', id: 'pikachu', friendship: 100 }));
+  const world = KIT.world.create({ project: Object.assign({}, p, { maps: {} }), save, rng: KIT.rng(1), ports: {} });
+  const heard = [];
+  world.events.on('sessionResumed', (e) => heard.push(e));
+  world.update(1 / 60);
+  assert.deepEqual(heard, [], 'a new game was never away');
+  assert.equal(M.read(save).party[0].friendship, 100);
 });

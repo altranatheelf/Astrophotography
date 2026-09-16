@@ -99,36 +99,37 @@ through the engine or a published hook, all fine when the other side is absent:
 
 `test/modules/integration.test.js` is where those four are held in place.
 
-## What the engine still owes us
+## What the engine gives us, and what it still owes
 
-The full punch list, with the fix each one wants, is **`docs/ENGINE-HOOKS.md`**.
-The ones this module runs into:
+The full punch list is **`docs/ENGINE-HOOKS.md`**. What this module leans on and
+no longer has to fake:
 
-1. **`sessionResumed` is documented but never emitted** (§1). We stamp
-   `save.clock.lastSeenAt` — the kit's own field, so there is one stamp for the
-   whole game — measure the gap in `KIT.home.resume`, and emit
-   `sessionResumed { elapsedMs, minutesAdded }` once, latching
-   `world._sessionResumed` so no second module says it again.
-2. **A module's `save` and `content` declarations are never read** (§2).
-   `KIT.home.ensure(save)` and `KIT.home.pack(project)` do both by hand, on
-   every entry point.
-3. **No `interact` event on the world bus** (§5). Without it an object type
-   cannot react to the A button on its own, so `job-board` ships an
-   `on.interact` default page carrying `@openJobBoard`. A fine outcome — the
-   author can see and change it — but a module that wants to react *without* a
-   visible script has nowhere to hook.
-4. **The renderer cannot draw a ghost** (§7). The placement screen fakes one
+* **The clock is the engine's** (§1). It runs the minutes, keeps the stamp
+  fresh, measures the gap between sessions and says `sessionResumed
+  { elapsedMs, minutesAdded }` once. We listen, and the jobs that were timed
+  against the clock have simply finished. How fast it runs and what a gap is
+  worth are `settings.clock` — the game's business, not ours.
+* **The save and content slices are declared, not coded** (§2). The manifest
+  says `save` and `content`; the engine fills, migrates, repairs and validates.
+  `KIT.home.ensure(save)` and `KIT.home.pack(project)` are names for reading
+  them, not implementations of them.
+* **The map view reads the save live** (§6), so a rug appears as you put it
+  down. `H.live(world).rebuild()` survives, rebuilding only the *entities* the
+  overlay made.
+* **A menu label may be a function** (§4), so both pause-menu entries take their
+  words from the Terms table.
+* **`interactMissed`** (§5) means a board whose pages the author deleted still
+  opens. The type's default page carrying `@openJobBoard` is still the visible,
+  editable way in; that listener is the safety net underneath it.
+
+Still worked around here:
+
+1. **The renderer cannot draw a ghost** (§7). The placement screen fakes one
    with a `through`, non-solid entity whose `look` is the tile and whose
    `opacity` pulses.
-5. **The `menus` registry will not take a function `label`** (§4). The two pause-menu
-   entries are added with a plain label and have the re-wordable one assigned
-   onto the returned definition straight afterwards (`register.js`).
-6. **`KIT.mapView` captures `save.overlays[mapId]` once** (§6). Anything
-   writing an overlay must rebuild the view; `H.live(world).rebuild()` and the
-   placement screen's `syncWorld()` do.
-7. **The pause menu keeps its click listener while we are on top of it** (§15).
+2. **The pause menu keeps its click listener while we are on top of it** (§15).
    Our screens draw into `#pause-menu`, so `scenes.js` delegates clicks in the
    capture phase and stops them (`onlyAction`).
-8. **The kit never registers its own default `item` kind** (§16), so the moment
+3. **The kit never registers its own default `item` kind** (§16), so the moment
    we register `furniture`, every plain keepsake in the project would start
    warning. We register `item` first, if nobody has.

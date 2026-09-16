@@ -147,31 +147,34 @@ through the engine or a published hook, all fine when the other side is absent:
 
 `test/modules/integration.test.js` is where those are held in place.
 
-## The missing hooks
+## The hooks
 
-The full punch list, with the fix each one wants, is **`docs/ENGINE-HOOKS.md`**.
-The ones this module runs into, each worked around in this folder only:
+The full punch list is **`docs/ENGINE-HOOKS.md`**. What the engine now does, so
+this module does not:
 
-1. **`sessionResumed` is documented but never emitted** (§1) — `systems.js`
-   measures the gap from `save.clock.lastSeenAt`, listens first, and emits it
-   itself only when nothing else has.
-2. **A module cannot add a non-map-object interact target** (§5) — `systems.js`
-   wraps `world.interact` **on the world instance** so the follower can be
-   talked to.
-3. **`KIT.module` does not exist until `js/main.js` has run** (§9) —
-   `index.html` loads the modules first (so `KIT.PRISTINE_HTML` contains them)
-   and `manifest.js` registers on `DOMContentLoaded`.
-4. **The `menus` registry types `label` as text** (§4) — the entry is added with
-   a plain string and given its re-wordable label afterwards.
-5. **The project is validated before modules are registered** (§3) — console
-   noise only; this module's demo content deliberately uses no module commands.
-6. **Content cannot mention a module's commands without failing the kit's own
+* **The session gap** (§1) — the engine measures it, keeps the stamp fresh and
+  says `sessionResumed` once. We listen, and pay the away bonus.
+* **An interact target that is not a map object** (§5) —
+  `world.addInteractTarget(fn)`. The follower is four lines, and nothing wraps
+  `world.interact` any more.
+* **`KIT.module` exists with the kit** (§9) — `manifest.js` declares itself in
+  one line, wherever it is loaded.
+* **A menu label may be a function** (§4) — the entries take their words from
+  the Terms table directly.
+* **Modules register before the project is validated** (§3) — content may use
+  this module's commands without the console saying the game is broken.
+* **The save and content slices are declared** (§2) — `M.section(save)` and
+  `M.pack(project)` read what the engine already filled.
+
+Still worked around in this folder:
+
+1. **Content cannot mention a module's commands without failing the kit's own
    tests** (§10) — the lab starters go through `packs.mons.starters` instead.
-7. **Nothing says when the main script thread goes quiet** (§11) — the starter
+2. **Nothing says when the main script thread goes quiet** (§11) — the starter
    hook fires from a `varChanged` listener *inside* the stand's script, and a
    name box opened there lands under the script's own message box and wedges
    both. `actions.js` waits for the thread to finish first.
-8. **The kit never registers its own default `item` kind** (§16) — registering
+3. **The kit never registers its own default `item` kind** (§16) — registering
    `ball` and `berry` would otherwise make every plain keepsake in the project
    warn, so we register `item` first if nobody has.
 

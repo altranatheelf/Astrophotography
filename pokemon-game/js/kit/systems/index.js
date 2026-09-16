@@ -4,6 +4,7 @@
   const KIT = root.KIT = root.KIT || {};
   const E = KIT.entities;
   const reg = KIT.registry('systems');
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
 
   // --- 10 movement: interpolation, arrivals, hero touch checks -------------------
   const routePorts = (world) => ({ hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) });
@@ -86,19 +87,109 @@
   } });
 
   // --- 50 clock -------------------------------------------------------------------
+  // Two different clocks live here and should not be confused:
+  //
+  //   the RUNNING clock  in-game minutes while you play (settings.clock.enabled)
+  //   the GAP            how long the player was away, between sessions
+  //
+  // The gap is measured whether or not the running clock is switched on, because
+  // “what happened while I was gone” is a thing a game may want without the
+  // time of day ever being shown.
+  const DEFAULT_CLOCK = () => ({ day: 1, minutes: 480, lastSeenAt: null });
+
+  KIT.clock = {
+    /** settings(project) -> the clock settings, with every default in place. */
+    settings(project) {
+      const s = (project && project.settings && project.settings.clock) || {};
+      return {
+        enabled: !!s.enabled,
+        minutesPerStep: num(s.minutesPerStep, 1),
+        minutesPerSecond: num(s.minutesPerSecond, 0),
+        awayMinutesPerRealMinute: num(s.awayMinutesPerRealMinute, 0),
+        awayCapMinutes: num(s.awayCapMinutes, 4320),
+        stampEverySeconds: num(s.stampEverySeconds, 20),
+      };
+    },
+    /** of(save) -> save.clock, created if it is not there. */
+    of(save) {
+      if (!save) return DEFAULT_CLOCK();
+      save.clock = save.clock || DEFAULT_CLOCK();
+      return save.clock;
+    },
+    /**
+     * add(save, minutes) -> the clock. Days roll over; nothing else moves.
+     * `clockTick` is the running clock's event, so this does not emit it — the
+     * caller decides whether what it just did counts as time passing on screen.
+     */
+    add(save, minutes) {
+      const c = KIT.clock.of(save);
+      const n = Math.floor(num(minutes, 0));
+      if (!n) return c;
+      c.minutes += n;
+      while (c.minutes >= 1440) { c.minutes -= 1440; c.day++; }
+      while (c.minutes < 0) { c.minutes += 1440; c.day = Math.max(1, c.day - 1); }
+      return c;
+    },
+    /** stamp(save) -> the ISO string written to save.clock.lastSeenAt. */
+    stamp(save) {
+      const c = KIT.clock.of(save);
+      c.lastSeenAt = new Date().toISOString();
+      return c.lastSeenAt;
+    },
+    /** gap(save) -> milliseconds since lastSeenAt, or 0 when there is no stamp. */
+    gap(save) {
+      const at = KIT.clock.of(save).lastSeenAt;
+      if (!at) return 0;
+      const then = Date.parse(at);
+      if (!Number.isFinite(then)) return 0;
+      return Math.max(0, Date.now() - then);
+    },
+    /**
+     * resume(world) -> { elapsedMs, minutesAdded } | null
+     *
+     * Said once per world, at the end of its first tick (see world.update), so
+     * every system has its listeners on. `awayMinutesPerRealMinute` turns the
+     * gap into in-game minutes, capped by `awayCapMinutes` — a month away does
+     * not skip the whole story. A game that wants the gap and not the minutes
+     * leaves that setting at 0 and reads `elapsedMs` itself.
+     */
+    resume(world) {
+      if (!world || !world.save) return null;
+      const elapsedMs = KIT.clock.gap(world.save);
+      const s = KIT.clock.settings(world.project);
+      let minutesAdded = 0;
+      if (elapsedMs > 0 && s.awayMinutesPerRealMinute > 0) {
+        minutesAdded = Math.min(s.awayCapMinutes, Math.floor((elapsedMs / 60000) * s.awayMinutesPerRealMinute));
+        if (minutesAdded > 0) KIT.clock.add(world.save, minutesAdded);
+      }
+      KIT.clock.stamp(world.save);
+      if (elapsedMs <= 0) return null;                       // a new game was never away
+      const payload = { elapsedMs, minutesAdded };
+      if (world.events) world.events.emit('sessionResumed', payload);
+      return payload;
+    },
+  };
+
   reg.add({ id: 'clock', order: 50, update(world, dt) {
-    const s = (world.project.settings && world.project.settings.clock) || {};
-    if (!s.enabled) return;
+    const s = KIT.clock.settings(world.project);
     const save = world.save;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    const perSecond = s.minutesPerSecond || 0;
-    if (!perSecond) return;
-    world._clockAcc = (world._clockAcc || 0) + dt * perSecond;
+    KIT.clock.of(save);
+
+    // Keep the stamp fresh, whatever else is switched on: it is what the NEXT
+    // session measures its gap against, and a session that ends in a crash still
+    // has to leave an honest one behind.
+    world._stampAcc = (world._stampAcc || 0) + dt;
+    if (world._resumeSaid && world._stampAcc >= s.stampEverySeconds) {
+      world._stampAcc = 0;
+      KIT.clock.stamp(save);
+    }
+
+    if (!s.enabled || !s.minutesPerSecond) return;
+    world._clockAcc = (world._clockAcc || 0) + dt * s.minutesPerSecond;
     if (world._clockAcc >= 1) {
       const add = Math.floor(world._clockAcc);
       world._clockAcc -= add;
-      save.clock.minutes += add;
-      while (save.clock.minutes >= 1440) { save.clock.minutes -= 1440; save.clock.day++; }
+      KIT.clock.add(save, add);
       world.events.emit('clockTick', { minutes: save.clock.minutes, day: save.clock.day });
     }
   } });

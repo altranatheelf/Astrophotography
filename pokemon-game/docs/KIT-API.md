@@ -86,13 +86,19 @@ Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, count
 State: `project save events rng ports map entities heroes companion activeHero coop busy time systems camera`.
 `enterMap(id,x,y,dir) -> Promise` (swaps the map, places heroes, rebuilds entities, fires `init` then `enter` slots, switches music) ·
 `interact(heroIndex) -> Promise<bool>` (A button; reaches across counters; invisible events still react) ·
+`addInteractTarget(fn) -> off` — something that is not a map object and would still like to be talked to: `fn(hero)` returns `[{ x, y, answer(hero) }]`. The map's own objects answer first, then these in the order they were added; a target that returns `false` declines and the press falls through. Followers, vehicles, anything off-map. ·
 `move(heroIndex, dir, opts) -> Promise<result>` (d-pad; bump sound, companion trail, `step` slots, map connections) ·
 `runSlot(entity, slot, heroId)` (main-thread slots set `world.busy`; `once` sets `self.done`; `needsBoth` gates in co-op; NPCs face the hero and turn back) ·
 `makeCtx(entity, heroId) -> RunCtx` · `ctxBase()` · `refreshPages()` · `rebuildEntities()` · `stepTriggers(hero)` · `runSlotsForMap(slot)` · `hero(i)` · `heroById(id)` · `setActiveHero(i)` · `saveHeroPositions()` · `update(dt)` (runs systems in order).
-Events emitted: `mapEnter mapLeave step interact activeHero needsBoth` plus everything commands emit (`varChanged selfChanged itemChanged objectStateChanged timerChanged heroRenamed heal debug`) and `clockTick`.
+Events emitted: `mapEnter mapLeave step interact interactMissed activeHero needsBoth` plus everything commands emit (`varChanged selfChanged itemChanged objectStateChanged timerChanged heroRenamed heal debug`), `clockTick` and `sessionResumed`.
+`interactMissed { hero, x, y, dir }` is the mirror of `step`: A was pressed, and nothing — no object, no extra target — answered. It is how an object type can react without a page.
 
 ## systems/index — stable
 Registered systems, in order: `movement(10)` (interpolation, arrivals, NPC touch) · `behaviours(20)` (`none look wander route approach` in the `behaviours` registry) · `triggers(30)` (background `tick` slots, one at a time per object) · `companions(40)` · `clock(50)` · `camera(90)`.
+
+`KIT.clock` — the game's one clock, and there should never be a second.
+`settings(project)` (the `settings.clock` group, defaults filled) · `of(save)` · `add(save, minutes)` (days roll over) · `stamp(save)` · `gap(save) -> ms since `lastSeenAt`` ·
+`resume(world) -> { elapsedMs, minutesAdded } | null` — the gap between sessions, said once per world at the end of its first tick (`world.update` calls it, after every system has installed its listeners) as `sessionResumed`. `awayMinutesPerRealMinute` turns it into in-game minutes, capped by `awayCapMinutes`; leave that at 0 and the world waits for you while the gap is still reported.
 `KIT.camera.update(world) -> {x,y}` centres on the active hero, clamps to the map, centres small maps.
 Add your own: `KIT.registry('systems').add({ id, order, update(world, dt), onMapEnter, onMapLeave })`.
 

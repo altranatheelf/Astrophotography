@@ -144,3 +144,57 @@ test('world: a main-thread script locks input while it runs', async () => {
   assert.ok(!world.busy);
   assert.equal((await world.move(0, 'left')).reason, 'step');
 });
+
+test('world: something that is not a map object can answer the A button', async () => {
+  const world = makeWorld(makeProject());
+  await world.enterMap('home', 2, 3, 'down');          // an empty square, facing an empty square
+
+  // nothing is there, so the world says so rather than swallowing the press
+  const missed = [];
+  world.events.on('interactMissed', (p) => missed.push(p));
+  assert.equal(await world.interact(0), false);
+  assert.equal(missed.length, 1);
+  assert.deepEqual({ x: missed[0].x, y: missed[0].y, dir: missed[0].dir }, { x: 2, y: 4, dir: 'down' });
+
+  // a system puts something there that the map has never heard of
+  const talked = [];
+  const off = world.addInteractTarget((hero) => {
+    assert.equal(hero.id, 'p1', 'it is told which hero pressed');
+    return [{ x: 2, y: 4, answer: () => { talked.push('ghost'); return true; } }];
+  });
+  assert.equal(await world.interact(0), true, 'the ghost answered');
+  assert.deepEqual(talked, ['ghost']);
+  assert.equal(missed.length, 1, 'and nothing was missed');
+
+  // one that is not where you are looking does not answer
+  world.hero().dir = 'up';
+  assert.equal(await world.interact(0), false);
+  assert.deepEqual(talked, ['ghost']);
+  assert.equal(missed.length, 2);
+
+  // a target that declines lets the press fall through to the miss
+  world.hero().dir = 'down';
+  off();
+  world.addInteractTarget(() => [{ x: 2, y: 4, answer: () => false }]);
+  assert.equal(await world.interact(0), false);
+  assert.equal(missed.length, 3, 'a declined answer is still a miss');
+
+  // and a map object always answers before any of them: Mom is at 3,2
+  world.addInteractTarget(() => [{ x: 3, y: 2, answer: () => { talked.push('ghost2'); return true; } }]);
+  world.hero().x = 2; world.hero().y = 2; world.hero().dir = 'right';
+  assert.equal(await world.interact(0), true);
+  assert.deepEqual(world.said().slice(-1), ['Good morning, Ash!']);
+  assert.deepEqual(talked, ['ghost'], 'Mom spoke, not the ghost standing on her');
+});
+
+test('world: an interact target that throws does not eat the button', async () => {
+  const world = makeWorld(makeProject());
+  await world.enterMap('home', 2, 3, 'down');
+  const before = (KIT.log || console).error;
+  (KIT.log || console).error = () => {};
+  try {
+    world.addInteractTarget(() => { throw new Error('no'); });
+    world.addInteractTarget(() => [{ x: 2, y: 4, answer: () => true }]);
+    assert.equal(await world.interact(0), true, 'the next one still got its turn');
+  } finally { (KIT.log || console).error = before; }
+});

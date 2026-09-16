@@ -21,24 +21,18 @@
    */
   function install(world) {
     if (!world || world._mons) return world && world._mons;
-    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, awayDone: false, awayPending: 0 };
+    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, awayDone: false };
     const section = M.section(world.save);
 
     // --- the session gap ------------------------------------------------------
-    // ARCHITECTURE §10 says the world emits `sessionResumed { elapsedMs }`; it
-    // does not (see README, "the missing hook"). There must still be only ONE
-    // session gap in a game, whichever module notices it, so:
-    //   · `save.clock.lastSeenAt` is the stamp — the field the kit already has
-    //     in the save shape, not a second one of our own;
-    //   · we listen for `sessionResumed` first, so a module that owns the clock
-    //     (and can turn the gap into in-game minutes) gets to announce it;
-    //   · if nobody has by the first update tick, we announce it ourselves and
-    //     latch `world._sessionResumed` so it is said exactly once.
+    // The engine measures it, keeps the stamp fresh and says `sessionResumed`
+    // once, at the end of the world's first tick. All we do is listen, and mirror
+    // the stamp into our own section so the module still knows when it was last
+    // here if it is ever read without a world around it.
     state.offs.push(world.events.on('sessionResumed', (p) => {
       awayBonus(world, p && p.elapsedMs);
     }));
-    state.awayPending = gapMs(world);
-    stampSeen(world);
+    M.section(world.save).lastSeenAt = (world.save.clock && world.save.clock.lastSeenAt) || null;
 
     // --- steps: encounters, and friendship for walking together --------------
     state.offs.push(world.events.on('step', (p) => {
@@ -48,39 +42,15 @@
     state.offs.push(M.starterHook(world));
 
     // --- talking to the follower ----------------------------------------------
-    // The kit's `interact` only looks at map objects, and the follower is
-    // world.companion. Wrapping this one world's method (never the kit file)
-    // is the smallest honest workaround; see README.
-    const baseInteract = world.interact;
-    world.interact = async function (heroIndex) {
-      const handled = await baseInteract.call(world, heroIndex);
-      if (handled) return true;
-      return await talkToFollower(world, heroIndex);
-    };
+    // The follower is world.companion, not a map object, so it is an extra
+    // interact target: the map's own objects answer first, and if none did and
+    // you were facing the friend walking behind you, they answer.
+    state.offs.push(world.addInteractTarget(() => {
+      const comp = world.companion;
+      if (!comp || !comp.data || !comp.data.monUid) return [];
+      return [{ x: comp.x, y: comp.y, answer: (hero) => talkToFollower(world, hero) }];
+    }));
     return state;
-  }
-
-  /**
-   * gapMs(world) — how long ago somebody last said "we are still here".
-   * `save.clock.lastSeenAt` wins because the module that owns the clock keeps it
-   * fresh every second; our own section stamp is only the fallback when mons is
-   * the only module in the game.
-   */
-  function gapMs(world) {
-    const save = world.save;
-    const clock = (save && save.clock) || {};
-    const stamp = clock.lastSeenAt || M.section(save).lastSeenAt;
-    return M.elapsedSince({ lastSeenAt: stamp }, Date.now());
-  }
-
-  /** The one stamp: the kit's own `save.clock.lastSeenAt`, mirrored into our section. */
-  function stampSeen(world) {
-    const stamp = new Date().toISOString();
-    const save = world.save;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    M.section(save).lastSeenAt = stamp;
-    return stamp;
   }
 
   /** Everyone you have befriended gets a little something for a long gap — once. */
@@ -96,22 +66,6 @@
       Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
     }
     return gained;
-  }
-
-  /**
-   * settleAway(world) — the fallback, one tick after install: nobody else owns
-   * the clock, so we say how long we were away ourselves.
-   */
-  function settleAway(world) {
-    const state = world._mons;
-    if (!state || state.awayDone) return;
-    const elapsed = state.awayPending;
-    state.awayPending = 0;
-    if (!(elapsed > 0)) { state.awayDone = true; return; }
-    if (world._sessionResumed) { awayBonus(world, elapsed); return; }
-    world._sessionResumed = true;
-    world.events.emit('sessionResumed', { elapsedMs: elapsed, minutesAdded: 0 });
-    awayBonus(world, elapsed);
   }
 
   function uninstall(world) {
@@ -170,15 +124,11 @@
     state.followerUid = mon.uid;
   }
 
-  async function talkToFollower(world, heroIndex) {
+  async function talkToFollower(world, hero) {
     const comp = world.companion;
     if (!comp || !comp.data || !comp.data.monUid) return false;
-    const h = world.hero(heroIndex);
+    const h = typeof hero === 'number' ? world.hero(hero) : hero;
     if (!h) return false;
-    const near = Math.abs(comp.x - h.x) + Math.abs(comp.y - h.y);
-    const facing = E.facingTile ? E.facingTile(h) : null;
-    const infront = facing && facing.x === comp.x && facing.y === comp.y;
-    if (!infront && near > 1) return false;
     const section = M.section(world.save);
     const mon = M.find(section, comp.data.monUid);
     if (!mon) return false;
@@ -273,17 +223,8 @@
     const reg = KIT.registry('systems');
     reg.add({
       id: 'mons-encounters', name: 'Pokémon encounters', order: 35, replace: true,
-      // The gap is settled on the first *update*, never on map entry: that gives
-      // every other system its turn at onMapEnter first, so the module that owns
-      // the clock announces the gap and we only fall back when nobody does.
       update(world, dt) {
         install(world);
-        settleAway(world);
-        // Keep the stamp fresh while we play, so a long session is never mistaken
-        // for a long absence. (A module that owns the clock does this every
-        // second; this is what happens when nobody else is here to.)
-        world._monsSeen = (world._monsSeen || 0) + (dt || 0);
-        if (world._monsSeen >= 20) { world._monsSeen = 0; stampSeen(world); }
       },
       onMapEnter(world) { install(world); },
       onMapLeave(world) { /* the listeners live as long as the world does */ },
@@ -299,7 +240,6 @@
       onMapEnter(world) {
         install(world);
         M.newVisit(M.section(world.save));
-        stampSeen(world);
         try { fillGarden(world); } catch (e) { (KIT.log || console).error('[mons] garden', e); }
       },
       onMapLeave(world) {
@@ -310,7 +250,6 @@
   };
 
   M._install = install;
-  M._settleAway = settleAway;
   M._uninstall = uninstall;
   M._syncFollower = syncFollower;
   M._fillGarden = fillGarden;

@@ -9,6 +9,8 @@ const path = require('path');
 const root = path.join(__dirname, '..', '..');
 const KIT = require(path.join(root, 'test/kit/_load.js'));
 require(path.join(root, 'js/kit/world/map.js'));          // the overlay test composes a real map view
+require(path.join(root, 'js/kit/world/entities.js'));
+require(path.join(root, 'js/kit/systems/index.js'));      // KIT.clock — the clock is the engine's
 require(path.join(root, 'js/modules/home/rules.js'));
 require(path.join(root, 'js/modules/home/register.js'));
 const H = KIT.home;
@@ -27,7 +29,7 @@ function makeProject(extra) {
     version: 3,
     meta: { id: 'home-test', title: 'Home test' },
     modules: ['home'],
-    settings: { clock: { enabled: false } },
+    settings: { clock: { enabled: true, minutesPerSecond: 6, awayMinutesPerRealMinute: 1, awayCapMinutes: 4320 } },
     heroes: [{ id: 'p1', name: 'Ada', sprite: null }, { id: 'p2', name: 'Bo', sprite: null }],
     start: { map: 'house', x: 2, y: 2, dir: 'down' },
     vars: { tidied: { type: 'bool', default: false, label: 'Tidied', group: 'Home' }, friendship: { type: 'number', default: 0, label: 'Kindness', group: 'Home' } },
@@ -43,7 +45,7 @@ function makeProject(extra) {
         ] } }] },
       ] },
     },
-    packs: { home: { tuning: { minutesPerSecond: 6, giftChance: 1, giftFriendship: 10, awayMinutesPerRealMinute: 1 }, giftItems: ['berry'], giftSpot: { map: 'house', x: 4, y: 5 } } },
+    packs: { home: { tuning: { giftChance: 1, giftFriendship: 10 }, giftItems: ['berry'], giftSpot: { map: 'house', x: 4, y: 5 } } },
   };
   Object.assign(raw, extra || {});
   const { project, problems } = KIT.project.normalize(raw);
@@ -123,48 +125,33 @@ test('home: a job that suits a friend finishes sooner', () => {
   assert.strictEqual(H.startJob(save, { template: needed, who: 'p1', worker: { uid: 'p1' }, now: 0 }).ok, false);
 });
 
-test('home: a gap of real days between sessions moves the clock on, up to the cap', () => {
-  const project = makeProject();
+test('home: a job left running finishes while you are away', () => {
+  // The gap between sessions is the ENGINE's: it measures it, moves the clock on
+  // by what Project › Clock says it is worth, and says `sessionResumed`. This
+  // module only has to be right about what that means for a job.
+  const project = makeProject();      // 1 in-game minute per real minute, cap 4320
   const save = makeSave(project);
-  const tuning = H.tuning(project);           // 1 in-game minute per real minute, cap 4320
+  const tuning = H.tuning(project);
 
-  const t0 = Date.parse('2026-01-01T10:00:00Z');
-  const first = H.resume(save, t0, tuning);
-  assert.deepStrictEqual(first, { elapsedMs: 0, minutesAdded: 0 }, 'the first session has nothing to catch up on');
-  assert.strictEqual(save.modules.home.seenAt, new Date(t0).toISOString());
-  assert.strictEqual(save.clock.lastSeenAt, new Date(t0).toISOString());
-
-  const template = templates(project).find(t => t.id === 'berries');
+  const template = templates(project).find(t => t.id === 'berries');   // 120 minutes
   const worker = H.roster(project, save)[0];
   const job = H.startJob(save, { template, who: worker.uid, worker, now: H.now(save), tuning }).job;
   assert.strictEqual(H.isReady(job, H.now(save)), false, 'not ready when you close the game');
 
-  // two real days later
-  const t1 = t0 + 2 * DAY_MS;
-  const back = H.resume(save, t1, tuning);
-  assert.strictEqual(back.elapsedMs, 2 * DAY_MS);
-  assert.strictEqual(back.minutesAdded, 2880);
+  // shut the game two real days ago, and come back
+  save.clock.lastSeenAt = new Date(Date.now() - 2 * DAY_MS).toISOString();
+  const resumed = KIT.clock.resume({ project, save, events: null });
+  assert.ok(Math.abs(resumed.elapsedMs - 2 * DAY_MS) < 5000, 'two days, give or take the test running');
+  assert.strictEqual(resumed.minutesAdded, 2880);
   assert.strictEqual(H.now(save), 480 + 2880);
   assert.strictEqual(H.isReady(job, H.now(save)), true, 'the errand finished while you were away');
 
   // a month away only ever adds the cap
-  const t2 = t1 + 30 * DAY_MS;
-  const long = H.resume(save, t2, tuning);
-  assert.strictEqual(long.minutesAdded, tuning.awayCapMinutes);
+  save.clock.lastSeenAt = new Date(Date.now() - 30 * DAY_MS).toISOString();
+  assert.strictEqual(KIT.clock.resume({ project, save, events: null }).minutesAdded, 4320);
 
   // and a clock that never left never jumps
-  const still = H.resume(save, t2, tuning);
-  assert.strictEqual(still.minutesAdded, 0);
-});
-
-test('home: touch() keeps the stamp fresh without adding a minute', () => {
-  const save = makeSave(makeProject());
-  const t0 = Date.parse('2026-01-01T10:00:00Z');
-  H.resume(save, t0, H.tuningDefaults());
-  const before = H.now(save);
-  H.touch(save, t0 + 20 * MIN);
-  assert.strictEqual(H.now(save), before);
-  assert.strictEqual(save.modules.home.seenAt, new Date(t0 + 20 * MIN).toISOString());
+  assert.strictEqual(KIT.clock.resume({ project, save, events: null }), null);
 });
 
 // ---- rewards ------------------------------------------------------------------

@@ -330,7 +330,7 @@
 
     // --- the system --------------------------------------------------------------------
     // Order 60: after the kit clock (50), so the minute it just added is the one
-    // we time jobs against.
+    // we time jobs against. The clock itself is not ours — we only read it.
     KIT.registry('systems').add({
       id: 'home', order: 60,
       onMapEnter(world) { listen(world); H.sweep(world, { quiet: false }); },
@@ -338,17 +338,6 @@
         const project = world.project, save = world.save;
         if (!project || !save) return;
         listen(world);
-        const t = H.tuning(project);
-        const engineClock = project.settings && project.settings.clock && project.settings.clock.enabled && (project.settings.clock.minutesPerSecond || 0) > 0;
-        if (!engineClock && t.driveClock && num(t.minutesPerSecond, 0) > 0 && !world.busy) {
-          world._homeAcc = (world._homeAcc || 0) + dt * num(t.minutesPerSecond, 6);
-          if (world._homeAcc >= 1) {
-            const add = Math.floor(world._homeAcc);
-            world._homeAcc -= add;
-            H.addMinutes(save, add);
-            if (world.events) world.events.emit('clockTick', { minutes: save.clock.minutes, day: save.clock.day });
-          }
-        }
         world._homeCheck = (world._homeCheck || 0) + dt;
         if (world._homeCheck < 1) return;
         world._homeCheck = 0;
@@ -415,6 +404,30 @@
         H.react(world.save, p.uid, p.what || 'petted', H.now(world.save));
       } catch (e) { (KIT.log || console).error('[home] friendCared', e); }
     });
+    // A board the author has emptied of pages still opens. The type ships a
+    // default page carrying @openJobBoard — that is the visible, editable way,
+    // and it is what a board placed in Creator Mode uses. This is the safety net
+    // underneath it: if nothing on the map answered the A button and the player
+    // was facing a board, the board answers for itself.
+    world.events.on('interactMissed', (p) => {
+      try {
+        if (!p || !world.map) return;
+        const here = world.map.objectsAt(p.x, p.y).find(o => o.type === 'job-board' && !world.map.isHidden(o));
+        if (!here) return;
+        KIT.scenes.run('home-board', { game: KIT.game, world, object: here });
+      } catch (e) { (KIT.log || console).error('[home] interactMissed', e); }
+    });
+    // The engine measured the gap between sessions and has already moved the
+    // clock on by whatever Project › Clock says a gap is worth. All this module
+    // does is notice — the jobs are timed against the clock, so they finished
+    // while we were away without anyone having to catch them up by hand.
+    world.events.on('sessionResumed', (p) => {
+      try {
+        H.ensure(world.save).seenAt = new Date().toISOString();
+        world._homeResumed = { elapsedMs: (p && p.elapsedMs) || 0, minutesAdded: (p && p.minutesAdded) || 0 };
+        H.sweep(world, { quiet: false });
+      } catch (e) { (KIT.log || console).error('[home] sessionResumed', e); }
+    });
   }
 
   /**
@@ -426,28 +439,10 @@
     const o = opts || {};
     const project = world.project, save = world.save;
     if (!project || !save) return null;
-    const data = H.ensure(save);
-    const tuning = H.tuning(project);
-    // A gap bigger than half a minute is a gap between sessions, not a slow
-    // frame: that is when time at home catches up. Otherwise we only re-stamp,
-    // so the stamp stays fresh and playing for an hour never counts as "away".
-    let resumed = { elapsedMs: 0, minutesAdded: 0 };
-    const stampedAt = data.seenAt || ((save.clock || {}).lastSeenAt);
-    const seenMs = stampedAt ? Date.parse(stampedAt) : NaN;
-    const gapMs = Number.isFinite(seenMs) ? Date.now() - seenMs : 0;
-    if (o.resume || gapMs > H.AWAY_GAP_MS) {
-      resumed = H.resume(save, null, tuning);
-      // One session gap per world, said once, by whoever noticed it first. This
-      // module owns the clock, so it is normally us — the latch is what stops a
-      // second module saying it again. (The engine should do this; ENGINE-HOOKS 1.)
-      if (resumed.elapsedMs > 0 && world.events && !world._sessionResumed) {
-        world._sessionResumed = true;
-        world.events.emit('sessionResumed', { elapsedMs: resumed.elapsedMs, minutesAdded: resumed.minutesAdded });
-      }
-    } else {
-      H.touch(save);
-    }
-
+    H.ensure(save);
+    // The gap between sessions is the engine's to measure and announce
+    // (`sessionResumed`); by the time it reaches us the clock has already moved.
+    const resumed = world._homeResumed || { elapsedMs: 0, minutesAdded: 0 };
     const now = H.now(save);
     const drifted = H.driftMoods(save, project, now);
     const gifts = H.rollGifts(save, project, now);
