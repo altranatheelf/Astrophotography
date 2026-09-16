@@ -19,6 +19,8 @@
 
   const isObj = KIT.isObject;
   const LAYERS = ['ground', 'deco', 'above'];
+  const EMPTY = Object.freeze({});      // stood in for a missing overlay or object table
+  const EMPTY_LIST = Object.freeze([]);
 
   /**
    * mapView(project, save, mapId) -> view
@@ -34,23 +36,30 @@
   KIT.mapView = function mapView(project, save, mapId, opts) {
     const map = project && project.maps ? project.maps[mapId] : null;
     if (!map) throw new Error(`mapView: unknown map '${mapId}'`);
-    const dimName = (opts && opts.dimension !== undefined) ? opts.dimension : (save && save.dimension) || null;
-    const dim = (dimName && map.dimensions && map.dimensions[dimName]) || null;
-    const dimTiles = (dim && dim.tiles) || null;
-    const dimObjects = (dim && dim.objects) || null;
-    const overlay = (save && save.overlays && save.overlays[mapId]) || null;
-    const objectState = (save && save.objects) || {};
+    // Everything the SAVE says about this map is read when it is asked for, never
+    // captured here. The player is standing in the map they are changing — put a
+    // rug down, open a door, shift to another layer of reality — and a view that
+    // had closed over the old save would go on showing the room they left. Read
+    // live and that trap cannot be stepped in.
+    const pinned = (opts && opts.dimension !== undefined) ? { name: opts.dimension || null } : null;
+    const dimNameNow = () => (pinned ? pinned.name : ((save && save.dimension) || null));
+    const dimNow = () => { const n = dimNameNow(); return (n && map.dimensions && map.dimensions[n]) || null; };
+    const dimTilesNow = () => { const d = dimNow(); return (d && d.tiles) || null; };
+    const dimObjectsNow = () => { const d = dimNow(); return (d && d.objects) || null; };
+    const overlayNow = () => (save && save.overlays && save.overlays[mapId]) || null;
+    const objectStateNow = () => (save && save.objects) || EMPTY;
     const width = map.width, height = map.height;
 
     const index = (x, y) => y * width + x;
     const inBounds = (x, y) => x >= 0 && y >= 0 && x < width && y < height;
-    const overlayCell = (x, y) => (overlay && overlay.tiles ? overlay.tiles[`${x},${y}`] : null);
+    const overlayCell = (x, y) => { const o = overlayNow(); return o && o.tiles ? o.tiles[`${x},${y}`] : null; };
 
     /** The tile id on a layer, overlay first. `null` = nothing on that layer. */
     function tileAt(layer, x, y) {
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, layer)) return o[layer];
+      const dimTiles = dimTilesNow();
       if (dimTiles) {
         const d = dimTiles[`${x},${y}`];
         if (d && Object.prototype.hasOwnProperty.call(d, layer)) return d[layer];
@@ -64,6 +73,7 @@
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, 'collision')) return o.collision;
+      const dimTiles = dimTilesNow();
       if (dimTiles) {
         const d = dimTiles[`${x},${y}`];
         if (d && Object.prototype.hasOwnProperty.call(d, 'collision')) return d.collision;
@@ -121,10 +131,24 @@
     }
 
     // ---- objects -------------------------------------------------------------
-    const objects = (map.objects || []).concat((overlay && overlay.objects) || []);
+    // The authored objects plus any the save has added. Always a copy — a system
+    // may put something on the map for the length of a visit (mons puts the
+    // creatures you own into the garden), and the authored map must not learn
+    // about it. Recomputed only when one of the two lists is replaced, so it is
+    // the same array from one frame to the next and those additions survive.
+    let objectsMemo = null, memoFrom = null, memoLen = -1;
+    function objectsNow() {
+      const extra = (overlayNow() || EMPTY).objects || null;
+      const authored = map.objects || EMPTY_LIST;
+      if (objectsMemo && extra === memoFrom && authored.length === memoLen) return objectsMemo;
+      memoFrom = extra; memoLen = authored.length;
+      objectsMemo = extra && extra.length ? authored.concat(extra) : authored.slice();
+      return objectsMemo;
+    }
     const key = (objOrId) => `${mapId}:${typeof objOrId === 'string' ? objOrId : objOrId.id}`;
-    const stateOf = (objOrId) => objectState[key(objOrId)] || null;
+    const stateOf = (objOrId) => objectStateNow()[key(objOrId)] || null;
     const isHidden = (obj) => {
+      const dimObjects = dimObjectsNow();
       const d = dimObjects && dimObjects[obj.id];
       if (d && d.hidden !== undefined) return !!d.hidden;      // this layer of reality decides
       const s = stateOf(obj);
@@ -146,7 +170,7 @@
     }
     function objectsAt(x, y) {
       const out = [];
-      for (const o of objects) { const p = positionOf(o); if (p.x === x && p.y === y) out.push(o); }
+      for (const o of objectsNow()) { const p = positionOf(o); if (p.x === x && p.y === y) out.push(o); }
       return out;
     }
 
@@ -209,16 +233,17 @@
 
     return {
       id: mapId, map, project, save, width, height, kind: map.kind,
-      dimension: dimName || null,
+      get dimension() { return dimNameNow(); },
       dimensions: map.dimensions ? Object.keys(map.dimensions) : [],
-      music: (dim && dim.music) || map.music,
-      atmosphere: (dim && dim.atmosphere) || (map.props && map.props.atmosphere) || null,
+      get music() { const d = dimNow(); return (d && d.music) || map.music; },
+      get atmosphere() { const d = dimNow(); return (d && d.atmosphere) || (map.props && map.props.atmosphere) || null; },
       index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, passable, hopTarget, connectionAt, interactTarget,
-      objects, objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
+      get objects() { return objectsNow(); },
+      objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
       setBlockers(list) { blockers = list || []; },
       get blockers() { return blockers; },
       /** Cells whose drawn tiles changed since the map was authored (for the renderer's cache). */
-      overlayCells() { return overlay && overlay.tiles ? Object.keys(overlay.tiles).map(k => { const [x, y] = k.split(',').map(Number); return { x, y }; }) : []; },
+      overlayCells() { const o = overlayNow(); return o && o.tiles ? Object.keys(o.tiles).map(k => { const [x, y] = k.split(',').map(Number); return { x, y }; }) : []; },
     };
   };
 

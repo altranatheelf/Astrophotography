@@ -192,7 +192,26 @@ async function walkTo(page, x, y) {
 }
 
 /** Stand beside something on the map and press A until it answers. */
+/**
+ * Wait until the game is actually ready to be talked to: the map is what is on
+ * screen, no script thread is still running, and the hero is standing still.
+ * Without this a check races the tail of the intro and presses A at a dialogue
+ * that is closing, which reads as “nobody answered”.
+ */
+async function settle(page, ms) {
+  try {
+    await page.waitForFunction(() => {
+      if (!KIT.game || !KIT.game.world || KIT.game.scene() !== 'map') return false;
+      if (KIT.interpreter.mainBusy() || KIT.game.world.busy) return false;
+      const h = KIT.game.world.hero();
+      return !!h && !h.mover.moving;
+    }, undefined, { timeout: ms || 8000 });
+    return true;
+  } catch (e) { return false; }
+}
+
 async function talkTo(page, id) {
+  await settle(page);
   // Somebody who wanders can step out of reach between aiming and pressing A,
   // so this goes round a few times before giving up.
   for (let attempt = 0; attempt < 8; attempt++) {

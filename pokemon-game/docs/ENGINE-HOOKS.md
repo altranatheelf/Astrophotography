@@ -10,7 +10,19 @@ Nothing here is broken today. Every item has a working workaround in module
 code. What each one costs is that the workaround is invisible to the next
 person: they will hit the same wall and invent a different way round it.
 
-Ordered by how much a fix would buy.
+Ordered by how much a fix would buy. **Fixed** means the engine does it now and
+the workaround has been deleted from the modules — the entry stays because it
+says why the engine is shaped the way it is.
+
+| | | |
+|---|---|---|
+| 1 | `sessionResumed` never emitted | open |
+| 2 | a module cannot own a piece of the save or the project | open |
+| 3 | the project is validated before the modules register | **fixed** |
+| 4 | `menus` will not take a function `label` | **fixed** |
+| 5 | no interact target that is not a map object | open |
+| 6 | `mapView` captures the overlay at construction | **fixed** |
+| 7–17 | see below | open |
 
 ---
 
@@ -108,10 +120,13 @@ demo: `packs.mons.starters` watches a plain story variable instead of putting
 build and the tests one place that registers the same modules the page does, so
 the offline checks do not see these warnings at all.
 
-**The fix.** In `main.js`, read `project.modules` from the loaded-but-not-yet-
-normalized project, `activate()` those modules, and normalize and validate
-afterwards. `KIT.storage.loadProject({ validate: false })` plus an explicit
-`KIT.project.normalize` after activation would do it without changing storage.
+**Fixed.** `KIT.storage.loadProject({ before })` takes a function and runs it
+once the project has been found and before anything is registered from it or
+validated against it; `js/main.js` passes `KIT.modules.activate`. The order is
+now: find the project → start its modules → register its own art → normalize and
+validate. A boot of the demo prints one line and nothing else.
+
+Anything that registers what content may refer to belongs in `before`.
 
 ---
 
@@ -135,9 +150,19 @@ const jobsMenu = menus.add({ id: 'home-jobs', order: 14, label: 'Jobs', … });
 jobsMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-jobs');
 ```
 
-**The fix.** Widen that one field to `scalar` (or add a `label` type that
-accepts a string or a function). One character of schema, and four lines of
-apology disappear from two modules.
+**Fixed.** There is a schema type `label`: text, or a function of the context
+that returns text. Every registry's `label` field is that type now, and
+everything that shows one reads it through `KIT.labelOf(def, ctx, fallback)`
+rather than `def.label` — the pause menu, the editor's tabs, tools and pickers,
+command and condition summaries, and every registry-backed dropdown. A module
+registers the entry it means:
+
+```js
+menus.add({ id: 'home-jobs', order: 14, label: (game) => KIT.strings.get(game.project, 'home-menu-jobs'), … });
+```
+
+Content never holds a function label — only registry definitions do, and those
+are code. In a form the type behaves as plain text.
 
 ---
 
@@ -189,9 +214,20 @@ appear until they leave and come back.
 **What was done instead.** Anything that writes an overlay rebuilds the view:
 `KIT.home.live(world).rebuild()` and the placement screen's `syncWorld()`.
 
-**The fix.** Read `save.overlays[mapId]` lazily inside `tileAt` /
-`collisionAt` / `overlayCells` instead of closing over it. The trap then cannot
-be stepped in.
+**Fixed.** A map view captures nothing the save owns. The overlay, the object
+state and the dimension are all read when they are asked for, so a rug appears
+as it is put down, a door opens as it is unlocked, and a shift to another layer
+of reality shows without a new view. `save.dimension` is followed live; passing
+`opts.dimension` explicitly (what the editor does to preview the authored map)
+pins it instead.
+
+The object list is still a copy, and still the *same* copy from one frame to the
+next, because a system may add somebody to a map for the length of a visit —
+mons puts the creatures you own into the garden — and the authored map must not
+learn about it. `test/kit/map.test.js` holds all of this down.
+
+`KIT.home.live(world).rebuild()` survives, doing only what it still has to:
+rebuilding the *entities* that were made from the overlay.
 
 ---
 

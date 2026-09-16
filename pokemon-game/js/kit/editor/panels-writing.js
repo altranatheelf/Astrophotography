@@ -67,7 +67,7 @@
         for (const f of S.fields(def.fields || [])) {
           if (f.type !== 'text') continue;
           push({ path: where.path.concat(f.key), text: cmd[f.key] == null ? '' : String(cmd[f.key]), kind: 'command',
-            command: cmd.t, field: f.key, label, fieldLabel: `${def.label || cmd.t}${f.key === 'text' ? '' : ' · ' + (f.label || titleCase(f.key))}`,
+            command: cmd.t, field: f.key, label, fieldLabel: `${KIT.labelOf(def, null, cmd.t)}${f.key === 'text' ? '' : ' · ' + (f.label || titleCase(f.key))}`,
             speaker: cmd.t === 'say' ? (cmd.who || '') : '', where: Object.assign({}, where) });
         }
         if (cmd.t === 'choice' && Array.isArray(cmd.options)) {

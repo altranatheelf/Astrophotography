@@ -84,7 +84,7 @@
   INS.enumOptions = function (field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: d.name || d.label || d.id }));
+      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: KIT.labelOf(d, ctx, d.id) }));
       else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
       else opts = [];
     }
@@ -469,11 +469,14 @@
 
   // ---- text ------------------------------------------------------------------------
   FE.add({
-    id: 'string', types: ['string'],
+    // 'label' is here too: in content it is always plain text. The other kind
+    // of label — a function of the game — only ever appears in a registry
+    // definition, which is code, and code is not edited through a form.
+    id: 'string', types: ['string', 'label'],
     mount(el, f, value, onChange) {
       const input = make('input');
       input.type = 'text';
-      input.value = value == null ? '' : String(value);
+      input.value = value == null || typeof value === 'function' ? '' : String(value);
       if (f.placeholder) input.placeholder = f.placeholder;
       const t = typed(onChange);
       input.oninput = () => t.push(input.value);
@@ -951,7 +954,7 @@
     const def = KIT.registry('conditions').get(cond.kind);
     const head = make('div.ed-row.ed-cond-head');
     const kindSel = make('select.ed-cond-kind');
-    for (const d of INS.conditionKinds()) { const o = make('option', { text: d.label || titleCase(d.id) }); o.value = d.id; kindSel.appendChild(o); }
+    for (const d of INS.conditionKinds()) { const o = make('option', { text: KIT.labelOf(d, null, titleCase(d.id)) }); o.value = d.id; kindSel.appendChild(o); }
     kindSel.value = cond.kind;
     kindSel.onchange = () => {
       const next = INS.newCondition(kindSel.value);
@@ -1006,7 +1009,7 @@
     const menu = make('div.ed-add-menu');
     menu.hidden = true;
     for (const d of INS.conditionKinds()) {
-      const item = btn(d.label || titleCase(d.id), d.doc || '', () => { menu.hidden = true; onPick(d.id); });
+      const item = btn(KIT.labelOf(d, null, titleCase(d.id)), d.doc || '', () => { menu.hidden = true; onPick(d.id); });
       menu.appendChild(item);
     }
     wrap.appendChild(b); wrap.appendChild(menu);

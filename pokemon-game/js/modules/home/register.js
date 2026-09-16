@@ -102,9 +102,12 @@
         if (x == null) r.invalidate(mapId);
         else r.invalidate(mapId, x, y);
       },
-      /** The overlay grew an object (a present): rebuild the map's entities. */
+      /**
+       * The overlay grew an object (a present). The map view reads the overlay
+       * live, so it needs no rebuilding — but the entities were built from it, so
+       * they do.
+       */
       rebuild() {
-        if (world.map && world.map.id) world.map = KIT.mapView(project, save, world.map.id);
         if (world.rebuildEntities) world.rebuildEntities();
       },
     };
@@ -355,15 +358,12 @@
 
     // --- pause-menu entries -----------------------------------------------------------
     const menus = KIT.registry('menus');
-    // Workaround (core issue): the pause menu reads a function `label` (menu.js),
-    // but the menus registry validates `label` as a plain string, so a module
-    // cannot register one. We add the entry with a plain label and put the
-    // re-wordable one on afterwards — add() returns the stored definition.
-    const jobsMenu = menus.add({
+    menus.add({
       // The pause menu, in one order across every module the demo ships:
       //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
       //   Save (20), Two players (30), Settings (40)…
-      id: 'home-jobs', order: 14, label: 'Jobs',
+      id: 'home-jobs', order: 14,
+      label: (game) => KIT.strings.get(game && game.project, 'home-menu-jobs'),
       value: (game) => {
         const w = game && game.world;
         if (!w) return undefined;
@@ -374,14 +374,13 @@
       },
       async open(game) { await KIT.scenes.run('home-jobs', { game }); return null; },
     });
-    jobsMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-jobs');
 
-    const decorateMenu = menus.add({
-      id: 'home-decorate', order: 16, label: 'Decorate',
+    menus.add({
+      id: 'home-decorate', order: 16,
+      label: (game) => KIT.strings.get(game && game.project, 'home-menu-decorate'),
       when: (game) => !!(game && game.project && H.furnitureItems(game.project).length),
       async open(game) { await KIT.scenes.run('home-place', { game }); return null; },
     });
-    decorateMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-decorate');
 
     // --- one mood, wherever a friend is shown -------------------------------------
     // A module that owns creatures shows how they are feeling on its own screens.

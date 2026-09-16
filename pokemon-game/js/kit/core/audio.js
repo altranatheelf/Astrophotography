@@ -3,7 +3,7 @@
 // so the whole game stays one page. A registry entry may still be
 // `{ kind:'file', src }`; then an <audio> element plays it.
 //
-//   KIT.audio.init()                  // safe before the first gesture (see unlock())
+//   KIT.audio.unlock()                // from a real gesture: makes the context
 //   KIT.audio.play('blip')
 //   KIT.audio.music('town', { fade: 300 })
 //   KIT.audio.jingle('heal')          // pauses the music, plays, resumes
@@ -28,6 +28,7 @@
   }
 
   let ctx = null;             // AudioContext (null until init() succeeds)
+  let gestured = false;       // has the page been touched? No context before it has.
   let master = null, sfxBus = null, musicBus = null;
   let enabled = true, musicOn = true;
   let volumes = { master: 0.8, sound: 0.9, music: 0.5 };
@@ -40,9 +41,18 @@
   const reg = (name) => (KIT.registry.exists(name) ? KIT.registry(name) : null);
   const defOf = (name, id) => { const r = reg(name); return r && id ? r.get(id) : null; };
 
-  /** init() — create the AudioContext if the browser allows it. Safe to call at any time, any number of times. */
+  /**
+   * init() — create the AudioContext, if we are allowed one yet.
+   *
+   * Browsers refuse to start an AudioContext before the page has been touched,
+   * and Chrome says so in the console. The title screen asks for music before
+   * anybody has touched anything, so the context is not made until the first
+   * gesture: until then this returns null, calls become no-ops, and `current`
+   * remembers what was wanted. unlock() makes the context and starts it.
+   */
   function init() {
     if (ctx) return ctx;
+    if (!gestured) return null;
     try {
       const AC = root.AudioContext || root.webkitAudioContext;
       if (!AC) return null;
@@ -55,12 +65,26 @@
     }
     return ctx;
   }
-  /** unlock() — resume after a user gesture (browsers start the context suspended). */
+  /**
+   * unlock() — called from a real user gesture. Makes the context (see init),
+   * resumes it if the browser suspended it, and starts whatever music was asked
+   * for while we were still silent.
+   */
   function unlock() {
+    const first = !gestured;
+    gestured = true;
     const c = init();
     if (!c) return Promise.resolve(false);
-    if (c.state === 'suspended') { try { return c.resume().then(() => true, () => false); } catch (e) { return Promise.resolve(false); } }
-    return Promise.resolve(true);
+    const started = (ok) => {
+      if (first && ok && current && current.id && current.def && current.def.kind !== 'file' && musicOn && enabled) {
+        const want = current.id;
+        current = null;                   // music() ignores a repeat of the same id
+        music(want);
+      }
+      return ok;
+    };
+    if (c.state === 'suspended') { try { return c.resume().then(() => started(true), () => false); } catch (e) { return Promise.resolve(false); } }
+    return Promise.resolve(started(true));
   }
 
   // ---- one-shot sounds ---------------------------------------------------------
@@ -122,8 +146,7 @@
     const def = defOf('sounds', id);
     if (!def) return;
     if (def.kind === 'file') { playFile(def, (opts && opts.volume) || 1, false); return; }
-    if (!init()) return;
-    unlock();
+    if (!init()) return;                     // no gesture yet, so nothing to play into
     const vol = (opts && opts.volume == null ? 1 : (opts && opts.volume)) || 1;
     const base = (def.gain == null ? 0.3 : def.gain) * vol;
     const at0 = ctx.currentTime + 0.001;
@@ -206,8 +229,7 @@
     current = { id, def };
     if (!def) return Promise.resolve();
     if (def.kind === 'file') { current.el = playFile(def, opts.volume, true); return Promise.resolve(); }
-    if (!init()) return Promise.resolve();
-    unlock();
+    if (!init()) return Promise.resolve();   // no gesture yet; `current` holds the wish, unlock() plays it
     musicBus.gain.value = volumes.music * (opts.volume == null ? 1 : opts.volume);
     if (opts.fade) {
       musicBus.gain.setValueAtTime(0.0001, ctx.currentTime);
@@ -251,7 +273,6 @@
     current = null;
     const notes = def.notes || (def.lead || []).map(n => [n, 160]);
     if (init() && enabled) {
-      unlock();
       const at0 = ctx.currentTime + 0.01;
       let cursor = 0;
       for (const n of notes) {

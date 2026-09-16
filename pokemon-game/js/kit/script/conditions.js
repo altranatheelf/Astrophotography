@@ -293,7 +293,7 @@
     const def = reg.get(cond.kind);
     if (!def) return `(unknown: ${cond.kind})`;
     if (typeof def.describe === 'function') return def.describe(cond, ctx || {});
-    return def.label || cond.kind;
+    return KIT.labelOf(def, ctx, cond.kind);
   };
   /** withDefaults(fields, value) -> a copy where missing keys take their defaults, except defaults that are null (so 'required' still reports). */
   C.withDefaults = function (fields, value) {

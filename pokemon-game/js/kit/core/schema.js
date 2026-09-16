@@ -73,6 +73,17 @@
   S.defineType('string', stringLike);
   S.defineType('text', stringLike);
   S.defineType('note', stringLike);
+  // A label the player reads. Text, or a function of the context that returns
+  // text — so a registry entry can take its name from the Terms table instead of
+  // freezing one language into the code. Content never stores one of these; only
+  // registry definitions, which are code. KIT.labelOf resolves either.
+  S.defineType('label', {
+    validate(f, v, ctx, path, errors) {
+      if (typeof v === 'function') return;
+      return stringLike.validate(f, v, ctx, path, errors);
+    },
+    default(f) { return f.default != null ? f.default : ''; },
+  });
   S.defineType('number', {
     validate(f, v, ctx, path, errors) {
       if (!isNum(v)) return err(errors, path, 'must be a number', 'type');
@@ -265,8 +276,8 @@
   S.registryRefKind = function (kind, registryName) {
     return S.refKind(kind, {
       has(id) { return KIT.registry.exists(registryName) ? KIT.registry(registryName).has(id) : null; },
-      list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: d.name || d.label || d.id })) : []; },
-      label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? (d.name || d.label || id) : id; },
+      list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: KIT.labelOf(d, null, d.id) })) : []; },
+      label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? KIT.labelOf(d, null, id) : id; },
     });
   };
   /** Helper: a resolver backed by a project table (ctx.project[table] keyed by id). */

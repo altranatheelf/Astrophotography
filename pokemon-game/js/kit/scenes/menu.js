@@ -70,7 +70,7 @@
         const out = [{ label: 'Keep playing', action: 'close' }];
         for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
           if (typeof def.when === 'function' && !def.when(game)) continue;
-          out.push({ label: typeof def.label === 'function' ? def.label(game) : (def.label || def.name || def.id), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
+          out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
         }
         return out;
       }

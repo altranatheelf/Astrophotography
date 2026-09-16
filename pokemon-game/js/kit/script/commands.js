@@ -990,8 +990,8 @@
     const def = reg.get(cmd.t);
     let s;
     if (!def) s = `Unknown command '${cmd.t}'`;
-    else if (typeof def.summary === 'function') { try { s = def.summary(cmd, ctx || {}); } catch (e) { s = def.label || cmd.t; } }
-    else s = def.label || cmd.t;
+    else if (typeof def.summary === 'function') { try { s = def.summary(cmd, ctx || {}); } catch (e) { s = KIT.labelOf(def, ctx, cmd.t); } }
+    else s = KIT.labelOf(def, ctx, cmd.t);
     return cmd.disabled ? `(off) ${s}` : s;
   };
   /**

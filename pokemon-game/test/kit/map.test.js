@@ -118,3 +118,72 @@ test('mapView: objects — last active page wins, state, hidden, interact across
   assert.ok(t.across);
   assert.equal(v.interactTarget(0, 0, 'up'), null);
 });
+
+test('mapView: the save is read live, so changing the map you are standing in shows', () => {
+  const project = makeProject();
+  const save = { vars: {}, objects: {}, overlays: {} };
+  const v = KIT.mapView(project, save, 'town');          // the view is made FIRST, as it is at runtime
+
+  // --- a tile put down while you are standing there ---
+  assert.equal(v.tileAt('deco', 0, 0), null);
+  assert.equal(v.flagsAt(0, 0).solid, false);
+  save.overlays.town = { tiles: { '0,0': { deco: 'plant' } } };
+  assert.equal(v.tileAt('deco', 0, 0), 'plant', 'the rug is there the moment it is put down');
+  assert.equal(v.flagsAt(0, 0).solid, true, 'and you cannot walk through it');
+  assert.deepEqual(v.overlayCells(), [{ x: 0, y: 0 }], 'and the renderer is told which cell to redraw');
+
+  // --- a collision override arriving the same way ---
+  save.overlays.town.tiles['1,1'] = { collision: 1 };
+  assert.equal(v.collisionAt(1, 1), 1);
+
+  // --- an object the save adds ---
+  assert.equal(v.objects.length, 1);
+  save.overlays.town.objects = [{ id: 'present', name: 'Present', type: 'item', x: 3, y: 3, note: '', pages: [] }];
+  assert.equal(v.objects.length, 2, 'the present is on the map');
+  assert.equal(v.objectsAt(3, 3).length, 1);
+
+  // --- object state written after the view was made ---
+  const mom = v.objects.find(o => o.id === 'mom');
+  assert.equal(v.isHidden(mom), false);
+  save.objects['town:mom'] = { hidden: true };
+  assert.equal(v.isHidden(mom), true, 'Mom leaves the room without a new view');
+
+  // --- and the authored map never learns about any of it ---
+  assert.equal(project.maps.town.objects.length, 1, 'the authored map is untouched');
+  assert.equal(project.maps.town.layers.deco[0], null);
+});
+
+test('mapView: a system may add objects for the length of a visit', () => {
+  const project = makeProject();
+  const v = KIT.mapView(project, { vars: {}, objects: {}, overlays: {} }, 'town');
+  v.objects.push({ id: 'visitor', name: 'Visitor', type: 'npc', x: 2, y: 3, note: '', pages: [] });
+  assert.equal(v.objects.length, 2, 'it is still there on the next read');
+  assert.equal(v.objectsAt(2, 3).length, 1, 'and the map can be asked about it');
+  assert.equal(project.maps.town.objects.length, 1, 'while the project keeps its one object');
+});
+
+test('mapView: the dimension follows the save unless one was asked for by name', () => {
+  const project = makeProject();
+  project.maps.town.dimensions = {
+    flooded: { tiles: { '0,0': { ground: 'wall' } }, objects: { mom: { hidden: true } }, music: 'rain', atmosphere: null },
+  };
+  const save = { vars: {}, objects: {}, overlays: {}, dimension: null };
+
+  const live = KIT.mapView(project, save, 'town');
+  assert.equal(live.dimension, null);
+  assert.equal(live.tileAt('ground', 0, 0), 'grass');
+  save.dimension = 'flooded';
+  assert.equal(live.dimension, 'flooded', 'the view followed the save');
+  assert.equal(live.tileAt('ground', 0, 0), 'wall');
+  assert.equal(live.music, 'rain');
+  assert.equal(live.isHidden(live.objects.find(o => o.id === 'mom')), true);
+
+  // an explicit dimension is a request, not a guess: it stays what it was asked for
+  const pinned = KIT.mapView(project, save, 'town', { dimension: null });
+  assert.equal(pinned.dimension, null, 'the editor previewing the authored map keeps seeing it');
+  assert.equal(pinned.tileAt('ground', 0, 0), 'grass');
+  save.dimension = null;
+  const pinnedFlood = KIT.mapView(project, save, 'town', { dimension: 'flooded' });
+  assert.equal(pinnedFlood.dimension, 'flooded');
+  assert.equal(pinnedFlood.tileAt('ground', 0, 0), 'wall');
+});

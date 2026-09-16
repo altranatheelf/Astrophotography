@@ -22,6 +22,11 @@ come earlier. `test/kit/_load.js` and `index.html` both use this order.)
 `KIT.deepClone(v)` · `KIT.deepEqual(a,b)` · `KIT.stableStringify(v, indent)` (sorted keys) ·
 `KIT.uid(prefix)` · `KIT.slug(s)` · `KIT.clamp(v,lo,hi)` · `KIT.isObject(v)`
 
+`KIT.labelOf(def, ctx, fallback)` — what to call a registry entry on screen. A
+`label` may be text or a function of the context (`(game) => KIT.strings.get(game.project, 'x')`),
+so an entry can take its name from the Terms table; this resolves either, falling
+back to `name`, then `fallback`, then `id`. Read a label with this, never `def.label`.
+
 ## core/events — stable
 `KIT.events(name) -> bus` with `on(event,fn) -> off`, `once`, `off`, `emit(event,payload) -> count`, `count`, `clear`.
 `'*'` listeners receive `(event, payload)`. A throwing listener never stops the others. `KIT.bus` is the global one.
@@ -148,6 +153,8 @@ Collisions: free id → added · same value → unchanged (no problem) · differ
 Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewrites references; idempotent) and `KIT.import.merge.registerProject(project)`.
 
 `KIT.project.registerContent(project) -> { assets, tiles, sprites, faces, icons }` (world/project) puts a project's own content tables into the registries — imported art has no `js/art/*.js` file, so the project is the file. Called by `KIT.storage.loadProject` before normalize and by `KIT.game.useAssets`.
+
+`KIT.storage.loadProject({ draft, projectId, before })` — `before(rawProject)` runs once the project is found and **before** it is registered from or validated against, so whatever it registers counts. `js/main.js` passes `KIT.modules.activate`: a module's object types, commands and item kinds must exist before the content that uses them is checked, or a game that works is reported as broken.
 
 The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
 

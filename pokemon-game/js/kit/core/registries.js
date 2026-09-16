@@ -6,7 +6,11 @@
   const base = [
     { key: 'id', type: 'string', min: 1, pattern: '^[a-z0-9][a-z0-9-_.:]*$', patternMessage: 'ids are lowercase letters, digits, - _ . :' },
   ];
-  const named = base.concat([{ key: 'name', type: 'string', optional: true }, { key: 'label', type: 'string', optional: true }, { key: 'doc', type: 'text', optional: true }, { key: 'group', type: 'string', optional: true }]);
+  // `label` is type 'label', not 'string': a registry entry may compute its own
+  // name from the Terms table — `(game) => KIT.strings.get(game.project, 'x')` —
+  // so a module does not freeze one language into its code. Read one with
+  // KIT.labelOf(def, ctx), never def.label.
+  const named = base.concat([{ key: 'name', type: 'string', optional: true }, { key: 'label', type: 'label', optional: true }, { key: 'doc', type: 'text', optional: true }, { key: 'group', type: 'string', optional: true }]);
 
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },

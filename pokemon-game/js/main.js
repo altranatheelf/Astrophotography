@@ -102,14 +102,22 @@
   // ---- 3. load and boot --------------------------------------------------------
   async function start() {
     try {
-      const { project, source, problems } = await KIT.storage.loadProject();
+      // The modules start BEFORE the project is validated, not after. A module
+      // brings object types, commands and item kinds with it, and the content
+      // that uses them is checked against whatever is registered at the moment
+      // it is checked — so activating afterwards means every page that says
+      // @openJobBoard is reported as unknown, in the console, at every boot, on
+      // a game that works perfectly.
+      const { project, source, problems } = await KIT.storage.loadProject({
+        before: (raw) => { KIT.modules.activate(raw); },
+      });
       (KIT.log || console).info(`[kit] project “${(project.meta && project.meta.title) || '?'}” from ${source}` +
-        (KIT.storage.info().adapter ? ` · storage: ${KIT.storage.info().adapter}` : ''));
+        (KIT.storage.info().adapter ? ` · storage: ${KIT.storage.info().adapter}` : '') +
+        (KIT.modules.loaded().length ? ` · modules: ${KIT.modules.loaded().map(m => m.id).join(', ')}` : ''));
       for (const p of (problems || []).filter(p2 => p2.severity === 'error').slice(0, 3)) {
         (KIT.log || console).warn('[project]', p.code, p.message, p.where);
       }
       if (KIT.storage.warning) banner(KIT.storage.warning);
-      KIT.modules.activate(project);
       await KIT.game.boot({ mount: document.getElementById('app') || document.body, project });
     } catch (e) {
       (KIT.log || console).error('[kit] boot failed', e);

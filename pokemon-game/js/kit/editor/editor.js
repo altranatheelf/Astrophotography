@@ -281,7 +281,7 @@
     if (!tool) return;
     drawing = true;
     el.setPointerCapture(ev.pointerId);
-    ED.beginStroke(tool.label || tool.id);
+    ED.beginStroke(KIT.labelOf(tool, ED, tool.id));
     try { if (tool.begin) tool.begin(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); }
     state.cursor = { x: pt.tx, y: pt.ty };
     ED.repaint();
@@ -386,7 +386,7 @@
     const bar = ED.el.tabs;
     UI.clear(bar);
     for (const p of panelList()) {
-      const b = UI.make('button.ed-tab', { text: p.label || p.id });
+      const b = UI.make('button.ed-tab', { text: KIT.labelOf(p, ED, p.id) });
       b.dataset.panel = p.id;
       b.setAttribute('aria-selected', String(p.id === state.panel));
       b.onclick = () => ED.set({ panel: p.id });
@@ -465,9 +465,9 @@
       if (tools.children.length !== defs.length) {
         UI.clear(tools);
         for (const t of defs) {
-          const b = UI.make('button.ed-tool', { text: t.icon || t.label || t.id });
+          const b = UI.make('button.ed-tool', { text: t.icon || KIT.labelOf(t, ED, t.id) });
           b.dataset.tool = t.id;
-          b.title = `${t.label || t.id}${t.key ? ` (${t.key})` : ''}`;
+          b.title = `${KIT.labelOf(t, ED, t.id)}${t.key ? ` (${t.key})` : ''}`;
           b.onclick = () => ED.set({ tool: t.id });
           tools.appendChild(b);
         }

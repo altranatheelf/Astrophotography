@@ -162,7 +162,8 @@ warning). Keys (all under `kit.<projectId>.`): `draft` (editor autosave, debounc
 500 ms), `editorState`, `save.<slot>` (3 slots + `autosave`), `meta` (survives
 New Game), `settings` (global, not per project). API:
 ```js
-KIT.storage.ready() ; get/set/del(key) ; loadProject() -> { project, source:'draft'|'embedded'|'default' }
+KIT.storage.ready() ; get/set/del(key) ; loadProject({ before }) -> { project, source:'draft'|'embedded'|'content'|'default', problems }
+                                          before(raw) runs before normalize: modules start here
 saveDraft(p) ; discardDraft() ; exportText(obj) -> string ; importText(s) -> obj
 download(name, text) ; canPublish() ; publish(project) ; captureHtml()
 saveGame(slot, state) ; loadGame(slot) ; listGames() ; deleteGame(slot) ; exportGame(slot) -> string ; importGame(string)

@@ -47,7 +47,7 @@
   SE.labelOf = function (idOrDef) {
     const def = typeof idOrDef === 'string' ? SE.def(idOrDef) : idOrDef;
     if (!def) return titleCase(idOrDef);
-    return def.mv || def.label || titleCase(def.id);
+    return def.mv || KIT.labelOf(def, ED, titleCase(def.id));
   };
 
   const BRANCH_LABELS = { then: 'Then', else: 'Else', body: 'Do', options: 'Choice' };

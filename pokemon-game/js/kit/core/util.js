@@ -55,6 +55,27 @@
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
   };
 
+  /**
+   * labelOf(def, ctx) -> what to call this thing, on screen.
+   *
+   * A registry entry's `label` may be a function of the context (usually the
+   * game or the editor) rather than a string, so an entry can take its name from
+   * the Terms table instead of freezing one language into the code. Everything
+   * that shows a label goes through here, so either kind works everywhere.
+   */
+  KIT.labelOf = function (def, ctx, fallback) {
+    if (def == null) return fallback != null ? fallback : '';
+    if (typeof def === 'string') return def;
+    let v = def.label;
+    if (typeof v === 'function') {
+      try { v = v(ctx); } catch (e) { v = null; }
+    }
+    if (typeof v === 'string' && v) return v;
+    if (typeof def.name === 'string' && def.name) return def.name;
+    if (fallback != null) return fallback;
+    return typeof def.id === 'string' ? def.id : '';
+  };
+
   KIT.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   KIT.isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 

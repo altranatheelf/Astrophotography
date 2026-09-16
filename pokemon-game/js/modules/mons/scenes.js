@@ -860,27 +860,24 @@
     scenes.add({ id: 'mons-dex', name: 'Pokédex', replace: true, create: dexScene });
     scenes.add({ id: 'mons-card', name: 'Pokémon card', replace: true, create: cardScene });
 
-    // The pause menu reads `label` as a function when it is one (scenes/menu.js),
-    // but the `menus` registry schema types `label` as text and rejects one — so
-    // the entry is added with the plain default and given its live, re-wordable
-    // label afterwards. (See README, "the missing hook".)
+    // A menu label is a function of the game, so the Terms table can reword it
+    // without a reload and a translation is a project edit rather than a code one.
     const menus = KIT.registry('menus');
-    const liveLabel = (def, key) => { def.label = (game) => M.t(game && game.project, key); return def; };
     // The pause menu, in one order across every module the demo ships:
     //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
     //   Save (20), Two players (30), Settings (40)…
-    liveLabel(menus.add({
+    menus.add({
       id: 'mons-party', order: 10, replace: true,
-      label: M.t(null, 'mons-menu-party'),
+      label: (game) => M.t(game && game.project, 'mons-menu-party'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); const n = (s.party || []).length; return n ? String(n) : ''; },
       async open(game) { await KIT.scenes.run('mons-party', { game, project: game && game.project }); return null; },
-    }), 'mons-menu-party');
-    liveLabel(menus.add({
+    });
+    menus.add({
       id: 'mons-dex', order: 12, replace: true,
-      label: M.t(null, 'mons-menu-dex'),
+      label: (game) => M.t(game && game.project, 'mons-menu-dex'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); return String(M.dexCounts(s).caught); },
       async open(game) { await KIT.scenes.run('mons-dex', { game, project: game && game.project }); return null; },
-    }), 'mons-menu-dex');
+    });
     injectStyle();
   };
 

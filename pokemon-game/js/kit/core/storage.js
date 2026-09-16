@@ -176,8 +176,14 @@
   }
 
   /**
-   * loadProject() -> { project, source, problems }
+   * loadProject(opts) -> { project, source, problems }
    * draft → embedded `project-data` → content files (KIT.project.fromContent) → KIT.project.blank().
+   *
+   *   opts.draft      false to ignore a saved Creator Mode draft
+   *   opts.projectId  which content project to read
+   *   opts.before     before(rawProject) — run once the project is found and
+   *                   before it is normalized or validated, so anything it
+   *                   registers counts. This is where modules start.
    */
   S.loadProject = async function (opts) {
     opts = opts || {};
@@ -197,6 +203,16 @@
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
     }
     let project = base, problems = [];
+    // Last chance to teach the registries what this project is made of, while it
+    // is still the raw thing that came off disk. Everything validated below —
+    // every tile id, every object type, every command in every page — is checked
+    // against what is registered NOW, so whatever registers late is reported as
+    // unknown. `opts.before(base)` is where the modules the project enables get
+    // switched on (js/main.js); it may be async.
+    if (typeof opts.before === 'function') {
+      try { await opts.before(base); }
+      catch (e) { (KIT.log || console).error('[storage] the project’s modules did not start', e); }
+    }
     // Imported art (tiles/sprites/faces/icons/assets the project carries) has no
     // js/art file to register it, so the project registers its own — before
     // normalize, which validates every tile id a map uses.

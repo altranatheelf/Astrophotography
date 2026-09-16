@@ -212,11 +212,10 @@
         follow();
         build();
       }
-      /** The overlay changed: rebuild the map view (it captured the old overlay) and repaint. */
+      /** The overlay changed: rebuild the entities it made and repaint. */
       function syncWorld() {
         if (!world || !world.map) return;
         const id = world.map.id;
-        world.map = KIT.mapView(project(), save(), id);
         if (world.rebuildEntities) world.rebuildEntities();
         const r = KIT.game && KIT.game.renderer;
         if (r) r.invalidate(id);

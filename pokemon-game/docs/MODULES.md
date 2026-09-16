@@ -57,7 +57,7 @@ Everything is a registry, so a module adds the same way the kit does:
 | item kinds | `itemKinds` | `{ fields, use(ctx, item) }` |
 | systems | `systems` | `{ order, update(world, dt), onMapEnter }` |
 | scenes | `scenes` | menus, minigames, anything full-screen |
-| pause-menu entries | `menus` | `{ label, icon, order, open(game) }` |
+| pause-menu entries | `menus` | `{ label, icon, order, open(game) }` — `label` may be `(game) => …` so Terms can reword it |
 | editor panels and tools | `editorPanels` `editorTools` | Creator Mode extends itself |
 | field widgets | `fieldEditors` | new schema types |
 | validators | `validators` | project problems |
