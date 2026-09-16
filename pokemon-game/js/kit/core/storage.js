@@ -187,6 +187,10 @@
    *   opts.before     before(rawProject) — run once the project is found and
    *                   before it is normalized or validated, so anything it
    *                   registers counts. This is where modules start.
+   *   opts.validate   false to skip the validation pass. It is the expensive
+   *                   half (2.3s of a 2.8s boot on a 400-map project) and only
+   *                   an author needs it, so the game boots without it and
+   *                   checks a moment later, when nobody is waiting.
    */
   S.loadProject = async function (opts) {
     opts = opts || {};
@@ -220,7 +224,10 @@
     // js/art file to register it, so the project registers its own — before
     // normalize, which validates every tile id a map uses.
     try { KIT.project.registerContent(base); } catch (e) { (KIT.log || console).warn('[storage] the project content did not register', e); }
-    try { const n = KIT.project.normalize(base); project = n.project; problems = n.problems; }
+    try {
+      const n = KIT.project.normalize(base, opts.validate === false ? { validate: false } : undefined);
+      project = n.project; problems = n.problems;
+    }
     catch (e) { (KIT.log || console).error('[storage] the project did not normalize; starting blank', e); project = KIT.project.blank(); source = 'default'; }
     projectId = (project.meta && project.meta.id) || projectId;
     return { project, source, problems };

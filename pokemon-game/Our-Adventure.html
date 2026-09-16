@@ -2253,6 +2253,46 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   let releaseTimers = [];
 
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  // ---- gamepad ------------------------------------------------------------------
+  // The standard mapping every modern pad reports: 0 bottom face, 1 right face,
+  // 9 start, 8 select/back, 12-15 d-pad, axes 0/1 the left stick. A pad that is
+  // not standard-mapped still usually agrees about these.
+  const PAD_BUTTONS = { 0: 'a', 1: 'b', 2: 'b', 3: 'a', 9: 'menu', 8: 'menu', 12: 'up', 13: 'down', 14: 'left', 15: 'right' };
+  let DEADZONE = 0.35;
+  const padWas = [];                 // last frame's held state per player, so a press is an edge
+
+  /** Whatever the browser will tell us, or null. Never throws. */
+  function readGamepads() {
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    if (!nav || typeof nav.getGamepads !== 'function') return null;
+    try { return nav.getGamepads() || null; } catch (e) { return null; }
+  }
+
+  /** One pad, folded into player p's held state. Sticks and d-pad both count. */
+  function readPad(gp, p) {
+    const want = blankState();
+    const btns = gp.buttons || [];
+    for (const i of Object.keys(PAD_BUTTONS)) {
+      const b = btns[i];
+      if (b && (b.pressed || b.value > 0.5)) want[PAD_BUTTONS[i]] = true;
+    }
+    const ax = gp.axes || [];
+    const x = Number(ax[0]) || 0, y = Number(ax[1]) || 0;
+    if (x < -DEADZONE) want.left = true;
+    if (x > DEADZONE) want.right = true;
+    if (y < -DEADZONE) want.up = true;
+    if (y > DEADZONE) want.down = true;
+
+    const was = padWas[p] || (padWas[p] = blankState());
+    for (const k of KEYS) {
+      if (want[k] === was[k]) continue;
+      was[k] = want[k];
+      // Only the pad's own transitions are written, so holding a key on the
+      // keyboard is not cancelled by an idle pad sitting on the table.
+      setKey(p, k, want[k]);
+    }
+  }
   const idx = (player) => {
     if (player === 'p2' || player === 2) return 1;
     if (player && player.id === 'p2') return 1;
@@ -2531,6 +2571,46 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     /** set(key, player, down) — hold or release a button explicitly. */
     set(key, player, down) { setKey(idx(player), key, !!down); return INPUT; },
     releaseAll: onBlur,
+
+    // ---- gamepads ----------------------------------------------------------------
+    /**
+     * poll(pads) — read the gamepads and fold them into the same held state the
+     * keyboard writes. Call it once a frame, before anything reads state().
+     *
+     * The Gamepad API has no events for buttons, only a snapshot you read, so
+     * this is the one part of input that has to be polled. Everything downstream
+     * is unchanged: a stick is a direction, a face button is `a`, and a scene
+     * cannot tell which hardware it came from.
+     *
+     * `pads` overrides what is read, which is how a test drives a controller and
+     * how a recorded session could be played back.
+     */
+    poll(pads) {
+      const list = pads || readGamepads();
+      if (!list) return INPUT;
+      let seat = 0;
+      for (const gp of list) {
+        if (!gp || !gp.connected) continue;
+        const p = seat < players ? seat : players - 1;   // more pads than players: they share
+        seat++;
+        readPad(gp, p);
+      }
+      return INPUT;
+    },
+    /** gamepads(pads) -> [{ index, id, player }] — what is plugged in, for a settings screen. */
+    gamepads(pads) {
+      const list = pads || readGamepads() || [];
+      const out = [];
+      let seat = 0;
+      for (const gp of list) {
+        if (!gp || !gp.connected) continue;
+        out.push({ index: gp.index, id: gp.id, player: (seat < players ? seat : players - 1) + 1 });
+        seat++;
+      }
+      return out;
+    },
+    /** deadzone(v) — how far a stick must move before it counts. 0.1–0.9. */
+    deadzone(v) { if (v != null) DEADZONE = KIT.clamp(Number(v) || 0, 0.05, 0.95); return DEADZONE; },
 
     isTouch() {
       if (typeof window === 'undefined') return false;
@@ -3107,6 +3187,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    *   opts.before     before(rawProject) — run once the project is found and
    *                   before it is normalized or validated, so anything it
    *                   registers counts. This is where modules start.
+   *   opts.validate   false to skip the validation pass. It is the expensive
+   *                   half (2.3s of a 2.8s boot on a 400-map project) and only
+   *                   an author needs it, so the game boots without it and
+   *                   checks a moment later, when nobody is waiting.
    */
   S.loadProject = async function (opts) {
     opts = opts || {};
@@ -3140,7 +3224,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     // js/art file to register it, so the project registers its own — before
     // normalize, which validates every tile id a map uses.
     try { KIT.project.registerContent(base); } catch (e) { (KIT.log || console).warn('[storage] the project content did not register', e); }
-    try { const n = KIT.project.normalize(base); project = n.project; problems = n.problems; }
+    try {
+      const n = KIT.project.normalize(base, opts.validate === false ? { validate: false } : undefined);
+      project = n.project; problems = n.problems;
+    }
     catch (e) { (KIT.log || console).error('[storage] the project did not normalize; starting blank', e); project = KIT.project.blank(); source = 'default'; }
     projectId = (project.meta && project.meta.id) || projectId;
     return { project, source, problems };
@@ -4102,7 +4189,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (!p.start.map && Object.keys(p.maps).length) p.start.map = Object.keys(p.maps)[0];
     for (const k of Object.keys(src)) if (!(k in p) && k !== 'version') p[k] = src[k];   // keep unknown top-level keys (modules' data)
     if (!(ctx && ctx.skipRegisterArt)) P.registerArt(p);        // the project's own art has to exist before anything references it
-    const problems = mig.problems.concat(P.validate(p, ctx));
+    // Validating is the expensive half and a PLAYER never needs it: it reads
+    // every command of every page of every object looking for things an author
+    // should fix. Measured on a 400-map, 48,000-line project: filling 0.5s,
+    // validating 2.3s. `ctx.validate === false` boots the game and leaves the
+    // checking to whoever asked for it — Creator Mode, or an idle callback a
+    // moment later (js/main.js does the latter).
+    const problems = (ctx && ctx.validate === false) ? mig.problems : mig.problems.concat(P.validate(p, ctx));
     return { project: p, problems };
   };
 
@@ -15927,6 +16020,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   function step(dt) {
+    // The Gamepad API has no events, only a snapshot, so a pad is the one input
+    // that has to be read. Once a frame, before anything asks what is held.
+    KIT.input.poll();
     KIT.scenes.update(dt);
     const w = G.world;
     const top = KIT.scenes.top();
@@ -35620,7 +35716,13 @@ PKMN.TILES.register([
       // it is checked — so activating afterwards means every page that says
       // @openJobBoard is reported as unknown, in the console, at every boot, on
       // a game that works perfectly.
+      // Not validated here. Checking every command of every page of every object
+      // is the expensive half of loading a project — 2.3 seconds of a 2.8 second
+      // boot on a 400-map game — and it tells an AUTHOR things, never a player.
+      // So the game starts, and the checking happens below, once nobody is
+      // waiting for it.
       const { project, source, problems } = await KIT.storage.loadProject({
+        validate: false,
         before: (raw) => { KIT.modules.activate(raw); },
       });
       (KIT.log || console).info(`[kit] project “${(project.meta && project.meta.title) || '?'}” from ${source}` +
@@ -35631,10 +35733,36 @@ PKMN.TILES.register([
       }
       if (KIT.storage.warning) banner(KIT.storage.warning);
       await KIT.game.boot({ mount: document.getElementById('app') || document.body, project });
+      checkLater(project);
     } catch (e) {
       (KIT.log || console).error('[kit] boot failed', e);
       banner('The game could not start: ' + (e && e.message ? e.message : e));
     }
+  }
+
+  /**
+   * The validation pass, after the game is already playing. An author still
+   * hears about a broken tile id or an unknown command; a player waits for
+   * nothing. `KIT.problems` holds the answer, and `problemsReady` says it is in,
+   * so Creator Mode can show them without running the pass again.
+   */
+  function checkLater(project) {
+    const run = () => {
+      try {
+        const t0 = (root.performance ? performance.now() : 0);
+        const problems = KIT.project.validate(project, {});
+        KIT.problems = problems;
+        const errors = problems.filter(p => p.severity === 'error');
+        if (errors.length) {
+          (KIT.log || console).warn(`[project] ${errors.length} problem(s) an author should look at:`);
+          for (const p of errors.slice(0, 10)) (KIT.log || console).warn('  ', p.code, p.message, p.where);
+          if (errors.length > 10) (KIT.log || console).warn(`   …and ${errors.length - 10} more (Creator Mode › Problems)`);
+        }
+        if (KIT.events) KIT.events('kit').emit('problemsReady', { problems });
+      } catch (e) { (KIT.log || console).error('[project] the check itself failed', e); }
+    };
+    if (typeof root.requestIdleCallback === 'function') root.requestIdleCallback(run, { timeout: 4000 });
+    else setTimeout(run, 1200);
   }
 
   if (typeof document === 'undefined') return;

@@ -503,7 +503,13 @@
     if (!p.start.map && Object.keys(p.maps).length) p.start.map = Object.keys(p.maps)[0];
     for (const k of Object.keys(src)) if (!(k in p) && k !== 'version') p[k] = src[k];   // keep unknown top-level keys (modules' data)
     if (!(ctx && ctx.skipRegisterArt)) P.registerArt(p);        // the project's own art has to exist before anything references it
-    const problems = mig.problems.concat(P.validate(p, ctx));
+    // Validating is the expensive half and a PLAYER never needs it: it reads
+    // every command of every page of every object looking for things an author
+    // should fix. Measured on a 400-map, 48,000-line project: filling 0.5s,
+    // validating 2.3s. `ctx.validate === false` boots the game and leaves the
+    // checking to whoever asked for it — Creator Mode, or an idle callback a
+    // moment later (js/main.js does the latter).
+    const problems = (ctx && ctx.validate === false) ? mig.problems : mig.problems.concat(P.validate(p, ctx));
     return { project: p, problems };
   };
 
