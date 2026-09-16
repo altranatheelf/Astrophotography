@@ -203,10 +203,18 @@
   C.met = function (save, who) { const s = C.section(save)[String(who || '')]; return !!(s && s.met); };
 
   // ---- reading the content ----------------------------------------------------
-  /** person(project, who) -> the cast entry, or null. */
+  /**
+   * person(project, who) -> the cast entry, or null.
+   * `who` is an id, or the NAME on screen — because a line says "Mira:" and the
+   * engine should not need telling twice who that is.
+   */
   C.person = function (project, who) {
     const t = (project && project.cast) || {};
-    return t[String(who || '')] || null;
+    const key = String(who || '');
+    if (!key) return null;
+    if (t[key]) return t[key];
+    for (const id of Object.keys(t)) if (t[id] && t[id].name === key) return t[id];
+    return null;
   };
   /** nameOf(project, who) -> what to call them on screen. */
   C.nameOf = function (project, who) {

@@ -147,6 +147,20 @@
       emit(ctx, 'itemChanged', { id, delta: after - before, count: after });
       return after;
     },
+    /**
+     * voiceOf(ctx, cmd) -> a voice id, or null for silence.
+     * What this line asked for, then the speaker's own from the cast, then the
+     * project's default. A speaker who is nobody in particular gets the default.
+     */
+    voiceOf(ctx, cmd) {
+      if (cmd && cmd.voice) return cmd.voice;
+      const project = ctx && ctx.project;
+      const who = (cmd && cmd.who) || '';
+      const person = (KIT.cast && KIT.cast.person) ? KIT.cast.person(project, who) : null;
+      if (person && person.voice) return person.voice;
+      const s = (project && project.settings) || {};
+      return s.voice || null;
+    },
     heroName(ctx, heroId) {
       const i = C.heroIndex(ctx, heroId);
       const s = save(ctx);
@@ -223,8 +237,8 @@
   const SAY_LINE = /^([^\s@?#":\-\[][^:(\n]*?)\s*(?:\(([^)]*)\))?:\s?(.*)$/;
   const SAY_WHO = /^[^\s@?#":\-\[][^:(\n]*$/;
   const NARRATION_LINE = /^"((?:[^"\\]|\\.)*)"\s*(?:\(([^)]*)\))?\s*$/;
-  const sayOpts = (cmd) => { const o = {}; if (cmd.face) o.face = cmd.face; if (cmd.position && cmd.position !== 'bottom') o.at = cmd.position; if (cmd.bg && cmd.bg !== 'window') o.bg = cmd.bg; return Object.keys(o).map(k => `${k}=${V.format(o[k])}`).join(', '); };
-  const sayFromOpts = (cmd, opts) => { if (opts.face !== undefined) cmd.face = opts.face; if (opts.at !== undefined) cmd.position = opts.at; if (opts.bg !== undefined) cmd.bg = opts.bg; return cmd; };
+  const sayOpts = (cmd) => { const o = {}; if (cmd.face) o.face = cmd.face; if (cmd.position && cmd.position !== 'bottom') o.at = cmd.position; if (cmd.bg && cmd.bg !== 'window') o.bg = cmd.bg; if (cmd.voice) o.voice = cmd.voice; return Object.keys(o).map(k => `${k}=${V.format(o[k])}`).join(', '); };
+  const sayFromOpts = (cmd, opts) => { if (opts.face !== undefined) cmd.face = opts.face; if (opts.at !== undefined) cmd.position = opts.at; if (opts.bg !== undefined) cmd.bg = opts.bg; if (opts.voice !== undefined) cmd.voice = opts.voice; return cmd; };
 
   const ROUTE_STEPS = 'up down left right randomStep towardHero awayHero face:<dir> faceHero turnRandom jump:dx,dy wait:ms sprite:<id> speed:n through:on|off visible:on|off sound:<id> dirFix:on|off stepAnim:on|off';
 
@@ -241,9 +255,21 @@
       { key: 'text', type: 'text', default: '' },
       { key: 'position', type: 'enum', options: ['top', 'middle', 'bottom'], default: 'bottom' },
       { key: 'bg', type: 'enum', options: ['window', 'dim', 'none'], default: 'window', label: 'Background' },
+      { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Voice',
+        doc: 'How they sound while the letters appear. Empty: their own, from the cast.' },
     ],
     async run(ctx, cmd) {
-      await port(ctx, 'io', 'say')({ who: T.substitute(cmd.who || '', ctx), face: cmd.face || null, text: T.substitute(cmd.text || '', ctx), position: cmd.position || 'bottom', bg: cmd.bg || 'window', raw: cmd.text || '' });
+      const said = {
+        who: T.substitute(cmd.who || '', ctx), face: cmd.face || null,
+        text: T.substitute(cmd.text || '', ctx), position: cmd.position || 'bottom',
+        bg: cmd.bg || 'window', raw: cmd.text || '',
+      };
+      // The voice is resolved HERE, where the project and the cast are, and
+      // handed over as an id; the box only has to look it up. Left out entirely
+      // when there is none, so a game with no cast has the payload it always had.
+      const voice = STATE.voiceOf(ctx, cmd);
+      if (voice) said.voice = voice;
+      await port(ctx, 'io', 'say')(said);
     },
     summary(cmd) { return `${cmd.who ? cmd.who + ': ' : ''}${short(T.strip(cmd.text), 60)}`; },
     text: {

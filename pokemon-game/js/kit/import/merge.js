@@ -64,6 +64,11 @@
     { key: 'faces', kind: 'face', registry: 'faces' },
     { key: 'icons', kind: 'icon', registry: 'icons' },
     { key: 'animations', kind: 'animation', registry: null },
+    // An import cannot bring the .ogg files, but it brings the NAMES, as silent
+    // placeholders — so every command that plays one resolves, and the Sounds
+    // panel is a to-do list rather than a hundred broken references.
+    { key: 'sounds', kind: 'sound', registry: 'sounds' },
+    { key: 'music', kind: 'music', registry: 'music' },
     { key: 'items', kind: 'item' },
     { key: 'vars', kind: 'var' },
     { key: 'scripts', kind: 'script' },

@@ -454,6 +454,9 @@
   }
   RM.commandCtx = makeCommandCtx;
 
+  /** 'battle-1' -> 'Battle 1'. A readable name for an imported placeholder. */
+  function titleish(id) { return String(id || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+
   /** target(charId, ctx) -> a Kit target string. -1 = the player, 0 = this event, n>0 = event n. */
   function targetOf(charId, ctx) {
     const n = int(charId, 0);
@@ -1050,10 +1053,15 @@
     const names = RM.nameTable(system.switches, system.variables);
     for (const k of names.collisions) P.info('name-collision', `the name '${k}' is used by more than one switch or variable; those keep their numbered names (switch-n / var-n)`, {});
 
+    // Every track and effect the events ask for, collected across the whole
+    // import so the placeholders at the end are the complete list.
+    const audioNames = { sound: new Set(), music: new Set() };
+
     const result = {
       assets: {}, tiles: [], sprites: [], faces: [], maps: {}, objects: [],
-      scripts: {}, vars: {}, items: {}, project: null, problems: P.list,
+      scripts: {}, vars: {}, items: {}, sounds: {}, music: {}, project: null, problems: P.list,
       stats: { maps: 0, events: 0, pages: 0, tiles: 0, assets: 0, sprites: 0, faces: 0, scripts: 0, vars: 0, items: 0,
+        sounds: 0, music: 0,
         commands: { total: 0, translated: 0, unsupported: 0 }, problems: { error: 0, warn: 0, info: 0 } },
     };
 
@@ -1222,6 +1230,7 @@
     function noteAudio(kind, audio) {
       if (!isObj(audio) || !audio.name) return null;
       const id = pre(slug(audio.name));
+      audioNames[kind].add(id);          // the same list the commands fill, so the placeholder is made
       P.once('info', 'audio-not-imported', id, `'${audio.name}' is an RPG Maker ${kind === 'music' ? 'music track' : 'sound'}; the project now names '${id}', which has to be added`, {});
       return id;
     }
@@ -1290,7 +1299,7 @@
             items: itemIds, weapons: weaponIds, armors: armorIds,
             maps: mapIdFor, scripts: scriptIdFor, events: objectIdsByMap[m.id],
             actors: actorsData, faces: faceIds, sprites: spriteIds,
-            stats: result.stats.commands,
+            stats: result.stats.commands, audioNames,
           });
           const translated = RM.commands(pg.list || [], cmdCtx);
           const slot = TRIGGER_SLOT[int(pg.trigger, 0)] || 'interact';
@@ -1346,7 +1355,7 @@
         items: itemIds, weapons: weaponIds, armors: armorIds,
         maps: mapIdFor, scripts: scriptIdFor, events: {},
         actors: actorsData, faces: faceIds, sprites: spriteIds,
-        stats: result.stats.commands,
+        stats: result.stats.commands, audioNames,
       });
       const translated = RM.commands(ce.list || [], cmdCtx);
       let when = null;
@@ -1364,10 +1373,30 @@
     // ---- top-level project bits -------------------------------------------
     const startMap = mapIdFor[int(system.startMapId, 0)] || null;
     if (system.startMapId && !startMap) P.warn('unknown-map-target', `the starting map (${system.startMapId}) was not imported`, {});
+    // RPG Maker keeps its audio as loose .ogg/.m4a files rather than in the JSON,
+    // so an import cannot bring the sound itself. What it CAN bring is the list:
+    // every track and effect the events ask for, as a silent placeholder with the
+    // original filename on it. The references then resolve, the project validates,
+    // and the Sounds panel is a to-do list with the right names already in it —
+    // instead of a hundred broken references and an author guessing.
+    const named = audioNames;
+    result.sounds = {};
+    result.music = {};
+    for (const id of Array.from(named.sound).sort()) {
+      result.sounds[id] = { name: titleish(id), kind: 'file', src: '', group: 'imported', note: 'From RPG Maker. Point src at the file, or replace it with a synth recipe.' };
+    }
+    for (const id of Array.from(named.music).sort()) {
+      result.music[id] = { name: titleish(id), kind: 'file', src: '', loop: true, group: 'imported', note: 'From RPG Maker. Point src at the file, or replace it with a synth recipe.' };
+    }
+    result.stats.sounds = Object.keys(result.sounds).length;
+    result.stats.music = Object.keys(result.music).length;
+
     result.project = {
       meta: { title: system.gameTitle ? String(system.gameTitle) : 'Imported project' },
       start: { map: startMap, x: int(system.startX, 0), y: int(system.startY, 0), dir: 'down' },
       settings: o.tileSize ? { tileSize: int(o.tileSize, 48) } : {},
+      sounds: result.sounds,
+      music: result.music,
     };
 
     result.stats.tiles = result.tiles.length;

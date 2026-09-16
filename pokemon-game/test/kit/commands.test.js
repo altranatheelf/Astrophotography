@@ -410,6 +410,75 @@ test('script schema: validateScript (unknown t, raw ok, bad fields, nested, back
   assert.deepEqual(CMD.blockFields(reg.get('choice')), ['options']);
   assert.deepEqual(CMD.nested(N({ t: 'choice', options: [{ text: 'a' }, { text: 'b' }] })).map(n => n.path.join('.')), ['options.0.then', 'options.1.then']);
   // normalize fills defaults deeply and keeps extras
-  assert.deepEqual(N({ t: 'if', then: [{ t: 'say', text: 'x' }], extra: 1 }), { t: 'if', when: null, then: [{ t: 'say', who: '', face: null, text: 'x', position: 'bottom', bg: 'window' }], else: [], extra: 1 });
+  assert.deepEqual(N({ t: 'if', then: [{ t: 'say', text: 'x' }], extra: 1 }), { t: 'if', when: null, then: [{ t: 'say', who: '', face: null, text: 'x', position: 'bottom', bg: 'window', voice: null }], else: [], extra: 1 });
   assert.deepEqual(N({ t: 'raw', line: 'x' }), { t: 'raw', line: 'x' });
+});
+
+// ---- voices: what somebody sounds like while their words appear ------------------
+test('voices: a speaker sounds like themselves, and a line can say otherwise', async () => {
+  const voices = KIT.registry('voices');
+  assert.ok(voices.get('default'), 'the engine ships a default voice');
+  for (const id of ['low', 'high', 'soft', 'flat', 'none']) assert.ok(voices.get(id), id);
+
+  const project = KIT.project.normalize({
+    version: 3, meta: { id: 'voice-test' }, maps: { a: {} },
+    heroes: [{ id: 'p1', name: 'You' }],
+    cast: {
+      mira: { name: 'Mira', voice: 'low' },
+      wren: { name: 'Wren' },
+    },
+  }).project;
+  assert.equal(project.cast.mira.voice, 'low', 'a person carries their voice');
+  assert.equal(project.cast.wren.voice, null, 'and not having one is fine');
+
+  const ctx = fakeCtx({}, { project });
+  const saidVoice = (i) => ctx.calls[i][1].voice;
+
+  // the cast member's own voice, found by the NAME on screen
+  await run(ctx, { t: 'say', who: 'Mira', text: 'Hello.' });
+  assert.equal(saidVoice(0), 'low', 'Mira sounds like Mira without being told twice');
+
+  // somebody with no voice of their own carries none, and the box uses the default
+  await run(ctx, { t: 'say', who: 'Wren', text: 'Hello.' });
+  assert.equal(saidVoice(1), undefined, 'nothing to say about it');
+
+  // a line can whisper
+  await run(ctx, { t: 'say', who: 'Mira', text: 'Quietly.', voice: 'soft' });
+  assert.equal(saidVoice(2), 'soft', 'this line overrides her usual one');
+
+  // and a game can set one for everybody
+  const hushed = KIT.project.normalize({
+    version: 3, meta: { id: 'v2' }, maps: { a: {} }, settings: { voice: 'flat' },
+  }).project;
+  const ctx2 = fakeCtx({}, { project: hushed });
+  await run(ctx2, { t: 'say', who: 'Anybody', text: 'Hm.' });
+  assert.equal(ctx2.calls[0][1].voice, 'flat', 'the project default reaches a stranger');
+});
+
+test('voices: the say line carries it, losslessly', () => {
+  const def = KIT.registry('commands').get('say');
+  for (const line of ['Mira (voice=soft): Quietly.', 'Mira (face=mom-smile, voice=low): Hello.', 'Mira: Plain.']) {
+    const cmd = def.text.fromLine(line);
+    assert.ok(cmd, line);
+    assert.equal(def.text.toLine(cmd), line, line);
+  }
+});
+
+test('voices: pitch and rate are what make one blip into a cast', () => {
+  // One sound, six speakers. This is the Animal Crossing trick and it is why a
+  // voice is three numbers rather than a recording.
+  const v = (id) => KIT.registry('voices').get(id);
+  assert.ok(v('low').pitch < v('default').pitch, 'low is lower');
+  assert.ok(v('high').pitch > v('default').pitch, 'high is higher');
+  assert.equal(v('none').volume, 0, 'and one of them says nothing at all');
+  for (const id of KIT.registry('voices').ids()) {
+    const d = v(id);
+    assert.ok(d.everyChars >= 1, id + ' blips at a sane rate');
+    assert.ok(d.pitch > 0, id + ' has a pitch');
+  }
+  // they all name a sound that exists, or none
+  for (const id of KIT.registry('voices').ids()) {
+    const d = v(id);
+    if (d.sound) assert.ok(KIT.registry('sounds').has(d.sound), id + ' -> ' + d.sound);
+  }
 });

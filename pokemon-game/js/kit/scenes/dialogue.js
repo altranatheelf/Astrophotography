@@ -20,6 +20,18 @@
     return SPEEDS[settings().textSpeed] == null ? SPEEDS.normal : SPEEDS[settings().textSpeed];
   }
 
+  /**
+   * voiceFor(id) -> the voice to speak in, falling back to `default`.
+   * WHICH voice is the say command's business (it has the project and the cast);
+   * this only has to look it up.
+   */
+  function voiceFor(id) {
+    const reg = KIT.registry.exists('voices') ? KIT.registry('voices') : null;
+    if (!reg) return null;
+    return (id && reg.get(id)) || reg.get('default') || null;
+  }
+  const SILENT = /[\s.,;:!?'"\-—–()\[\]]/;
+
   /** A measuring context that uses the element's real font, so wrapping matches what you see. */
   let measureCtx = null;
   function measurerFor(el) {
@@ -74,6 +86,7 @@
     create() {
       let ui = null, units = [], unitIndex = 0, charIndex = 0, acc = 0, pages = [], pageIndex = 0;
       let waiting = false, complete = false, speed = 1, pauseLeft = 0;
+      let voice = null, sinceBlip = 0, spoken = 0;
 
       function layoutFor(textEl) {
         return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: LINES_PER_PAGE };
@@ -108,6 +121,29 @@
         }
         if (instant()) revealAll();
         updatePrompt();
+      }
+
+      /**
+       * The sound of somebody talking: one blip every few letters, at a pitch
+       * that wanders a little so it is a person and not a printer. Punctuation
+       * and spaces stay silent, which is what stops it sounding like Morse.
+       */
+      function speak(chars) {
+        if (!voice || !voice.sound || !chars) return;
+        const every = Math.max(1, voice.everyChars || 2);
+        for (const ch of chars) {
+          if (voice.skipPunctuation !== false && SILENT.test(ch)) continue;
+          if (sinceBlip++ % every) continue;
+          const jitter = voice.jitter == null ? 0.06 : voice.jitter;
+          // Deterministic wander: the same line sounds the same twice, which
+          // matters for a game somebody records or speedruns.
+          const wobble = jitter ? 1 + (((KIT.hash(spoken++) % 200) / 100) - 1) * jitter : 1;
+          KIT.audio.play(voice.sound, {
+            pitch: (voice.pitch || 1) * wobble,
+            rate: voice.rate || 1,
+            volume: voice.volume == null ? 0.5 : voice.volume,
+          });
+        }
       }
 
       function revealAll() {
@@ -146,6 +182,10 @@
           ui.face.innerHTML = '';
           ui.face.hidden = !p.face;
           if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), 3));
+          // Who is talking decides what they sound like: their own voice if they
+          // are in the cast, else whatever this line asked for, else the game's.
+          voice = voiceFor(p.voice);
+          sinceBlip = 0;
           const rendered = KIT.text.render(p.text == null ? '' : p.text, p.ctx || {}, layoutFor(ui.text));
           pages = rendered[0].pages;
           pageIndex = 0;
@@ -173,8 +213,10 @@
             if (u.type === 'text') {
               const left = u.text.length - charIndex;
               const take = Math.min(left, budget);
+              const from = charIndex;
               charIndex += take; budget -= take;
               u.el.textContent = u.text.slice(0, charIndex);
+              speak(u.text.slice(from, charIndex));
               if (charIndex >= u.text.length) { unitIndex++; charIndex = 0; }
             } else if (u.type === 'icon') { u.el.style.visibility = 'visible'; unitIndex++; }
             else if (u.type === 'pause') { pauseLeft = u.ms; unitIndex++; break; }

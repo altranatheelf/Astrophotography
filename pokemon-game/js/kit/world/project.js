@@ -46,6 +46,8 @@
       { key: 'tileSize', type: 'number', integer: true, min: 8, max: 64, default: 16 },
       { key: 'viewport', type: 'group', fields: [{ key: 'w', type: 'number', integer: true, min: 4, default: 16 }, { key: 'h', type: 'number', integer: true, min: 4, default: 12 }] },
       { key: 'textSpeed', type: 'enum', options: ['slow', 'normal', 'fast', 'instant'], default: 'normal' },
+      { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Everybody sounds like',
+        doc: 'The voice for anyone with none of their own. Empty is the engine default.' },
       { key: 'zoom', type: 'enum', options: ['auto', 'small', 'normal', 'large'], default: 'auto' },
       { key: 'coop', type: 'group', fields: [{ key: 'enabled', type: 'bool', default: false }] },
       { key: 'palette', type: 'group', fields: [{ key: 'remap', type: 'strings' }, { key: 'tint', type: 'color', nullable: true, default: null }, { key: 'amount', type: 'number', min: 0, max: 1, default: 0 }] },
@@ -72,6 +74,7 @@
       idField('id'), { key: 'name', type: 'string', default: '' },
       { key: 'pronouns', type: 'string', default: '', doc: 'they/them — for the {they:who} tags' },
       { key: 'sprite', type: 'ref:sprite' }, { key: 'face', type: 'ref:face' },
+      { key: 'voice', type: 'ref:voice', nullable: true, default: null, doc: 'What they sound like while their words appear' },
       { key: 'group', type: 'string', doc: 'Family, the village, the other place…' },
       { key: 'met', type: 'bool', default: false, doc: 'Do we know them before the game starts?' },
       { key: 'knows', type: 'list', of: { type: 'ref:fact' }, default: [], label: 'Knows from the start' },
@@ -426,7 +429,12 @@
    * Creator Mode) as opposed to the art built into the kit under js/art/. Loading a project
    * registers it, which is what makes an imported tileset work after a reload.
    */
-  P.ART_TABLES = [['tiles', 'tiles'], ['sprites', 'sprites'], ['faces', 'faces'], ['icons', 'icons'], ['animations', 'animations']];
+  // A project's own content, registered before it is validated so its references
+  // resolve. Sounds and music are in here too: an import brings the NAME of every
+  // track it could not bring the file for, and without registering those names
+  // every command that plays one reads as a broken reference.
+  P.ART_TABLES = [['tiles', 'tiles'], ['sprites', 'sprites'], ['faces', 'faces'], ['icons', 'icons'],
+    ['animations', 'animations'], ['sounds', 'sounds'], ['music', 'music']];
   /** registerArt(project) -> how many definitions were registered. Safe to call repeatedly. */
   P.registerArt = function (project) {
     let n = 0;
@@ -938,9 +946,13 @@
    * normalized (storage.loadProject) so the validator sees the tiles too.
    * Safe to call twice: every definition replaces its own id.
    */
-  const CONTENT_TABLES = ['tiles', 'sprites', 'faces', 'icons'];
+  // Everything a project can carry that lives in a REGISTRY rather than in the
+  // project itself. Sounds and music are in here because an import brings the
+  // names of tracks whose files it could not bring, and those names have to be
+  // known or every command that plays one is a broken reference.
+  const CONTENT_TABLES = ['tiles', 'sprites', 'faces', 'icons', 'sounds', 'music'];
   P.registerContent = function (project) {
-    const counts = { assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0 };
+    const counts = { assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0, sounds: 0, music: 0 };
     if (!isObj(project)) return counts;
     if (KIT.assets && KIT.assets.define && isObj(project.assets)) {
       for (const id of Object.keys(project.assets).sort()) {

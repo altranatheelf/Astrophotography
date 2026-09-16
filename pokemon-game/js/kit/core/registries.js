@@ -44,6 +44,27 @@
   });
   KIT.defineRegistry('systems', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Per-tick systems: { id, order, update(world, dt), onMapEnter, onMapLeave }.' });
   KIT.defineRegistry('scenes', { fields: named, doc: 'Scene factories: { id, create(params) -> scene }.' });
+  // What somebody SOUNDS like while their words appear. Undertale, OMORI, Animal
+  // Crossing and Deltarune all do this and it is most of what gives a character a
+  // voice without recording one. A speaker's is `cast[who].voice`; the say
+  // command can override it; a project default covers everyone else.
+  KIT.defineRegistry('voices', { fields: named.concat([
+    { key: 'sound', type: 'ref:sound', nullable: true, default: 'blip', doc: 'The sound played as the letters appear. Empty is a silent speaker.' },
+    { key: 'pitch', type: 'number', min: 0.2, max: 4, default: 1, doc: 'Lower is bigger and slower' },
+    { key: 'jitter', type: 'number', min: 0, max: 1, default: 0.06, doc: 'How much the pitch wanders, so it is not a machine' },
+    { key: 'everyChars', type: 'number', integer: true, min: 1, max: 12, default: 2, doc: 'One blip per this many letters' },
+    { key: 'volume', type: 'number', min: 0, max: 1, default: 0.5 },
+    { key: 'rate', type: 'number', min: 0.25, max: 4, default: 1, doc: 'How fast each blip plays' },
+    { key: 'skipPunctuation', type: 'bool', default: true, doc: 'Spaces and commas stay silent' },
+  ]), doc: 'A speaking voice: { id, sound, pitch, jitter, everyChars, volume, rate }.' });
+  KIT.registry('voices').addAll([
+    { id: 'default', name: 'Voice', sound: 'blip', pitch: 1, everyChars: 2 },
+    { id: 'low', name: 'Low voice', sound: 'blip', pitch: 0.62, everyChars: 3, rate: 0.85 },
+    { id: 'high', name: 'High voice', sound: 'blip', pitch: 1.7, everyChars: 2, rate: 1.15 },
+    { id: 'soft', name: 'Soft voice', sound: 'blip', pitch: 1.15, everyChars: 3, volume: 0.3, jitter: 0.12 },
+    { id: 'flat', name: 'Flat voice', sound: 'blip', pitch: 1, everyChars: 2, jitter: 0, volume: 0.4 },
+    { id: 'none', name: 'Silent', sound: null, pitch: 1, everyChars: 12, volume: 0 },
+  ]);
   KIT.defineRegistry('menus', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Pause-menu entries: { id, label, icon, order, open(game) }.' });
   KIT.defineRegistry('editorPanels', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Creator Mode side panels: { id, label, icon, order, mount(el, editor) }.' });
   KIT.defineRegistry('editorTools', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }, { key: 'key', type: 'string', optional: true }]), doc: 'Map tools: { id, label, icon, key, begin/move/end(pointer, editor), preview(ctx, editor) }.' });
@@ -59,6 +80,7 @@
   S.registryRefKind('face', 'faces');
   S.registryRefKind('icon', 'icons');
   S.registryRefKind('sound', 'sounds');
+  S.registryRefKind('voice', 'voices');
   S.registryRefKind('music', 'music');
   S.registryRefKind('preset', 'presets');
   S.projectRefKind('map', 'maps');

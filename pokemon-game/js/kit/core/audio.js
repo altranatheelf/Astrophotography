@@ -140,7 +140,15 @@
     } catch (e) { return null; }
   }
 
-  /** play(id, { volume }) — a sound from the `sounds` registry. Unknown ids are ignored. */
+  /**
+   * play(id, { volume, pitch, rate }) — a sound from the `sounds` registry.
+   * Unknown ids are ignored.
+   *
+   * `pitch` multiplies every frequency and `rate` every duration, which is how
+   * one blip becomes a cast of voices: the same three notes at 0.8 is a big
+   * slow character and at 1.6 is a small fast one. This is the Animal Crossing
+   * trick, and it costs one multiplication.
+   */
   function play(id, opts) {
     if (!enabled || !id) return;
     const def = defOf('sounds', id);
@@ -148,14 +156,16 @@
     if (def.kind === 'file') { playFile(def, (opts && opts.volume) || 1, false); return; }
     if (!init()) return;                     // no gesture yet, so nothing to play into
     const vol = (opts && opts.volume == null ? 1 : (opts && opts.volume)) || 1;
+    const pitch = (opts && Number(opts.pitch)) > 0 ? Number(opts.pitch) : 1;
+    const rate = (opts && Number(opts.rate)) > 0 ? Number(opts.rate) : 1;
     const base = (def.gain == null ? 0.3 : def.gain) * vol;
     const at0 = ctx.currentTime + 0.001;
     let cursor = 0;
     for (const note of def.notes || []) {
-      const f = freq(note[0]);
-      const ms = note[1] == null ? 90 : note[1];
-      const delay = note[2] == null ? cursor : note[2];
-      tone({ freq: f, ms, at: at0 + delay / 1000, wave: def.wave || 'square', gain: base, slide: note[3] ? freq(note[3]) : (def.slide ? f * def.slide : 0) });
+      const f = freq(note[0]) * pitch;
+      const ms = (note[1] == null ? 90 : note[1]) / rate;
+      const delay = (note[2] == null ? cursor : note[2]) / rate;
+      tone({ freq: f, ms, at: at0 + delay / 1000, wave: def.wave || 'square', gain: base, slide: note[3] ? freq(note[3]) * pitch : (def.slide ? f * def.slide : 0) });
       cursor = delay + ms;
     }
   }

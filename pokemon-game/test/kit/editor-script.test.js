@@ -97,7 +97,7 @@ test('script editor: editing the text is one undo step, and nothing is lost', ()
   assert.equal(ed.doc.history.length, 1, 'one undo step for the whole text');
   const after = ed.doc.get(p);
   assert.equal(after.length, 5);
-  assert.deepEqual(after[3], { t: 'say', who: 'Mom', text: 'One more thing.', face: null, position: 'bottom', bg: 'window' });
+  assert.deepEqual(after[3], { t: 'say', who: 'Mom', text: 'One more thing.', face: null, position: 'bottom', bg: 'window', voice: null });
   assert.deepEqual(after[4], { t: 'raw', line: 'this line is not a command' }, 'an unreadable line survives as a raw line');
   assert.equal(r.problems.length, 1);
   assert.equal(r.problems[0].raw, 'this line is not a command');
