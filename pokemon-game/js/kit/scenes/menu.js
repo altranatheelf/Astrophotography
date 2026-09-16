@@ -193,7 +193,7 @@
       async open(game) { await KIT.scenes.run('debug', { game }); return null; } },
     { id: 'creator', label: 'Creator Mode', order: 60,
       async open(game) {
-        if (KIT.editor && typeof KIT.editor.open === 'function') { KIT.editor.open(game); return 'close'; }
+        if (game && game.openEditor && game.openEditor()) return 'close';
         await KIT.toast('Creator Mode is not in this build yet.');
         return null;
       } },

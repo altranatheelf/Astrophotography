@@ -117,3 +117,28 @@ test('editor ops: maps, scripts, vars, items, fragments', () => {
   assert.equal((d.get(['fragments']) || []).length, 0);
   assert.deepEqual(O.problems(d.value).filter(p => p.severity === 'error'), []);
 });
+
+test('editor ops: the collision layer paints beside the tile layers', () => {
+  const { d, map, m } = doc();
+  assert.equal(O.paint(d, { map, layer: 'collision', cells: [{ x: 2, y: 2 }, { x: 3, y: 2 }], tile: 1 }), 2);
+  assert.equal(m().collision[2 * m().width + 2], 1);
+  assert.equal(m().layers.ground[2 * m().width + 2], 'grass', 'the ground layer is untouched');
+  O.paint(d, { map, layer: 'collision', cells: [{ x: 2, y: 2 }], tile: 'n' });
+  assert.equal(m().collision[2 * m().width + 2], 'n');
+  O.paint(d, { map, layer: 'collision', cells: [{ x: 2, y: 2 }] });          // erase
+  assert.equal(m().collision[2 * m().width + 2], null);
+  d.undo(); d.undo(); d.undo();
+  assert.equal(m().collision[2 * m().width + 2], null);
+});
+
+test('document: begin/end keep a stroke as one undo step', () => {
+  const { d, map, m } = doc();
+  d.begin('Paint stroke');
+  for (let x = 0; x < 5; x++) O.paint(d, { map, layer: 'ground', cells: [{ x, y: 0 }], tile: 'path' });
+  d.end();
+  assert.equal(d.history.length, 1, 'five cells, one undo step');
+  assert.equal(m().layers.ground[4], 'path');
+  d.undo();
+  assert.equal(m().layers.ground[4], 'grass');
+  assert.equal(m().layers.ground[0], 'grass');
+});

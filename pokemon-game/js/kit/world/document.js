@@ -129,6 +129,26 @@
       splice(path, index, remove, insert, o) { return doc.apply([{ op: 'splice', path, index, remove, insert: insert || [] }], o); },
       push(path, item, o) { const arr = P.get(value, path); return doc.splice(path, Array.isArray(arr) ? arr.length : 0, 0, [item], o); },
 
+      /**
+       * begin(label) / end() — an open transaction for work that spans events (a
+       * pointer stroke painting tile by tile). Everything between them is ONE undo
+       * step. Nested begins flatten into the outermost, like transaction().
+       */
+      begin(label) {
+        if (txDepth === 0) { txOps = []; txInverse = []; txLabel = label || 'Edit'; }
+        txDepth++;
+        return doc;
+      },
+      end() {
+        if (txDepth === 0) return doc;
+        txDepth--;
+        if (txDepth === 0) {
+          if (txOps.length) { undoStack.push({ label: txLabel || 'Edit', ops: txOps, inverse: txInverse }); redoStack.length = 0; }
+          txOps = txInverse = null; txLabel = null;
+        }
+        return doc;
+      },
+
       /** Everything applied inside fn is ONE undo step. Nested transactions flatten into the outermost. Returns fn's result. */
       transaction(label, fn) {
         if (txDepth === 0) { txOps = []; txInverse = []; txLabel = label; }

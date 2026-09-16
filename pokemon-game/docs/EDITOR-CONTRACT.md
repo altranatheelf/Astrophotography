@@ -95,3 +95,20 @@ A stroke is one undo step: tools call `ed.beginStroke(label)` / `ed.endStroke()`
 - Nothing modal that hides the map. The inspector lives beside it.
 - The editor never blocks on validation: problems are shown, not enforced.
 - Play here is one tap away and comes back to the same spot.
+
+## The joins (`js/kit/editor/integration.js`)
+
+The shell is frozen, so the hooks it turned out to need live in one file beside
+it, each written so the shell could take it over later:
+
+| | |
+|---|---|
+| `KIT.editor.afterEdit()` | A panel changed the document: refresh, validate, autosave. The shell only does this after a pointer stroke (`afterDocument` is private), so **every panel that commits calls it**. |
+| `panel.onSelect(sel, ed)` | Documented above but never called by the shell; integration.js delivers it to the mounted panels on the `selection` event. |
+| `KIT.editor.fitMap()` | A map opens at a zoom that shows all of it, with squares no smaller than a thumb (`KIT.editor.tools.fitScale`, tested). |
+| `KIT.editor.emptyState({icon,text,hint,actions})` | In `inspector.js`: one look for “nothing here yet, do this”. |
+| Play here | Starts on the square under the cursor with the switches and bag the author was playing with (a test state), instead of a new game plus a warp. Escape — or the ‹ Back to Creator Mode bar — comes back. |
+| `KIT.editor.close()` | Hands the player back to the game where they were standing (`KIT.game.openEditor` remembers it, `KIT.game.resumeFromEditor` restores it), hides the host, and keeps the mounted panels so re-opening is instant. |
+
+`KIT.game.openEditor({mapId})` is the one door into Creator Mode: `?edit=1` and
+the pause menu both go through it.

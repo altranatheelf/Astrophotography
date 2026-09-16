@@ -78,6 +78,16 @@
     }
 
     // ---- sizing ----------------------------------------------------------------
+    let forcedScale = 0;
+    /** setScale(cssScale) — draw one art pixel as `cssScale` CSS pixels (0 = choose automatically). */
+    function setScale(cssScale) {
+      const next = cssScale > 0 ? Math.round(cssScale) : 0;
+      if (next === forcedScale) return scale;
+      forcedScale = next;
+      resize();
+      return scale;
+    }
+
     /** resize() — match the canvas to its CSS box and choose an integer tile scale. */
     function resize() {
       dpr = Math.max(1, Math.min(3, (root.devicePixelRatio || 1)));
@@ -86,7 +96,11 @@
       const zoomName = (settings().zoom && settings().zoom !== 'auto') ? settings().zoom : ((project.settings && project.settings.zoom) || 'auto');
       const zoom = ZOOM[zoomName] || 1;
       const wantCss = (cssW < 600 ? 40 : 48) * zoom;
-      const next = Math.max(1, Math.min(8, Math.round(wantCss * dpr / TILE())));
+      // forcedScale (set by Creator Mode) is in CSS pixels per art pixel: one tile is
+      // TILE() * forcedScale CSS pixels, whatever the screen density.
+      const next = forcedScale
+        ? Math.max(1, Math.min(16, Math.round(forcedScale * dpr)))
+        : Math.max(1, Math.min(8, Math.round(wantCss * dpr / TILE())));
       baseScale = next;
       if (next !== scale) { scale = next; caches.clear(); }
       fittedMap = null;                       // re-fit small maps after a resize
@@ -323,6 +337,7 @@
      * pixels, never more than 2× the base) until the view fits inside the map.
      */
     function fitScale(view) {
+      if (forcedScale) return;        // Creator Mode sets the zoom; never fight it
       let s = baseScale;
       while (s < baseScale * 2 && s < 8) {
         const vw = canvas.width / (TILE() * s), vh = canvas.height / (TILE() * s);
@@ -420,6 +435,8 @@
       get tilePx() { return tilePx; },
       get dpr() { return dpr; },
       clearCaches() { caches.clear(); },
+      setScale,
+      get cssTileSize() { return TILE() * scale / dpr; },
     };
     resize();
     return api;

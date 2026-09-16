@@ -151,5 +151,25 @@ Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewri
 
 The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
 
+## editor/* — Creator Mode (docs/EDITOR-CONTRACT.md, docs/CREATOR-MODE.md)
+Load order (after the game): `editor/ops.js  editor/editor.js  editor/tools.js  editor/inspector.js  editor/panels-map.js  editor/panels-objects.js  editor/script-editor.js  editor/panels-writing.js  editor/panels-project.js  editor/integration.js`.
+Everything visible is a registered panel (`editorPanels`), tool (`editorTools`) or field widget (`fieldEditors`); nothing writes to the project except through `KIT.editor.ops` or `KIT.editor.commit`, so undo covers all of it.
+
+`KIT.editor` — the shell: `open({game,project,mapId})` `close()` `isOpen()` `state` `set(patch)` `select(sel)` `openMap(id)` `on(event,fn)` `refresh()` `repaint()` `commit(label,fn)` `beginStroke/endStroke` `undo/redo` `saveNow()` `problemsFor(sel)` `toast/confirm` `playHere({at,testState})` `backToEdit()` `previewWorld()` `tilePixels()` `pointFromEvent(ev)` `zoom(d,at)` `el` `ops`. Events: `change document selection problems mode`.
+
+`KIT.editor.ops` — every project edit as a document transaction: `paint rect fill stamp terrain` (terrain re-bakes the autotiles round the stroke) · `placeObject moveObject deleteObject duplicateObject objectPath setField` · `addPage deletePage movePage` · `newMap deleteMap resizeMap renameMap` · `setScript newCommonEvent declareVar newItem addFragment fragmentToScript` · `eraseValue problems`.
+
+`KIT.editor.tools` — the pure part of the nine map tools: `line rectCells floodCells sameValue COLLISION collisionAt collisionCycle brushFor remember paintCells valueAt gridFor describe drawGhostCell outlineArea terrainColor regionColor lockScale byId`.
+
+`KIT.editor.inspector` — one form builder for any schema field list: `mount(el,{fields,value,onChange,ctx,problems}) -> { refresh, destroy, value }` · `field editorFor knownTypes buildValue defaultFor hasDefault isDefault visibleFields enumOptions` · refs `refList refLabel refExists refMissing canCreateRef createRef` · routes `ROUTE_VERBS routeStepLabel routeSummary` · conditions `conditionKinds newCondition conditionText conditionFromText conditionSays` · `scriptSummary openScript(ref)` · `pickOnMap({hint,onPick,onCancel})` (tap-then-tap on the map) · `spriteCanvas tileCanvas regionColor emptyState btn afterEdit`.
+
+`KIT.editor.objects` — `references(project,id)` `rename(doc,{map,id,to})` (rewrites every reference) `placePreset(doc,{preset,map,x,y,input})` `pageOrder(project,mapView,obj)`.
+
+`KIT.editor.scriptEditor` — `open(el,{path,ed})` / `open({path,selection,label})` · `describe branches newCommand labelOf serialize parse roundTrip commitText commandsAt pathForSelection labelForSelection insert move duplicate remove setDisabled pickerGroups recentIds noteUse setTarget target`.
+
+`KIT.editor.writing` — `textIndex(project)` `selectionFor explain fragmentTags matchFragment fragmentToSlot firstLine`. `KIT.editor.projectPanels` — `varIndex usageSelection usageLabel dataPath checkData guessType`. `KIT.editor.importPanel` — `dispatch(files)` `imageSize(bytes)`.
+
+`editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that.
+
 ## Still to build
-`scenes/*` (stack + title/map/dialogue/choice/nameEntry/chapter/menu/transition/debug), `render/*`, `core/input.js`, `core/audio.js`, `core/storage.js`, `game.js`, `main.js`, `index.html`, `css/kit.css`, then `editor/*` and `modules/mons/*`.
+`modules/mons/*` (catching, the Pokédex, the garden, followers). Everything else — `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` — is written and covered by `npm test` plus the three browser play-throughs (`e2e/walk.js`, `e2e/import.js`, `e2e/editor.js`).

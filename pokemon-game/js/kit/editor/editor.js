@@ -51,10 +51,15 @@
     if (state.view.scale > MAX_SCALE) state.view.scale = MAX_SCALE;
     if (panelChanged) showPanel(state.panel);
     emit('change', patch);
+    updateStatus();
+    refreshPanels();
     ED.repaint();
   };
   ED.select = function (sel) {
     state.selection = sel || null;
+    for (const rec of mounted.values()) {
+      if (rec.def.onSelect) { try { rec.def.onSelect(state.selection, ED); } catch (e) { (KIT.log || console).error(`[panel ${rec.def.id}]`, e); } }
+    }
     emit('selection', state.selection);
     emit('change', { selection: state.selection });
     ED.repaint();
@@ -80,18 +85,25 @@
   };
 
   // ---- the document -------------------------------------------------------------
-  /** commit(label, fn) — one undo step, then validate and autosave. */
+  /** commit(label, fn) — one undo step, then refresh, validate and autosave. */
   ED.commit = function (label, fn) {
     const result = state.doc.transaction(label, () => fn(state.doc, ED.ops));
+    afterDocument('edit');
     return result;
   };
+  /** A panel that edited the document some other way says so with this. */
+  ED.afterEdit = function () { afterDocument('edit'); };
   /** A pointer stroke is one undo step: beginStroke/endStroke wrap many ops. */
+  // One pointer stroke is one undo step: the document holds a transaction open for it,
+  // so a tool may apply an op per cell as the finger moves and still undo in one go.
   ED.beginStroke = function (label) {
-    if (strokeDepth++ === 0) { state.doc._strokeLabel = label || 'Edit'; state.doc._strokeOps = []; }
+    if (strokeDepth++ > 0) return;
+    if (state.doc.begin) state.doc.begin(label || 'Edit');
   };
   ED.endStroke = function () {
     if (--strokeDepth > 0) return;
     strokeDepth = 0;
+    if (state.doc.end) state.doc.end();
   };
   ED.undo = function () { if (state.doc.undo()) afterDocument('undo'); };
   ED.redo = function () { if (state.doc.redo()) afterDocument('redo'); };
@@ -173,6 +185,7 @@
   };
   function paint() {
     if (!renderer || !state.map) return;
+    if (renderer.setScale) renderer.setScale(state.view.scale);     // one tile = tileSize * view.scale CSS pixels
     renderer.setProject(state.project);
     renderer.render(ED.previewWorld());
     paintOverlay();
@@ -323,7 +336,11 @@
 
   // ---- keyboard -----------------------------------------------------------------
   function onKey(ev) {
-    if (!open || state.mode !== 'edit') return;
+    if (!open) return;
+    if (state.mode === 'play') {          // Play here: Escape comes back to editing
+      if (ev.key === 'Escape') { ev.preventDefault(); ED.backToEdit(); }
+      return;
+    }
     const t = ev.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const k = ev.key;

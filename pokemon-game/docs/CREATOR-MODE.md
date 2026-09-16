@@ -1,0 +1,161 @@
+# Creator Mode — the guide
+
+Creator Mode is the editor that lives inside the game. You are never looking at
+a copy of your world: you are standing in it, and every change is in the game
+the moment you make it.
+
+If you know RPG Maker MV, you know most of this already — the words are the same
+(Event, Event Page, Switch, Variable, Common Event, Move Route, Region, Transfer,
+Balloon, Note, Terms). The differences are deliberate: undo goes back forever,
+nothing is modal, and it all works with a thumb on a phone.
+
+## Opening and closing it
+
+* `index.html?edit=1` — straight into Creator Mode, on the map the game starts on.
+* In the game: **Escape → Creator Mode** in the pause menu, and it opens on the
+  map you are standing on.
+* **✕** (top right) closes it and puts you back exactly where you were standing,
+  with your edits in place.
+
+Your work saves itself. There is no Save button for the world: every edit goes
+into a draft in the browser a moment after you make it (the status bar says
+`saving…` then `saved`), and the draft is what loads next time you open the page.
+`Ctrl+S` saves right now if you want to be sure. To hand the game to someone
+else, run `node tools/build.js` — one `.html` file with everything in it.
+
+## The screen
+
+```
+┌──────────────────────────────────────────────┬──────────────┐
+│ map ▾   ✏️ 🪣 ▭ 🧽 💧 🧱 🌿 ✥ ✋   ↶ ↷ − + ▶ Play here ✕ │ panel tabs  │
+├──────────────────────────────────────────────┤              │
+│                                              │  the panel   │
+│                 the map                      │  you picked  │
+│                                              │              │
+├──────────────────────────────────────────────┴──────────────┤
+│ 4, 7 · ground · saved · 2 warnings                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+On a phone the panel is a sheet under the map and the tabs scroll sideways —
+everything is the same, just stacked.
+
+## Painting
+
+1. Open **Tiles**.
+2. Pick what you are painting **on**: Ground, Deco, Above, Terrain, Regions or
+   Collision. (Ground is the floor, Deco stands on it, Above is drawn over
+   people's heads — treetops, roofs.)
+3. Pick a tile from the palette. The brush line at the top always shows what you
+   are holding.
+4. Draw on the map with the **Pencil**, or:
+   * **Fill** — one tap fills everything joined to that square. Hovering shows
+     you the area outlined before you commit.
+   * **Rectangle** — drag, or tap one corner then the other.
+   * **Eraser**, **Pick** (the eyedropper), **Stamp** (a multi-square brush).
+   * **Terrain brush** — paint *what the ground is* (grass, water, path) and the
+     autotiles draw the edges and corners for you. Set them up under
+     *Terrains & autotiles* in the Tiles panel.
+5. Anything you paint is one undo step per stroke: **↶** or `Ctrl+Z`.
+
+Handy: hold **Shift** with the Pencil to draw a straight line from the last
+square you painted; hold **Alt** to pick the tile under the pointer.
+
+## Placing an Event
+
+An Event is a person, a sign, a door, an item on the ground, a trigger — anything
+the player can bump into.
+
+1. Open **Events** → **＋ Add**.
+2. Pick a ready-made one (NPC, Sign, Door, Item, Transfer pair) or a plain type.
+3. A preset asks you for what it needs first — a name, a line, where the door
+   goes — then **✛ Place it on the map** and you tap the square.
+4. The new Event opens in the inspector: Name, Type, Position, Note, its **Event
+   Pages**, how it looks, what it does by itself (stand, wander, a Move Route),
+   and **What happens** — the six script slots (On Interact, On Step, On Touch,
+   On Enter, Every Tick, On Init).
+
+To move an Event later: the **Select / Move** tool (✥). Tap it, then tap where it
+should go — or drag it. To delete: select it and press Delete, or 🗑 in the
+inspector.
+
+**Event Pages** work like MV's: each page has a condition, and the *last* page
+whose condition passes is the one that runs. The panel shows you which page
+would run right now.
+
+## Writing a line
+
+1. Select the Event, scroll to **What happens**, and tap **Open ✎** on *On
+   Interact*. That opens the **Script** panel.
+2. The script has two views:
+   * **Cards** — one card per command, with its fields inline. ＋ adds a command
+     after the one you tapped; ▲▼ move it; ⧉ copies; the switch turns it off
+     without deleting it.
+   * **Text** — the same script as screenplay:
+
+     ```
+     Rosie: Welcome to the festival! {pause} Try the stall by the gate.
+     ? Do you want to help?
+     - Yes
+         @set friendship += 1
+         Rosie: Wonderful.
+     - Not now
+         Rosie: Another time, then.
+     ```
+
+     Anything it cannot read stays on the page as a raw line, marked amber —
+     nothing is ever thrown away. Switching back to Cards (or **Apply**) reads
+     it in as one undo step.
+
+Write wherever you like; they are the same script underneath.
+
+## Testing it
+
+**▶ Play here** (or `F5`) starts the real game standing on the square under the
+cursor, with the switches and items you had when you opened Creator Mode — so
+you can test the middle of chapter three without playing the first two.
+
+Press **Escape**, or **‹ Back to Creator Mode**, to come back to exactly the same
+place in the editor.
+
+## Where everything is
+
+| Panel | What it is for |
+|---|---|
+| **Tiles** | The layer you are painting, the palette, stamps, terrains and autotiles, and what the map shows (grid, collision, regions, names) |
+| **Events** | Every Event on this map, and the inspector for the selected one |
+| **Script** | The script editor — cards or screenplay — for the slot or Common Event you opened |
+| **Common Events** | Scripts any Event can call: an intro, a shop, a cutscene |
+| **Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
+| **Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
+| **Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
+| **Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings |
+| **Variables** | Switches and Variables: declare them, see every read and every write |
+| **Items** | What Events give and conditions ask about |
+| **Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
+| **Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
+| **Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
+| **Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
+
+## Keys
+
+| | |
+|---|---|
+| `1`–`9` | The tools, in toolbar order |
+| `[` `]` | Previous / next layer |
+| `g` `c` `r` `t` | Show grid / collision / regions / terrain |
+| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo, redo (no limit) |
+| `Ctrl+S` | Save the draft now |
+| `F5` | Play here · `Escape` comes back |
+| `Escape` | Drop the selection |
+| `Delete` | Delete the selected Event |
+| Space-drag, middle-drag, ✋ | Move the map · wheel or − + to zoom |
+
+## If something looks wrong
+
+* **The Problems panel** explains each one in a sentence and jumps you to the
+  thing it is about.
+* **Undo** goes back as far as you like, including inspector fields, deletes and
+  imports.
+* Nothing you do in Creator Mode can break a save: saves hold your progress, the
+  project holds the world.

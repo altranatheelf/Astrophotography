@@ -13,7 +13,7 @@ are standing in.
 ```
 open index.html                 # the game (any modern browser, also from a file)
 open index.html?edit=1          # straight into Creator Mode
-npm test                        # 197 unit tests, pure Node, no browser
+npm test                        # 260 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
 node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
 node tools/build.js             # bundle everything into one shareable .html
@@ -24,6 +24,7 @@ Play-throughs in a real browser (they need Playwright):
 ```
 NODE_PATH=$(npm root -g) node e2e/walk.js     # title -> walk -> talk -> save -> co-op
 NODE_PATH=$(npm root -g) node e2e/import.js   # import a map, then play it
+NODE_PATH=$(npm root -g) node e2e/editor.js   # paint -> place an event -> write a line -> play it
 ```
 
 ## What is here
@@ -33,9 +34,12 @@ NODE_PATH=$(npm root -g) node e2e/import.js   # import a map, then play it
 | `docs/DESIGN.md` | Why the engine is shaped this way, and how future ideas plug in |
 | `docs/ARCHITECTURE.md` | The build contract: data model, commands, editor, phases |
 | `docs/KIT-API.md` | Every public function, with signatures |
+| `docs/CREATOR-MODE.md` | **The author's guide**: paint, place an Event, write a line, test it |
+| `docs/EDITOR-CONTRACT.md` | How Creator Mode is put together: the shell, panels, tools |
 | `docs/IMPORTING.md` | Bringing maps and art in from Tiled, RPG Maker MV and Aseprite |
 | `docs/IMPORT-CONTRACT.md` | The shape every importer returns |
-| `js/kit/` | The engine: core, world, script, systems, render, scenes, editor |
+| `js/kit/` | The engine: core, world, script, systems, render, scenes, game |
+| `js/kit/editor/` | Creator Mode: the shell (`editor.js`), the edits (`ops.js`), the map tools (`tools.js`), the form builder (`inspector.js`), the panels (`panels-map/-objects/-writing/-project.js`, `script-editor.js`) and the joins (`integration.js`) |
 | `js/kit/import/` | Importers: Tiled, RPG Maker MV/MZ, Aseprite, and the merge into a project |
 | `js/art/` | Pixel art: ~80 map tiles, characters (some real, some generated placeholders) |
 | `js/data/`, `js/sprites/` | The 32-Pokémon data pack and portraits (for the Pokémon module) |
@@ -94,9 +98,14 @@ pages and slots, the standard systems, the editor operations, the demo world,
 and the importers — a Tiled map, an RPG Maker MV/MZ project or Aseprite art
 becomes playable content with one command (`docs/IMPORTING.md`).
 
-In progress: the browser layer (renderer, scenes, input, audio, storage, game
-boot) and Creator Mode's panels. After that: the Pokémon module (catching,
-Pokédex, the garden, followers) and whatever you want next.
+Also done: the browser layer (renderer, scenes, input, audio, storage, game
+boot) and Creator Mode — fourteen panels and nine map tools around one document,
+with `?edit=1` and the pause menu both opening it on the map you are standing on
+(`docs/CREATOR-MODE.md`). `e2e/editor.js` plays the whole loop through a real
+browser at phone and laptop size.
+
+Next: the Pokémon module (catching, Pokédex, the garden, followers) and whatever
+you want after that.
 
 ## A note on names and art
 

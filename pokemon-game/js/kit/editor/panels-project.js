@@ -1,0 +1,926 @@
+// Creator Mode — the panels about the game itself:
+//
+//   Project    title, pitch, heroes, where the game starts, settings, modules
+//   Variables  the declared Switches/Variables, the ones the scripts use without
+//              asking, and every read and write with a way to jump to it
+//   Items      the item table
+//   Strings    the Terms table (every word the engine says on its own)
+//   Data       the raw JSON of the selection (or the whole project), checked before it applies
+//   Import     drop a Tiled map, an RPG Maker MV folder or an Aseprite file in here
+//
+// Every edit goes through KIT.editor.ops / ED.commit, and an import is one undo step.
+// The indexes and the import dispatch at the top are pure (test/kit/editor-script.test.js).
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const ED = KIT.editor = KIT.editor || {};
+  const PP = ED.projectPanels = ED.projectPanels || {};
+  const IMPP = ED.importPanel = ED.importPanel || {};
+  const P = KIT.project;
+
+  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  // =================================================================================
+  // Pure: the variable index
+  // =================================================================================
+  /**
+   * varIndex(project) -> [{ name, declared, decl, reads, writes, uses }]
+   * Declared variables first (by group, then name), then the ones the scripts use
+   * but nobody declared. `reads` and `writes` are the `where` records from
+   * KIT.project.collect, so each one can be jumped to.
+   */
+  PP.varIndex = function (project) {
+    let vars = {};
+    try { vars = (P.collect(project) || {}).vars || {}; } catch (e) { vars = {}; }
+    const decls = (project && project.vars) || {};
+    const out = Object.keys(vars).map((name) => {
+      const v = vars[name];
+      return {
+        name,
+        declared: !!v.declared,
+        decl: decls[name] || null,
+        group: (decls[name] && decls[name].group) || '',
+        reads: (v.reads || []).slice(),
+        writes: (v.writes || []).slice(),
+        uses: (v.reads || []).length + (v.writes || []).length,
+      };
+    });
+    out.sort((a, b) => {
+      if (a.declared !== b.declared) return a.declared ? -1 : 1;
+      return (a.group || '').localeCompare(b.group || '') || a.name.localeCompare(b.name);
+    });
+    return out;
+  };
+  /** undeclared(project) -> the names to offer a "Declare" button for. */
+  PP.undeclared = (project) => PP.varIndex(project).filter(v => !v.declared);
+  /**
+   * guessType(name) -> the type a "Declare" button starts with. Names that read
+   * like a Switch ("hasKey", "introDone") come out as bool; everything else is a
+   * number, which is what RPG Maker's Variables are.
+   */
+  PP.guessType = function (name) {
+    const n = String(name || '');
+    if (/^(is|has|did|can|should)[A-Z_]/.test(n) || /(Done|Flag|Open|Unlocked|Seen|Met)$/i.test(n)) return 'bool';
+    return 'number';
+  };
+  /** The starting value for a declared type. */
+  PP.defaultFor = (type) => (type === 'bool' ? false : type === 'string' ? '' : 0);
+
+  /** Where a usage points, as a selection. */
+  PP.usageSelection = function (where) {
+    const w = where || {};
+    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
+    if (w.map && w.object && w.slot) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
+    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
+    if (w.map) return { kind: 'map', id: w.map };
+    return { kind: 'project' };
+  };
+  /** A short "where is this used" line. */
+  PP.usageLabel = function (project, where) {
+    const w = where || {};
+    if (w.script) { const sc = (project.scripts || {})[w.script] || {}; return `Common Event · ${sc.label || w.script}`; }
+    if (w.map) {
+      const m = (project.maps || {})[w.map] || {};
+      const bits = [m.name || w.map];
+      if (w.object) {
+        const o = (m.objects || []).find(x => x.id === w.object);
+        bits.push((o && (o.name || o.id)) || w.object);
+      }
+      if (w.slot) bits.push(titleCase(w.slot));
+      return bits.join(' · ');
+    }
+    if (Array.isArray(w.path) && w.path.length) return w.path.join('.');
+    return 'the project';
+  };
+
+  // =================================================================================
+  // Pure: the Data panel's path for a selection
+  // =================================================================================
+  /** dataPath(project, selection) -> { path, label } — what the Data panel edits. */
+  PP.dataPath = function (project, sel) {
+    if (!sel) return { path: [], label: 'the whole project' };
+    if (sel.kind === 'project') return { path: [], label: 'the whole project' };
+    if (sel.kind === 'map') return { path: ['maps', sel.id], label: `map ${sel.id}` };
+    if (sel.kind === 'script') return { path: sel.path.slice(), label: `Common Event ${sel.path[1]}` };
+    if (sel.kind === 'item') return { path: ['items', sel.id], label: `item ${sel.id}` };
+    if (sel.kind === 'var') return { path: ['vars', sel.name], label: `variable ${sel.name}` };
+    if (sel.kind === 'fragment') {
+      const i = ((project && project.fragments) || []).findIndex(f => f.id === sel.id);
+      return i < 0 ? { path: [], label: 'the whole project' } : { path: ['fragments', i], label: `fragment ${sel.id}` };
+    }
+    if (sel.kind === 'object' || sel.kind === 'page' || sel.kind === 'slot') {
+      const map = project && project.maps && project.maps[sel.map];
+      const i = map ? (map.objects || []).findIndex(o => o.id === sel.id) : -1;
+      if (i < 0) return { path: [], label: 'the whole project' };
+      const base = ['maps', sel.map, 'objects', i];
+      if (sel.kind === 'object') return { path: base, label: `event ${sel.id}` };
+      if (sel.kind === 'page') return { path: base.concat('pages', sel.page || 0), label: `${sel.id} page ${(sel.page || 0) + 1}` };
+      return { path: base.concat('pages', sel.page || 0, 'on', sel.slot), label: `${sel.id} · ${titleCase(sel.slot)}` };
+    }
+    return { path: [], label: 'the whole project' };
+  };
+
+  /**
+   * checkData(project, path, text) -> { ok, value, message }
+   * Parses the JSON and, for the whole project, runs it past the normalizer so a
+   * broken paste is caught before it is applied.
+   */
+  PP.checkData = function (project, path, text) {
+    let value;
+    try { value = JSON.parse(text); }
+    catch (e) { return { ok: false, message: `That is not valid JSON: ${e.message}` }; }
+    if (!path || !path.length) {
+      if (!KIT.isObject(value)) return { ok: false, message: 'A project is an object with maps, meta and the rest — this is not one.' };
+      try {
+        const n = P.normalize(value, { skipRegisterArt: true });
+        const errs = (n.problems || []).filter(p => p.severity === 'error');
+        return { ok: true, value, message: errs.length ? `Reads as a project, with ${errs.length} error(s) the Problems panel will list.` : 'Reads as a project.' };
+      } catch (e) { return { ok: false, message: `That is JSON, but not a project: ${e.message}` }; }
+    }
+    return { ok: true, value, message: 'Valid JSON.' };
+  };
+
+  // =================================================================================
+  // Pure: which importer a dropped file belongs to
+  // =================================================================================
+  const IMAGE_EXT = /\.(png|gif|jpe?g|webp|bmp)$/i;
+  const RM_FILE = /^(MapInfos|System|Tilesets|CommonEvents|Actors|Items|Map\d+)\.json$/i;
+  const base = (name) => String(name || '').split(/[\\/]/).pop();
+  const ext = (name) => { const m = /\.([A-Za-z0-9]+)$/.exec(base(name)); return m ? m[1].toLowerCase() : ''; };
+
+  /**
+   * dispatch(files) -> { tool, kind, label, main, files, images, problems }
+   * `files` are `{ name, text?, bytes? }`. The name decides first (an RPG Maker
+   * data folder, an .aseprite document), then the content (Tiled's JSON says what
+   * it is; an Aseprite sheet is known by its frames).
+   */
+  IMPP.dispatch = function (files) {
+    const list = (files || []).filter(Boolean);
+    const problems = [];
+    const images = list.filter(f => IMAGE_EXT.test(base(f.name)));
+    const rm = list.filter(f => RM_FILE.test(base(f.name)));
+    if (rm.length) {
+      const data = list.filter(f => ext(f.name) === 'json');
+      return { tool: 'rpgmaker', kind: 'project', label: `RPG Maker data (${data.length} file${data.length === 1 ? '' : 's'})`, main: rm[0], files: data, images, problems };
+    }
+    for (const f of list) {
+      const e = ext(f.name);
+      if (e === 'aseprite' || e === 'ase') return { tool: 'aseprite', kind: 'file', label: `Aseprite document ${base(f.name)}`, main: f, files: [f], images, problems };
+    }
+    for (const f of list) {
+      if (f.text == null) continue;
+      let kind = null;
+      try { kind = KIT.import.tiled.detect(f.text); } catch (e) { kind = null; }
+      if (kind) return { tool: 'tiled', kind, label: `Tiled ${kind} ${base(f.name)}`, main: f, files: list, images, problems };
+    }
+    for (const f of list) {
+      if (f.text == null) continue;
+      let kind = null;
+      try { kind = KIT.import.aseprite.detect(f.text); } catch (e) { kind = null; }
+      if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
+    }
+    if (images.length && list.length === images.length) {
+      problems.push({ severity: 'warn', code: 'image-only', message: 'That is an image on its own. Export the data file next to it (Aseprite: File ▸ Export Sprite Sheet, with JSON Data) and drop both in together.', where: {} });
+    } else {
+      problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, or an RPG Maker MV/MZ data folder.', where: {} });
+    }
+    return { tool: null, kind: null, label: 'Nothing recognised', main: null, files: list, images, problems };
+  };
+
+  /** The pixel size of a PNG/GIF/JPEG straight out of its header (no decoding). */
+  IMPP.imageSize = function (bytes) {
+    const b = bytes;
+    if (!b || b.length < 10) return null;
+    const be32 = (i) => (b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]) >>> 0;
+    if (b[0] === 0x89 && b[1] === 0x50) return { w: be32(16), h: be32(20) };
+    if (b[0] === 0x47 && b[1] === 0x49) return { w: b[6] | (b[7] << 8), h: b[8] | (b[9] << 8) };
+    if (b[0] === 0xff && b[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1];
+        const len = (b[i + 2] << 8) | b[i + 3];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] };
+        i += 2 + len;
+      }
+    }
+    return null;
+  };
+
+  // =================================================================================
+  // The panels (browser only below here)
+  // =================================================================================
+  const make = (spec, opts) => KIT.ui.make(spec, opts);
+  const clear = (el) => KIT.ui.clear(el);
+  const INS = () => ED.inspector;
+  function btn(label, title, fn, cls) {
+    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
+    b.type = 'button';
+    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
+    return b;
+  }
+  function commit(label, fn) {
+    const r = ED.commit(label, fn);
+    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
+    return r;
+  }
+  const project = () => ED.state.project;
+  function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
+  function section(host, title, openByDefault, build) {
+    const box = make('details.ed-sec');
+    box.open = openByDefault !== false;
+    const sum = make('summary', { text: title });
+    box.appendChild(sum);
+    const body = make('div.ed-sec-body');
+    box.appendChild(body);
+    host.appendChild(box);
+    build(body);
+    return body;
+  }
+
+  // ---------------------------------------------------------------- Project ----------
+  // The author's order, not the schema's: the two sentences matter more than the id.
+  function metaFields() {
+    const byKey = {};
+    for (const f of P.fields.meta || []) byKey[f.key] = f;
+    const pick = (key, over) => Object.assign({}, byKey[key] || { key, type: 'string' }, over || {});
+    return [
+      pick('title', { label: 'Title' }),
+      pick('subtitle', { label: 'Subtitle' }),
+      // a note, not a `text` field: the pitch is never shown in a message box, so the preview is noise
+      pick('pitch', { type: 'note', label: 'Pitch (two sentences)', doc: 'Who the hero is, and what they want. The validator asks for this because everything else follows it.' }),
+      pick('author', { label: 'Author' }),
+      pick('id', { label: 'Id', doc: 'The folder and the save-file name. Changing it starts a fresh save.' }),
+    ];
+  }
+
+  KIT.registry('editorPanels').add({
+    id: 'project', label: 'Project', icon: 'book', order: 50,
+    mount(host) {
+      clear(host);
+      this._host = host;
+      this._forms = [];
+      this._sig = '';
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const host = this._host;
+      if (!host) return;
+      const p = ed.state.project;
+      const sig = JSON.stringify([p.meta, p.heroes, p.start, p.settings, p.modules, Object.keys(p.maps)]);
+      if (sig === this._sig) return;
+      const active = document.activeElement;
+      if (active && host.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      this._sig = sig;
+      for (const f of this._forms) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      this._forms = [];
+      clear(host);
+      const forms = this._forms;
+
+      section(host, 'The game', true, (body) => {
+        const box = make('div');
+        body.appendChild(box);
+        forms.push(INS().mount(box, {
+          fields: metaFields(),
+          value: p.meta,
+          ctx: { project: p },
+          onChange(path, v) { setAt(['meta'].concat(path), v, 'Edit project'); },
+        }));
+        if (!String((p.meta && p.meta.pitch) || '').trim()) body.appendChild(make('div.ed-hint.ed-warn', { text: 'The pitch is the two sentences you will read back in six months: who the hero is, and what they want. Everything else follows it.' }));
+      });
+
+      section(host, 'Heroes', true, (body) => {
+        (p.heroes || []).forEach((h, i) => {
+          const card = make('div.ed-card');
+          const row = make('div.ed-row');
+          const name = make('input.ed-half');
+          name.type = 'text';
+          name.value = h.name || '';
+          name.placeholder = 'Name';
+          name.onchange = () => setAt(['heroes', i, 'name'], name.value, 'Rename hero');
+          row.appendChild(name);
+          row.appendChild(make('span.ed-badge', { text: h.id }));
+          if ((p.heroes || []).length > 1) {
+            row.appendChild(btn('✕', 'Remove this hero', async () => {
+              if (!(await ED.confirm(`Remove ${h.name || h.id}?`))) return;
+              commit('Remove hero', (doc) => doc.splice(['heroes'], i, 1, []));
+            }, 'danger'));
+          }
+          card.appendChild(row);
+          const sprite = make('div');
+          card.appendChild(make('div.ed-label', { text: 'Sprite' }));
+          card.appendChild(sprite);
+          INS().field(sprite, { key: 'sprite', type: 'ref:sprite' }, h.sprite, (v) => setAt(['heroes', i, 'sprite'], v, 'Hero sprite'), { project: p });
+          card.appendChild(make('div.ed-label', { text: 'Recolour (palette letter → colour)' }));
+          const recolor = make('div');
+          card.appendChild(recolor);
+          INS().field(recolor, { key: 'recolor', type: 'strings' }, h.recolor || {}, (v) => setAt(['heroes', i, 'recolor'], v, 'Recolour hero'), { project: p });
+          body.appendChild(card);
+        });
+        body.appendChild(btn('＋ Add a hero', 'Another playable character (co-op uses the second one)', () => {
+          const n = (p.heroes || []).length + 1;
+          commit('Add hero', (doc) => doc.push(['heroes'], { id: `p${n}`, name: `Player ${n}`, sprite: null, recolor: {} }));
+        }, 'wide'));
+      });
+
+      section(host, 'Where the game starts', true, (body) => {
+        const box = make('div');
+        body.appendChild(box);
+        forms.push(INS().mount(box, {
+          fields: P.fields.start || [],
+          value: p.start,
+          ctx: { project: p },
+          onChange(path, v) { setAt(['start'].concat(path), v, 'Start position'); },
+        }));
+        body.appendChild(btn('✛ Pick the start on the map', 'Tap a square on the map', () => {
+          INS().pickOnMap({
+            hint: 'Tap where the game should start',
+            onPick(pt) { commit('Start position', (doc, O) => { O.setField(doc, ['start', 'map'], pt.map); O.setField(doc, ['start', 'x'], pt.x); O.setField(doc, ['start', 'y'], pt.y); }); },
+          });
+        }, 'wide'));
+      });
+
+      section(host, 'Settings', false, (body) => {
+        const box = make('div');
+        body.appendChild(box);
+        forms.push(INS().mount(box, {
+          fields: P.fields.settings || [],
+          value: p.settings,
+          ctx: { project: p },
+          onChange(path, v) { setAt(['settings'].concat(path), v, 'Setting'); },
+        }));
+      });
+
+      section(host, 'Modules', false, (body) => {
+        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on.' }));
+        const known = new Set((p.modules || []).concat(Object.keys(p.packs || {})).concat(['mons']));
+        const chips = make('div.ed-chips');
+        for (const id of Array.from(known).sort()) {
+          const on = (p.modules || []).includes(id);
+          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${titleCase(id)}` });
+          c.type = 'button';
+          c.setAttribute('aria-pressed', String(on));
+          c.onclick = () => {
+            const list = (p.modules || []).slice();
+            const i = list.indexOf(id);
+            if (i >= 0) list.splice(i, 1); else list.push(id);
+            setAt(['modules'], list, on ? 'Switch module off' : 'Switch module on');
+          };
+          chips.appendChild(c);
+        }
+        body.appendChild(chips);
+      });
+    },
+  });
+
+  // -------------------------------------------------------------- Variables ----------
+  const varState = { query: '', open: {} };
+  KIT.registry('editorPanels').add({
+    id: 'vars', label: 'Variables', icon: 'var', order: 55,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      const head = make('div.ed-row');
+      el.search = make('input.ed-obj-search');
+      el.search.type = 'search';
+      el.search.placeholder = 'Find a Switch/Variable…';
+      el.search.value = varState.query;
+      el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this.refresh(ED); };
+      head.appendChild(el.search);
+      head.appendChild(btn('＋ New', 'Declare a new variable', () => {
+        const name = `var${Object.keys(project().vars || {}).length + 1}`;
+        commit('Declare variable', (doc, O) => O.declareVar(doc, { name, type: 'number', default: 0, label: titleCase(name) }));
+        varState.open[name] = true;
+        this._sig = '';
+        this.refresh(ED);
+      }, 'primary'));
+      host.appendChild(head);
+      host.appendChild(make('div.ed-hint', { text: 'A Switch is a variable of type “bool”. Declaring one gives it a type, a starting value and a name you will recognise later.' }));
+      el.list = make('div.ed-var-list');
+      host.appendChild(el.list);
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const index = PP.varIndex(p);
+      const q = varState.query.trim().toLowerCase();
+      const shown = index.filter(v => !q || v.name.toLowerCase().indexOf(q) >= 0 || String((v.decl && v.decl.label) || '').toLowerCase().indexOf(q) >= 0);
+      const sig = JSON.stringify([shown.map(v => [v.name, v.declared, v.decl, v.reads.length, v.writes.length]), varState]);
+      if (sig === this._sig) return;
+      const active = document.activeElement;
+      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+      this._sig = sig;
+      clear(el.list);
+      const declared = shown.filter(v => v.declared);
+      const loose = shown.filter(v => !v.declared);
+      if (loose.length) {
+        el.list.appendChild(make('div.ed-h4', { text: `Used but not declared (${loose.length})` }));
+        el.list.appendChild(make('div.ed-hint', { text: 'These work — the engine treats a missing variable as 0/false — but nothing says what they are for.' }));
+        for (const v of loose) el.list.appendChild(varRow(v, this));
+      }
+      el.list.appendChild(make('div.ed-h4', { text: `Declared (${declared.length})` }));
+      if (!declared.length) el.list.appendChild(make('div.ed-hint', { text: 'None yet.' }));
+      let group = null;
+      for (const v of declared) {
+        if ((v.group || '') !== group) { group = v.group || ''; if (group) el.list.appendChild(make('div.ed-label', { text: group })); }
+        el.list.appendChild(varRow(v, this));
+      }
+    },
+  });
+
+  function varRow(v, panel) {
+    const p = project();
+    const card = make('div.ed-var' + (v.declared ? '' : '.is-loose'));
+    const head = make('div.ed-row.ed-var-head');
+    const name = make('button.ed-var-name', { text: v.name });
+    name.type = 'button';
+    name.onclick = () => { varState.open[v.name] = !varState.open[v.name]; panel._sig = ''; panel.refresh(ED); };
+    head.appendChild(name);
+    if (v.decl && v.decl.label && v.decl.label !== titleCase(v.name)) head.appendChild(make('span.ed-sub', { text: v.decl.label }));
+    if (v.decl) head.appendChild(make('span.ed-badge.ed-vartype', { text: `${v.decl.type === 'bool' ? 'Switch' : v.decl.type} = ${String(v.decl.default)}` }));
+    head.appendChild(make('div.ed-spacer'));
+    head.appendChild(make('span.ed-badge', { text: `${v.reads.length} read${v.reads.length === 1 ? '' : 's'}` }));
+    head.appendChild(make('span.ed-badge' + (v.writes.length ? '' : '.warn'), { text: `${v.writes.length} write${v.writes.length === 1 ? '' : 's'}` }));
+    if (!v.declared) {
+      head.appendChild(btn('＋ Declare', 'Give it a type and a default', () => {
+        const type = PP.guessType(v.name);
+        commit(`Declare ${v.name}`, (doc, O) => O.declareVar(doc, { name: v.name, type, default: PP.defaultFor(type), label: titleCase(v.name) }));
+        varState.open[v.name] = true;
+        panel._sig = '';
+        panel.refresh(ED);
+      }, 'primary'));
+    }
+    card.appendChild(head);
+    if (!varState.open[v.name]) return card;
+
+    if (v.declared) {
+      const d = v.decl || {};
+      const row = make('div.ed-row');
+      const type = make('select');
+      for (const t of ['number', 'bool', 'string']) {
+        const o = make('option', { text: t === 'bool' ? 'bool (Switch)' : t });
+        o.value = t;
+        type.appendChild(o);
+      }
+      type.value = d.type || 'number';
+      type.onchange = () => commit('Variable type', (doc, O) => {
+        O.setField(doc, ['vars', v.name, 'type'], type.value);
+        O.setField(doc, ['vars', v.name, 'default'], PP.defaultFor(type.value));
+      });
+      row.appendChild(type);
+      const def = make('input.ed-small-input');
+      def.type = 'text';
+      def.value = String(d.default == null ? '' : d.default);
+      def.title = 'Starting value';
+      def.onchange = () => {
+        const t = d.type || 'number';
+        const v2 = t === 'number' ? (Number(def.value) || 0) : t === 'bool' ? /^(true|1|yes|on)$/i.test(def.value.trim()) : def.value;
+        setAt(['vars', v.name, 'default'], v2, 'Variable default');
+      };
+      row.appendChild(def);
+      card.appendChild(row);
+      const row2 = make('div.ed-row');
+      const label = make('input.ed-half');
+      label.type = 'text';
+      label.placeholder = 'Label';
+      label.value = d.label || '';
+      label.onchange = () => setAt(['vars', v.name, 'label'], label.value, 'Variable label');
+      row2.appendChild(label);
+      const grp = make('input.ed-half');
+      grp.type = 'text';
+      grp.placeholder = 'Group';
+      grp.value = d.group || '';
+      grp.onchange = () => setAt(['vars', v.name, 'group'], grp.value, 'Variable group');
+      row2.appendChild(grp);
+      row2.appendChild(btn('✕', 'Undeclare (the scripts keep using it)', async () => {
+        if (!(await ED.confirm(`Remove the declaration of “${v.name}”?`))) return;
+        commit('Undeclare variable', (doc) => doc.del(['vars', v.name]));
+        panel._sig = '';
+        panel.refresh(ED);
+      }, 'danger'));
+      card.appendChild(row2);
+    }
+    const uses = make('div.ed-var-uses');
+    const add = (list, kind) => {
+      for (const w of list.slice(0, 12)) {
+        const item = make('div.ed-item.ed-use');
+        item.appendChild(make('span.ed-badge' + (kind === 'write' ? '.ed-write' : ''), { text: kind === 'write' ? 'writes' : 'reads' }));
+        item.appendChild(make('span.ed-item-text', { text: PP.usageLabel(p, w) }));
+        item.onclick = () => {
+          const sel = PP.usageSelection(w);
+          if (w.map && ED.state.mapId !== w.map && p.maps[w.map]) ED.openMap(w.map);
+          ED.select(sel);
+          if (sel.kind === 'slot' || sel.kind === 'script') ED.set({ panel: 'script' });
+          else ED.set({ panel: 'objects' });
+        };
+        uses.appendChild(item);
+      }
+      if (list.length > 12) uses.appendChild(make('div.ed-hint', { text: `…and ${list.length - 12} more.` }));
+    };
+    add(v.writes, 'write');
+    add(v.reads, 'read');
+    if (!v.uses) uses.appendChild(make('div.ed-hint', { text: 'Nothing uses this yet.' }));
+    card.appendChild(uses);
+    return card;
+  }
+
+  // ------------------------------------------------------------------ Items ----------
+  KIT.registry('editorPanels').add({
+    id: 'items', label: 'Items', icon: 'bag', order: 57,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      const head = make('div.ed-row');
+      el.search = make('input.ed-obj-search');
+      el.search.type = 'search';
+      el.search.placeholder = 'Find an item…';
+      el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
+      head.appendChild(el.search);
+      head.appendChild(btn('＋ New', 'Add an item', () => {
+        const id = commit('New item', (doc, O) => O.newItem(doc, { name: 'New item' }));
+        ED.select({ kind: 'item', id });
+      }, 'primary'));
+      host.appendChild(head);
+      el.list = make('div.ed-list');
+      host.appendChild(el.list);
+      el.detail = make('div');
+      host.appendChild(el.detail);
+      this._form = null;
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const sel = ed.state.selection;
+      const selId = sel && sel.kind === 'item' ? sel.id : null;
+      const q = (el.search.value || '').toLowerCase();
+      const ids = Object.keys(p.items || {}).filter(id => !q || `${id} ${p.items[id].name || ''}`.toLowerCase().indexOf(q) >= 0);
+      const sig = JSON.stringify([ids.map(id => [id, p.items[id]]), selId]);
+      if (sig === this._sig) return;
+      this._sig = sig;
+      clear(el.list);
+      for (const id of ids) {
+        const it = p.items[id];
+        const item = make('div.ed-item');
+        item.setAttribute('aria-selected', String(id === selId));
+        const text = make('div.ed-item-text');
+        text.appendChild(make('span.ed-slot-name', { text: it.name || id }));
+        text.appendChild(make('span.ed-hint', { text: `${it.kind || 'item'} · ${it.desc || 'no description'}` }));
+        item.appendChild(text);
+        item.appendChild(make('span.ed-badge', { text: id }));
+        item.onclick = () => ED.select({ kind: 'item', id });
+        el.list.appendChild(item);
+      }
+      if (!ids.length) el.list.appendChild(ED.emptyState({ icon: '🎒', text: 'No items yet', hint: 'Items are what an “Item on ground” Event gives, and what conditions ask about.' }));
+      if (this._form) { try { this._form.destroy(); } catch (e) { /* ignore */ } this._form = null; }
+      clear(el.detail);
+      if (!selId || !p.items[selId]) return;
+      const it = p.items[selId];
+      el.detail.appendChild(make('h3.ed-obj-title', { text: it.name || selId }));
+      const form = make('div');
+      el.detail.appendChild(form);
+      this._form = INS().mount(form, {
+        fields: P.fields.item || [],
+        value: it,
+        ctx: { project: p },
+        onChange(path, v) { setAt(['items', selId].concat(path), v, 'Edit item'); },
+      });
+      el.detail.appendChild(btn('✕ Delete this item', 'Remove it from the project', async () => {
+        if (!(await ED.confirm(`Delete “${it.name || selId}”?`))) return;
+        commit('Delete item', (doc) => doc.del(['items', selId]));
+        ED.select(null);
+      }, 'danger'));
+    },
+  });
+
+  // ---------------------------------------------------------------- Strings ----------
+  KIT.registry('editorPanels').add({
+    id: 'strings', label: 'Terms', icon: 'text', order: 59,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      host.appendChild(make('div.ed-hint', { text: 'Terms are the words the engine says on its own: “Got {count} {item}!”, “New Game”, “Save”. Change one and every message that uses it changes.' }));
+      el.search = make('input.ed-obj-search');
+      el.search.type = 'search';
+      el.search.placeholder = 'Find a term…';
+      el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
+      host.appendChild(el.search);
+      el.list = make('div.ed-terms');
+      host.appendChild(el.list);
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const defs = KIT.registry('strings').list();
+      const q = (el.search.value || '').toLowerCase();
+      const rows = defs.filter(d => !q || `${d.id} ${d.default} ${(p.strings || {})[d.id] || ''}`.toLowerCase().indexOf(q) >= 0);
+      const sig = JSON.stringify([rows.map(d => [d.id, (p.strings || {})[d.id]]), q]);
+      if (sig === this._sig) return;
+      const active = document.activeElement;
+      if (active && el.list.contains(active)) return;
+      this._sig = sig;
+      clear(el.list);
+      for (const d of rows) {
+        const cur = (p.strings || {})[d.id];
+        const row = make('div.ed-term');
+        const head = make('div.ed-row.ed-term-head');
+        head.appendChild(make('span.ed-badge', { text: d.id }));
+        const changed = cur != null && cur !== d.default;
+        if (changed) {
+          head.appendChild(make('span.ed-badge.warn', { text: 'changed' }));
+          head.appendChild(btn('↺', `Back to “${d.default}”`, () => setAt(['strings', d.id], d.default, 'Reset term'), 'tiny'));
+        }
+        row.appendChild(head);
+        const input = make('input');
+        input.type = 'text';
+        input.value = cur == null ? d.default : cur;
+        input.onchange = () => setAt(['strings', d.id], input.value, 'Edit term');
+        row.appendChild(input);
+        el.list.appendChild(row);
+      }
+      if (!rows.length) el.list.appendChild(make('div.ed-hint', { text: 'Nothing by that name.' }));
+    },
+  });
+
+  // ------------------------------------------------------------------- Data ----------
+  KIT.registry('editorPanels').add({
+    id: 'data', label: 'Data', icon: 'json', order: 70,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      host.appendChild(make('div.ed-hint', { text: 'The escape hatch: the raw JSON of whatever is selected. Nothing is applied until it reads cleanly, and applying it is one undo step.' }));
+      const head = make('div.ed-row');
+      el.what = make('span.ed-badge');
+      head.appendChild(el.what);
+      el.whole = make('button.ed-chip', { text: 'Whole project' });
+      el.whole.type = 'button';
+      el.whole.onclick = () => { this._whole = !this._whole; this._sig = ''; this.refresh(ED); };
+      head.appendChild(el.whole);
+      host.appendChild(head);
+      el.ta = make('textarea.ed-json');
+      el.ta.spellcheck = false;
+      el.ta.oninput = () => { el.status.textContent = 'edited — press Check'; };
+      host.appendChild(el.ta);
+      el.status = make('div.ed-hint');
+      host.appendChild(el.status);
+      const bar = make('div.ed-row');
+      bar.appendChild(btn('Check', 'Read it without applying it', () => check(this, false)));
+      bar.appendChild(btn('Apply', 'Write it into the project (one undo step)', () => check(this, true), 'primary'));
+      bar.appendChild(btn('↺ Reload', 'Throw away these edits', () => { this._sig = ''; this.refresh(ED); }));
+      host.appendChild(bar);
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const where = this._whole ? { path: [], label: 'the whole project' } : PP.dataPath(p, ed.state.selection);
+      this._where = where;
+      const value = where.path.length ? KIT.path.get(p, where.path) : p;
+      const sig = JSON.stringify([where.path, value]);
+      if (sig === this._sig) return;
+      if (document.activeElement === el.ta) return;
+      this._sig = sig;
+      el.what.textContent = where.label;
+      el.whole.setAttribute('aria-pressed', String(!where.path.length));
+      el.ta.value = JSON.stringify(value === undefined ? null : value, null, 2);
+      el.status.textContent = `${el.ta.value.length} characters`;
+    },
+  });
+
+  function check(panel, apply) {
+    const el = panel._el;
+    const where = panel._where || { path: [] };
+    const r = PP.checkData(project(), where.path, el.ta.value);
+    el.status.textContent = r.message;
+    el.status.className = 'ed-hint ' + (r.ok ? 'ed-ok' : 'ed-warn');
+    if (!r.ok || !apply) return;
+    commit('Edit data', (doc, O) => {
+      if (where.path.length) O.setField(doc, where.path, r.value, 'Edit data');
+      else doc.replace(r.value, { label: 'Edit data' });
+    });
+    ED.refresh();
+    panel._sig = '';
+    ED.toast('Applied — Ctrl+Z puts it back');
+  }
+
+  // ----------------------------------------------------------------- Import ----------
+  // the last thing dropped, so the report and the Import button agree about what they are looking at
+  const importState = { report: null, result: null, found: null };
+  KIT.registry('editorPanels').add({
+    id: 'import', label: 'Import', icon: 'import', order: 75,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder (the .json files), or Aseprite art (.aseprite, or a sheet .json next to its .png). Images are embedded, so nothing depends on where the file lived.' }));
+      el.drop = make('div.ed-drop');
+      el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
+      el.drop.appendChild(make('div', { text: 'Drop files here' }));
+      const pick = make('button.ed-btn.primary', { text: 'Choose files…' });
+      pick.type = 'button';
+      el.file = make('input');
+      el.file.type = 'file';
+      el.file.multiple = true;
+      el.file.style.display = 'none';
+      el.file.onchange = () => { if (el.file.files && el.file.files.length) read(this, Array.from(el.file.files)); };
+      pick.onclick = () => el.file.click();
+      el.drop.appendChild(pick);
+      el.drop.appendChild(el.file);
+      el.drop.addEventListener('dragover', (e) => { e.preventDefault(); el.drop.classList.add('is-over'); });
+      el.drop.addEventListener('dragleave', () => el.drop.classList.remove('is-over'));
+      el.drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.drop.classList.remove('is-over');
+        const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+        if (files.length) read(this, files);
+      });
+      host.appendChild(el.drop);
+      host.appendChild(make('div.ed-label', { text: 'Before you import' }));
+      const opts = make('div.ed-row');
+      el.prefix = make('input.ed-half');
+      el.prefix.type = 'text';
+      el.prefix.placeholder = 'Name everything “prefix:…”';
+      el.prefix.title = 'A prefix keeps imported ids apart from yours: outside → outside:grass';
+      opts.appendChild(el.prefix);
+      el.overwrite = make('button.ed-chip', { text: 'Replace what is there' });
+      el.overwrite.title = 'Off: anything with the same id is kept as it is.';
+      el.overwrite.type = 'button';
+      el.overwrite.setAttribute('aria-pressed', 'false');
+      el.overwrite.onclick = () => { const on = el.overwrite.getAttribute('aria-pressed') === 'true'; el.overwrite.setAttribute('aria-pressed', String(!on)); };
+      opts.appendChild(el.overwrite);
+      host.appendChild(opts);
+      host.appendChild(make('div.ed-hint', { text: 'A prefix keeps imported ids apart from your own (outside → outside:grass). “Replace what is there” is off unless you turn it on, and an import is one undo step either way.' }));
+      el.report = make('div.ed-import-report');
+      host.appendChild(el.report);
+    },
+    refresh() { /* the report is only rebuilt when something is imported */ },
+  });
+
+  /** Read the dropped files (text for data, bytes for art), then run the importer. */
+  async function read(panel, fileList) {
+    const el = panel._el;
+    clear(el.report);
+    el.report.appendChild(make('div.ed-hint', { text: `Reading ${fileList.length} file${fileList.length === 1 ? '' : 's'}…` }));
+    const files = [];
+    for (const f of fileList) {
+      const name = f.webkitRelativePath || f.name;
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const isImage = IMAGE_EXT.test(name);
+      const isBinary = isImage || /\.(aseprite|ase)$/i.test(name);
+      let text = null;
+      if (!isBinary) { try { text = new TextDecoder().decode(bytes); } catch (e) { text = null; } }
+      files.push({ name, bytes, text, type: f.type });
+    }
+    runImport(panel, files);
+  }
+
+  function assetResolver(files, prefix) {
+    const byName = new Map();
+    for (const f of files) if (IMAGE_EXT.test(f.name)) byName.set(base(f.name).toLowerCase(), f);
+    const seen = new Map();
+    const missing = [];
+    return {
+      missing,
+      asset(src) {
+        const raw = String(src == null ? '' : src);
+        if (!raw) return null;
+        if (/^data:/i.test(raw)) return { id: KIT.slug(prefix ? prefix + '-inline' : 'inline'), src: raw, w: 0, h: 0 };
+        const key = base(raw).toLowerCase();
+        const f = byName.get(key) || byName.get(key.replace(/\.[a-z0-9]+$/, '.png'));
+        if (!f) { if (!missing.includes(raw)) missing.push(raw); return null; }
+        if (seen.has(f.name)) return seen.get(f.name);
+        let id = KIT.slug(base(f.name).replace(/\.[A-Za-z0-9]+$/, ''));
+        if (prefix) id = KIT.slug(prefix) + ':' + id;
+        const size = IMPP.imageSize(f.bytes) || { w: 0, h: 0 };
+        const mime = f.type || (/\.gif$/i.test(f.name) ? 'image/gif' : /\.jpe?g$/i.test(f.name) ? 'image/jpeg' : 'image/png');
+        const out = { id, src: `data:${mime};base64,${bytesToBase64(f.bytes)}`, w: size.w, h: size.h };
+        seen.set(f.name, out);
+        return out;
+      },
+    };
+  }
+  function bytesToBase64(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  /** Synchronous inflate in the browser: the Aseprite importer carries its own. */
+  function inflate(bytes, method) {
+    const A = KIT.import.aseprite;
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (method === 'gzip') {
+      let i = 10;
+      const flg = b[3];
+      if (flg & 4) i += 2 + (b[i] | (b[i + 1] << 8));
+      if (flg & 8) { while (b[i]) i++; i++; }
+      if (flg & 16) { while (b[i]) i++; i++; }
+      if (flg & 2) i += 2;
+      return A.inflateRaw(b.subarray(i));
+    }
+    return A.zinflate(b);
+  }
+  /** A PNG encoder for the Aseprite importer's "too big for pixel strings" fallback. */
+  function encodePng(w, h, rgba) {
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(w, h);
+    img.data.set(rgba);
+    ctx.putImageData(img, 0, 0);
+    return cv.toDataURL('image/png');
+  }
+
+  function runImport(panel, files) {
+    const el = panel._el;
+    const prefix = (el.prefix.value || '').trim() || null;
+    const found = IMPP.dispatch(files);
+    importState.found = found;
+    clear(el.report);
+    if (!found.tool) {
+      for (const p of found.problems) el.report.appendChild(make('div.ed-problem.warn', { text: p.message }));
+      return;
+    }
+    const assets = assetResolver(files, prefix);
+    const p = project();
+    const mapId = (name) => {
+      const want = KIT.slug(String(name).replace(/\.[A-Za-z0-9]+$/, '').split(/[\\/]/).pop());
+      if (p.maps && p.maps[want]) return want;
+      const ns = prefix ? `${KIT.slug(prefix)}:${want}` : want;
+      return p.maps && p.maps[ns] ? ns : null;
+    };
+    let result = null;
+    try {
+      if (found.tool === 'tiled') {
+        const byName = new Map();
+        for (const f of files) if (f.text != null) byName.set(base(f.name).toLowerCase(), f.text);
+        const external = (src) => byName.get(base(src).toLowerCase());
+        const o = { asset: assets.asset, tileset: external, template: external, inflate, mapId, name: base(found.main.name), prefix };
+        result = found.kind === 'tileset' ? KIT.import.tiled.tileset(found.main.text, o) : KIT.import.tiled.map(found.main.text, o);
+      } else if (found.tool === 'rpgmaker') {
+        const data = {};
+        for (const f of found.files) { try { data[base(f.name)] = JSON.parse(f.text); } catch (e) { /* not a data file */ } }
+        result = KIT.import.rpgmaker.project(data, { asset: assets.asset, prefix });
+      } else {
+        const o = { asset: assets.asset, prefix, name: base(found.main.name), id: KIT.slug(base(found.main.name).replace(/\.[A-Za-z0-9]+$/, '')), kind: 'sprite', inflate, encodePng };
+        result = found.kind === 'file' ? KIT.import.aseprite.file(found.main.bytes, o) : KIT.import.aseprite.sheet(found.main.text, o);
+      }
+    } catch (e) {
+      el.report.appendChild(make('div.ed-problem', { text: `The importer could not read that: ${e && e.message ? e.message : e}` }));
+      return;
+    }
+    importState.result = result;
+    const dry = KIT.import.merge(KIT.deepClone(p), result, { dryRun: true, overwrite: el.overwrite.getAttribute('aria-pressed') === 'true', prefix: null, source: found.label });
+    for (const m of assets.missing) dry.problems.push({ severity: 'warn', code: 'image-missing', message: `the image “${m}” was not dropped in with it, so nothing was embedded`, where: {} });
+    importState.report = dry;
+    renderReport(panel, found, dry, result);
+  }
+
+  const COUNTS = [['maps', 'map'], ['objects', 'event'], ['tiles', 'tile'], ['sprites', 'sprite'], ['faces', 'face'], ['icons', 'icon'],
+    ['animations', 'animation'], ['assets', 'image'], ['scripts', 'script'], ['vars', 'variable'], ['items', 'item'], ['terrains', 'terrain'], ['autotiles', 'autotile group']];
+  function countLine(counts) {
+    const parts = [];
+    for (const [key, label] of COUNTS) if (counts[key]) parts.push(`${counts[key]} ${label}${counts[key] === 1 ? '' : 's'}`);
+    return parts.length ? parts.join(' · ') : '—';
+  }
+
+  function renderReport(panel, found, report, result) {
+    const el = panel._el;
+    clear(el.report);
+    el.report.appendChild(make('div.ed-h4', { text: found.label }));
+    const table = make('div.ed-import-counts');
+    for (const [label, counts] of [['Adds', report.added], ['Replaces', report.replaced], ['Already there', report.skipped], ['Unchanged', report.unchanged]]) {
+      const line = countLine(counts);
+      if (line === '—' && label !== 'Adds') continue;
+      const row = make('div.ed-row');
+      row.appendChild(make('span.ed-badge', { text: label }));
+      row.appendChild(make('span.ed-item-text', { text: line }));
+      table.appendChild(row);
+    }
+    el.report.appendChild(table);
+    const errs = report.problems.filter(p => p.severity === 'error');
+    for (const p of report.problems.slice(0, 20)) el.report.appendChild(make('div.ed-problem' + (p.severity === 'warn' ? '.warn' : p.severity === 'info' ? '.info' : ''), { text: `${p.code}: ${p.message}` }));
+    if (report.problems.length > 20) el.report.appendChild(make('div.ed-hint', { text: `…and ${report.problems.length - 20} more notes.` }));
+    const bar = make('div.ed-row');
+    const apply = btn(errs.length ? 'Import anyway' : '✓ Import it', 'Merge this into the project as one undo step', () => {
+      const rep = KIT.import.merge(ED.state.doc, result, { overwrite: el.overwrite.getAttribute('aria-pressed') === 'true', source: found.label });
+      if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
+      ED.refresh();
+      ED.toast(`Imported · ${countLine(rep.added)}`);
+      clear(el.report);
+      el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Ctrl+Z undoes the whole thing.` }));
+      const first = Object.keys(result.maps || {})[0];
+      if (first && ED.state.project.maps[first]) el.report.appendChild(btn(`Open the map “${first}”`, 'Go and look at it', () => ED.openMap(first), 'wide'));
+    }, errs.length ? '' : 'primary');
+    bar.appendChild(apply);
+    bar.appendChild(btn('Cancel', 'Forget this import', () => clear(el.report)));
+    el.report.appendChild(bar);
+    if (errs.length) el.report.appendChild(make('div.ed-hint.ed-warn', { text: 'There are errors above. Importing anyway is allowed — the project will just have things to fix.' }));
+  }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -388,7 +388,7 @@
     startLoop();
     G.booted = true;
 
-    if (G.flags.edit && KIT.editor && typeof KIT.editor.open === 'function') { KIT.editor.open(G); return G; }
+    if (G.flags.edit && G.openEditor()) return G;                    // ?edit=1 — straight into Creator Mode
     if (G.flags.test) {
       const st = (G.project.testStates || []).find(t => t.id === G.flags.test);
       await G.newGame({ testState: st || null });
@@ -440,7 +440,9 @@
     const at = save.heroes[0];
     await world.enterMap(at.map || project.start.map, at.x, at.y, at.dir);
     await G.save('autosave');
-    await KIT.interpreter.runAuto(project, world.makeCtx(null, world.hero().id));
+    // `silent` is Creator Mode's "Play here": drop us in without the chapter cards
+    // and autorun scripts that belong to the beginning of the story.
+    if (!opts.silent) await KIT.interpreter.runAuto(project, world.makeCtx(null, world.hero().id));
     return world;
   };
 
@@ -462,6 +464,46 @@
     const at = (save.heroes && save.heroes[0]) || {};
     await world.enterMap(at.map || G.project.start.map, at.x || 0, at.y || 0, at.dir || 'down');
     if (save.music && save.music.current) KIT.audio.music(save.music.current, { fade: 300 });
+    return true;
+  };
+
+  // ---- Creator Mode ---------------------------------------------------------------------------
+  /**
+   * openEditor({ mapId }) — the pause menu and ?edit=1 both come through here.
+   * Where the player is standing is remembered, so closing Creator Mode puts them
+   * back on the same tile with the edits in place.
+   */
+  G.openEditor = function (opts) {
+    if (!KIT.editor || typeof KIT.editor.open !== 'function') return false;
+    const w = G.world;
+    G._editorReturn = w && w.map ? { save: KIT.deepClone(snapshot()), map: w.map.id } : null;
+    KIT.editor.open({
+      game: G,
+      project: G.project,
+      mapId: (opts && opts.mapId) || (w && w.map ? w.map.id : null) || (G.project.start && G.project.start.map),
+    });
+    return true;
+  };
+
+  /** resumeFromEditor(project) — Creator Mode closed: take its project and put the player back. */
+  G.resumeFromEditor = async function (project) {
+    if (project) G.loadProject(project);
+    const back = G._editorReturn;
+    G._editorReturn = null;
+    if (!back || !back.save) { G.toTitle(); return false; }
+    const save = back.save;
+    const at = (save.heroes && save.heroes[save.activeHero || 0]) || {};
+    let map = at.map || back.map;
+    if (!G.project.maps[map]) map = (G.project.start && G.project.start.map) || Object.keys(G.project.maps)[0];
+    const width = G.project.maps[map].width, height = G.project.maps[map].height;
+    const x = KIT.clamp(at.x || 0, 0, width - 1), y = KIT.clamp(at.y || 0, 0, height - 1);
+    playtimeMs = save.playtimeMs || 0;
+    const world = buildWorld(save);
+    KIT.scenes.clear();
+    KIT.fx.reset();
+    KIT.scenes.push('map', { game: G });
+    await world.enterMap(map, x, y, at.dir || 'down');
+    G.resize();
     return true;
   };
 

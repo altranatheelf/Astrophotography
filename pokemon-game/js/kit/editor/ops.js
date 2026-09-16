@@ -12,7 +12,9 @@
   const P = KIT.project;
 
   const mapPath = (map) => ['maps', map];
-  const layerPath = (map, layer) => ['maps', map, 'layers', layer];
+  // The five tile layers live under map.layers; `collision` is its own array beside them.
+  const layerPath = (map, layer) => (layer === 'collision' ? ['maps', map, 'collision'] : ['maps', map, 'layers', layer]);
+  const layerArray = (m, layer) => (layer === 'collision' ? m.collision : m.layers[layer]);
   const idx = (m, x, y) => y * m.width + x;
   const inMap = (m, x, y) => x >= 0 && y >= 0 && x < m.width && y < m.height;
   const getMap = (doc, map) => { const m = doc.get(mapPath(map)); if (!m) throw new Error(`editor: unknown map '${map}'`); return m; };
@@ -21,7 +23,7 @@
   O.eraseValue = function (m, layer) {
     if (layer === 'ground') return P.GROUND_BY_KIND[m.kind] || 'grass';
     if (layer === 'terrain' || layer === 'regions') return 0;
-    return null;
+    return null;                      // deco, above and collision clear to nothing
   };
 
   /** paint(doc, { map, layer, cells:[{x,y}], tile, label }) — one undo step for the whole stroke. */
@@ -37,7 +39,7 @@
       const i = idx(m, c.x, c.y);
       if (seen.has(i)) continue;
       seen.add(i);
-      if (m.layers[layer][i] === value) continue;
+      if (layerArray(m, layer)[i] === value) continue;
       ops.push({ op: 'set', path: path.concat(i), value });
     }
     if (!ops.length) return 0;
@@ -62,7 +64,7 @@
     const m = getMap(doc, o.map);
     const layer = o.layer || 'ground';
     if (!inMap(m, o.x, o.y)) return 0;
-    const from = m.layers[layer][idx(m, o.x, o.y)];
+    const from = layerArray(m, layer)[idx(m, o.x, o.y)];
     const to = o.tile === undefined ? O.eraseValue(m, layer) : o.tile;
     if (from === to) return 0;
     const cells = [], seen = new Set();
@@ -72,7 +74,7 @@
       const [x, y] = stack.pop();
       if (!inMap(m, x, y)) continue;
       const i = idx(m, x, y);
-      if (seen.has(i) || m.layers[layer][i] !== from) continue;
+      if (seen.has(i) || layerArray(m, layer)[i] !== from) continue;
       seen.add(i);
       cells.push({ x, y });
       stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
@@ -94,7 +96,7 @@
       const x = o.x + dx, y = o.y + dy;
       if (!inMap(m, x, y)) return;
       const i = idx(m, x, y);
-      if (m.layers[layer][i] === tile) return;
+      if (layerArray(m, layer)[i] === tile) return;
       ops.push({ op: 'set', path: path.concat(i), value: tile });
     }));
     if (!ops.length) return 0;
