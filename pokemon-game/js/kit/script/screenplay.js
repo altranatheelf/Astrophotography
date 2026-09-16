@@ -15,6 +15,7 @@
   const SP = KIT.screenplay = KIT.screenplay || {};
 
   SP.INDENT = '    ';
+  const ESCAPE_LINE = (s) => String(s == null ? '' : s).replace(/\r?\n/g, ' ');
   const pad = (level) => SP.INDENT.repeat(level);
   const OPTION = /^-(?: |$)/;
   const isEnd = (s) => s === '@end';
@@ -27,6 +28,11 @@
     if (cmd.t === 'choice') return 'choice';
     const def = reg.get(cmd.t);
     if (!def) return null;
+    // A command whose list of blocks is written as prefixed items: '--- label' lines
+    // with the block indented under each (the shape 'At the Same Time' uses).
+    if (def.text && def.text.listField && def.text.itemPrefix) {
+      return { items: def.text.listField, prefix: def.text.itemPrefix, labelKey: def.text.itemLabel || 'label', bodyKey: def.text.itemBody || 'body' };
+    }
     const blocks = CMD.blockFields(def);
     if (!blocks.length) return null;
     const fields = KIT.schema.fields(def.fields || []);
@@ -65,6 +71,13 @@
           out.push(pad(level) + CMD.option.toLine(opt));
           writeList(opt.then, level + 1, out);
         }
+      } else if (layout && layout.items) {
+        for (const item of cmd[layout.items] || []) {
+          const label = item && item[layout.labelKey] ? ' ' + ESCAPE_LINE(item[layout.labelKey]) : '';
+          out.push(pad(level) + layout.prefix + label);
+          writeList(item && item[layout.bodyKey], level + 1, out);
+        }
+        out.push(pad(level) + '@end');
       } else if (layout && layout.body) {
         writeList(cmd[layout.body], level + 1, out);
         out.push(pad(level) + '@end');
@@ -109,6 +122,7 @@
         if (it.level > level) { problem(it, 'unexpected indentation'); cmds.push(rawCmd(it)); pos++; continue; }
         if (isEnd(it.body) || isElse(it.body)) { problem(it, `stray ${it.body}`); cmds.push(rawCmd(it)); pos++; continue; }
         if (OPTION.test(it.body)) { problem(it, 'a choice option (- …) outside a choice'); cmds.push(rawCmd(it)); pos++; continue; }
+        if (/^---(\s|$)/.test(it.body)) { problem(it, 'a track (--- …) outside an “At the Same Time”'); cmds.push(rawCmd(it)); pos++; continue; }
         let cmd = null;
         try { cmd = CMD.fromLine(it.body); } catch (e) { cmd = null; problem(it, e && e.message ? e.message : 'could not read this line'); }
         if (!cmd) { if (!problems.some(p => p.line === it.n)) problem(it, 'could not read this line'); cmds.push(rawCmd(it)); pos++; continue; }
@@ -131,6 +145,18 @@
             cmd.options.push(opt);
           }
           if (!cmd.options.length) problem(it, 'a choice needs at least one - option');
+        } else if (layout && layout.items) {
+          cmd[layout.items] = [];
+          while (atLevel(level, (b) => b === layout.prefix || b.startsWith(layout.prefix + ' '))) {
+            const head = peek();
+            pos++;
+            const item = {};
+            item[layout.labelKey] = head.body.slice(layout.prefix.length).trim();
+            item[layout.bodyKey] = parseList(level + 1);
+            cmd[layout.items].push(item);
+          }
+          if (!cmd[layout.items].length) problem(it, `@${cmd.t} needs at least one ${layout.prefix} line`);
+          if (atLevel(level, isEnd)) pos++; else problem(it, `missing @end for @${cmd.t} on line ${it.n}`);
         } else if (layout && layout.body) {
           cmd[layout.body] = parseList(level + 1);
           if (atLevel(level, isEnd)) pos++; else problem(it, `missing @end for @${cmd.t} on line ${it.n}`);

@@ -76,6 +76,7 @@
 <script src="js/kit/import/merge.js"></script>
 
 <!-- Runtime UI -->
+<script src="js/kit/render/atmosphere.js"></script>
 <script src="js/kit/render/renderer.js"></script>
 <script src="js/kit/scenes/stack.js"></script>
 <script src="js/kit/scenes/dialogue.js"></script>
@@ -109,6 +110,7 @@
 <script src="js/content/demo/assets.js"></script>
 <script src="js/content/demo/project.js"></script>
 <script src="js/content/demo/maps/home.js"></script>
+<script src="js/content/demo/maps/garden.js"></script>
 <script src="js/content/demo/maps/town.js"></script>
 <script src="js/content/demo/maps/lab.js"></script>
 <script src="js/content/demo/maps/route.js"></script>
@@ -123,6 +125,27 @@
 <script src="js/kit/editor/panels-writing.js"></script>
 <script src="js/kit/editor/panels-project.js"></script>
 <script src="js/kit/editor/integration.js"></script>
+<!-- Modules (docs/MODULES.md). They load BEFORE main.js so main.js still captures
+     the whole page as KIT.PRISTINE_HTML (publish rebuilds the page from that).
+     KIT.module does not exist yet at this point, so manifest.js registers on
+     DOMContentLoaded — its listener is added first, so it runs before boot. -->
+<script src="js/modules/mons/rules.js"></script>
+<script src="js/modules/mons/strings.js"></script>
+<script src="js/modules/mons/art.js"></script>
+<script src="js/modules/mons/actions.js"></script>
+<script src="js/modules/mons/script.js"></script>
+<script src="js/modules/mons/systems.js"></script>
+<script src="js/modules/mons/scenes.js"></script>
+<script src="js/modules/mons/panel.js"></script>
+<script src="js/modules/mons/manifest.js"></script>
+
+<!-- home: decorating, jobs, moods. rules.js first — manifest.js reads KIT.home at load. -->
+<script src="js/modules/home/rules.js"></script>
+<script src="js/modules/home/register.js"></script>
+<script src="js/modules/home/scenes.js"></script>
+<script src="js/modules/home/panel.js"></script>
+<script src="js/modules/home/manifest.js"></script>
+
 <script src="js/main.js"></script>
 </body>
 </html>

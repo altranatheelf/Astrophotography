@@ -174,6 +174,21 @@
         if (e) { e.visible = false; e.solid = false; }
         return Promise.resolve();
       },
+      camera(o) {
+        const w = G.world;
+        if (!w || !KIT.camera) return Promise.resolve();
+        const target = o.mode === 'follow' && o.target && o.target !== 'hero' ? o.target : (o.target || 'hero');
+        KIT.camera.focus(w, { mode: o.mode || 'follow', target, x: o.x, y: o.y, zoom: o.zoom, ms: o.ms });
+        if (o.wait === false || !(o.ms > 0)) return Promise.resolve();
+        return new Promise((res) => setTimeout(res, o.ms));
+      },
+      light(o) {
+        const e = resolve(o.target || 'self', currentEntity());
+        if (!e) return Promise.resolve();
+        e.data = e.data || {};
+        e.data.light = o.radius > 0 ? { radius: o.radius, color: o.color, flicker: o.flicker, softness: o.softness } : null;
+        return Promise.resolve();
+      },
       follow(o) {
         const w = G.world;
         if (!w) return Promise.resolve();
@@ -253,7 +268,7 @@
 
     world.coop = !!settings().coop || !!(project.settings.coop && project.settings.coop.enabled);
     world.activeHero = Math.min(save.activeHero || 0, world.heroes.length - 1);
-    world.events.on('mapEnter', () => { queueAutosave(); });
+    world.events.on('mapEnter', (e) => { queueAutosave(); useAtmosphere(e && e.map); });
     world.events.on('heal', () => KIT.audio.play('heal'));
 
     G.world = world;
@@ -557,6 +572,14 @@
     render();
     return G;
   };
+  /** A map may carry its own light and weather; entering it fades to that. */
+  function useAtmosphere(mapId, ms) {
+    if (!KIT.atmosphere || !G.project) return;
+    const map = G.project.maps && G.project.maps[mapId];
+    KIT.atmosphere.useMap(map, { ms: ms == null ? 300 : ms });
+  }
+  G.useAtmosphere = useAtmosphere;
+
   /** Register the project's imported images and start decoding them; redraw as they arrive. */
   function useAssets(project) {
     if (!KIT.assets) return;

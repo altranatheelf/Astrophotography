@@ -366,6 +366,11 @@
       const camX = world.camera.x - (shake ? shake.x / tilePx : 0);
       const camY = world.camera.y - (shake ? shake.y / tilePx : 0);
       const ox = -Math.round(camX * tilePx), oy = -Math.round(camY * tilePx);
+      // A cinematic zoom simply scales the drawing units, so the camera keeps
+      // meaning "the top-left tile in frame" and pulling back shows MORE map.
+      // Pixels stay hard (no smoothing); a whole-number zoom stays perfectly crisp.
+      const zoom = world.camera && world.camera.zoom > 0 ? world.camera.zoom : 1;
+      if (zoom !== 1) ctx.scale(zoom, zoom);
       const time = world.time != null ? world.time * 1000 : (root.performance ? performance.now() : 0);
 
       // tile layers (cached) — ground and deco under the characters
@@ -388,6 +393,13 @@
       drawAnimated(c, view, ox, oy, time, ['above']);
       for (const e of above) drawEntity(e, view, camX, camY);
 
+      // atmosphere sits over the world but under the pictures and the UI overlays
+      if (KIT.atmosphere && KIT.atmosphere.draw) {
+        try {
+          if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
+          KIT.atmosphere.draw(ctx, world, { W, H, tilePx: tilePx * zoom, camX, camY, time });
+        } catch (e) { (KIT.log || console).error('[atmosphere]', e); }
+      }
       drawPictures();
       drawOverlays(world);
       ctx.restore();

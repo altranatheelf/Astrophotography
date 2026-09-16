@@ -103,23 +103,77 @@
     }
   } });
 
-  // --- 90 camera -------------------------------------------------------------------
+  // --- 90 camera ------------------------------------------------------------------
+  // The camera usually keeps the active hero in frame. A scene can take it away:
+  // follow someone else, hold on a place, pull back — then let it go again.
   KIT.camera = {
-    /** Centre on an entity, clamped to the map; smaller maps are centred. */
-    update(world) {
+    /** focus(world, { mode:'follow'|'point'|'release', target, x, y, zoom, ms }) */
+    focus(world, o) {
+      o = o || {};
+      const now = KIT.camera.centre(world);
+      const mode = o.mode || 'follow';
+      world.cameraFocus = mode === 'release' ? null : { mode, target: o.target || 'hero', x: o.x || 0, y: o.y || 0 };
+      const zoom = o.zoom == null ? (world.camera.zoom || 1) : o.zoom;
+      world.cameraTween = { fromX: now.x, fromY: now.y, fromZoom: world.camera.zoom || 1, toZoom: zoom, t: 0, ms: o.ms == null ? 600 : o.ms };
+      return world.cameraFocus;
+    },
+    /** Where the camera is looking right now, in tiles (the centre of the view). */
+    centre(world) {
+      const vp = KIT.camera.viewport(world);
+      return { x: world.camera.x + vp.w / 2, y: world.camera.y + vp.h / 2 };
+    },
+    /** The visible size in tiles, which a zoom changes. */
+    viewport(world) {
+      const vp = world.viewport || (world.project.settings && world.project.settings.viewport) || { w: 16, h: 12 };
+      const zoom = world.camera && world.camera.zoom > 0 ? world.camera.zoom : 1;
+      return { w: vp.w / zoom, h: vp.h / zoom };
+    },
+    /** What the camera wants to be centred on. */
+    wanted(world) {
+      const f = world.cameraFocus;
+      if (f && f.mode === 'point') return { x: f.x + 0.5, y: f.y + 0.5 };
+      let e = world.hero();
+      if (f && f.mode === 'follow' && f.target && f.target !== 'hero') {
+        const t = String(f.target);
+        if (t === 'p1' || t === 'p2') e = world.heroById(t);
+        else {
+          const id = t.startsWith('obj:') ? t.slice(4) : t;
+          e = (world.entities || []).find(x => x.id === id) || e;
+        }
+      }
+      return { x: (e ? (e.px != null ? e.px : e.x) : 0) + 0.5, y: (e ? (e.py != null ? e.py : e.y) : 0) + 0.5 };
+    },
+    /** Centre on what is wanted, easing any move, clamped to the map. */
+    update(world, dt) {
       const view = world.map;
       if (!view) return world.camera;
-      const vp = world.viewport || (world.project.settings && world.project.settings.viewport) || { w: 16, h: 12 };
-      const h = world.hero();
-      let cx = (h ? h.px : 0) + 0.5 - vp.w / 2;
-      let cy = (h ? h.py : 0) + 0.5 - vp.h / 2;
-      cx = view.width <= vp.w ? (view.width - vp.w) / 2 : KIT.clamp(cx, 0, view.width - vp.w);
-      cy = view.height <= vp.h ? (view.height - vp.h) / 2 : KIT.clamp(cy, 0, view.height - vp.h);
-      world.camera.x = cx; world.camera.y = cy;
+      const tw = world.cameraTween;
+      if (tw && !(tw.ms > 0)) {                    // no time asked for: it happens at once
+        world.camera.zoom = tw.toZoom;
+        world.cameraTween = null;
+        world.cameraEase = 1;
+      } else if (tw && tw.ms > 0) {
+        tw.t = Math.min(tw.ms, tw.t + (dt || 0) * 1000);
+        const k = tw.t / tw.ms;
+        const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;      // ease in and out
+        world.camera.zoom = tw.fromZoom + (tw.toZoom - tw.fromZoom) * ease;
+        world.cameraEase = ease;
+        if (tw.t >= tw.ms) { world.camera.zoom = tw.toZoom; world.cameraTween = null; world.cameraEase = 1; }
+      } else if (world.camera.zoom == null) world.camera.zoom = 1;
+      const vp = KIT.camera.viewport(world);
+      const want = KIT.camera.wanted(world);
+      let cx = want.x - vp.w / 2, cy = want.y - vp.h / 2;
+      if (tw && tw.ms > 0 && world.cameraEase < 1) {
+        const ease = world.cameraEase || 0;
+        cx = (tw.fromX - vp.w / 2) + (cx - (tw.fromX - vp.w / 2)) * ease;
+        cy = (tw.fromY - vp.h / 2) + (cy - (tw.fromY - vp.h / 2)) * ease;
+      }
+      world.camera.x = view.width <= vp.w ? (view.width - vp.w) / 2 : KIT.clamp(cx, 0, view.width - vp.w);
+      world.camera.y = view.height <= vp.h ? (view.height - vp.h) / 2 : KIT.clamp(cy, 0, view.height - vp.h);
       return world.camera;
     },
   };
-  reg.add({ id: 'camera', order: 90, update(world) { KIT.camera.update(world); } });
+  reg.add({ id: 'camera', order: 90, update(world, dt) { KIT.camera.update(world, dt); if (KIT.atmosphere) KIT.atmosphere.update(dt); } });
 
   KIT.registry('strings').add({ id: 'needs-both', default: 'This needs both of you!' });
 

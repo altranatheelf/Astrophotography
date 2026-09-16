@@ -66,11 +66,11 @@
       null, null, null, null, null, "mailbox", null, null, "sign", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
       null, "tree-tl", "tree-tr", null, null, null, null, null, null, null, null, null, null, null, null, null, "bench", null, null, null, null, null, null, null,
       null, "tree-bl", "fence-h", "fence-h", "fence-h", "fence-h", "fence-h", "fence-h", "fence-h", "fence-h", null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-      null, null, null, null, "flowers-red", null, null, null, null, null, null, null, null, null, null, null, null, null, "water", "water", "water", null, null, null,
+      null, null, null, null, "flowers-red", null, null, "flowers-yellow", null, null, null, null, null, null, null, null, null, null, "water", "water", "water", null, null, null,
       null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "flowers-yellow", null, null, "water", "water-lily", "water", null, null, null,
       null, null, null, null, null, null, "tree-tl", "tree-tr", null, null, null, null, null, null, null, null, null, null, "water", "water", "water", null, null, null,
-      null, null, null, null, null, null, "tree-bl", "tree-br", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-      null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+      null, null, null, "flowers-red", null, null, "tree-bl", "tree-br", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, "flowers-yellow", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null
     ],
     "ground": [
@@ -106,11 +106,11 @@
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ],
     "terrain": [
@@ -439,9 +439,146 @@
       "type": "trigger",
       "x": 12,
       "y": 4
+    },
+    {
+      "id": "garden-sign",
+      "name": "Garden sign",
+      "note": "",
+      "pages": [
+        {
+          "behaviour": {
+            "frequency": 2,
+            "kind": "none",
+            "radius": 3,
+            "repeat": true,
+            "route": [],
+            "speed": 1
+          },
+          "dir": "down",
+          "dirFix": false,
+          "layer": "same",
+          "needsBoth": false,
+          "on": {
+            "interact": [
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "THE GARDEN — everyone you have befriended lives here.",
+                "who": ""
+              },
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "Walk up to one of them to say hello.",
+                "who": ""
+              }
+            ]
+          },
+          "once": false,
+          "props": {
+            "look": "sign"
+          },
+          "sprite": null,
+          "stepAnim": false,
+          "through": false,
+          "visible": true,
+          "when": null
+        }
+      ],
+      "type": "sign",
+      "x": 10,
+      "y": 11
+    },
+    {
+      "id": "job-board",
+      "name": "Job board",
+      "note": "",
+      "pages": [
+        {
+          "behaviour": {
+            "frequency": 2,
+            "kind": "none",
+            "radius": 3,
+            "repeat": true,
+            "route": [],
+            "speed": 1
+          },
+          "dir": "down",
+          "dirFix": false,
+          "layer": "same",
+          "needsBoth": false,
+          "on": {
+            "interact": [
+              {
+                "board": "",
+                "t": "openJobBoard"
+              }
+            ]
+          },
+          "once": false,
+          "props": {
+            "jobs": [
+              {
+                "count": 2,
+                "desc": "The hedge by the pond is heavy with them.",
+                "flag": null,
+                "id": "berries",
+                "minutes": 45,
+                "needs": "",
+                "repeatable": true,
+                "reward": "berry",
+                "suits": "grass",
+                "title": "Gather berries"
+              },
+              {
+                "count": 1,
+                "desc": "Grandma has a letter for the lab.",
+                "flag": "postRun",
+                "id": "post",
+                "minutes": 30,
+                "needs": "",
+                "repeatable": true,
+                "reward": "pokeball",
+                "suits": "electric",
+                "title": "Run the post"
+              },
+              {
+                "count": 1,
+                "desc": "Somebody small is hiding under the bench.",
+                "flag": "catFound",
+                "id": "lost-cat",
+                "minutes": 90,
+                "needs": "",
+                "repeatable": false,
+                "reward": "golden-berry",
+                "suits": "",
+                "title": "Find the lost cat"
+              }
+            ],
+            "look": "sign",
+            "title": "Odd jobs"
+          },
+          "sprite": null,
+          "stepAnim": false,
+          "through": false,
+          "visible": true,
+          "when": null
+        }
+      ],
+      "type": "job-board",
+      "x": 14,
+      "y": 9
     }
   ],
-  "props": {},
+  "props": {
+    "garden": {
+      "region": 3
+    }
+  },
   "width": 24
 }
 );

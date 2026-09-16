@@ -59,7 +59,7 @@
       "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "carpet-red", "carpet-red", "carpet-red", "carpet-red", "floor-wood", "floor-wood",
       "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "carpet-red", "carpet-red", "carpet-red", "carpet-red", "floor-wood", "floor-wood",
       "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "carpet-red", "carpet-red", "carpet-red", "carpet-red", "floor-wood", "floor-wood",
-      "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "exit-mat", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood"
+      "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "exit-mat", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "floor-wood", "exit-mat"
     ],
     "regions": [
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -137,6 +137,14 @@
                 "item": "berry",
                 "notify": true,
                 "t": "give"
+              },
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "One ball for each friend you make. {pause} The berries are for when they are shy.",
+                "who": "Mom"
               },
               {
                 "kind": "♥",
@@ -394,6 +402,176 @@
       "type": "trigger",
       "x": 5,
       "y": 8
+    },
+    {
+      "id": "moving-box",
+      "name": "Moving box",
+      "note": "",
+      "pages": [
+        {
+          "behaviour": {
+            "frequency": 2,
+            "kind": "none",
+            "radius": 3,
+            "repeat": true,
+            "route": [],
+            "speed": 1
+          },
+          "dir": "down",
+          "dirFix": false,
+          "layer": "same",
+          "needsBoth": false,
+          "on": {
+            "interact": [
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "A box of odds and ends, left over from moving in.",
+                "who": ""
+              },
+              {
+                "count": 2,
+                "item": "pot-plant",
+                "notify": true,
+                "t": "give"
+              },
+              {
+                "count": 1,
+                "item": "rug",
+                "notify": true,
+                "t": "give"
+              },
+              {
+                "count": 1,
+                "item": "table-set",
+                "notify": true,
+                "t": "give"
+              },
+              {
+                "count": 2,
+                "item": "cushion",
+                "notify": true,
+                "t": "give"
+              },
+              {
+                "max": 6,
+                "min": 1,
+                "name": "boxEmptied",
+                "op": "set",
+                "t": "setVar",
+                "value": true,
+                "var": null
+              },
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "Somewhere in here is a home.",
+                "who": ""
+              }
+            ]
+          },
+          "once": true,
+          "props": {
+            "look": "crate"
+          },
+          "sprite": null,
+          "stepAnim": false,
+          "through": false,
+          "visible": true,
+          "when": null
+        },
+        {
+          "behaviour": {
+            "frequency": 2,
+            "kind": "none",
+            "radius": 3,
+            "repeat": true,
+            "route": [],
+            "speed": 1
+          },
+          "dir": "down",
+          "dirFix": false,
+          "layer": "same",
+          "needsBoth": false,
+          "on": {
+            "interact": [
+              {
+                "bg": "window",
+                "face": null,
+                "position": "bottom",
+                "t": "say",
+                "text": "An empty box. It has done its work.",
+                "who": ""
+              }
+            ]
+          },
+          "once": false,
+          "props": {
+            "look": "crate"
+          },
+          "sprite": null,
+          "stepAnim": false,
+          "through": false,
+          "visible": true,
+          "when": {
+            "kind": "var",
+            "name": "boxEmptied",
+            "op": "==",
+            "value": true,
+            "var": null
+          }
+        }
+      ],
+      "type": "sign",
+      "x": 2,
+      "y": 6
+    },
+    {
+      "id": "garden-door",
+      "name": "Garden door",
+      "note": "",
+      "pages": [
+        {
+          "behaviour": {
+            "frequency": 2,
+            "kind": "none",
+            "radius": 3,
+            "repeat": true,
+            "route": [],
+            "speed": 1
+          },
+          "dir": "down",
+          "dirFix": false,
+          "layer": "below",
+          "needsBoth": false,
+          "on": {},
+          "once": false,
+          "props": {
+            "dir": "down",
+            "fade": true,
+            "look": null,
+            "sound": null,
+            "to": {
+              "dir": "up",
+              "map": "garden",
+              "x": 7,
+              "y": 8
+            }
+          },
+          "sprite": null,
+          "stepAnim": false,
+          "through": true,
+          "visible": false,
+          "when": null
+        }
+      ],
+      "type": "warp",
+      "x": 11,
+      "y": 9
     }
   ],
   "props": {},

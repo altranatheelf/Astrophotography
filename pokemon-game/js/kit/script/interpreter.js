@@ -73,6 +73,19 @@
           if (r.kind === 'exit') return r;
           pc++; continue;
         }
+        if (signal.kind === 'tracks') {
+          // Several things happening at once: each track runs on its own, the
+          // command waits for them (or not) per `wait`. A track that exits ends
+          // only itself; a track cannot break or jump out of its own list.
+          const runs = (signal.tracks || []).map((track, i) =>
+            execList(track.body || [], ctx, p.concat('tracks', i), false)
+              .catch(err => { if (err instanceof Cancelled) throw err; (KIT.log || console).error('[meanwhile]', err); return { kind: 'done' }; }));
+          if (signal.wait === false) { ctx.thread.detached = (ctx.thread.detached || []).concat(runs); pc++; continue; }
+          const results = await (signal.race ? Promise.race(runs) : Promise.all(runs));
+          const list = Array.isArray(results) ? results : [results];
+          if (list.some(r => r && r.kind === 'exit')) return { kind: 'exit' };
+          pc++; continue;
+        }
         if (signal.kind === 'break' || signal.kind === 'exit') return signal;
         if (signal.kind === 'jump') { if (labels[signal.label] != null) { pc = labels[signal.label]; continue; } return signal; }
         if (signal.kind === 'call') { await I.callScript(ctx, signal.script, signal.args, p); pc++; continue; }

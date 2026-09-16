@@ -8,6 +8,7 @@
   (content.projects = content.projects || {})["demo"] = data;
 })(typeof window !== 'undefined' ? window : globalThis,
 {
+  "assets": {},
   "autotiles": {
     "default": {
       "groups": [],
@@ -30,6 +31,22 @@
       "kind": "dialogue",
       "tags": ["weather"],
       "title": "Rain line"
+    },
+    {
+      "body": "A room you arrange yourself. Errands they run while you are out. Someone leaving a berry by the door because they thought of you.",
+      "folder": "Ideas",
+      "id": "idea-home",
+      "kind": "note",
+      "tags": ["home", "jobs"],
+      "title": "After catching"
+    },
+    {
+      "body": "Nobody faints. You throw a ball, they wobble, and either they come with you or they do not — and if they do not, you can always say hello again tomorrow.",
+      "folder": "Ideas",
+      "id": "idea-mons",
+      "kind": "note",
+      "tags": ["mons", "catching"],
+      "title": "Befriending, not fighting"
     }
   ],
   "heroes": [
@@ -48,20 +65,47 @@
   ],
   "items": {
     "berry": {
-      "desc": "Sweet. Calms a nervous Pokémon.",
+      "desc": "Sweet. Calms a nervous Pokémon — and cheers up the one walking with you.",
       "icon": "berry",
       "kind": "berry",
       "name": "Berry",
       "note": "",
-      "props": {}
+      "props": {
+        "calm": 1,
+        "friendship": 10,
+        "golden": false
+      }
+    },
+    "cushion": {
+      "desc": "For sitting on the floor.",
+      "icon": null,
+      "kind": "furniture",
+      "name": "Cushion",
+      "note": "",
+      "props": {
+        "layer": "deco",
+        "solid": false,
+        "variants": [
+          {
+            "dir": "down",
+            "label": "Plump",
+            "tile": "cushion",
+            "tile2": null
+          }
+        ]
+      }
     },
     "golden-berry": {
-      "desc": "Rare and very sweet.",
+      "desc": "Rare and very sweet. The next ball you throw will surely work.",
       "icon": "golden-berry",
       "kind": "berry",
       "name": "Golden Berry",
       "note": "",
-      "props": {}
+      "props": {
+        "calm": 1,
+        "friendship": 20,
+        "golden": true
+      }
     },
     "pokeball": {
       "desc": "For making friends.",
@@ -69,7 +113,84 @@
       "kind": "ball",
       "name": "Poké Ball",
       "note": "",
-      "props": {}
+      "props": {
+        "power": 1
+      }
+    },
+    "pot-plant": {
+      "desc": "It likes the window.",
+      "icon": null,
+      "kind": "furniture",
+      "name": "Pot Plant",
+      "note": "",
+      "props": {
+        "layer": "deco",
+        "solid": true,
+        "variants": [
+          {
+            "dir": "down",
+            "label": "In its pot",
+            "tile": "plant",
+            "tile2": null
+          }
+        ]
+      }
+    },
+    "rug": {
+      "desc": "Warm underfoot.",
+      "icon": null,
+      "kind": "furniture",
+      "name": "Rug",
+      "note": "",
+      "props": {
+        "layer": "ground",
+        "solid": false,
+        "variants": [
+          {
+            "dir": "down",
+            "label": "Woven",
+            "tile": "rug",
+            "tile2": null
+          },
+          {
+            "dir": "down",
+            "label": "Red",
+            "tile": "carpet-red",
+            "tile2": null
+          },
+          {
+            "dir": "down",
+            "label": "Blue",
+            "tile": "carpet-blue",
+            "tile2": null
+          }
+        ]
+      }
+    },
+    "table-set": {
+      "desc": "Somewhere to put a cup.",
+      "icon": null,
+      "kind": "furniture",
+      "name": "Table And Chair",
+      "note": "",
+      "props": {
+        "layer": "deco",
+        "solid": true,
+        "variants": [
+          {
+            "dir": "right",
+            "label": "Chair on the right",
+            "tile": "table",
+            "tile2": "chair"
+          },
+          {
+            "dir": "down",
+            "label": "Chair below",
+            "tile": "table",
+            "tile2": "chair"
+          }
+        ]
+      }
     }
   },
   "meta": {
@@ -79,8 +200,143 @@
     "subtitle": "for you ♥",
     "title": "Our Adventure"
   },
-  "modules": [],
-  "packs": {},
+  "modules": ["home", "mons"],
+  "packs": {
+    "home": {
+      "giftItems": ["berry", "golden-berry"],
+      "giftSpot": {
+        "map": "home",
+        "x": 5,
+        "y": 8
+      },
+      "tuning": {
+        "awayCapMinutes": 4320,
+        "awayMinutesPerRealMinute": 1,
+        "driveClock": true,
+        "feedFriendship": 10,
+        "giftChance": 0.2,
+        "giftFriendship": 1,
+        "jobFriendship": 8,
+        "maxGifts": 2,
+        "minutesPerSecond": 6,
+        "moodDriftMinutes": 90,
+        "petFriendship": 6,
+        "suitedSpeed": 0.75
+      },
+      "workers": "auto"
+    },
+    "mons": {
+      "awayBonus": 4,
+      "awayHours": 20,
+      "ball": "pokeball",
+      "berries": ["berry", "golden-berry"],
+      "berry": "berry",
+      "berryBonus": 10,
+      "defaultProfile": "friendly",
+      "difficulty": "gentle",
+      "favouriteBerryBonus": 5,
+      "followStepBonus": 1,
+      "followers": true,
+      "goldenBerry": "golden-berry",
+      "petBonus": 3,
+      "profiles": [
+        {
+          "actions": [
+            {
+              "effects": {},
+              "id": "throw",
+              "item": "pokeball",
+              "kind": "throw",
+              "label": "mons-act-throw",
+              "power": 1
+            },
+            {
+              "effects": {
+                "band": 0.05,
+                "calm": 1,
+                "chance": 0.12
+              },
+              "id": "berry",
+              "item": "berry",
+              "kind": "offer",
+              "label": "mons-act-berry"
+            },
+            {
+              "effects": {
+                "calm": 1,
+                "guarantee": true
+              },
+              "id": "golden",
+              "item": "golden-berry",
+              "kind": "offer",
+              "label": "mons-act-golden"
+            },
+            {
+              "effects": {
+                "curious": 0.34
+              },
+              "id": "talk",
+              "kind": "talk",
+              "label": "mons-act-talk"
+            },
+            {
+              "effects": {},
+              "id": "leave",
+              "kind": "leave",
+              "label": "mons-act-leave"
+            }
+          ],
+          "art": {
+            "ring": {
+              "calmWidth": 0.06,
+              "center": 0.34,
+              "speed": 0.55,
+              "width": 0.18
+            },
+            "scale": 4,
+            "throwMs": 520,
+            "wobbleMs": 460
+          },
+          "id": "friendly",
+          "label": "Making friends",
+          "rules": {
+            "calmBonus": 0.12,
+            "curiousBonus": 0.08,
+            "fleeAfter": 3,
+            "fleeChance": 0.35,
+            "maxCalm": 3
+          },
+          "strings": {
+            "appeared": "mons-appeared",
+            "appearedNew": "mons-appeared-new",
+            "broke": "mons-broke",
+            "calmed": "mons-calmed",
+            "curious": "mons-curious",
+            "fled": "mons-fled",
+            "golden": "mons-golden",
+            "gotcha": "mons-gotcha",
+            "great": "mons-great",
+            "miss": "mons-miss",
+            "nickname": "mons-nickname",
+            "noBalls": "mons-no-balls",
+            "noItem": "mons-no-item",
+            "ok": "mons-ok",
+            "perfect": "mons-perfect",
+            "ranAway": "mons-ran",
+            "talk": "mons-talk",
+            "wobble": "mons-wobble"
+          }
+        }
+      ],
+      "shinyChance": 0.02,
+      "starters": {
+        "ask": true,
+        "friendship": 70,
+        "var": "starter"
+      },
+      "stepsPerFriendship": 128
+    }
+  },
   "scripts": {
     "clear-stands": {
       "body": [
@@ -203,7 +459,137 @@
     "continue": "Continue",
     "empty-bag": "Your bag is empty.",
     "got-item": "Got {count} {item}!",
+    "home.against-wall": "Not into the wall.",
+    "home.away-summary": "While you were away: {minutes} minutes passed at home.",
+    "home.board-empty": "The board is bare today.",
+    "home.board-hint": "Pick a job, then pick who goes.",
+    "home.board-title": "Job board",
+    "home.collect-all": "Welcome everyone home",
+    "home.gift-note": "“Left at the door, with no note but a very pleased {who}.” {pause} It is a {item}.",
+    "home.gift-toast": "{who} left something at the door.",
+    "home.in-the-way": "Something is already there.",
+    "home.job-back-close": "{who} is home before you even called. {pause} “I kept thinking about you the whole way. {count} {item} — all yours.”",
+    "home.job-back-empty": "{who} is home from {title}, tired and pleased with themselves.",
+    "home.job-back-new": "{who} is back. {pause} “Here. I found {count} {item}.”",
+    "home.job-back-warm": "{who} comes running back. {pause} “{title} went well! Look — {count} {item} for you.”",
+    "home.jobs-garden": "At home",
+    "home.jobs-left": "{time} left",
+    "home.jobs-none": "Nobody is out on a job. Find a job board.",
+    "home.jobs-out": "Out",
+    "home.jobs-ready": "Home and waiting",
+    "home.jobs-title": "Jobs",
+    "home.jobs-waiting": "waiting for you",
+    "home.menu-decorate": "Decorate",
+    "home.menu-jobs": "Jobs",
+    "home.mood-calm": "{who} is dozing in the sun.",
+    "home.mood-happy": "{who} is bouncing about.",
+    "home.mood-lonely": "{who} looks up every time the door goes.",
+    "home.mood-restless": "{who} keeps pacing the fence.",
+    "home.mood-sleepy": "{who} is half asleep.",
+    "home.no-room": "It will not fit there.",
+    "home.picked-up": "Picked the {item} back up.",
+    "home.place-done": "Done",
+    "home.place-empty": "Nothing in the bag to put down yet.",
+    "home.place-hint": "Move it with the pad · Z puts it down · X stops",
+    "home.place-put": "Put down",
+    "home.place-rotate": "Turn",
+    "home.place-take": "Pick up",
+    "home.place-title": "Where shall it go?",
+    "home.placed": "Put the {item} down.",
+    "home.ready-toast": "{count} back from a job.",
+    "home.sent": "{who} sets off. Back in about {time}.",
+    "home.who-busy": "{who} is already out.",
+    "home.who-empty": "Nobody is free to go just now.",
+    "home.who-title": "Who should go?",
+    "home.who-wrong": "This one is meant for someone else.",
     "lost-item": "Lost {count} {item}.",
+    "mons-act-berry": "Berry",
+    "mons-act-golden": "Golden Berry",
+    "mons-act-leave": "Run",
+    "mons-act-talk": "Talk",
+    "mons-act-throw": "Throw Ball",
+    "mons-appeared": "A wild {name} appeared!",
+    "mons-appeared-new": "A wild {name} appeared! You have never met one before.",
+    "mons-back": "Back",
+    "mons-ball-idle": "Save it for somebody you meet.",
+    "mons-balls-left": "Balls: {count}",
+    "mons-berry-favourite": "It is {name}’s favourite! (+{n})",
+    "mons-berry-given": "{name} eats the berry happily. (+{n})",
+    "mons-berry-nobody": "Nobody is walking with you yet.",
+    "mons-broke": "It broke free!",
+    "mons-calmed": "{name} nibbles the berry and settles down.",
+    "mons-close": "Close",
+    "mons-curious": "{name} tilts its head and comes a little closer.",
+    "mons-details": "Details",
+    "mons-dex-count": "Seen {seen} · Befriended {caught} of {total}",
+    "mons-dex-title": "Pokédex",
+    "mons-dex-unseen": "Not met yet.",
+    "mons-fled": "{name} slipped away into the grass.",
+    "mons-follow": "Walk with me",
+    "mons-follower-line": "{name} is {mood}.",
+    "mons-following": "Walking with you",
+    "mons-friendship-up": "{name} looks a little happier.",
+    "mons-give-berry": "Give a berry",
+    "mons-golden": "{name} is delighted. The next ball will surely work.",
+    "mons-gotcha": "Gotcha! {name} wants to come with you.",
+    "mons-great": "Great!",
+    "mons-in-garden": "In the garden",
+    "mons-in-party": "With you",
+    "mons-joined": "{name} joined you!",
+    "mons-joined-garden": "{name} went to wait in the garden.",
+    "mons-leave-here": "Leave here",
+    "mons-menu-dex": "Pokédex",
+    "mons-menu-party": "Pokémon",
+    "mons-met-at": "Met at {where}, {when}.",
+    "mons-met-unknown": "You do not remember where.",
+    "mons-miss": "Just off…",
+    "mons-mood-calm": "calm",
+    "mons-mood-curious": "curious",
+    "mons-mood-happy": "happy",
+    "mons-mood-hungry": "hungry",
+    "mons-mood-playful": "playful",
+    "mons-mood-proud": "proud",
+    "mons-mood-shy": "shy",
+    "mons-mood-sleepy": "sleepy",
+    "mons-move-down": "Move down",
+    "mons-move-up": "Move up",
+    "mons-new-mark": "new!",
+    "mons-nickname": "Give {name} a nickname?",
+    "mons-no-balls": "No Poké Balls left — next time, bring a few.",
+    "mons-no-berries": "You have no berries left.",
+    "mons-no-item": "You do not have any of those.",
+    "mons-ok": "Okay.",
+    "mons-panel-encounters": "Encounters",
+    "mons-panel-hint": "Who lives in the tall grass on this map, and how often you meet them.",
+    "mons-party-empty": "You have not befriended anyone yet.",
+    "mons-party-full": "Six is all you can carry.",
+    "mons-party-hint": "Arrows · Z opens · X closes",
+    "mons-party-title": "Your Pokémon",
+    "mons-perfect": "Perfect!",
+    "mons-pet": "Pet",
+    "mons-pet-again": "{name} has had plenty of fuss for now.",
+    "mons-pet-done": "{name} leans into your hand.",
+    "mons-ran": "You backed away quietly.",
+    "mons-rarity-common": "Common",
+    "mons-rarity-legendary": "Legendary",
+    "mons-rarity-rare": "Rare",
+    "mons-rarity-special": "Special",
+    "mons-rarity-uncommon": "Uncommon",
+    "mons-send-garden": "Send to the garden",
+    "mons-sent-garden": "{name} is off to the garden.",
+    "mons-shiny": "shiny",
+    "mons-take-along": "Take along",
+    "mons-taken-along": "{name} comes along!",
+    "mons-talk": "You talk softly to {name}.",
+    "mons-tap-ring": "Tap when the ring is in the green.",
+    "mons-tier-bonded": "Inseparable",
+    "mons-tier-close": "Close",
+    "mons-tier-dear": "Dear friend",
+    "mons-tier-devoted": "Devoted",
+    "mons-tier-new": "Newly met",
+    "mons-tier-warm": "Warming up",
+    "mons-welcome-back": "Everyone missed you while you were away.",
+    "mons-wobble": "…",
     "name-prompt": "What is your name?",
     "new-game": "New Game",
     "no": "No",
@@ -252,9 +638,64 @@
       },
       "x": 12,
       "y": 8
+    },
+    {
+      "dir": "down",
+      "id": "home-life",
+      "inventory": {
+        "berry": 3,
+        "cushion": 2,
+        "pot-plant": 2,
+        "rug": 1,
+        "table-set": 1
+      },
+      "label": "Home: furniture in the bag, a friend to send",
+      "map": "home",
+      "modules": {},
+      "vars": {
+        "chapter": 1,
+        "friendship": 3,
+        "hasStarter": true,
+        "introDone": true,
+        "starter": "pikachu"
+      },
+      "x": 5,
+      "y": 6
+    },
+    {
+      "dir": "down",
+      "id": "mons-grass",
+      "inventory": {
+        "berry": 5,
+        "golden-berry": 1,
+        "pokeball": 9
+      },
+      "label": "Pokémon: in the tall grass with a full bag",
+      "map": "route",
+      "modules": {},
+      "vars": {
+        "chapter": 1,
+        "hasStarter": true,
+        "introDone": true,
+        "starter": "pikachu"
+      },
+      "x": 4,
+      "y": 6
     }
   ],
   "vars": {
+    "boxEmptied": {
+      "default": false,
+      "group": "Home",
+      "label": "Moving box emptied",
+      "type": "bool"
+    },
+    "catFound": {
+      "default": false,
+      "group": "Home",
+      "label": "The cat came home",
+      "type": "bool"
+    },
     "chapter": {
       "default": 0,
       "group": "Story",
@@ -285,6 +726,12 @@
       "label": "Intro played",
       "type": "bool"
     },
+    "postRun": {
+      "default": false,
+      "group": "Home",
+      "label": "The post was run",
+      "type": "bool"
+    },
     "starter": {
       "default": "",
       "group": "Story",
@@ -303,6 +750,11 @@
       }
     ],
     "maps": {
+      "garden": {
+        "folder": "Chapter 1",
+        "x": 0,
+        "y": 1
+      },
       "home": {
         "folder": "Chapter 1",
         "x": 0,

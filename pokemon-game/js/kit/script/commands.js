@@ -500,6 +500,34 @@
     text: positional('wait', ['ms']),
   });
   defs.push({
+    id: 'meanwhile', label: 'At the Same Time', group: 'Flow', icon: 'tracks', blocking: true, control: true, editor: { favourite: true },
+    doc: 'Runs several things at once — someone walks while someone else talks while the music fades.',
+    fields: [
+      { key: 'tracks', type: 'list', array: { min: 1 }, default: [], label: 'Tracks',
+        of: { type: 'group', fields: [{ key: 'label', type: 'string', default: '' }, { key: 'body', type: 'script' }] } },
+      { key: 'wait', type: 'bool', default: true, label: 'Wait for them to finish', doc: 'Off: the scene carries on while they run.' },
+      { key: 'race', type: 'bool', default: false, label: 'Carry on after the first one', when: { field: 'wait', eq: true } },
+    ],
+    async run(ctx, cmd) { return { kind: 'tracks', tracks: cmd.tracks || [], wait: cmd.wait !== false, race: !!cmd.race }; },
+    summary(cmd) { const n = (cmd.tracks || []).length; return `At the same time (${n} track${n === 1 ? '' : 's'})${cmd.wait === false ? ', carry on' : ''}`; },
+    text: {
+      endLine: '@end', listField: 'tracks', itemPrefix: '---', itemLabel: 'label', itemBody: 'body',
+      toLine(cmd) {
+        const bits = [];
+        if (cmd.wait === false) bits.push('wait=false');
+        if (cmd.race) bits.push('race=true');
+        return `@meanwhile${bits.length ? ' ' + bits.join(' ') : ''}`;
+      },
+      fromLine(line) {
+        const m = /^@meanwhile(?:\s+(.*))?$/.exec(line.trim());
+        if (!m) return null;
+        const cmd = { t: 'meanwhile', tracks: [] };
+        for (const tk of V.tokenize(m[1] || '')) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
+        return cmd;
+      },
+    },
+  });
+  defs.push({
     id: 'group', label: 'Group', group: 'Flow', icon: 'folder', blocking: false, control: true,
     fields: [{ key: 'label', type: 'string', default: '' }, { key: 'body', type: 'script' }],
     async run(ctx, cmd) { return { kind: 'block', body: cmd.body || [] }; },
@@ -638,6 +666,82 @@
   defs.push(screen('flash', 'Flash Screen', [{ key: 'color', type: 'color', default: '#ffffff' }, { key: 'ms', type: 'number', min: 0, default: 200 }], (c) => ({ color: c.color || '#ffffff', ms: c.ms == null ? 200 : c.ms }), (c) => `Flash ${c.color}`));
   defs.push(screen('shake', 'Shake Screen', [{ key: 'power', type: 'number', min: 1, max: 9, default: 3 }, { key: 'ms', type: 'number', min: 0, default: 400 }], (c) => ({ power: c.power || 3, ms: c.ms == null ? 400 : c.ms }), (c) => `Shake (${c.power})`, positional('shake', [])));
   defs.push(screen('weather', 'Set Weather Effect', [{ key: 'kind', type: 'enum', options: ['none', 'rain', 'snow', 'fog'], default: 'none' }, { key: 'power', type: 'number', min: 1, max: 9, default: 5 }, { key: 'ms', type: 'number', min: 0, default: 400 }], (c) => ({ kind: c.kind || 'none', power: c.power || 5, ms: c.ms == null ? 400 : c.ms }), (c) => `Weather: ${c.kind}`));
+
+  // Atmosphere and camera — the look of a place, and how it is framed.
+  defs.push({
+    id: 'atmosphere', label: 'Atmosphere', group: 'Screen', icon: 'weather', blocking: true, editor: { favourite: true },
+    doc: 'Darkness, fog, a colour wash, grain, vignette, letterbox — faded over time.',
+    fields: [
+      { key: 'darkness', type: 'number', min: 0, max: 1, default: 0, doc: 'How dark it is away from the lights.' },
+      { key: 'ambient', type: 'color', default: '#05070d', doc: 'What colour that darkness is.' },
+      { key: 'tintColor', type: 'color', default: '#ffffff', label: 'Wash colour' },
+      { key: 'tintAmount', type: 'number', min: 0, max: 1, default: 0, label: 'Wash' },
+      { key: 'fogColor', type: 'color', default: '#b8c6d8', label: 'Fog colour' },
+      { key: 'fogAmount', type: 'number', min: 0, max: 1, default: 0, label: 'Fog' },
+      { key: 'grain', type: 'number', min: 0, max: 1, default: 0 },
+      { key: 'vignette', type: 'number', min: 0, max: 1, default: 0 },
+      { key: 'letterbox', type: 'number', min: 0, max: 0.3, default: 0, doc: 'Black bars, as a share of the screen.' },
+      { key: 'lightScale', type: 'number', min: 0, max: 4, default: 1, label: 'Light reach' },
+      { key: 'ms', type: 'number', min: 0, default: 800, label: 'Fade over' },
+      { key: 'wait', type: 'bool', default: false, label: 'Wait for the fade' },
+    ],
+    async run(ctx, cmd) {
+      const A = KIT.atmosphere;
+      if (!A) return;
+      A.set({
+        darkness: cmd.darkness, ambient: cmd.ambient, grain: cmd.grain, vignette: cmd.vignette,
+        letterbox: cmd.letterbox, lightScale: cmd.lightScale,
+        tint: cmd.tintAmount > 0 ? { color: cmd.tintColor, amount: cmd.tintAmount } : null,
+        fog: cmd.fogAmount > 0 ? { color: cmd.fogColor, amount: cmd.fogAmount, speed: 0.02, scale: 6 } : null,
+      }, { ms: cmd.ms == null ? 800 : cmd.ms });
+      if (cmd.wait && ctx.io && ctx.io.wait) await ctx.io.wait(cmd.ms == null ? 800 : cmd.ms);
+    },
+    summary(cmd) {
+      const bits = [];
+      if (cmd.darkness) bits.push(`dark ${Math.round(cmd.darkness * 100)}%`);
+      if (cmd.fogAmount) bits.push('fog');
+      if (cmd.tintAmount) bits.push('wash');
+      if (cmd.grain) bits.push('grain');
+      if (cmd.vignette) bits.push('vignette');
+      if (cmd.letterbox) bits.push('letterbox');
+      return `Atmosphere: ${bits.join(', ') || 'clear'}`;
+    },
+  });
+  defs.push({
+    id: 'camera', label: 'Camera', group: 'Movement', icon: 'camera', blocking: true, editor: { favourite: true },
+    doc: 'Frame the scene: follow someone else, pull back, hold on a place, then let go.',
+    fields: [
+      { key: 'mode', type: 'enum', options: ['follow', 'point', 'release'], default: 'follow',
+        doc: 'follow: keep someone in frame. point: hold on a place. release: back to the hero.' },
+      targetField('hero'), 
+      { key: 'x', type: 'number', integer: true, min: 0, default: 0, when: { field: 'mode', eq: 'point' } },
+      { key: 'y', type: 'number', integer: true, min: 0, default: 0, when: { field: 'mode', eq: 'point' } },
+      { key: 'zoom', type: 'number', min: 0.25, max: 4, default: 1, doc: '1 is normal. Under 1 pulls back; over 1 pushes in.' },
+      { key: 'ms', type: 'number', min: 0, default: 600, label: 'Move over' },
+      { key: 'wait', type: 'bool', default: true, label: 'Wait for the move' },
+    ],
+    async run(ctx, cmd) {
+      await port(ctx, 'map', 'camera')({ mode: cmd.mode || 'follow', target: cmd.target || 'hero', x: cmd.x || 0, y: cmd.y || 0, zoom: cmd.zoom == null ? 1 : cmd.zoom, ms: cmd.ms == null ? 600 : cmd.ms, wait: cmd.wait !== false });
+    },
+    summary(cmd) {
+      if (cmd.mode === 'release') return 'Camera: back to the hero';
+      const where = cmd.mode === 'point' ? `(${cmd.x}, ${cmd.y})` : C.targetLabel(cmd.target);
+      return `Camera: ${where}${cmd.zoom && cmd.zoom !== 1 ? ` at ${cmd.zoom}×` : ''}`;
+    },
+  });
+  defs.push({
+    id: 'light', label: 'Light', group: 'Character', icon: 'sparkle', blocking: false,
+    doc: 'Give something a light, or take it away. Works on the hero (a lantern) or any event.',
+    fields: [
+      targetField('self'),
+      { key: 'radius', type: 'number', min: 0, max: 30, default: 4, doc: 'In tiles. 0 puts it out.' },
+      { key: 'color', type: 'color', default: '#ffd9a0' },
+      { key: 'flicker', type: 'number', min: 0, max: 1, default: 0 },
+      { key: 'softness', type: 'number', min: 0, max: 0.95, default: 0.45 },
+    ],
+    async run(ctx, cmd) { await port(ctx, 'map', 'light')({ target: cmd.target || 'self', radius: cmd.radius, color: cmd.color, flicker: cmd.flicker, softness: cmd.softness }); },
+    summary(cmd) { return cmd.radius > 0 ? `Light on ${C.targetLabel(cmd.target)} (${cmd.radius} tiles)` : `Put out ${C.targetLabel(cmd.target)}'s light`; },
+  });
 
   // Pictures
   defs.push({

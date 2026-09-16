@@ -11,6 +11,21 @@ const KIT = require(path.join(root, 'test/kit/_load.js'));
 global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) require(path.join(root, f));
 require(path.join(root, 'js/kit/world/map.js'));
+// The home module: its item kind, object type, commands and conditions have to
+// be registered before normalize() sees the demo, or its content cannot be
+// filled in or validated. (js/modules/home)
+require(path.join(root, 'js/modules/home/rules.js'));
+require(path.join(root, 'js/modules/home/register.js'));
+KIT.home.registerAll(KIT);
+// The mons module, for the same reason: its species registry backs ref:mon, and
+// its validator checks the encounter tables the route now carries.
+for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) require(path.join(root, f));
+for (const f of ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'panel']) require(path.join(root, 'js/modules/mons/' + f + '.js'));
+KIT.mons.registerSpecies(global.PKMN.POKEMON);
+KIT.mons.registerStrings();
+KIT.mons.registerScript();
+KIT.mons.registerItems();
+KIT.mons.registerEditor();
 
 const S = (lines) => { const r = KIT.screenplay.parse(lines.join('\n')); if (r.problems.length) throw new Error('screenplay: ' + JSON.stringify(r.problems)); return r.commands; };
 
@@ -88,6 +103,12 @@ const town = blankMap('town', 'Peachfall', 24, 18, 'outdoor', 'town');
   for (let x = 2; x <= 9; x++) p.set('deco', x, 11, 'fence-h');
   p.set('deco', 8, 9, 'sign'); p.set('deco', 14, 7, 'lamp-post'); p.set('deco', 5, 9, 'mailbox');
   p.set('deco', 16, 10, 'bench'); p.set('deco', 4, 12, 'flowers-red'); p.set('deco', 15, 13, 'flowers-yellow');
+  p.set('deco', 7, 12, 'flowers-yellow'); p.set('deco', 3, 15, 'flowers-red'); p.set('deco', 8, 16, 'flowers-yellow');
+  // The garden: the fenced plot under the fence line. Everyone you have
+  // befriended roams here. A whole map of kind 'garden' works the same way;
+  // this is the smaller version, a corner of a map you already walk through.
+  p.region(2, 12, 9, 16, 3);
+  town.props.garden = { region: 3 };
   town.objects = [
     obj('home-door', 'Home', 'warp', 12, 3, [page({ layer: 'below', through: true, visible: false, props: { to: { map: 'home', x: 5, y: 8, dir: 'up' } } })]),
     obj('lab-door', 'Lab', 'warp', 18, 6, [page({ layer: 'below', through: true, visible: false, props: { to: { map: 'lab', x: 7, y: 8, dir: 'up' } } })]),
@@ -103,6 +124,10 @@ const town = blankMap('town', 'Peachfall', 24, 18, 'outdoor', 'town');
     ]) } })]),
     obj('kid', 'Kid', 'npc', 5, 13, [page({ sprite: 'kid-boy', behaviour: { kind: 'wander', radius: 3, frequency: 4 }, on: { interact: S(['Kid: My Pokémon walks behind me! {pause} Yours can too.']) } })]),
     obj('chapter-card', 'Chapter card', 'trigger', 12, 4, [page({ layer: 'below', through: true, visible: false, once: true, on: { step: S(['@chapter title="Chapter One" subtitle="A New Morning"']) } })]),
+    obj('garden-sign', 'Garden sign', 'sign', 10, 11, [page({ on: { interact: S([
+      '"THE GARDEN — everyone you have befriended lives here."',
+      '"Walk up to one of them to say hello."',
+    ]) } })]),
   ];
 }
 
@@ -158,6 +183,30 @@ const route = blankMap('route', 'Route 1', 20, 24, 'outdoor', 'route');
   p.stamp('pond', 13, 3); p.stamp('big-tree', 3, 19); p.stamp('big-tree', 16, 8);
   p.hline('ground', 6, 12, 11, 'ledge-down');
   p.set('deco', 11, 20, 'rock'); p.set('deco', 5, 15, 'stump'); p.set('deco', 14, 21, 'log');
+  // Who lives in the tall grass. Region 1 is the near patch (gentle, common
+  // faces); region 2 is the far patch past the ledge, where the rarer ones are.
+  // `rate` is out of 100 per step: 12 is about one meeting every eight steps.
+  // The Encounters panel in Creator Mode edits exactly this.
+  route.props.encounters = {
+    rate: 14,
+    byRegion: {
+      1: [
+        { id: 'pikachu', weight: 6 },
+        { id: 'butterfree', weight: 8 },
+        { id: 'clefable', weight: 4 },
+        { id: 'wigglytuff', weight: 3 },
+        { id: 'jolteon', weight: 1 },
+      ],
+      2: [
+        { id: 'scyther', weight: 5 },
+        { id: 'vaporeon', weight: 3 },
+        { id: 'electabuzz', weight: 3 },
+        { id: 'gengar', weight: 2 },
+        { id: 'snorlax', weight: 1 },
+        { id: 'mew', weight: 1 },
+      ],
+    },
+  };
   route.objects = [
     obj('back-to-town', 'To town', 'warp', 9, 0, [page({ layer: 'below', through: true, visible: false, props: { to: { map: 'town', x: 12, y: 16, dir: 'up' } } })]),
     obj('trainer', 'Hiker', 'npc', 11, 9, [page({ sprite: 'trainer', dir: 'left', once: true, on: { interact: S([
@@ -231,6 +280,193 @@ const raw = {
   maps: { home, town, lab, route },
   packs: {},
 };
+
+// ---- HOME: what there is to do after catching (js/modules/home) ----------------
+// Additive on purpose — it folds into `raw` rather than editing the blocks above,
+// so the demo and this module can grow without treading on each other.
+{
+  if (!raw.modules.includes('home')) raw.modules.push('home');
+
+  // Four things you can carry home and put down. `variants` are the looks the
+  // placement screen turns through; `solid` is whether you can walk on it.
+  const furniture = (name, desc, variants, opts) => Object.assign({
+    kind: 'furniture', name, desc, icon: null,
+    props: Object.assign({ layer: 'deco', solid: true, variants }, opts || {}),
+  });
+  raw.items['pot-plant'] = furniture('Pot Plant', 'It likes the window.', [{ label: 'In its pot', tile: 'plant', tile2: null, dir: 'down' }]);
+  raw.items['cushion'] = furniture('Cushion', 'For sitting on the floor.', [{ label: 'Plump', tile: 'cushion', tile2: null, dir: 'down' }], { solid: false });
+  raw.items['rug'] = furniture('Rug', 'Warm underfoot.', [
+    { label: 'Woven', tile: 'rug', tile2: null, dir: 'down' },
+    { label: 'Red', tile: 'carpet-red', tile2: null, dir: 'down' },
+    { label: 'Blue', tile: 'carpet-blue', tile2: null, dir: 'down' },
+  ], { layer: 'ground', solid: false });
+  raw.items['table-set'] = furniture('Table And Chair', 'Somewhere to put a cup.', [
+    { label: 'Chair on the right', tile: 'table', tile2: 'chair', dir: 'right' },
+    { label: 'Chair below', tile: 'table', tile2: 'chair', dir: 'down' },
+  ]);
+
+  // A box of odds and ends by the bedroom door: the furniture starts here.
+  home.objects.push(obj('moving-box', 'Moving box', 'sign', 2, 6, [
+    page({ layer: 'same', props: { look: 'crate' }, once: true, on: { interact: S([
+      '"A box of odds and ends, left over from moving in."',
+      '@give item=pot-plant count=2 notify=true',
+      '@give item=rug count=1 notify=true',
+      '@give item=table-set count=1 notify=true',
+      '@give item=cushion count=2 notify=true',
+      '@set boxEmptied = true',
+      '"Somewhere in here is a home."',
+    ]) } }),
+    page({ when: { kind: 'var', name: 'boxEmptied', op: '==', value: true }, layer: 'same', props: { look: 'crate' },
+      on: { interact: S(['"An empty box. It has done its work."']) } }),
+  ]));
+  raw.vars.boxEmptied = { type: 'bool', default: false, label: 'Moving box emptied', group: 'Home' };
+  raw.vars.postRun = { type: 'bool', default: false, label: 'The post was run', group: 'Home' };
+  raw.vars.catFound = { type: 'bool', default: false, label: 'The cat came home', group: 'Home' };
+
+  // The job board in town, beside the lamp post. Its page carries the one
+  // command that opens it, which is what the object type puts there by default.
+  town.objects.push(obj('job-board', 'Job board', 'job-board', 14, 9, [
+    page({ layer: 'same', props: {
+      look: 'sign', title: 'Odd jobs',
+      jobs: [
+        { id: 'berries', title: 'Gather berries', desc: 'The hedge by the pond is heavy with them.', minutes: 45, reward: 'berry', count: 2, suits: 'grass', repeatable: true },
+        { id: 'post', title: 'Run the post', desc: 'Grandma has a letter for the lab.', minutes: 30, reward: 'pokeball', count: 1, flag: 'postRun', suits: 'electric', repeatable: true },
+        { id: 'lost-cat', title: 'Find the lost cat', desc: 'Somebody small is hiding under the bench.', minutes: 90, reward: 'golden-berry', count: 1, flag: 'catFound', repeatable: false },
+      ],
+    }, on: { interact: [{ t: 'openJobBoard', board: '' }] } }),
+  ]));
+
+  // The garden behind the house: where everyone is while you are out, and where
+  // they come back to. Guarded, so the mons module can bring its own.
+  if (!raw.maps.garden) {
+    const garden = blankMap('garden', 'The Garden', 14, 10, 'garden', 'town');
+    const g = P(garden);
+    g.rect('ground', 0, 0, 13, 9, 'grass');
+    for (const [x, y] of [[2, 3], [9, 2], [5, 7]]) g.set('ground', x, y, 'grass-2');
+    g.hline('deco', 0, 13, 0, 'fence-h');
+    g.vline('deco', 0, 1, 8, 'fence-v'); g.vline('deco', 13, 1, 8, 'fence-v');
+    g.hline('deco', 0, 6, 9, 'fence-h'); g.hline('deco', 8, 13, 9, 'fence-h');
+    g.stamp('big-tree', 10, 1);
+    g.set('deco', 4, 5, 'bench'); g.set('deco', 2, 7, 'flowers-red'); g.set('deco', 11, 6, 'flowers-yellow');
+    g.set('ground', 7, 9, 'exit-mat');
+    garden.objects = [
+      obj('garden-home', 'Back door', 'warp', 7, 9, [page({ layer: 'below', through: true, visible: false, props: { to: { map: 'home', x: 11, y: 8, dir: 'up' } } })]),
+      obj('garden-gate', 'The gate', 'sign', 6, 1, [page({ props: { look: 'sign' }, on: { interact: S([
+        '"The gate at the end of the garden. This is where everyone comes back to."',
+        '@collectJob',
+      ]) } })]),
+      obj('garden-sign', 'Notice', 'sign', 9, 5, [page({ props: { look: 'mailbox' }, on: { interact: S([
+        '"Whoever is not out working is here, dozing or pacing or waiting for the door."',
+        '"The Jobs page in the menu says how everyone is."',
+      ]) } })]),
+    ];
+    raw.maps.garden = garden;
+    raw.world.maps.garden = { x: 0, y: 1, folder: 'Chapter 1' };
+    // the back door out of the house
+    P(home).set('ground', 11, 9, 'exit-mat');
+    home.objects.push(obj('garden-door', 'Garden door', 'warp', 11, 9, [
+      page({ layer: 'below', through: true, visible: false, props: { to: { map: 'garden', x: 7, y: 8, dir: 'up' } } }),
+    ]));
+  }
+
+  // Every number the module turns, in content where the author can change it.
+  raw.packs.home = {
+    tuning: {
+      driveClock: true, minutesPerSecond: 6,
+      awayMinutesPerRealMinute: 1, awayCapMinutes: 4320,
+      moodDriftMinutes: 90, suitedSpeed: 0.75,
+      jobFriendship: 8, petFriendship: 6, feedFriendship: 10,
+      giftFriendship: 1, giftChance: 0.2, maxGifts: 2,
+    },
+    giftItems: ['berry', 'golden-berry'],
+    giftSpot: { map: 'home', x: 5, y: 8 },     // just inside the front door
+    workers: 'auto',
+  };
+
+  raw.fragments.push({ id: 'idea-home', kind: 'note', title: 'After catching', body: 'A room you arrange yourself. Errands they run while you are out. Someone leaving a berry by the door because they thought of you.', tags: ['home', 'jobs'], folder: 'Ideas' });
+  raw.testStates.push({
+    id: 'home-life', label: 'Home: furniture in the bag, a friend to send', map: 'home', x: 5, y: 6, dir: 'down',
+    vars: { chapter: 1, introDone: true, starter: 'pikachu', hasStarter: true, friendship: 3 },
+    inventory: { 'pot-plant': 2, rug: 1, 'table-set': 1, cushion: 2, berry: 3 }, modules: {},
+  });
+}
+
+// ---- MONS: catching, the Pokédex, the garden and a follower (js/modules/mons) ----
+// Additive, like the block above: nothing here rewrites the maps, it only adds
+// the content the module reads. Note what is NOT here — no module commands in
+// any page script. `test/kit/demo.test.js` validates the demo with the kit
+// alone, so a page that said `@givePokemon` would be an `unknown-command` error
+// for everyone who has not loaded this module. The starter comes through
+// `packs.mons.starters` instead: the lab stands already set the `starter`
+// variable, and the module turns that into a real partner the moment it changes.
+{
+  if (!raw.modules.includes('mons')) raw.modules.push('mons');
+
+  // Poké Balls and berries become things the module understands, not just names.
+  raw.items.pokeball.props = { power: 1 };
+  raw.items.berry.props = { friendship: 10, calm: 1, golden: false };
+  raw.items['golden-berry'].props = { friendship: 20, calm: 1, golden: true };
+  raw.items.berry.desc = 'Sweet. Calms a nervous Pokémon — and cheers up the one walking with you.';
+  raw.items['golden-berry'].desc = 'Rare and very sweet. The next ball you throw will surely work.';
+
+  raw.packs.mons = {
+    ball: 'pokeball', berry: 'berry', goldenBerry: 'golden-berry', berries: ['berry', 'golden-berry'],
+    difficulty: 'gentle',            // this is a story about making friends, not a grind
+    followers: true,
+    shinyChance: 0.02,
+    stepsPerFriendship: 128,
+    petBonus: 3, berryBonus: 10, favouriteBerryBonus: 5,
+    awayHours: 20, awayBonus: 4, followStepBonus: 1,
+
+    // The lab stands set `starter`; this turns it into a Pokémon.
+    starters: { var: 'starter', friendship: 70, ask: true },
+
+    // The whole catch scene, in content. Change a label, a number or a string
+    // key here and the scene changes — no code involved.
+    defaultProfile: 'friendly',
+    profiles: [{
+      id: 'friendly',
+      label: 'Making friends',
+      actions: [
+        { id: 'throw', label: 'mons-act-throw', kind: 'throw', item: 'pokeball', power: 1, effects: {} },
+        { id: 'berry', label: 'mons-act-berry', kind: 'offer', item: 'berry', effects: { calm: 1, band: 0.05, chance: 0.12 } },
+        { id: 'golden', label: 'mons-act-golden', kind: 'offer', item: 'golden-berry', effects: { guarantee: true, calm: 1 } },
+        { id: 'talk', label: 'mons-act-talk', kind: 'talk', effects: { curious: 0.34 } },
+        { id: 'leave', label: 'mons-act-leave', kind: 'leave', effects: {} },
+      ],
+      strings: {
+        appeared: 'mons-appeared', appearedNew: 'mons-appeared-new', gotcha: 'mons-gotcha',
+        broke: 'mons-broke', fled: 'mons-fled', ranAway: 'mons-ran',
+        noBalls: 'mons-no-balls', noItem: 'mons-no-item', calmed: 'mons-calmed', golden: 'mons-golden',
+        talk: 'mons-talk', curious: 'mons-curious', nickname: 'mons-nickname',
+        perfect: 'mons-perfect', great: 'mons-great', ok: 'mons-ok', miss: 'mons-miss', wobble: 'mons-wobble',
+      },
+      art: { ring: { center: 0.34, width: 0.18, speed: 0.55, calmWidth: 0.06 }, wobbleMs: 460, throwMs: 520, scale: 4 },
+      rules: { fleeAfter: 3, fleeChance: 0.35, curiousBonus: 0.08, calmBonus: 0.12, maxCalm: 3 },
+    }],
+  };
+
+  // Mom's Poké Balls now matter: say what they are for.
+  const momPage = home.objects.find(o => o.id === 'mom').pages[0];
+  momPage.on.interact = S([
+    'Mom: Good morning, {p1}! {pause} You and {p2} slept late again.',
+    'Mom: Take these — you will want them out there.',
+    '@give item=pokeball count=5 notify=true',
+    '@give item=berry count=3 notify=true',
+    'Mom: One ball for each friend you make. {pause} The berries are for when they are shy.',
+    '@balloon target=self kind=♥',
+    '@set chapter = 1',
+  ]);
+
+  raw.fragments.push({ id: 'idea-mons', kind: 'note', title: 'Befriending, not fighting',
+    body: 'Nobody faints. You throw a ball, they wobble, and either they come with you or they do not — and if they do not, you can always say hello again tomorrow.',
+    tags: ['mons', 'catching'], folder: 'Ideas' });
+  raw.testStates.push({
+    id: 'mons-grass', label: 'Pokémon: in the tall grass with a full bag', map: 'route', x: 4, y: 6, dir: 'down',
+    vars: { chapter: 1, introDone: true, starter: 'pikachu', hasStarter: true },
+    inventory: { pokeball: 9, berry: 5, 'golden-berry': 1 }, modules: {},
+  });
+}
 
 const { project, problems } = KIT.project.normalize(raw);
 const errors = problems.filter(p => p.severity === 'error');

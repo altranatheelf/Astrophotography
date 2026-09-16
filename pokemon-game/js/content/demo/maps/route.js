@@ -456,7 +456,61 @@
       "y": 22
     }
   ],
-  "props": {},
+  "props": {
+    "encounters": {
+      "byRegion": {
+        "1": [
+          {
+            "id": "pikachu",
+            "weight": 6
+          },
+          {
+            "id": "butterfree",
+            "weight": 8
+          },
+          {
+            "id": "clefable",
+            "weight": 4
+          },
+          {
+            "id": "wigglytuff",
+            "weight": 3
+          },
+          {
+            "id": "jolteon",
+            "weight": 1
+          }
+        ],
+        "2": [
+          {
+            "id": "scyther",
+            "weight": 5
+          },
+          {
+            "id": "vaporeon",
+            "weight": 3
+          },
+          {
+            "id": "electabuzz",
+            "weight": 3
+          },
+          {
+            "id": "gengar",
+            "weight": 2
+          },
+          {
+            "id": "snorlax",
+            "weight": 1
+          },
+          {
+            "id": "mew",
+            "weight": 1
+          }
+        ]
+      },
+      "rate": 14
+    }
+  },
   "width": 20
 }
 );
