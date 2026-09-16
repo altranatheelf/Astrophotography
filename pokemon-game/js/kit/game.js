@@ -314,6 +314,9 @@
   }
 
   function step(dt) {
+    // The Gamepad API has no events, only a snapshot, so a pad is the one input
+    // that has to be read. Once a frame, before anything asks what is held.
+    KIT.input.poll();
     KIT.scenes.update(dt);
     const w = G.world;
     const top = KIT.scenes.top();

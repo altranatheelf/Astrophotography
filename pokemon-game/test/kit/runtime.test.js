@@ -449,3 +449,77 @@ test('a hand-written project keeps its own title', () => {
   assert.deepEqual(old.applied, ['project-2-to-3']);
   assert.equal(old.project.meta.title, 'The Old Way');
 });
+
+// ---- gamepads -------------------------------------------------------------------
+test('input: a gamepad is just another way to hold a direction', () => {
+  const I = KIT.input;
+  const pads = [];
+  I.releaseAll();
+  {
+    const pad = (over) => Object.assign({
+      index: 0, id: 'Test Pad (Standard)', connected: true,
+      buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+      axes: [0, 0, 0, 0],
+    }, over || {});
+
+    // nothing plugged in, nothing held
+    I.poll(pads);
+    assert.equal(I.state(1).a, false);
+
+    // the bottom face button is A
+    const p = pad();
+    pads.push(p);
+    p.buttons[0] = { pressed: true, value: 1 };
+    I.poll(pads);
+    assert.equal(I.state(1).a, true, 'button 0 is A');
+    p.buttons[0] = { pressed: false, value: 0 };
+    I.poll(pads);
+    assert.equal(I.state(1).a, false, 'and lets go');
+
+    // the d-pad
+    p.buttons[14] = { pressed: true, value: 1 };
+    I.poll(pads);
+    assert.equal(I.state(1).left, true, 'd-pad left');
+    p.buttons[14] = { pressed: false, value: 0 };
+    I.poll(pads);
+
+    // the stick, past the deadzone
+    p.axes = [-0.2, 0, 0, 0];
+    I.poll(pads);
+    assert.equal(I.state(1).left, false, 'a nudge inside the deadzone is not a direction');
+    p.axes = [-0.9, 0, 0, 0];
+    I.poll(pads);
+    assert.equal(I.state(1).left, true, 'a real push is');
+    p.axes = [0, 0.9, 0, 0];
+    I.poll(pads);
+    assert.equal(I.state(1).left, false);
+    assert.equal(I.state(1).down, true, 'and down is positive Y, the way the API reports it');
+    p.axes = [0, 0, 0, 0];
+    I.poll(pads);
+
+    // an idle pad on the table does not cancel a key being held on the keyboard
+    I.set('right', 1, true);
+    I.poll(pads);
+    I.poll(pads);
+    assert.equal(I.state(1).right, true, 'the pad only writes its own changes');
+    I.set('right', 1, false);
+
+    // and it is visible to a settings screen
+    assert.deepEqual(I.gamepads(pads).map(g => ({ id: g.id, player: g.player })),
+      [{ id: 'Test Pad (Standard)', player: 1 }]);
+
+    // the deadzone is a setting, clamped to something sane
+    assert.equal(I.deadzone(0.5), 0.5);
+    assert.equal(I.deadzone(99), 0.95, 'clamped');
+    assert.equal(I.deadzone(0.35), 0.35);
+  }
+  I.releaseAll();
+});
+
+test('input: no gamepad API at all is not an error', () => {
+  // Node has no navigator.getGamepads, which is exactly the case this has to
+  // survive: a browser without the API, or one that throws reading it.
+  assert.doesNotThrow(() => KIT.input.poll());
+  assert.deepEqual(KIT.input.gamepads(), []);
+  assert.doesNotThrow(() => KIT.input.poll(null));
+});

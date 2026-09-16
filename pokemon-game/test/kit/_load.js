@@ -16,6 +16,7 @@ const files = [
   'js/kit/core/registries.js',
   'js/kit/core/modules.js',
   'js/kit/core/pixels.js',
+  'js/kit/core/input.js',
   'js/kit/world/document.js',
   'js/kit/world/project.js',
   'js/kit/world/tiles.js',

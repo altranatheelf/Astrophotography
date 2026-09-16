@@ -38,6 +38,46 @@
   let releaseTimers = [];
 
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  // ---- gamepad ------------------------------------------------------------------
+  // The standard mapping every modern pad reports: 0 bottom face, 1 right face,
+  // 9 start, 8 select/back, 12-15 d-pad, axes 0/1 the left stick. A pad that is
+  // not standard-mapped still usually agrees about these.
+  const PAD_BUTTONS = { 0: 'a', 1: 'b', 2: 'b', 3: 'a', 9: 'menu', 8: 'menu', 12: 'up', 13: 'down', 14: 'left', 15: 'right' };
+  let DEADZONE = 0.35;
+  const padWas = [];                 // last frame's held state per player, so a press is an edge
+
+  /** Whatever the browser will tell us, or null. Never throws. */
+  function readGamepads() {
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    if (!nav || typeof nav.getGamepads !== 'function') return null;
+    try { return nav.getGamepads() || null; } catch (e) { return null; }
+  }
+
+  /** One pad, folded into player p's held state. Sticks and d-pad both count. */
+  function readPad(gp, p) {
+    const want = blankState();
+    const btns = gp.buttons || [];
+    for (const i of Object.keys(PAD_BUTTONS)) {
+      const b = btns[i];
+      if (b && (b.pressed || b.value > 0.5)) want[PAD_BUTTONS[i]] = true;
+    }
+    const ax = gp.axes || [];
+    const x = Number(ax[0]) || 0, y = Number(ax[1]) || 0;
+    if (x < -DEADZONE) want.left = true;
+    if (x > DEADZONE) want.right = true;
+    if (y < -DEADZONE) want.up = true;
+    if (y > DEADZONE) want.down = true;
+
+    const was = padWas[p] || (padWas[p] = blankState());
+    for (const k of KEYS) {
+      if (want[k] === was[k]) continue;
+      was[k] = want[k];
+      // Only the pad's own transitions are written, so holding a key on the
+      // keyboard is not cancelled by an idle pad sitting on the table.
+      setKey(p, k, want[k]);
+    }
+  }
   const idx = (player) => {
     if (player === 'p2' || player === 2) return 1;
     if (player && player.id === 'p2') return 1;
@@ -316,6 +356,46 @@
     /** set(key, player, down) — hold or release a button explicitly. */
     set(key, player, down) { setKey(idx(player), key, !!down); return INPUT; },
     releaseAll: onBlur,
+
+    // ---- gamepads ----------------------------------------------------------------
+    /**
+     * poll(pads) — read the gamepads and fold them into the same held state the
+     * keyboard writes. Call it once a frame, before anything reads state().
+     *
+     * The Gamepad API has no events for buttons, only a snapshot you read, so
+     * this is the one part of input that has to be polled. Everything downstream
+     * is unchanged: a stick is a direction, a face button is `a`, and a scene
+     * cannot tell which hardware it came from.
+     *
+     * `pads` overrides what is read, which is how a test drives a controller and
+     * how a recorded session could be played back.
+     */
+    poll(pads) {
+      const list = pads || readGamepads();
+      if (!list) return INPUT;
+      let seat = 0;
+      for (const gp of list) {
+        if (!gp || !gp.connected) continue;
+        const p = seat < players ? seat : players - 1;   // more pads than players: they share
+        seat++;
+        readPad(gp, p);
+      }
+      return INPUT;
+    },
+    /** gamepads(pads) -> [{ index, id, player }] — what is plugged in, for a settings screen. */
+    gamepads(pads) {
+      const list = pads || readGamepads() || [];
+      const out = [];
+      let seat = 0;
+      for (const gp of list) {
+        if (!gp || !gp.connected) continue;
+        out.push({ index: gp.index, id: gp.id, player: (seat < players ? seat : players - 1) + 1 });
+        seat++;
+      }
+      return out;
+    },
+    /** deadzone(v) — how far a stick must move before it counts. 0.1–0.9. */
+    deadzone(v) { if (v != null) DEADZONE = KIT.clamp(Number(v) || 0, 0.05, 0.95); return DEADZONE; },
 
     isTouch() {
       if (typeof window === 'undefined') return false;
