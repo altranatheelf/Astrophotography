@@ -251,7 +251,7 @@
         inputNumber(o) { log.push({ port: 'io', name: 'inputNumber', args: [o] }); return Promise.resolve(numbers.length ? numbers.shift() : 0); },
         toast: rec('io', 'toast'), chapter: rec('io', 'chapter'), scrollText: rec('io', 'scrollText'), wait: rec('io', 'wait'),
       },
-      audio: { play: rec('audio', 'play'), music: rec('audio', 'music'), stop: rec('audio', 'stop'), save: rec('audio', 'save'), replay: rec('audio', 'replay'), jingle: rec('audio', 'jingle') },
+      audio: { play: rec('audio', 'play'), music: rec('audio', 'music'), stop: rec('audio', 'stop'), save: rec('audio', 'save'), replay: rec('audio', 'replay'), jingle: rec('audio', 'jingle'), layer: rec('audio', 'layer') },
       screen: { fadeOut: rec('screen', 'fadeOut'), fadeIn: rec('screen', 'fadeIn'), tint: rec('screen', 'tint'), flash: rec('screen', 'flash'), shake: rec('screen', 'shake'), weather: rec('screen', 'weather') },
       pictures: { show: rec('pictures', 'show'), move: rec('pictures', 'move'), erase: rec('pictures', 'erase') },
       map: { transfer: rec('map', 'transfer'), setLocation: rec('map', 'setLocation'), moveRoute: rec('map', 'moveRoute'), scrollMap: rec('map', 'scrollMap'), transparency: rec('map', 'transparency'), animation: rec('map', 'animation'), balloon: rec('map', 'balloon'), erase: rec('map', 'erase'), follow: rec('map', 'follow') },

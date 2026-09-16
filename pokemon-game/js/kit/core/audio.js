@@ -35,6 +35,8 @@
   let current = null;         // { id, def, stopAt } the playing track
   let saved = null;           // saveMusic()/replayMusic()
   let schedTimer = null, schedStep = 0, schedTime = 0;
+  let layerBus = {};          // layer name -> GainNode under musicBus
+  let layerWant = {};         // layer name -> 0..1, what it should be
   let fileNodes = [];         // <audio> elements in flight
   let listener = null;        // { map, x, y } for playAt()
 
@@ -185,6 +187,48 @@
     if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
   }
 
+  /**
+   * A track's parts, as the scheduler wants them: the base one, then any named
+   * layers the def declares.
+   *
+   *   { tempo: 120, lead: [...], bass: [...], drum: [...],
+   *     layers: { rain: { lead: [...] }, danger: { bass: [...], drum: [...] } } }
+   *
+   * Vertical layering, which is what "adaptive music" mostly means in a 2D game:
+   * the same piece, with parts arriving and leaving. The synth makes it nearly
+   * free — a layer is another few oscillators on its own gain node, and turning
+   * one on is a ramp on that node rather than a new piece of music.
+   */
+  const LAYER_MAX = 8;
+  function partsOf(def) {
+    const out = [{ name: '', part: def }];
+    const layers = def && def.layers;
+    if (layers) for (const name of Object.keys(layers).slice(0, LAYER_MAX)) {
+      if (layers[name]) out.push({ name, part: layers[name] });
+    }
+    return out;
+  }
+
+  /** The gain node a layer plays through, made on demand and reused. */
+  function busFor(name, def) {
+    if (!name) return musicBus;
+    if (layerBus[name]) return layerBus[name];
+    const g = ctx.createGain();
+    // A layer starts where it was left, or off — so entering a map with the
+    // rain already on does not fade it in a second time.
+    const want = layerWant[name];
+    g.gain.value = want == null ? ((def && def.on) ? 1 : 0) : want;
+    if (want == null) layerWant[name] = g.gain.value;
+    g.connect(musicBus);
+    layerBus[name] = g;
+    return g;
+  }
+
+  function dropLayers() {
+    for (const k of Object.keys(layerBus)) { try { layerBus[k].disconnect(); } catch (e) { /* ignore */ } }
+    layerBus = {};
+  }
+
   /** The scheduler: every 60 ms it books the next steps of the loop a little ahead of the clock. */
   function startSchedule(def) {
     stopSchedule();
@@ -193,24 +237,36 @@
     const stepDur = 30 / tempo;                       // an eighth note
     schedStep = 0;
     schedTime = ctx.currentTime + 0.08;
-    const lead = def.lead || [], bass = def.bass || [], drum = def.drum || [];
-    const length = Math.max(lead.length, bass.length, drum.length, 1);
-    let lastLead = null, lastBass = null;
-    const bookStep = (i, when) => {
-      const gain = (def.gain == null ? 0.22 : def.gain);
-      const l = lead[i % lead.length];
-      if (lead.length) {
-        if (l === '~' && lastLead) { /* hold: nothing new */ }
-        else if (l && l !== '-') { lastLead = l; tone({ freq: freq(l), ms: stepDur * 1000 * 0.9, at: when, wave: def.wave || 'square', gain, bus: musicBus }); }
-        else lastLead = null;
+
+    // Every part is scheduled, on or off, all of them sharing one clock. A
+    // silent layer costs a few oscillators and buys the thing that matters:
+    // when it comes up it is already in the right bar, on the right beat,
+    // rather than starting wherever the fade happened to be asked for.
+    const parts = partsOf(def).map(({ name, part }) => ({
+      name,
+      bus: busFor(name, part),
+      lead: part.lead || [], bass: part.bass || [], drum: part.drum || [],
+      wave: part.wave || def.wave, bassWave: part.bassWave || def.bassWave,
+      gain: part.gain == null ? (def.gain == null ? 0.22 : def.gain) : part.gain,
+      lastLead: null,
+    }));
+    const length = Math.max(1, ...parts.map(p => Math.max(p.lead.length, p.bass.length, p.drum.length)));
+
+    const bookPart = (p, i, when) => {
+      const gain = p.gain;
+      if (p.lead.length) {
+        const l = p.lead[i % p.lead.length];
+        if (l === '~' && p.lastLead) { /* hold: nothing new */ }
+        else if (l && l !== '-') { p.lastLead = l; tone({ freq: freq(l), ms: stepDur * 1000 * 0.9, at: when, wave: p.wave || 'square', gain, bus: p.bus }); }
+        else p.lastLead = null;
       }
-      if (bass.length) {
-        const b = bass[i % bass.length];
-        if (b && b !== '-' && b !== '~') { lastBass = b; tone({ freq: freq(b), ms: stepDur * 1000 * 1.6, at: when, wave: def.bassWave || 'triangle', gain: gain * 0.9, bus: musicBus }); }
+      if (p.bass.length) {
+        const b = p.bass[i % p.bass.length];
+        if (b && b !== '-' && b !== '~') tone({ freq: freq(b), ms: stepDur * 1000 * 1.6, at: when, wave: p.bassWave || 'triangle', gain: gain * 0.9, bus: p.bus });
       }
-      if (drum.length) {
-        const d = drum[i % drum.length];
-        if (d && d !== '-') tone({ freq: d === 'k' ? 90 : 1800, ms: d === 'k' ? 90 : 40, at: when, wave: d === 'k' ? 'sine' : 'noise', gain: gain * (d === 'k' ? 0.9 : 0.4), bus: musicBus });
+      if (p.drum.length) {
+        const d = p.drum[i % p.drum.length];
+        if (d && d !== '-') tone({ freq: d === 'k' ? 90 : 1800, ms: d === 'k' ? 90 : 40, at: when, wave: d === 'k' ? 'sine' : 'noise', gain: gain * (d === 'k' ? 0.9 : 0.4), bus: p.bus });
       }
     };
     const pump = () => {
@@ -218,7 +274,7 @@
       const horizon = ctx.currentTime + 0.35;
       let guard = 0;
       while (schedTime < horizon && guard++ < 64) {
-        bookStep(schedStep % length, schedTime);
+        for (const p of parts) bookPart(p, schedStep % length, schedTime);
         schedStep++;
         schedTime += stepDur;
       }
@@ -227,12 +283,55 @@
     schedTimer = setInterval(pump, 60);
   }
 
+  /**
+   * layer(name, on, ms) — bring a part of the playing track up or down.
+   *
+   * The piece does not restart, does not skip and does not go out of time,
+   * because the layer has been playing silently the whole while. This is the
+   * difference between music that reacts and music that gets interrupted.
+   */
+  function layer(name, on, ms) {
+    const to = on === false ? 0 : (typeof on === 'number' ? Math.max(0, Math.min(1, on)) : 1);
+    layerWant[name] = to;
+    const bus = layerBus[name];
+    if (!bus || !ctx) return Promise.resolve();
+    const t = ctx.currentTime;
+    const dur = Math.max(0.01, (ms == null ? 600 : ms) / 1000);
+    try {
+      bus.gain.cancelScheduledValues(t);
+      bus.gain.setValueAtTime(bus.gain.value, t);
+      bus.gain.linearRampToValueAtTime(to, t + dur);     // linear, not exponential: a layer may go to true zero
+    } catch (e) { /* ignore */ }
+    return Promise.resolve();
+  }
+
+  /** layers() -> { name: 0..1 } — what is up and what is down, for a save or a debug panel. */
+  function layers() { return Object.assign({}, layerWant); }
+
+  /**
+   * layerGain(name) -> what the audio graph is ACTUALLY doing right now, which
+   * is not the same as what was asked for while a fade is still running. The
+   * debug panel shows this; the tests assert on it, because a bookkeeping object
+   * agreeing with itself proves nothing.
+   */
+  function layerGain(name) {
+    const bus = layerBus[name];
+    return bus ? bus.gain.value : null;
+  }
+
+  /** layersOf(id) -> the names a track declares, so the editor can offer them. */
+  function layersOf(id) {
+    const def = defOf('music', id) || (current && current.id === id ? current.def : null);
+    return def && def.layers ? Object.keys(def.layers).slice(0, LAYER_MAX) : [];
+  }
+
   /** music(id|null, { fade, volume }) — start, swap or stop the track. Re-playing the same id does nothing. */
   function music(id, opts) {
     opts = opts || {};
     if (!musicOn || !enabled) { current = id ? { id, def: defOf('music', id) } : null; stopSchedule(); return Promise.resolve(); }
     if (id && current && current.id === id) return Promise.resolve();
     stopSchedule();
+    dropLayers();          // the nodes belong to the old track; the wishes outlive it
     stopFiles(true);
     if (!id) { current = null; if (musicBus && ctx) fadeBus(musicBus, 0, opts.fade || 0, () => { musicBus.gain.value = volumes.music; }); return Promise.resolve(); }
     const def = defOf('music', id);
@@ -269,7 +368,7 @@
   /** stop('sound'|'music'|'all') */
   function stop(what) {
     const w = what || 'all';
-    if (w === 'music' || w === 'all') { stopSchedule(); current = null; stopFiles(true); }
+    if (w === 'music' || w === 'all') { stopSchedule(); dropLayers(); current = null; stopFiles(true); }
     if (w === 'sound' || w === 'all') stopFiles(false);
     return Promise.resolve();
   }
@@ -299,6 +398,7 @@
   const AUDIO = KIT.audio = {
     freq, init, unlock,
     play, playAt, music, stop, jingle,
+    layer, layers, layersOf, layerGain,
     /** save()/replay() — the saveMusic/replayMusic commands. */
     save() { saved = current ? current.id : null; return Promise.resolve(); },
     replay() { return music(saved); },

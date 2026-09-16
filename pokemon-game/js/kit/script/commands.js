@@ -49,6 +49,7 @@
    * @property {function(string, {volume:number}):Promise} play        a sound effect
    * @property {function(string|null, {fade:number, volume:number}):Promise} music   start (or null = stop) the music
    * @property {function(string):Promise} stop     stop('sound' | 'music')
+   * @property {function(string, boolean, number):Promise} layer   bring one part of the playing track up or down
    * @property {function():Promise} save           remember the current music
    * @property {function():Promise} replay         resume the remembered music
    * @property {function(string):Promise} jingle   play a short piece, then resume the music
@@ -1050,6 +1051,40 @@
         if (!m || m[1].includes('=')) return null;
         const cmd = { t: 'music', id: m[1] === 'none' || m[1] === 'null' || m[1] === 'stop' ? null : V.parseBare(m[1]) };
         for (const tk of V.tokenize(m[2] || '')) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
+        return cmd;
+      },
+    },
+  });
+  // Bring one part of the playing track up or down. The piece does not restart,
+  // so this is how music answers what is happening rather than announcing it.
+  //
+  //   @layer rain on
+  //   @layer danger on ms=1200
+  //   @layer rain off
+  defs.push({
+    id: 'layer', label: 'Music Layer', group: 'Audio', icon: 'music', blocking: false,
+    fields: [
+      { key: 'name', type: 'string', min: 1, default: 'rain', label: 'Layer' },
+      { key: 'on', type: 'bool', default: true, label: 'Bring it in' },
+      { key: 'ms', type: 'number', min: 0, max: 20000, default: 600, label: 'Over ms' },
+    ],
+    async run(ctx, cmd) { await port(ctx, 'audio', 'layer')(cmd.name, cmd.on !== false, cmd.ms == null ? 600 : cmd.ms); },
+    summary(cmd) { return `Music layer ${cmd.name} ${cmd.on === false ? 'out' : 'in'}`; },
+    text: {
+      toLine(cmd) {
+        const rest = pairsOf(reg.get('layer'), cmd, ['name', 'on']);
+        return `@layer ${V.format(cmd.name)} ${cmd.on === false ? 'off' : 'on'}${rest ? ' ' + rest : ''}`;
+      },
+      fromLine(line) {
+        const t = line.trim();
+        if (!/^@layer(\s|$)/.test(t)) return null;
+        const v = V.scan(t, 6, '');                    // the name, quoted if it has spaces in it
+        if (!v || v.value === '' || String(v.raw).includes('=')) return null;
+        const cmd = { t: 'layer', name: String(v.value), on: true };
+        let rest = t.slice(v.end).trim();
+        const m = /^(on|off)(\s|$)/.exec(rest);
+        if (m) { cmd.on = m[1] !== 'off'; rest = rest.slice(m[0].length).trim(); }
+        for (const tk of V.tokenize(rest)) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
         return cmd;
       },
     },

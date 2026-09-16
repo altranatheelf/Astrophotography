@@ -28,7 +28,7 @@ function fakeCtx(answers, over) {
     self: 'town:mom', hero: 'p1', rng: KIT.rng(1), thread: { id: 't1', background: false }, args: {},
     emit: (event, payload) => { events.push([event, payload]); },
     io: ports('io', ['say', 'choice', 'nameEntry', 'inputNumber', 'toast', 'chapter', 'scrollText', 'wait']),
-    audio: ports('audio', ['play', 'music', 'stop', 'save', 'replay', 'jingle']),
+    audio: ports('audio', ['play', 'music', 'stop', 'save', 'replay', 'jingle', 'layer']),
     screen: ports('screen', ['fadeOut', 'fadeIn', 'tint', 'flash', 'shake', 'weather']),
     pictures: ports('pictures', ['show', 'move', 'erase']),
     map: ports('map', ['transfer', 'setLocation', 'moveRoute', 'scrollMap', 'transparency', 'animation', 'balloon', 'erase', 'follow']),
@@ -192,6 +192,8 @@ test('movement, character, screen, picture, audio, system commands call their po
   await expect({ t: 'music', id: 'town', fade: 500 }, ['audio.music', 'town', { fade: 500, volume: 1 }]);
   await expect({ t: 'music', id: null }, ['audio.music', null, { fade: 0, volume: 1 }]);
   await expect({ t: 'sound', id: 'sparkle', volume: 0.5 }, ['audio.play', 'sparkle', { volume: 0.5 }]);
+  await expect({ t: 'layer', name: 'rain', on: true, ms: 1200 }, ['audio.layer', 'rain', true, 1200]);
+  await expect({ t: 'layer', name: 'danger', on: false }, ['audio.layer', 'danger', false, 600]);
   await expect({ t: 'stopSound' }, ['audio.stop', 'sound']);
   await expect({ t: 'saveMusic' }, ['audio.save']);
   await expect({ t: 'replayMusic' }, ['audio.replay']);

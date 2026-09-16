@@ -43,6 +43,13 @@ again. *RPG Maker: ship a second copy of your project, which is why so few of
 its games exist in more than one language.* — done: Project › Languages hands
 out the file and takes it back, on a phone.
 
+**Music that answers what is happening.** The same piece, with parts arriving
+and leaving — rain, dread, a second voice — brought up and down while it plays,
+never restarted. *RPG Maker: play a different track, which starts it again from
+the top.* — done: a track declares named layers, `@layer danger on` swells one
+in, and they have been playing silently on the same clock so one enters on the
+beat it was already on.
+
 **Other media inside the game.** Field recordings, photographs, documents,
 a radio that plays something real. The archive is part of the story. *RPG Maker:
 no.*
@@ -77,6 +84,7 @@ does the round trip in two browsers that share nothing.
 | Cast: people, relationships, knowledge | **done** — and a panel that draws the graph |
 | A game moved between a phone and a laptop | **done** — one file, both ways, no server |
 | A second language, without a second copy of the game | **done** — one text file, keyed on the lines themselves |
+| Music that answers what is happening, without restarting | **done** — named layers on one clock, `@layer rain on` |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
 

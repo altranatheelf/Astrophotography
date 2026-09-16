@@ -71,6 +71,7 @@
       save: () => KIT.audio.save(),
       replay: () => KIT.audio.replay(),
       jingle: (id) => KIT.audio.jingle(id),
+      layer: (name, on, ms) => KIT.audio.layer(name, on, ms),
     };
 
     const screen = {

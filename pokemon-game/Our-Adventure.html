@@ -2684,6 +2684,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   let current = null;         // { id, def, stopAt } the playing track
   let saved = null;           // saveMusic()/replayMusic()
   let schedTimer = null, schedStep = 0, schedTime = 0;
+  let layerBus = {};          // layer name -> GainNode under musicBus
+  let layerWant = {};         // layer name -> 0..1, what it should be
   let fileNodes = [];         // <audio> elements in flight
   let listener = null;        // { map, x, y } for playAt()
 
@@ -2834,6 +2836,48 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
   }
 
+  /**
+   * A track's parts, as the scheduler wants them: the base one, then any named
+   * layers the def declares.
+   *
+   *   { tempo: 120, lead: [...], bass: [...], drum: [...],
+   *     layers: { rain: { lead: [...] }, danger: { bass: [...], drum: [...] } } }
+   *
+   * Vertical layering, which is what "adaptive music" mostly means in a 2D game:
+   * the same piece, with parts arriving and leaving. The synth makes it nearly
+   * free — a layer is another few oscillators on its own gain node, and turning
+   * one on is a ramp on that node rather than a new piece of music.
+   */
+  const LAYER_MAX = 8;
+  function partsOf(def) {
+    const out = [{ name: '', part: def }];
+    const layers = def && def.layers;
+    if (layers) for (const name of Object.keys(layers).slice(0, LAYER_MAX)) {
+      if (layers[name]) out.push({ name, part: layers[name] });
+    }
+    return out;
+  }
+
+  /** The gain node a layer plays through, made on demand and reused. */
+  function busFor(name, def) {
+    if (!name) return musicBus;
+    if (layerBus[name]) return layerBus[name];
+    const g = ctx.createGain();
+    // A layer starts where it was left, or off — so entering a map with the
+    // rain already on does not fade it in a second time.
+    const want = layerWant[name];
+    g.gain.value = want == null ? ((def && def.on) ? 1 : 0) : want;
+    if (want == null) layerWant[name] = g.gain.value;
+    g.connect(musicBus);
+    layerBus[name] = g;
+    return g;
+  }
+
+  function dropLayers() {
+    for (const k of Object.keys(layerBus)) { try { layerBus[k].disconnect(); } catch (e) { /* ignore */ } }
+    layerBus = {};
+  }
+
   /** The scheduler: every 60 ms it books the next steps of the loop a little ahead of the clock. */
   function startSchedule(def) {
     stopSchedule();
@@ -2842,24 +2886,36 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const stepDur = 30 / tempo;                       // an eighth note
     schedStep = 0;
     schedTime = ctx.currentTime + 0.08;
-    const lead = def.lead || [], bass = def.bass || [], drum = def.drum || [];
-    const length = Math.max(lead.length, bass.length, drum.length, 1);
-    let lastLead = null, lastBass = null;
-    const bookStep = (i, when) => {
-      const gain = (def.gain == null ? 0.22 : def.gain);
-      const l = lead[i % lead.length];
-      if (lead.length) {
-        if (l === '~' && lastLead) { /* hold: nothing new */ }
-        else if (l && l !== '-') { lastLead = l; tone({ freq: freq(l), ms: stepDur * 1000 * 0.9, at: when, wave: def.wave || 'square', gain, bus: musicBus }); }
-        else lastLead = null;
+
+    // Every part is scheduled, on or off, all of them sharing one clock. A
+    // silent layer costs a few oscillators and buys the thing that matters:
+    // when it comes up it is already in the right bar, on the right beat,
+    // rather than starting wherever the fade happened to be asked for.
+    const parts = partsOf(def).map(({ name, part }) => ({
+      name,
+      bus: busFor(name, part),
+      lead: part.lead || [], bass: part.bass || [], drum: part.drum || [],
+      wave: part.wave || def.wave, bassWave: part.bassWave || def.bassWave,
+      gain: part.gain == null ? (def.gain == null ? 0.22 : def.gain) : part.gain,
+      lastLead: null,
+    }));
+    const length = Math.max(1, ...parts.map(p => Math.max(p.lead.length, p.bass.length, p.drum.length)));
+
+    const bookPart = (p, i, when) => {
+      const gain = p.gain;
+      if (p.lead.length) {
+        const l = p.lead[i % p.lead.length];
+        if (l === '~' && p.lastLead) { /* hold: nothing new */ }
+        else if (l && l !== '-') { p.lastLead = l; tone({ freq: freq(l), ms: stepDur * 1000 * 0.9, at: when, wave: p.wave || 'square', gain, bus: p.bus }); }
+        else p.lastLead = null;
       }
-      if (bass.length) {
-        const b = bass[i % bass.length];
-        if (b && b !== '-' && b !== '~') { lastBass = b; tone({ freq: freq(b), ms: stepDur * 1000 * 1.6, at: when, wave: def.bassWave || 'triangle', gain: gain * 0.9, bus: musicBus }); }
+      if (p.bass.length) {
+        const b = p.bass[i % p.bass.length];
+        if (b && b !== '-' && b !== '~') tone({ freq: freq(b), ms: stepDur * 1000 * 1.6, at: when, wave: p.bassWave || 'triangle', gain: gain * 0.9, bus: p.bus });
       }
-      if (drum.length) {
-        const d = drum[i % drum.length];
-        if (d && d !== '-') tone({ freq: d === 'k' ? 90 : 1800, ms: d === 'k' ? 90 : 40, at: when, wave: d === 'k' ? 'sine' : 'noise', gain: gain * (d === 'k' ? 0.9 : 0.4), bus: musicBus });
+      if (p.drum.length) {
+        const d = p.drum[i % p.drum.length];
+        if (d && d !== '-') tone({ freq: d === 'k' ? 90 : 1800, ms: d === 'k' ? 90 : 40, at: when, wave: d === 'k' ? 'sine' : 'noise', gain: gain * (d === 'k' ? 0.9 : 0.4), bus: p.bus });
       }
     };
     const pump = () => {
@@ -2867,7 +2923,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const horizon = ctx.currentTime + 0.35;
       let guard = 0;
       while (schedTime < horizon && guard++ < 64) {
-        bookStep(schedStep % length, schedTime);
+        for (const p of parts) bookPart(p, schedStep % length, schedTime);
         schedStep++;
         schedTime += stepDur;
       }
@@ -2876,12 +2932,55 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     schedTimer = setInterval(pump, 60);
   }
 
+  /**
+   * layer(name, on, ms) — bring a part of the playing track up or down.
+   *
+   * The piece does not restart, does not skip and does not go out of time,
+   * because the layer has been playing silently the whole while. This is the
+   * difference between music that reacts and music that gets interrupted.
+   */
+  function layer(name, on, ms) {
+    const to = on === false ? 0 : (typeof on === 'number' ? Math.max(0, Math.min(1, on)) : 1);
+    layerWant[name] = to;
+    const bus = layerBus[name];
+    if (!bus || !ctx) return Promise.resolve();
+    const t = ctx.currentTime;
+    const dur = Math.max(0.01, (ms == null ? 600 : ms) / 1000);
+    try {
+      bus.gain.cancelScheduledValues(t);
+      bus.gain.setValueAtTime(bus.gain.value, t);
+      bus.gain.linearRampToValueAtTime(to, t + dur);     // linear, not exponential: a layer may go to true zero
+    } catch (e) { /* ignore */ }
+    return Promise.resolve();
+  }
+
+  /** layers() -> { name: 0..1 } — what is up and what is down, for a save or a debug panel. */
+  function layers() { return Object.assign({}, layerWant); }
+
+  /**
+   * layerGain(name) -> what the audio graph is ACTUALLY doing right now, which
+   * is not the same as what was asked for while a fade is still running. The
+   * debug panel shows this; the tests assert on it, because a bookkeeping object
+   * agreeing with itself proves nothing.
+   */
+  function layerGain(name) {
+    const bus = layerBus[name];
+    return bus ? bus.gain.value : null;
+  }
+
+  /** layersOf(id) -> the names a track declares, so the editor can offer them. */
+  function layersOf(id) {
+    const def = defOf('music', id) || (current && current.id === id ? current.def : null);
+    return def && def.layers ? Object.keys(def.layers).slice(0, LAYER_MAX) : [];
+  }
+
   /** music(id|null, { fade, volume }) — start, swap or stop the track. Re-playing the same id does nothing. */
   function music(id, opts) {
     opts = opts || {};
     if (!musicOn || !enabled) { current = id ? { id, def: defOf('music', id) } : null; stopSchedule(); return Promise.resolve(); }
     if (id && current && current.id === id) return Promise.resolve();
     stopSchedule();
+    dropLayers();          // the nodes belong to the old track; the wishes outlive it
     stopFiles(true);
     if (!id) { current = null; if (musicBus && ctx) fadeBus(musicBus, 0, opts.fade || 0, () => { musicBus.gain.value = volumes.music; }); return Promise.resolve(); }
     const def = defOf('music', id);
@@ -2918,7 +3017,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /** stop('sound'|'music'|'all') */
   function stop(what) {
     const w = what || 'all';
-    if (w === 'music' || w === 'all') { stopSchedule(); current = null; stopFiles(true); }
+    if (w === 'music' || w === 'all') { stopSchedule(); dropLayers(); current = null; stopFiles(true); }
     if (w === 'sound' || w === 'all') stopFiles(false);
     return Promise.resolve();
   }
@@ -2948,6 +3047,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const AUDIO = KIT.audio = {
     freq, init, unlock,
     play, playAt, music, stop, jingle,
+    layer, layers, layersOf, layerGain,
     /** save()/replay() — the saveMusic/replayMusic commands. */
     save() { saved = current ? current.id : null; return Promise.resolve(); },
     replay() { return music(saved); },
@@ -6818,6 +6918,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * @property {function(string, {volume:number}):Promise} play        a sound effect
    * @property {function(string|null, {fade:number, volume:number}):Promise} music   start (or null = stop) the music
    * @property {function(string):Promise} stop     stop('sound' | 'music')
+   * @property {function(string, boolean, number):Promise} layer   bring one part of the playing track up or down
    * @property {function():Promise} save           remember the current music
    * @property {function():Promise} replay         resume the remembered music
    * @property {function(string):Promise} jingle   play a short piece, then resume the music
@@ -7823,6 +7924,40 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       },
     },
   });
+  // Bring one part of the playing track up or down. The piece does not restart,
+  // so this is how music answers what is happening rather than announcing it.
+  //
+  //   @layer rain on
+  //   @layer danger on ms=1200
+  //   @layer rain off
+  defs.push({
+    id: 'layer', label: 'Music Layer', group: 'Audio', icon: 'music', blocking: false,
+    fields: [
+      { key: 'name', type: 'string', min: 1, default: 'rain', label: 'Layer' },
+      { key: 'on', type: 'bool', default: true, label: 'Bring it in' },
+      { key: 'ms', type: 'number', min: 0, max: 20000, default: 600, label: 'Over ms' },
+    ],
+    async run(ctx, cmd) { await port(ctx, 'audio', 'layer')(cmd.name, cmd.on !== false, cmd.ms == null ? 600 : cmd.ms); },
+    summary(cmd) { return `Music layer ${cmd.name} ${cmd.on === false ? 'out' : 'in'}`; },
+    text: {
+      toLine(cmd) {
+        const rest = pairsOf(reg.get('layer'), cmd, ['name', 'on']);
+        return `@layer ${V.format(cmd.name)} ${cmd.on === false ? 'off' : 'on'}${rest ? ' ' + rest : ''}`;
+      },
+      fromLine(line) {
+        const t = line.trim();
+        if (!/^@layer(\s|$)/.test(t)) return null;
+        const v = V.scan(t, 6, '');                    // the name, quoted if it has spaces in it
+        if (!v || v.value === '' || String(v.raw).includes('=')) return null;
+        const cmd = { t: 'layer', name: String(v.value), on: true };
+        let rest = t.slice(v.end).trim();
+        const m = /^(on|off)(\s|$)/.exec(rest);
+        if (m) { cmd.on = m[1] !== 'off'; rest = rest.slice(m[0].length).trim(); }
+        for (const tk of V.tokenize(rest)) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
+        return cmd;
+      },
+    },
+  });
   defs.push({
     id: 'sound', label: 'Play SE', mv: 'Play SE', group: 'Audio', icon: 'sound', blocking: false, editor: { favourite: true },
     fields: [{ key: 'id', type: 'ref:sound', nullable: false, label: 'Sound' }, { key: 'volume', type: 'number', min: 0, max: 1, default: 1 }],
@@ -8537,7 +8672,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         inputNumber(o) { log.push({ port: 'io', name: 'inputNumber', args: [o] }); return Promise.resolve(numbers.length ? numbers.shift() : 0); },
         toast: rec('io', 'toast'), chapter: rec('io', 'chapter'), scrollText: rec('io', 'scrollText'), wait: rec('io', 'wait'),
       },
-      audio: { play: rec('audio', 'play'), music: rec('audio', 'music'), stop: rec('audio', 'stop'), save: rec('audio', 'save'), replay: rec('audio', 'replay'), jingle: rec('audio', 'jingle') },
+      audio: { play: rec('audio', 'play'), music: rec('audio', 'music'), stop: rec('audio', 'stop'), save: rec('audio', 'save'), replay: rec('audio', 'replay'), jingle: rec('audio', 'jingle'), layer: rec('audio', 'layer') },
       screen: { fadeOut: rec('screen', 'fadeOut'), fadeIn: rec('screen', 'fadeIn'), tint: rec('screen', 'tint'), flash: rec('screen', 'flash'), shake: rec('screen', 'shake'), weather: rec('screen', 'weather') },
       pictures: { show: rec('pictures', 'show'), move: rec('pictures', 'move'), erase: rec('pictures', 'erase') },
       map: { transfer: rec('map', 'transfer'), setLocation: rec('map', 'setLocation'), moveRoute: rec('map', 'moveRoute'), scrollMap: rec('map', 'scrollMap'), transparency: rec('map', 'transparency'), animation: rec('map', 'animation'), balloon: rec('map', 'balloon'), erase: rec('map', 'erase'), follow: rec('map', 'follow') },
@@ -16377,6 +16512,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       save: () => KIT.audio.save(),
       replay: () => KIT.audio.replay(),
       jingle: (id) => KIT.audio.jingle(id),
+      layer: (name, on, ms) => KIT.audio.layer(name, on, ms),
     };
 
     const screen = {
