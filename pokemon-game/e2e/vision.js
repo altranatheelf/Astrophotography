@@ -643,6 +643,33 @@ async function play(browser) {
   check(onScreen, 'the room really is decorated when you walk back into it');
   await shot(page, '27-still-there');
 
+  // ---- 14. and the light shows you the room ---------------------------------
+  beat(14, 'a lantern in a dark room');
+  // This is measured rather than looked at because the way it FAILS is subtle:
+  // punch the light holes onto the finished frame and the hole erases the map as
+  // well as the darkness over it, so the lit circle comes out nearly as blank as
+  // the dark. It looks like “the torch is a bit weak”, not like a bug.
+  const dark = await page.evaluate(() => {
+    const h = KIT.game.world.hero();
+    KIT.atmosphere.set({ darkness: 0.88, ambient: '#05070d', lightScale: 1 }, { ms: 0 });
+    h.data = h.data || {};
+    h.data.light = { radius: 4, color: '#ffc887', softness: 0.55, flicker: 0 };
+    KIT.game.tick(16); KIT.game.tick(16);
+    const cv = document.querySelector('canvas');
+    const ctx = cv.getContext('2d');
+    const patch = (cx, cy) => {
+      const d = ctx.getImageData(Math.round(cx) - 4, Math.round(cy) - 4, 8, 8).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3;
+      return Math.round(sum / (d.length / 4));
+    };
+    return { lit: patch(cv.width / 2, cv.height / 2), dark: patch(cv.width - 20, cv.height - 20) };
+  });
+  check(dark.dark < 60, `the room away from the lantern is dark (${dark.dark})`);
+  check(dark.lit - dark.dark > 40, `and the lantern shows you the floor (${dark.lit} against ${dark.dark})`);
+  await shot(page, '28-lantern');
+  await page.evaluate(() => KIT.atmosphere.set(KIT.atmosphere.BLANK, { ms: 0 }));
+
   check(errors.length === 0, `no console errors or page errors${errors.length ? ': ' + errors[0] : ''}`);
   for (const e of errors) log('     ! ' + e);
   await context.close();
@@ -692,7 +719,7 @@ async function withoutModules(browser) {
   await clearMessages(page);
   const at = await hero(page);
   check(!!at && at.map === 'town', `and the door still leads outside (${at && at.map})`);
-  await shot(page, '28-modules-off');
+  await shot(page, '29-modules-off');
 
   // The job board is still an object; its page carries a command nobody owns now.
   await page.evaluate(() => KIT.game.warp('town', 14, 10, 'up'));
@@ -703,7 +730,7 @@ async function withoutModules(browser) {
   await clearMessages(page);
   const alive = await page.evaluate(() => !!(KIT.game.world && KIT.game.world.map));
   check(alive, 'a board whose command no module owns does not take the game down');
-  await shot(page, '29-modules-off-board');
+  await shot(page, '30-modules-off-board');
 
   await page.evaluate(() => KIT.storage.discardDraft());
   check(errors.length === 0, `no console errors or page errors${errors.length ? ': ' + errors[0] : ''}`);

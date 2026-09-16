@@ -159,7 +159,17 @@
           this._saveRows = null;
           build(this);
         },
-        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
+        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
+        /**
+         * Something opened over us — very likely a module's own screen, drawn
+         * into this same `#pause-menu` host, because that is the one overlay the
+         * kit offers for a list over the map. Our delegated click listener is
+         * still on that host, so one tap on their row would fire ours too, read
+         * `data-index` off THEIR row and act on whatever our stale rows array has
+         * at that number. Let go until we are on top again.
+         */
+        suspend() { if (this._off) { this._off(); this._off = null; } },
+        resume() { const host = UI.el('pause-menu'); if (host) { host.hidden = false; } build(this); },
         input(ev) {
           if (ev.key === 'up') { index = (index - 1 + rows.length) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
           if (ev.key === 'down') { index = (index + 1) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }

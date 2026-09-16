@@ -24,13 +24,7 @@ const FILES = {
 function prerequisites(id) {
   if (id !== 'mons') return;
   for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) R(f);
-  // ENGINE-HOOKS: js/sprites/*.js assign to `window` directly instead of using
-  // the window/globalThis shim every other file has, so Node needs one for the
-  // length of the require.
-  const had = Object.prototype.hasOwnProperty.call(global, 'window');
-  if (!had) global.window = global;
   for (const f of ['charizard', 'venusaur', 'machamp', 'jynx', 'electabuzz', 'jolteon', 'vaporeon']) R('js/sprites/' + f + '.js');
-  if (!had) delete global.window;
 }
 
 /**
@@ -40,7 +34,7 @@ function prerequisites(id) {
  */
 function load(KIT, ids) {
   const wanted = (ids && ids.length ? ids : Object.keys(FILES));
-  R('js/main.js');                                   // KIT.module / KIT.modules
+  R('js/kit/core/modules.js');                       // KIT.module / KIT.modules
   for (const id of wanted) {
     const files = FILES[id];
     if (!files) throw new Error(`load-modules: no such module “${id}”`);

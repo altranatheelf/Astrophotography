@@ -3,28 +3,42 @@
 Three modules were built against this engine without touching `js/kit/**` or
 `js/main.js` — `mons`, `home` and `dungeon` — plus the template and packaging
 tools. This is the punch list they produced: every place a module needed
-something the engine does not offer, what it did instead, and the fix that
-would serve every module rather than one.
+something the engine did not offer, what it did instead, and what the engine
+does about it now.
 
-Nothing here is broken today. Every item has a working workaround in module
-code. What each one costs is that the workaround is invisible to the next
-person: they will hit the same wall and invent a different way round it.
+**This document is a method, not just a record.** The way to find out what an
+engine is missing is to build something real against it and refuse to change it,
+writing down every workaround. Two of the seventeen below were live bugs nobody
+had noticed (a wedged name box, a tap that fired twice and silently ate a
+reward); most of the rest were a module doing the engine's job in a way the next
+module would have done differently. Do this again for the next module.
 
-Ordered by how much a fix would buy. **Fixed** means the engine does it now and
-the workaround has been deleted from the modules — the entry stays because it
-says why the engine is shaped the way it is.
+**All seventeen are fixed.** Every entry stays, because each one says why the
+engine is shaped the way it is, what the module did before, and what it does
+now. This is the record of an engine being shaped by three real modules rather
+than by guessing — and it is the shape of the next one: build a module against
+the engine without touching `js/kit/**`, write down every place you had to work
+around it, and fix those.
 
 | | | |
 |---|---|---|
-| 1 | `sessionResumed` never emitted | **fixed** |
-| 2 | a module cannot own a piece of the save or the project | **fixed** |
-| 3 | the project is validated before the modules register | **fixed** |
-| 4 | `menus` will not take a function `label` | **fixed** |
-| 5 | no interact target that is not a map object | **fixed** |
-| 6 | `mapView` captures the overlay at construction | **fixed** |
-| 7–8 | see below | open |
-| 9 | `KIT.module` did not exist when a manifest loaded | **fixed** |
-| 10–17 | see below | open |
+| 1 | `sessionResumed` never emitted | fixed — `KIT.clock` |
+| 2 | a module cannot own a piece of the save or the project | fixed — `KIT.modules` acts on the declarations |
+| 3 | the project is validated before the modules register | fixed — `loadProject({ before })` |
+| 4 | `menus` will not take a function `label` | fixed — the `label` type, `KIT.labelOf` |
+| 5 | no interact target that is not a map object | fixed — `addInteractTarget`, `interactMissed` |
+| 6 | `mapView` captures the overlay at construction | fixed — the save is read live |
+| 7 | the renderer cannot draw a marker | fixed — `world.markers` |
+| 8 | a module's `behaviours` are rejected by the page schema | fixed — `optionsFrom: 'behaviours'` |
+| 9 | `KIT.module` did not exist when a manifest loaded | fixed — `js/kit/core/modules.js` |
+| 10 | content cannot mention a module's commands | fixed — modules register first (§3) |
+| 11 | nothing says when the main script thread goes quiet | fixed — `KIT.interpreter.whenIdle()` |
+| 12 | the Project panel guesses which modules exist | fixed — it asks `KIT.modules` |
+| 13 | normalize freezes every registered string into content | fixed — overrides only |
+| 14 | the load order is written down in four places | fixed — one list, and a test |
+| 15 | a covered scene keeps its click listener | fixed — `suspend` / `resume` |
+| 16 | the kit never registers its own default item kind | fixed — it does now |
+| 17 | two runtime promises settle only when a scene closes | fixed — `{ wait: false }`, `leaveTitle` |
 
 ---
 
@@ -292,11 +306,21 @@ entity whose `look` is the tile and whose `opacity` pulses. It works and it is
 only a few lines, but it is an entity in `world.entities` that is not a thing in
 the world — anything iterating entities has to know to skip it.
 
-**The fix.** A `world.markers` list the renderer draws after the entity layer:
-`{ x, y, art|tile, opacity, tint, outline, layer }`. Creator Mode's tools
-already have `preview(ctx, ed)` for exactly this at edit time; this is the same
-idea at play time. It would also serve range indicators, targeting, footprints
-and “you can put it here” shading.
+**Fixed.** `world.markers` — a plain array a system or a scene fills and
+empties, drawn by the renderer alongside the entities:
+
+```js
+world.markers.push({ x, y, tile: 'rug', layer: 'same', opacity: 0.65, outline: '#9fe6b0' })
+```
+
+`layer` is the same three the entities use, so a marker sits under or over a
+character. `pulse` breathes it, `tint` washes a colour over it, `outline` draws
+round its square. Nothing walks into a marker and nothing talks to it, which is
+the whole point of it not being an entity.
+
+home's placement ghost is markers now — and better for it: the outline is green
+where the furniture will go and red where it will not, which the fake entity
+could not say.
 
 ---
 
@@ -315,8 +339,14 @@ enum is a fixed list in the schema.
 **What was done instead.** The dungeon module reaches its behaviour through its
 own `dungeon-guard` object type instead, which sets the behaviour in code.
 
-**The fix.** `optionsFrom: 'behaviours'` (the schema already supports
-`optionsFrom`, and the same pattern is used for other registry-backed enums).
+**Fixed.** The page schema's `behaviour.kind` is `optionsFrom: 'behaviours'`, so
+a module that registers `pace` can put `behaviour: { kind: 'pace' }` on a page
+and it validates, round-trips and appears in the editor's dropdown next to
+Wander and Look around. A kind nobody registered is still an error.
+
+One thing came with it: an EMPTY registry now constrains nothing, rather than
+refusing every value. An empty one means the file that fills it has not loaded
+yet (a headless test using half the engine), not that everything is wrong.
 
 ---
 
@@ -367,11 +397,14 @@ it is simply not used in the demo. (This integration pass then had to load both
 modules in `test/kit/demo.test.js`, through the shared `tools/load-modules.js`,
 which is the better answer for a project whose `modules` list names them.)
 
-**The fix.** Validate a command against `project.modules` as well as the
-registry: if a project enables a module and the module is not loaded,
-`unknown-command` should be one “module not loaded” warning for the whole
-project, not an error per call site. That also fixes hook 3's console noise for
-anyone loading the project without its modules.
+**Fixed by §3.** The modules a project enables are registered before it is
+validated, so content may say `@givePokemon` and be checked against a registry
+that has it. `tools/load-modules.js` is the Node side of the same thing, and
+`test/kit/load-order.test.js` keeps it in step with the page.
+
+What is still true, and is now the honest answer rather than a workaround: a
+project loaded WITHOUT its modules reports their commands as unknown. That is
+information, not noise — the game really cannot run.
 
 ---
 
@@ -394,11 +427,14 @@ and the game is wedged. (Reproduced in a browser; `[map, nameEntry, dialogue]`.)
 choice or chapter card is on the scene stack, and only then grants — with a
 one-minute cap so a stuck script cannot make it poll forever.
 
-**The fix.** Emit `mainIdle` on the world bus when the last main-thread run
-finishes (or give the interpreter `KIT.interpreter.whenIdle() -> Promise`).
-Any module that wants to say something after the player's current conversation
-— a level-up, a gift, an achievement — needs this, and every one of them will
-otherwise invent this same poll.
+**Fixed.** `KIT.interpreter.whenIdle() -> Promise`, resolving when no
+main-thread script is running (immediately, if none is). It settles a microtask
+late on purpose: a script that ends by starting another — a common event calling
+one — is still not idle.
+
+It says nothing about the SCREEN: a message box stays up after the script that
+pushed it has ended, so a caller that needs the screen clear as well checks
+`KIT.scenes` too. mons does both, and no longer polls.
 
 ---
 
@@ -421,9 +457,11 @@ appear, and the engine has one module's name written into it.
 appear. `e2e/vision.js` switches them off through `project.modules` directly,
 which is what the panel writes.
 
-**The fix.** `const known = new Set(KIT.modules.all().map(d => d.id).concat(p.modules || []))`,
-and show `def.label` and `def.describe` rather than a title-cased id. Delete the
-`'mons'`.
+**Fixed.** The panel asks `KIT.modules.all()`, so every module the page has
+loaded is there to be switched on as well as off, labelled with its own `label`
+and explained by its own `describe`. A module the project asks for that did not
+load gets a warning chip rather than silence. The engine no longer has any
+module's name written into it — `test/kit/art.test.js` now checks that.
 
 ---
 
@@ -452,8 +490,13 @@ equals its registered default. `test/modules/integration.test.js` asserts the
 demo content carries no module strings and that the Terms table still answers
 for them.
 
-**The fix.** Write only the overrides: keep a key in `project.strings` when it
-differs from the registered default, or when it has no registration at all.
+**Fixed.** `normalize` keeps a key in `project.strings` when it differs from its
+registered default, or when nothing registers it — so content carries the
+author's own words and nothing else. Everything else answers from the registry,
+which means rewording a default reaches every project that never overrode it.
+
+The demo's `strings` is now `{}`, and `tools/build-demo.js` deleted the pass that
+used to prune it.
 
 ---
 
@@ -474,10 +517,25 @@ added `tools/load-modules.js` so that `tools/build-demo.js` and
 `test/kit/demo.test.js` at least agree with each other about the *modules*; the
 page's module block still repeats it a third time.
 
-**The fix.** Ship `js/kit/manifest.js` — a plain array of the engine's files in
-load order, plus the module file lists — and have `index.html` build its
-`<script>` tags from it (or have a build step that writes them). Then adding a
-kit file is one edit, not four.
+**Fixed — differently, and better.** Generating `index.html` would have thrown
+away the comments that say WHY the order is what it is (“document/project/tiles
+first: the script layer validates against them”), which is the part worth
+keeping. So the lists still repeat, and `test/kit/load-order.test.js` proves they
+agree:
+
+* `index.html` loads exactly `CORE + ART + EDITOR + MAIN`, in that order, and its
+  stylesheets are `CSS`;
+* every `.js` under `js/kit` and `js/art` is in one of those lists — a file
+  nothing loads is a failure, not a mystery;
+* `test/kit/_load.js` loads a subset, in the same relative order;
+* the page and `tools/load-modules.js` agree about every module's files, and each
+  module's manifest is last;
+* the single-file build carries every core file.
+
+Repeating is fine. Drifting is what hurt, and drifting now fails a test. (It
+caught two things the moment it was written: the test loader had two files the
+wrong way round, and `Our-Adventure.html` was a build old enough to predate
+`js/kit/core/modules.js`.)
 
 ---
 
@@ -504,12 +562,22 @@ nothing.
 `onlyAction(el, fn)`: the same delegation, registered in the **capture** phase
 and calling `stopPropagation()`, so the click never reaches the listener below.
 
-**The fix.** A scene that is not on top should not be listening. Either
-`KIT.scenes` tells a scene when it is covered (`suspend()` / `resume()`, the
-mirror of `enter`/`exit`) so `menu.js` can drop its listener, or the menu scene
-gets its own container inside `#pause-menu` and delegates from that instead of
-from the shared host. The first is worth more: every scene that renders into a
-shared host has this problem, not just this one.
+**Fixed.** `KIT.scenes` tells a scene when it is covered:
+
+```
+enter   → you exist and you are on top
+suspend → something opened over you; you still exist and still update
+resume  → it closed; you are on top again
+exit    → you are gone
+```
+
+Both are optional and `scene.suspended` says which state a scene is in. The
+pause menu drops its delegated listener in `suspend` and rebuilds itself in
+`resume`, so a tap on a module's row reaches only that row.
+
+home's `onlyAction` stayed: a click meant for its row has no business reaching
+anything underneath it, whatever happens to be listening there. It is belt and
+braces now rather than the fix.
 
 ---
 
@@ -536,8 +604,9 @@ default kind if nobody has (`if (!kinds.has('item')) kinds.add({ id:'item', … 
 a keepsake whose `use()` does nothing — which is what a plain item already does.
 The guard means they never fight over it, and either works alone.
 
-**The fix.** Register `item` in the kit, beside the schema default that names
-it. One entry, and two modules stop apologising for the engine.
+**Fixed.** `js/kit/core/registries.js` registers `item` — a keepsake whose
+`use()` does nothing — immediately after defining the `itemKinds` registry, right
+beside the schema default that names it. Both modules deleted their copy.
 
 ---
 
@@ -569,24 +638,28 @@ to do from outside: press A at something, and continue a save.
 out of `page.evaluate`, and clicks the real Continue button instead of calling
 `continueGame`. Both are commented where they happen.
 
-**The fix.** Have `continueGame` and `newGame` stop the title loop explicitly
-(a flag the loop checks after its `await`, or `titleLoop` awaiting a promise
-that `continueGame` resolves) so they are safe to call from anywhere — that is
-what a “testability API” means. For `interact`, resolving as soon as the slot
-has *started* (and giving the scene's own promise its own name) would let a
-caller await the press without awaiting the conversation.
+**Fixed, both.**
+
+`newGame` and `continueGame` call `leaveTitle()` before clearing the stack, and
+the title loop checks its own token after every `await`. A loop that has been
+superseded stops instead of acting on a stale answer, so both are safe to call
+from anywhere — which is what a testability API means.
+
+`world.interact(hero, { wait: false })` resolves as soon as the press has landed
+and the script has started; the default still waits for the conversation, which
+is what the map scene wants. `world.interacting` is the running script's promise
+either way, for a caller that wants both answers.
 
 ---
 
 ## Two smaller ones
 
-**`js/sprites/*.js` assign to `window` directly** instead of using the
-`window/globalThis` shim every other file in the repo has, so they cannot be
-`require`d in Node. `test/modules/mons.test.js` and `tools/load-modules.js` both
-set `global.window = global` for the length of the require and remove it again.
-One line per file fixes it: `})(typeof window !== 'undefined' ? window : globalThis);`
+**`js/sprites/*.js` assigned to `window` directly** instead of using the
+`window/globalThis` shim every other file in the repo has, so they could not be
+`require`d in Node — two loaders set `global.window = global` for the length of
+the require. *Fixed:* they use the shim, and both loaders dropped the trick.
 
-**A world built with a bare `KIT.world.create` leaves hero 2 `solid`,** so the
-player cannot step back onto the tile they just left. `KIT.game.setCoop(false)`
-clears it; a headless world has no `KIT.game`. Either default `coop` to off in
-`world.create` or make hero 2 non-solid until co-op is switched on.
+**A world built with a bare `KIT.world.create` left hero 2 `solid`,** so the
+player could not step back onto the tile they had just left. *Fixed:* hero 2 is
+solid only in co-op, which `world.create` reads from the project's own setting,
+so a world with no `KIT.game` around it gets the right answer.

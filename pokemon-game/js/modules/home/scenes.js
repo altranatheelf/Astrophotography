@@ -34,15 +34,14 @@
   }
 
   /**
-   * onlyAction(el, fn) — UI.onAction, except that the click stops here.
+   * onlyAction(el, fn) — UI.onAction, and the click stops here.
    *
-   * Our screens are opened from the pause menu and draw into the same host
-   * (#pause-menu), and the menu scene keeps its own delegated click listener on
-   * that host the whole time it is on the stack. Without this, one tap on
-   * "welcome them home" is also read as a tap on whatever pause-menu row
-   * happened to share its index, and the menu paints itself back over us.
-   * Listening in the capture phase and stopping the event is the smallest fix a
-   * module can make; see docs/ENGINE-HOOKS.md §15 for the one the engine should.
+   * These screens draw into the same host as the pause menu (#pause-menu), which
+   * is the one overlay the kit offers for a list over the map. The menu now lets
+   * go of that host while it is covered (KIT.scenes suspend/resume), so this is
+   * belt and braces rather than the fix it used to be — kept because a click
+   * meant for our row has no business reaching anything underneath us, whatever
+   * happens to be listening there.
    */
   function onlyAction(el, fn) {
     const handler = (e) => {
@@ -168,12 +167,15 @@
           .map(id => ({ id, item: project().items[id], count: inv[id] }));
       }
 
-      // ---- the ghost: ordinary entities the renderer already knows how to draw ----
+      // ---- the ghost -------------------------------------------------------------
+      // Markers, not entities: the thing you are about to put down is not in the
+      // world yet, so nothing should be able to walk into it or talk to it, and
+      // nothing iterating world.entities should have to learn to skip it.
       function clearGhosts() {
-        if (!world) return;
+        if (!world || !Array.isArray(world.markers)) { ghosts = []; return; }
         for (const g of ghosts) {
-          const i = world.entities.indexOf(g);
-          if (i >= 0) world.entities.splice(i, 1);
+          const i = world.markers.indexOf(g);
+          if (i >= 0) world.markers.splice(i, 1);
         }
         ghosts = [];
       }
@@ -186,12 +188,12 @@
           const rec = H.placedAt(save(), mapId(), cx, cy);
           cells = rec ? rec.cells.map(c => ({ x: c.x, y: c.y, tile: c.tile })) : [{ x: cx, y: cy, tile: null }];
         }
+        const ok = mode !== 'place' || !itemDef() || H.canPlace(project(), save(), mapId(), itemDef(), variant, cx, cy).ok;
         for (const c of cells) {
-          const g = KIT.entities.create({ id: 'home-ghost-' + c.x + '-' + c.y, kind: 'look', x: c.x, y: c.y, through: true, solid: false, opacity: 0.65 });
-          g.look = c.tile || null;
-          g.data.homeGhost = true;
+          const g = { x: c.x, y: c.y, tile: c.tile || null, layer: 'same', opacity: 0.65,
+            outline: ok ? '#9fe6b0' : '#e69f9f' };
           ghosts.push(g);
-          world.entities.push(g);
+          world.markers.push(g);
         }
       }
       /** Keep the cursor on screen without moving the hero. */

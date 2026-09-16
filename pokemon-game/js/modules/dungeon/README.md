@@ -79,41 +79,26 @@ ordinary bag items; the dark is the kit's atmosphere.
 save and this map view, what happens?". `test/modules/dungeon.test.js` runs it
 in Node (20 tests). `register.js` is only wiring; `panel.js` is only a form.
 
-## What the engine still owes us
+## What the engine learned from this module
 
-1. **A bump event.** Pushing a block by walking into it should be the answer to
-   "the hero tried to move and could not". `world.move()` knows that — it plays
-   the bump sound — but emits nothing, so the system polls
-   `world.ports.input.pressed(hero.dir)` every tick instead. One line in
-   `world.move` (`events.emit('bump', { hero, dir, reason, to })`) would replace
-   the poll and make pushing work for any input source, including a moveRoute.
-2. **Darkness on a layer of its own.** `KIT.atmosphere.draw` punches its light
-   holes with `destination-out` straight onto the finished frame, so the hole
-   erases the *map* as well as the darkness over it. Measured on this dungeon at
+`docs/ENGINE-HOOKS.md` is the full punch list, and all of it is fixed. Four came
+from building this one, and each one is now an engine feature rather than a
+workaround here:
+
+1. **`bump`** — the world says when somebody tried to move and could not, so
+   pushing a block is a listener rather than a poll of the d-pad. It works for a
+   script and a `moveRoute` too, which the poll never could.
+2. **Darkness on a layer of its own.** `KIT.atmosphere` punched its light holes
+   with `destination-out` straight onto the finished frame, so the hole erased
+   the *map* as well as the darkness over it: measured on this dungeon at
    `darkness: 0.88`, the floor inside the lantern came out at brightness 64
    against 51 outside it — the lit circle was very nearly as blank as the dark.
-   Drawn on an offscreen layer and composited with `source-over`, the same floor
-   reads 135 against 51, which is what a lantern is for. Until the kit does that,
-   `KIT.dungeon.fixDarkness()` wraps `A.draw`, does the darkness pass itself and
-   lets the kit do the rest with `darkness` momentarily 0 (`register.js`,
-   "the dark, drawn the way it was meant to be"). It keeps the original on
-   `A.__dungeonOriginalDraw`, and it stands down the moment the kit sets
-   `KIT.atmosphere.LAYERED_DARKNESS = true`. **A map with darkness and no lights
-   on it is fine either way** — only a light source shows the bug — so this
-   affects every game that wants a torch, not only this module.
-3. **A reworded menu label.** `KIT.registry('menus')` validates `label` as plain
-   text, although `scenes/menu.js` already calls a function label. Until the
-   registry allows a function (or a `labelKey` read from the strings table), the
-   Lantern entry cannot be reworded in the Terms panel like everything else. The
-   entry carries `labelKey: 'dungeon-menu-lantern'` ready for the day it can.
+   The darkness pass is built on its own canvas now and composited with
+   `source-over`, and the same floor reads 135 against 51. A dungeon is nothing
+   without that circle.
+3. **A reworded menu label.** The `menus` registry takes a function `label`, so
+   the Lantern entry reads its words from the Terms table like everything else.
+4. **Module behaviours on any page.** `behaviour.kind` reads its options from the
+   `behaviours` registry, so `kind: 'pace'` is an ordinary choice on an ordinary
+   NPC — not something the `dungeon-guard` type has to hand over at run time.
 
-4. **Module behaviours on any event.** `docs/MODULES.md` lists `behaviours` as a
-   registry a module may add to, and this module adds `pace` — but a page cannot
-   name it: `js/kit/world/project.js` declares `behaviour.kind` as
-   `{ type: 'enum', options: ['none','wander','look','route','approach'] }`, a
-   fixed list written before any module loads, so `kind: 'pace'` is a
-   `schema` error at validation. The workaround is the `dungeon-guard` event
-   type, whose system branch hands the entity `{ kind: 'pace', ... }` at run time
-   (the registry lookup is live, only the *authored* page is validated). The fix
-   is one word: `optionsFrom: 'behaviours'` instead of `options: [...]`, and then
-   every module's behaviour works on any NPC.

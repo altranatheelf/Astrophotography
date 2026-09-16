@@ -352,14 +352,22 @@
       });
 
       section(host, 'Modules', false, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on.' }));
-        const known = new Set((p.modules || []).concat(Object.keys(p.packs || {})).concat(['mons']));
+        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
+        // Every module the page has LOADED, so one can be switched on as well as
+        // off — plus any this project names that did not load, which is worth
+        // seeing rather than hiding. The engine knows no module's name.
+        const loaded = (KIT.modules && KIT.modules.all) ? KIT.modules.all() : [];
+        const byId = new Map(loaded.map(d => [d.id, d]));
+        const known = Array.from(new Set(loaded.map(d => d.id).concat(p.modules || []))).sort();
         const chips = make('div.ed-chips');
-        for (const id of Array.from(known).sort()) {
+        for (const id of known) {
+          const def = byId.get(id) || null;
           const on = (p.modules || []).includes(id);
-          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${titleCase(id)}` });
+          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${KIT.labelOf(def, ED, titleCase(id))}` });
           c.type = 'button';
           c.setAttribute('aria-pressed', String(on));
+          if (!def) { c.classList.add('ed-chip-warn'); c.title = `This project asks for “${id}”, but it is not on the page.`; }
+          else if (def.describe) c.title = def.describe;
           c.onclick = () => {
             const list = (p.modules || []).slice();
             const i = list.indexOf(id);
@@ -368,6 +376,7 @@
           };
           chips.appendChild(c);
         }
+        if (!known.length) body.appendChild(make('div.ed-hint', { text: 'No modules are loaded. tools/new-module.js writes one.' }));
         body.appendChild(chips);
       });
     },

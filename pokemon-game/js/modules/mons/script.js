@@ -165,17 +165,6 @@
    */
   M.registerItems = function () {
     const kinds = KIT.registry('itemKinds');
-    // The engine's own default kind. `project.items[].kind` defaults to 'item'
-    // and the kit registers nothing, so validation only starts checking kinds
-    // once somebody registers one — and then every plain keepsake in every
-    // project becomes an `unknown-item-kind` warning. Registering the default
-    // (if nobody has) keeps that from being our fault. See docs/ENGINE-HOOKS.md §16.
-    if (!kinds.has('item')) {
-      kinds.add({
-        id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
-        fields: [], use() { return false; },
-      });
-    }
     kinds.add({
       id: 'ball', label: 'Poké Ball', replace: true,
       doc: 'Thrown in the catch scene. `power` multiplies the chance.',

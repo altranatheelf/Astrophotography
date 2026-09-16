@@ -9,7 +9,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const KIT = require(path.join(ROOT, 'test/kit/_load.js'));
 require(path.join(ROOT, 'js/kit/world/map.js'));
 require(path.join(ROOT, 'js/kit/world/entities.js'));
-KIT.module = KIT.module || ((def) => def);
+require(path.join(ROOT, 'js/kit/systems/index.js'));   // the kit's own behaviours, which pages validate against
 for (const f of ['rules', 'art', 'register', 'manifest']) require(path.join(ROOT, 'js/modules/dungeon/' + f + '.js'));
 const D = KIT.dungeon;
 D.registerAll(KIT);
@@ -256,4 +256,61 @@ test('the manifest declares a save section and a content slice', () => {
   assert.deepEqual(m.save.defaults(), D.defaults());
   assert.deepEqual(m.content.defaults(), D.contentDefaults());
   assert.deepEqual(m.requires, []);
+});
+
+test('a module behaviour can be put on a page like any other', () => {
+  // The page schema takes its behaviour kinds from the `behaviours` registry, so
+  // `pace` — which this module registered — is an ordinary choice on an ordinary
+  // page, and the author sees it in the dropdown next to Wander and Look around.
+  const kinds = KIT.registry('behaviours').ids();
+  assert.ok(kinds.includes('pace'), 'the module registered it: ' + kinds.join(', '));
+  for (const own of ['none', 'wander', 'look', 'route', 'approach']) {
+    assert.ok(kinds.includes(own), 'and the kit’s own ' + own + ' is still there');
+  }
+
+  const raw = floor();
+  raw.maps.cell.objects.push({
+    id: 'patrol', name: 'Patrol', type: 'npc', x: 2, y: 2,
+    pages: [{ behaviour: { kind: 'pace', axis: 'v', speed: 6 }, on: {} }],
+  });
+  const { project, problems } = KIT.project.normalize(raw);
+  assert.deepEqual(problems.filter(p => p.severity === 'error'), [], JSON.stringify(problems));
+  assert.equal(project.maps.cell.objects.find(o => o.id === 'patrol').pages[0].behaviour.kind, 'pace',
+    'and it survives normalize');
+
+  // a kind nobody registered is still an error
+  const bad = floor();
+  bad.maps.cell.objects.push({
+    id: 'ghost', name: 'Ghost', type: 'npc', x: 3, y: 2,
+    pages: [{ behaviour: { kind: 'teleport-about' }, on: {} }],
+  });
+  const said = KIT.project.normalize(bad).problems.filter(p => p.severity === 'error');
+  assert.equal(said.length, 1, JSON.stringify(said));
+  assert.match(said[0].message, /behaviour: kind must be one of/);
+});
+
+test('walking into a block pushes it, through the world’s bump event', async () => {
+  // Not a poll of the d-pad: `bump` is what the world says when somebody tried to
+  // move and could not, so a script or a route pushes the block too.
+  require(path.join(ROOT, 'js/kit/world/world.js'));
+  const { project } = KIT.project.normalize(floor());
+  const save = { vars: {}, inventory: {}, objects: {}, overlays: {}, modules: {}, heroes: [{}], seed: 3 };
+  const world = KIT.world.create({ project, save, rng: KIT.rng(3), ports: {} });
+  await world.enterMap('cell', 4, 5, 'up');
+
+  const block = world.entities.find(e => e.object && e.object.type === 'dungeon-block');
+  assert.ok(block, 'there is a block on this floor');
+  // stand under it, facing it
+  const h = world.hero();
+  h.x = block.x; h.y = block.y + 1; h.px = h.x; h.py = h.y; h.dir = 'up';
+  const was = { x: block.x, y: block.y };
+
+  const moved = await world.move(0, 'up');
+  assert.equal(moved.ok, false, 'the block was in the way');
+  assert.deepEqual({ x: block.x, y: block.y }, { x: was.x, y: was.y - 1 }, 'and it slid one square');
+
+  // and it will not slide again in the same breath
+  world.time = (world.time || 0) + 0.05;
+  await world.move(0, 'up');
+  assert.deepEqual({ x: block.x, y: block.y }, { x: was.x, y: was.y - 1 }, 'one push, then a beat');
 });

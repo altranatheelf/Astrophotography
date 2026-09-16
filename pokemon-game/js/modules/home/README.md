@@ -99,10 +99,10 @@ through the engine or a published hook, all fine when the other side is absent:
 
 `test/modules/integration.test.js` is where those four are held in place.
 
-## What the engine gives us, and what it still owes
+## What the engine gives us
 
-The full punch list is **`docs/ENGINE-HOOKS.md`**. What this module leans on and
-no longer has to fake:
+The full punch list is **`docs/ENGINE-HOOKS.md`**; all of it is fixed. What this
+module leans on, and used to have to fake:
 
 * **The clock is the engine's** (§1). It runs the minutes, keeps the stamp
   fresh, measures the gap between sessions and says `sessionResumed
@@ -122,14 +122,16 @@ no longer has to fake:
   opens. The type's default page carrying `@openJobBoard` is still the visible,
   editable way in; that listener is the safety net underneath it.
 
-Still worked around here:
+* **`world.markers`** (§7) is what the placement ghost is: a tile drawn on the
+  map that is not in it, so nothing walks into it and nothing talks to it. Its
+  outline is green where the furniture will go and red where it will not.
+* **A covered scene is suspended** (§15), so the pause menu lets go of
+  `#pause-menu` while our screens are drawn into it. `onlyAction` in `scenes.js`
+  stayed as belt and braces: a click meant for our row has no business reaching
+  anything underneath it.
+* **The kit registers its own default `item` kind** (§16), so registering
+  `furniture` no longer makes every plain keepsake in the project warn.
 
-1. **The renderer cannot draw a ghost** (§7). The placement screen fakes one
-   with a `through`, non-solid entity whose `look` is the tile and whose
-   `opacity` pulses.
-2. **The pause menu keeps its click listener while we are on top of it** (§15).
-   Our screens draw into `#pause-menu`, so `scenes.js` delegates clicks in the
-   capture phase and stops them (`onlyAction`).
-3. **The kit never registers its own default `item` kind** (§16), so the moment
-   we register `furniture`, every plain keepsake in the project would start
-   warning. We register `item` first, if nobody has.
+Nothing in this module works around the engine any more. If you find something
+that has to, add it to `docs/ENGINE-HOOKS.md` — that list is how the engine
+learns.

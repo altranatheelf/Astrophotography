@@ -229,6 +229,62 @@
       if (e.data && e.data.balloon) drawBalloon(e, sx + dims.w * scale / 2, sy);
     }
 
+    /**
+     * Markers (§8.4): things drawn on the map that are not IN the world.
+     *
+     *   world.markers.push({ x, y, tile:'rug', opacity: 0.6, pulse: 400, tint: '#7fd' })
+     *
+     * A ghost while you decide where to put something down, a square shaded
+     * because you may move there, a footprint, a target. They are NOT entities:
+     * nothing walks into them, nothing talks to them, and nothing iterating
+     * world.entities has to learn to skip them. `world.markers` is a plain array
+     * a system or a scene fills and empties.
+     *
+     *   x, y      in tiles; fractions are fine
+     *   tile      a tile id, OR `art` for pixel art (a sprite frame, an image)
+     *   layer     'below' | 'same' (default) | 'above' — the same three the
+     *             entities use, so a marker can sit under or over a character
+     *   opacity   0..1, default 0.75
+     *   pulse     ms for one breath in and out; 0 or absent is steady
+     *   tint      a colour washed over it
+     *   outline   a colour drawn round the tile's square
+     */
+    function drawMarkers(world, layer, view, camX, camY, time) {
+      const list = world.markers;
+      if (!Array.isArray(list) || !list.length) return;
+      for (const m of list) {
+        if (!m) continue;
+        if ((m.layer || 'same') !== layer) continue;
+        const def = m.tile ? tileDef(m.tile) : null;
+        const art = m.art || (m.tile ? (def ? tileArt(def) : missingArt(m.tile, TILE(), TILE(), true)) : null);
+        const sx = Math.round(((Number.isFinite(m.x) ? m.x : 0) - camX) * tilePx);
+        const sy = Math.round(((Number.isFinite(m.y) ? m.y : 0) - camY) * tilePx);
+        let alpha = m.opacity == null ? 0.75 : m.opacity;
+        if (m.pulse) alpha *= 0.65 + 0.35 * (0.5 + 0.5 * Math.sin((time / m.pulse) * Math.PI * 2));
+        if (alpha <= 0) continue;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, alpha);
+        if (art) {
+          const dims = KIT.pixels.dims(art);
+          KIT.pixels.draw(ctx, art, sx + Math.round((tilePx - dims.w * scale) / 2),
+            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), { scale, recolor });
+        }
+        if (m.tint) {
+          ctx.globalCompositeOperation = art ? 'source-atop' : 'source-over';
+          ctx.fillStyle = m.tint;
+          ctx.fillRect(sx, sy, tilePx, tilePx);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        if (m.outline) {
+          ctx.globalAlpha = Math.min(1, alpha + 0.2);
+          ctx.strokeStyle = m.outline;
+          ctx.lineWidth = Math.max(1, scale);
+          ctx.strokeRect(sx + scale / 2, sy + scale / 2, tilePx - scale, tilePx - scale);
+        }
+        ctx.restore();
+      }
+    }
+
     const BALLOON_MS = 1200;
     function drawBalloon(e, cx, topY) {
       const b = e.data.balloon;
@@ -385,13 +441,16 @@
       for (const e of all) (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
       const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
       below.sort(byY); same.sort(byY); above.sort(byY);
+      drawMarkers(world, 'below', view, camX, camY, time);
       for (const e of below) drawEntity(e, view, camX, camY);
       for (const e of same) drawEntity(e, view, camX, camY);
+      drawMarkers(world, 'same', view, camX, camY, time);
 
       // the `above` tile layer covers characters (treetops, roofs, bridges)
       blit(c, view, 'above', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['above']);
       for (const e of above) drawEntity(e, view, camX, camY);
+      drawMarkers(world, 'above', view, camX, camY, time);
 
       // atmosphere sits over the world but under the pictures and the UI overlays
       if (KIT.atmosphere && KIT.atmosphere.draw) {

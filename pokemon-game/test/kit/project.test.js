@@ -52,7 +52,7 @@ test('normalize fills defaults everywhere (maps, layers, pages, props, strings, 
   const { project: p, problems } = P.normalize(sample());
   assert.equal(p.version, 3);
   assert.equal(p.settings.tileSize, 16); assert.deepEqual(p.settings.viewport, { w: 16, h: 12 });
-  assert.equal(p.strings['got-item'], 'Got {count} {item}!');
+  assert.equal(KIT.strings.get(p, 'got-item'), 'Got {count} {item}!');
   assert.equal(p.heroes.length, 1); assert.deepEqual(p.heroes[0].recolor, {});
   assert.equal(p.vars.metMom.type, 'bool'); assert.equal(p.vars.metMom.default, false); assert.equal(p.vars.chapter.label, 'Chapter');
   assert.equal(p.items.berry.kind, 'item'); assert.deepEqual(p.items.berry.props, {});
@@ -282,8 +282,27 @@ test('object types and presets: buildPreset places objects (transfer pair on two
 
 test('strings registry drives project.strings; project schema fields are exposed', () => {
   KIT.registry('strings').add({ id: 'test-term', default: 'Hello' });
-  const { project: p } = P.normalize({ strings: { 'test-term': 'Custom', 'got-item': 'Yay {item}' }, maps: { a: {} } });
-  assert.equal(p.strings['test-term'], 'Custom'); assert.equal(p.strings['got-item'], 'Yay {item}'); assert.equal(p.strings['save-prompt'], 'Save your progress?');
+  const { project: p } = P.normalize({
+    strings: { 'test-term': 'Custom', 'got-item': 'Yay {item}', 'save-prompt': 'Save your progress?' },
+    maps: { a: {} },
+  });
+  // Content carries the OVERRIDES, not a frozen copy of every registered default.
+  assert.deepEqual(p.strings, { 'test-term': 'Custom', 'got-item': 'Yay {item}' },
+    'save-prompt equalled its default, so it is not content');
+  // and every term still answers, through the registry
+  assert.equal(KIT.strings.get(p, 'test-term'), 'Custom');
+  assert.equal(KIT.strings.get(p, 'got-item'), 'Yay {item}');
+  assert.equal(KIT.strings.get(p, 'save-prompt'), 'Save your progress?');
+
+  // a term nobody registered is kept whatever it says — it is the author's own
+  const own = P.normalize({ strings: { 'my-own-term': 'Mine' }, maps: { a: {} } }).project;
+  assert.equal(own.strings['my-own-term'], 'Mine');
+  assert.equal(KIT.strings.get(own, 'my-own-term'), 'Mine');
+
+  // and a reworded default reaches a project that never overrode it
+  const plain = P.normalize({ maps: { a: {} } }).project;
+  KIT.registry('strings').add({ id: 'test-term', default: 'Hello again', replace: true });
+  assert.equal(KIT.strings.get(plain, 'test-term'), 'Hello again', 'nothing was frozen into the content');
   KIT.registry('strings').remove('test-term');
   assert.ok(P.fields.meta.some(f => f.key === 'pitch') && P.fields.page.some(f => f.key === 'when') && P.fields.autotileRule.some(f => f.key === 'pattern'));
   assert.deepEqual(P.SLOTS, ['interact', 'step', 'touch', 'enter', 'tick', 'init']);

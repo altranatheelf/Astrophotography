@@ -231,7 +231,7 @@ Gifts and housekeeping: `rollGifts(save, project, now)` `placeGift(save, project
 
 ### `KIT.dungeon` — room-to-room crawling (`js/modules/dungeon/`)
 Save `save.modules.dungeon` · content `project.packs.dungeon`. Used by the `dungeon` template.
-`tuning(project)` `contentDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` `hasKey` `isOpen` `tryOpen` `blockAt` `setBlock` `canPush` `switchOn` `setSwitch` `plateHeld` `gateOpen` `switchNames` `torchLight` `lightTorch` `putOut` `isDark` `describe` — all pure; `live(world)` `onMapEnter` `tick` `entityFor` `pushEntity` `fixDarkness` are the wiring, and `panel.js` is a form. The dark is the kit's own `KIT.atmosphere` (`map.props.atmosphere = { darkness, ambient }`), and the lantern is `hero.data.light`.
+`tuning(project)` `contentDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` `hasKey` `isOpen` `tryOpen` `blockAt` `setBlock` `canPush` `switchOn` `setSwitch` `plateHeld` `gateOpen` `switchNames` `torchLight` `lightTorch` `putOut` `isDark` `describe` — all pure; `live(world)` `onMapEnter` `tick` `entityFor` `pushEntity` `listen` are the wiring, and `panel.js` is a form. The dark is the kit's own `KIT.atmosphere` (`map.props.atmosphere = { darkness, ambient }`), and the lantern is `hero.data.light`.
 
 ## Still to build
 Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus four browser play-throughs (`e2e/walk.js`, `e2e/import.js`, `e2e/editor.js`, `e2e/vision.js`).

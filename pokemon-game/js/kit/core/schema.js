@@ -52,8 +52,14 @@
   function enumOptions(field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).ids();
-      else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
+      // An EMPTY registry constrains nothing. It means the file that fills it has
+      // not loaded yet (a headless test using half the engine, a tool), not that
+      // every value is wrong — refusing them all would report a working project
+      // as broken. Unknown is null, and null passes.
+      if (KIT.registry.exists(field.optionsFrom)) {
+        const ids = KIT.registry(field.optionsFrom).ids();
+        opts = ids.length ? ids : null;
+      } else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
       else opts = null;
     }
     if (!opts) return null;

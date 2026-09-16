@@ -149,8 +149,8 @@ through the engine or a published hook, all fine when the other side is absent:
 
 ## The hooks
 
-The full punch list is **`docs/ENGINE-HOOKS.md`**. What the engine now does, so
-this module does not:
+The full punch list is **`docs/ENGINE-HOOKS.md`**; all of it is fixed. What the
+engine does now, so this module does not:
 
 * **The session gap** (§1) — the engine measures it, keeps the stamp fresh and
   says `sessionResumed` once. We listen, and pay the away bonus.
@@ -166,17 +166,19 @@ this module does not:
 * **The save and content slices are declared** (§2) — `M.section(save)` and
   `M.pack(project)` read what the engine already filled.
 
-Still worked around in this folder:
+* **`KIT.interpreter.whenIdle()`** (§11) — the starter hook fires from a
+  `varChanged` listener *inside* the lab stand's script, and a name box opened
+  there would land under the script's own message box and wedge both. It waits
+  for its turn instead of polling for it.
+* **Content may use this module's commands** (§3, §10) — modules register before
+  the project is validated. The lab starters still go through
+  `packs.mons.starters`, but now because watching a story variable is the better
+  design, not because `@givePokemon` failed validation.
+* **The kit registers its own default `item` kind** (§16).
 
-1. **Content cannot mention a module's commands without failing the kit's own
-   tests** (§10) — the lab starters go through `packs.mons.starters` instead.
-2. **Nothing says when the main script thread goes quiet** (§11) — the starter
-   hook fires from a `varChanged` listener *inside* the stand's script, and a
-   name box opened there lands under the script's own message box and wedges
-   both. `actions.js` waits for the thread to finish first.
-3. **The kit never registers its own default `item` kind** (§16) — registering
-   `ball` and `berry` would otherwise make every plain keepsake in the project
-   warn, so we register `item` first if nobody has.
+Nothing in this module works around the engine any more. If you find something
+that has to, add it to `docs/ENGINE-HOOKS.md` — that list is how the engine
+learns.
 
 Two smaller ones, both outside this module's files:
 

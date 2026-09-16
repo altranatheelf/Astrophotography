@@ -128,17 +128,6 @@
     if (typeof H.registerPanel === 'function') H.registerPanel();
 
     // --- item kinds ---------------------------------------------------------------
-    // The engine's own default kind first: `project.items[].kind` defaults to
-    // 'item' and the kit registers nothing for it, so the moment any module
-    // registers a kind, every plain keepsake in every project turns into an
-    // `unknown-item-kind` warning. See docs/ENGINE-HOOKS.md §16.
-    if (!KIT.registry('itemKinds').has('item')) {
-      KIT.registry('itemKinds').add({
-        id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
-        fields: [], use() { return false; },
-      });
-    }
-
     KIT.registry('itemKinds').add({
       id: 'furniture', label: 'Furniture', doc: 'Something you can carry home and put down. Using it opens the placement screen.',
       fields: H.FURNITURE_FIELDS,

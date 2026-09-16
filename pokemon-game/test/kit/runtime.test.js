@@ -244,3 +244,73 @@ test('input: state, presses and the two keyboard layouts', () => {
   assert.equal(KIT.input.state(2).a, false);
   KIT.input.setPlayers(1);
 });
+
+test('scenes: a covered scene is suspended and let go of what it was holding', () => {
+  const log = [];
+  const reg = KIT.registry('scenes');
+  const mk = (id) => ({
+    id, create: () => ({
+      id,
+      enter() { log.push(id + ':enter'); },
+      suspend(by) { log.push(id + ':suspend by ' + (by ? by.id : '?')); },
+      resume() { log.push(id + ':resume'); },
+      exit() { log.push(id + ':exit'); },
+    }),
+  });
+  reg.add(Object.assign(mk('t-under'), { replace: true }));
+  reg.add(Object.assign(mk('t-over'), { replace: true }));
+  reg.add(Object.assign(mk('t-third'), { replace: true }));
+  try {
+    const under = KIT.scenes.push('t-under');
+    assert.equal(under.suspended, undefined, 'on top, so not suspended');
+
+    const over = KIT.scenes.push('t-over');
+    assert.equal(under.suspended, true);
+    assert.equal(over.suspended, undefined);
+
+    const third = KIT.scenes.push('t-third');
+    assert.equal(over.suspended, true);
+    assert.equal(under.suspended, true, 'still suspended; it is not resumed twice');
+
+    KIT.scenes.finish(third, null);
+    assert.equal(over.suspended, false, 'the one it covered is on top again');
+    assert.equal(under.suspended, true, 'the one below that is not');
+
+    KIT.scenes.finish(over, null);
+    assert.equal(under.suspended, false);
+
+    assert.deepEqual(log, [
+      't-under:enter',
+      't-under:suspend by t-over', 't-over:enter',
+      't-over:suspend by t-third', 't-third:enter',
+      't-third:exit', 't-over:resume',
+      't-over:exit', 't-under:resume',
+    ]);
+
+    // closing a scene from the MIDDLE of the stack resumes nobody: the top did
+    // not change, so nothing that was covered has been uncovered.
+    log.length = 0;
+    const a = KIT.scenes.push('t-under');
+    const b = KIT.scenes.push('t-over');
+    log.length = 0;
+    KIT.scenes.finish(a, null);
+    assert.equal(b.suspended, undefined, 'the top scene was never suspended');
+    assert.deepEqual(log, ['t-under:exit']);
+    KIT.scenes.finish(b, null);
+  } finally {
+    KIT.scenes.clear();
+    for (const id of ['t-under', 't-over', 't-third']) reg.remove(id);
+  }
+});
+
+test('scenes: a scene with neither hook is no trouble at all', () => {
+  const reg = KIT.registry('scenes');
+  reg.add({ id: 't-plain', replace: true, create: () => ({ id: 't-plain' }) });
+  try {
+    const plain = KIT.scenes.push('t-plain');
+    KIT.scenes.push('t-plain');
+    assert.equal(plain.suspended, true, 'it is still marked, so anything can ask');
+    KIT.scenes.pop();
+    assert.equal(plain.suspended, false);
+  } finally { KIT.scenes.clear(); reg.remove('t-plain'); }
+});

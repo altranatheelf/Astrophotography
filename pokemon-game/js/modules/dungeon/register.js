@@ -246,10 +246,7 @@
     // ---- the pause menu ---------------------------------------------------------------
     KIT.registry('menus').add({
       id: 'dungeon-lantern', order: 34, icon: 'dun-torch-icon',
-      // The `menus` registry validates `label` as plain text, so the reworded
-      // string cannot be used here yet (see README, "What the engine still owes
-      // us"). `labelKey` is what the shell would read if it could.
-      label: 'Lantern', labelKey: 'dungeon-menu-lantern',
+      label: (game) => KIT.strings.get(game && game.project, 'dungeon-menu-lantern'),
       when: (game) => !!(game && game.world),
       value: (game) => {
         const d = D.ensure(game.world.save);
@@ -302,90 +299,6 @@
     });
 
     if (typeof D.registerPanel === 'function') D.registerPanel();
-    D.fixDarkness();
-  };
-
-  // ---- the dark, drawn the way it was meant to be -------------------------------------
-  // KIT.atmosphere.draw punches its light holes with `destination-out` straight
-  // onto the finished frame, which erases the map inside the hole instead of
-  // only the darkness over it: at darkness 0.7 the lit circle comes out EMPTIER
-  // than the unlit room. A dungeon is nothing without that circle, so the module
-  // draws the darkness pass itself, on its own layer, and lets the kit do the
-  // rest (fog, grain, vignette, letterbox) with darkness momentarily set to 0.
-  //
-  // This is a workaround and it is meant to go away. The fix belongs in
-  // js/kit/render/atmosphere.js — see README, "What the engine still owes us".
-  // When the kit composites its darkness on a layer of its own it should set
-  // KIT.atmosphere.LAYERED_DARKNESS = true, and this stops doing anything.
-  let buffer = null;
-  function bufferFor(w, h) {
-    if (!buffer || buffer.width !== w || buffer.height !== h) {
-      if (typeof document === 'undefined') return null;
-      buffer = document.createElement('canvas');
-      buffer.width = w; buffer.height = h;
-    }
-    return buffer;
-  }
-  /** The same maths the kit uses, composited on a layer of its own. */
-  function drawDarkness(A, ctx, world, view, a) {
-    const W = view.W, H = view.H, tilePx = view.tilePx, time = view.time || 0;
-    const buf = bufferFor(W, H);
-    if (!buf) return false;
-    const g = buf.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, W, H);
-    g.globalCompositeOperation = 'source-over';
-    g.fillStyle = A.rgba(a.ambient, a.darkness);
-    g.fillRect(0, 0, W, H);
-    const lights = A.lights(world);
-    if (lights.length) {
-      g.globalCompositeOperation = 'destination-out';
-      for (const l of lights) {
-        const flick = l.flicker
-          ? 1 + Math.sin(time / 90 + KIT.hash(l.seed) % 100) * 0.06 * l.flicker + (KIT.hash(l.seed, Math.floor(time / 120)) % 100) / 100 * 0.04 * l.flicker
-          : 1;
-        const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * tilePx);
-        const x = (l.x - view.camX) * tilePx, y = (l.y - view.camY) * tilePx;
-        const grad = g.createRadialGradient(x, y, r * (1 - KIT.clamp(l.softness, 0, 0.95)), x, y, r);
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = grad;
-        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-      }
-    }
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.drawImage(buf, 0, 0);
-    if (lights.length) {                       // warm the lit area back up a little
-      ctx.globalCompositeOperation = 'lighter';
-      for (const l of lights) {
-        const r = Math.max(2, l.radius * (a.lightScale || 1) * tilePx);
-        const x = (l.x - view.camX) * tilePx, y = (l.y - view.camY) * tilePx;
-        const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, A.rgba(l.color, 0.16 * a.darkness));
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    ctx.restore();
-    return true;
-  }
-  D.fixDarkness = function () {
-    const A = KIT.atmosphere;
-    if (!A || typeof A.draw !== 'function' || A.LAYERED_DARKNESS || A.__dungeonFixed) return false;
-    const original = A.draw;
-    A.__dungeonFixed = true;
-    A.__dungeonOriginalDraw = original;        // so the difference can be measured, and undone
-    A.draw = function (ctx, world, view) {
-      const a = A.state();
-      const darkness = a && a.darkness;
-      if (!(darkness > 0.001) || !drawDarkness(A, ctx, world, view, a)) return original.call(A, ctx, world, view);
-      a.darkness = 0;                          // the kit skips its own pass; we have done it
-      try { return original.call(A, ctx, world, view); } finally { a.darkness = darkness; }
-    };
-    return true;
   };
 
   // ---- the live half: what the system does every tick -------------------------------------
@@ -419,6 +332,7 @@
   /** onMapEnter — light the lantern in a dark room, and put the blocks back where the save left them. */
   D.onMapEnter = function (world) {
     if (!world || !world.map) return;
+    D.listen(world);
     const L = D.live(world);
     for (const e of world.entities) {
       if (!e.object || e.object.type !== 'dungeon-block') continue;
@@ -430,10 +344,34 @@
     if (L.tuning.lightOnEnter && D.isDark(world.map) && !(L.data.torch && L.data.torch.lit)) D.lightTorch(L.data, L.tuning.torchRadius);
   };
 
-  let pushCharge = 0;
-  /** tick — looks, solidity, plates, gates, the lantern, and pushing by walking. */
+  /**
+   * Pushing a block is the answer to "somebody tried to walk into it and could
+   * not", which is exactly what the world's `bump` event says. Listening for it
+   * rather than polling the d-pad means a block can also be pushed by a script,
+   * by a moveRoute, or by any input the engine grows later.
+   */
+  D.listen = function (world) {
+    if (!world || !world.events || world._dungeonListening) return;
+    world._dungeonListening = true;
+    world.events.on('bump', (p) => {
+      try {
+        const L = D.live(world);
+        if (!L.tuning.pushBlocks || world.busy || !p || !p.to) return;
+        const now = world.time || 0;
+        if (now - (world._dungeonPushAt || -9) < 0.25) return;      // one push, then a beat
+        const block = world.entities.find(e => e.object && e.object.type === 'dungeon-block'
+          && e.x === p.to.x && e.y === p.to.y && !e.mover.moving);
+        if (!block) return;
+        world._dungeonPushAt = now;
+        D.pushEntity(world, block, p.dir);
+      } catch (e) { (KIT.log || console).error('[dungeon] bump', e); }
+    });
+  };
+
+  /** tick — looks, solidity, plates, gates and the lantern. */
   D.tick = function (world, dt) {
     if (!world || !world.map) return;
+    D.listen(world);
     const L = D.live(world);
     const data = L.data, tuning = L.tuning;
     const standing = L.standing();
@@ -468,9 +406,12 @@
         }
         e.look = on ? (props.lookOn || props.look || null) : (props.look || null);
       } else if (type === 'dungeon-guard') {
-        // The kit's page schema has a fixed list of behaviour kinds, so the
-        // module hands its own one to the entity at run time instead.
-        if (!e.behaviour || e.behaviour.kind !== 'pace') e.behaviour = { kind: 'pace', axis: props.axis || 'h', speed: num(props.speed, 4) };
+        // A guard's page may say `behaviour: { kind: 'pace' }` like any other —
+        // the page schema reads its options from the `behaviours` registry. This
+        // is only the type's convenience: a guard placed in Creator Mode paces
+        // along the axis in its own props without the author setting a behaviour.
+        if (!e.behaviour || e.behaviour.kind === 'none') e.behaviour = { kind: 'pace', axis: props.axis || 'h', speed: num(props.speed, 4) };
+        else if (e.behaviour.kind === 'pace' && e.behaviour.axis === undefined) e.behaviour = Object.assign({ axis: props.axis || 'h', speed: num(props.speed, 4) }, e.behaviour);
       } else if (type === 'dungeon-gate') {
         const open = D.gateOpen(data, props.needs, props.invert);
         if (e.data.gateOpen !== open) {
@@ -487,21 +428,6 @@
     const light = D.torchLight(data, tuning);
     for (const h of world.heroes || []) { h.data = h.data || {}; h.data.light = light; }
 
-    // push by walking into it
-    if (!tuning.pushBlocks || world.busy) { pushCharge = 0; return; }
-    const input = world.ports && world.ports.input;
-    const h = world.hero();
-    if (!input || !h || h.mover.moving) { pushCharge = 0; return; }
-    let held = false;
-    try { held = !!input.pressed(h.dir, h.id); } catch (err) { held = false; }
-    if (!held) { pushCharge = 0; return; }
-    const d = KIT.delta(h.dir);
-    const block = world.entities.find(e => e.object && e.object.type === 'dungeon-block' && e.x === h.x + d.dx && e.y === h.y + d.dy && !e.mover.moving);
-    if (!block) { pushCharge = 0; return; }
-    pushCharge += dt;
-    if (pushCharge < 0.2) return;
-    pushCharge = -0.35;                       // one push, then a beat before the next
-    D.pushEntity(world, block, h.dir);
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

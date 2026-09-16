@@ -12,11 +12,6 @@ global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) require(path.join(root, f));
 require(path.join(root, 'js/kit/world/map.js'));
 
-// The strings the ENGINE itself ships, before any module adds its own. Modules
-// own their words: the demo content must not carry a frozen copy of them (see
-// the end of this file).
-const KIT_STRINGS = new Set(KIT.registry('strings').ids());
-
 // The modules the demo enables. They have to be registered before normalize()
 // sees the demo, or their item kinds, object types, commands, conditions and
 // ref:mon fields cannot be filled in or validated. tools/load-modules.js is the
@@ -477,25 +472,10 @@ const raw = {
 
 const { project, problems } = KIT.project.normalize(raw);
 
-// normalize() fills `project.strings` with every registered default, modules
-// included. A module owns its own words, so leaving them here would freeze a
-// copy of them in the content: the Terms panel reads the registry and only
-// treats project.strings as an override, so dropping the untouched module
-// defaults changes nothing on screen and keeps the demo honest about what it
-// owns. Anything an author has actually reworded (it differs from the default)
-// stays.
-{
-  const reg = KIT.registry('strings');
-  let dropped = 0;
-  for (const key of Object.keys(project.strings || {})) {
-    if (KIT_STRINGS.has(key)) continue;                      // the engine's own
-    if (!reg.has(key)) continue;                             // not a module's either: leave it
-    if (project.strings[key] !== reg.get(key).default) continue;  // reworded on purpose
-    delete project.strings[key];
-    dropped++;
-  }
-  if (dropped) console.log(`left ${dropped} module string(s) to their modules`);
-}
+// `project.strings` carries only what this demo has actually reworded: normalize
+// keeps a key when it differs from its registered default, or when nothing
+// registers it. Everything else answers from the registry, so a module keeps
+// owning its own words.
 const errors = problems.filter(p => p.severity === 'error');
 for (const p of problems) console.log(`${p.severity === 'error' ? 'ERROR' : 'warn '} [${p.code}] ${p.message} ${JSON.stringify(p.where || {})}`);
 if (errors.length) { console.error(`\n${errors.length} error(s) — not written.`); process.exit(1); }

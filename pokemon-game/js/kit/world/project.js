@@ -92,7 +92,11 @@
       { key: 'visible', type: 'bool', default: true }, { key: 'once', type: 'bool', doc: 'Sugar for self.done on interact/step/touch.' }, { key: 'needsBoth', type: 'bool' },
     ],
     behaviour: [
-      { key: 'kind', type: 'enum', options: ['none', 'wander', 'look', 'route', 'approach'], default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
+      // From the registry, not a list written here: the `behaviours` system looks
+      // each kind up there, so a module that registers `pace` can put
+      // `behaviour: { kind: 'pace' }` on a page and have it validate and appear
+      // in the dropdown. The kit's own five are registered in systems/index.js.
+      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
       { key: 'speed', type: 'number', min: 0.1, max: 20, default: 1 }, { key: 'frequency', type: 'number', min: 0, max: 10, default: 2 }, { key: 'route', type: 'route', when: { field: 'kind', eq: 'route' } }, { key: 'repeat', type: 'bool', default: true },
     ],
     autotileGroup: [idField('id'), { key: 'name', type: 'string' }, { key: 'active', type: 'bool', default: true }, { key: 'terrain', type: 'number', integer: true, default: 0 }, { key: 'layer', type: 'enum', options: ['ground', 'deco'], default: 'ground' }],
@@ -413,9 +417,23 @@
     if (p.meta.created === undefined) delete p.meta.created;
     p.modules = Array.isArray(src.modules) ? src.modules.filter(m => typeof m === 'string') : [];
     p.settings = S.fill(F.settings, isObj(src.settings) ? src.settings : {});
+    // Only the OVERRIDES. `KIT.strings.get` falls back to the registry and the
+    // Terms panel lists from it, so copying every registered default in here
+    // would freeze a snapshot into the content — one that silently wins over the
+    // engine or a module the day somebody rewords a default, and dead weight in a
+    // project that later switches that module off. A key stays when it differs
+    // from its registered default, or when nothing registers it at all.
     p.strings = {};
-    for (const s of KIT.registry('strings').list()) p.strings[s.id] = s.default;
-    if (isObj(src.strings)) for (const k of Object.keys(src.strings)) if (typeof src.strings[k] === 'string') p.strings[k] = src.strings[k];
+    if (isObj(src.strings)) {
+      const reg = KIT.registry('strings');
+      for (const k of Object.keys(src.strings)) {
+        const v = src.strings[k];
+        if (typeof v !== 'string') continue;
+        const def = reg.get(k);
+        if (def && def.default === v) continue;
+        p.strings[k] = v;
+      }
+    }
     const heroes = Array.isArray(src.heroes) && src.heroes.length ? src.heroes : [{ id: 'p1', name: 'Player 1', sprite: 'hero-boy' }, { id: 'p2', name: 'Player 2', sprite: 'hero-girl' }];
     p.heroes = heroes.map((h, i) => { const o = S.fill(F.hero, isObj(h) ? h : {}); if (!o.id) o.id = `p${i + 1}`; if (!o.name) o.name = `Player ${i + 1}`; return o; });
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});

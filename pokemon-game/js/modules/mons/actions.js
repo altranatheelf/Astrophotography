@@ -183,19 +183,21 @@
      * The variable is set *inside* the script that sets it — the lab stand still
      * has lines to say afterwards. Asking for a nickname there would push a name
      * box under the script's own message box and wedge both: the box below waits
-     * for an answer it can never be given. So we wait for the main thread to
-     * finish saying its piece, and only then say hello.
+     * for an answer it can never be given. So we wait for our turn.
+     *
+     * `KIT.interpreter.whenIdle()` is the engine's answer to "has the script
+     * finished"; the screen is a separate question, because a message box stays
+     * up after the script that pushed it has ended.
      */
-    const grantWhenQuiet = (justChosen) => {
-      let tries = 0;
-      const attempt = () => {
-        const busy = (KIT.interpreter && KIT.interpreter.mainBusy && KIT.interpreter.mainBusy()) ||
-          (world && world.busy) ||
-          (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
-        if (busy && tries++ < 600) { setTimeout(attempt, 100); return; }   // a minute, then give up waiting
-        grantIfNeeded(justChosen);
-      };
-      attempt();
+    const grantWhenQuiet = async (justChosen) => {
+      try { await KIT.interpreter.whenIdle(); } catch (e) { /* nothing was running */ }
+      const onScreen = () => (world && world.busy) ||
+        (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
+      for (let tries = 0; onScreen() && tries < 600; tries++) {
+        await new Promise(r => setTimeout(r, 100));               // a minute, then say it anyway
+        try { await KIT.interpreter.whenIdle(); } catch (e) { /* ditto */ }
+      }
+      grantIfNeeded(justChosen);
     };
     const off = world.events.on('varChanged', (p) => { if (p && p.name === cfg.var) grantWhenQuiet(true); });
     grantIfNeeded(false);            // catching a save up is quiet: no prompt, no fanfare

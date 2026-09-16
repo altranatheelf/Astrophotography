@@ -34,6 +34,14 @@
   ]), doc: 'Script commands: { id, label, group, fields, run(ctx, cmd), summary(cmd, ctx), text:{ toLine, fromLine } }.' });
   KIT.defineRegistry('conditions', { fields: named, doc: 'Condition kinds: { id, label, fields, test(cond, ctx) }.' });
   KIT.defineRegistry('itemKinds', { fields: named, doc: 'Item kinds: { id, label, fields (extra item props), use(ctx, item) }.' });
+  // The default kind, registered beside the schema default that names it
+  // (`project.items[].kind` is 'item'). Without this the kind check is silently
+  // skipped while the registry is empty, and then the first module to register a
+  // kind turns every plain keepsake in every project into a warning.
+  KIT.registry('itemKinds').add({
+    id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
+    fields: [], use() { return false; },
+  });
   KIT.defineRegistry('systems', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Per-tick systems: { id, order, update(world, dt), onMapEnter, onMapLeave }.' });
   KIT.defineRegistry('scenes', { fields: named, doc: 'Scene factories: { id, create(params) -> scene }.' });
   KIT.defineRegistry('menus', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Pause-menu entries: { id, label, icon, order, open(game) }.' });

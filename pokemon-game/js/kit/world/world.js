@@ -32,6 +32,13 @@
     const world = {
       project, save, events, rng, ports,
       map: null, entities: [], heroes: [], companion: null,
+      // Things DRAWN on the map that are not IN it: a ghost of the thing you are
+      // about to put down, a shaded square, a target, a footprint. Push one, and
+      // take it away again when you are done. Nothing walks into a marker and
+      // nothing talks to it — that is the whole point of it not being an entity.
+      // See drawMarkers in render/renderer.js for the fields.
+      markers: [],
+      interacting: null,           // the promise of the script the last A press started
       viewport: Object.assign({ w: 16, h: 12 }, (project.settings && project.settings.viewport) || {}),   // live tiles on screen; the renderer updates it, the project is not touched
       activeEntity: null,          // the object whose script is running (ports read it to resolve target 'self')
       activeHero: 0, coop: !!(project.settings && project.settings.coop && project.settings.coop.enabled),
@@ -42,10 +49,15 @@
     };
 
     // ---- heroes ---------------------------------------------------------------
+    // Hero 2 is solid only in co-op. On one pad they walk the leader's trail —
+    // one step behind, on the square the leader has just left — so a solid hero 2
+    // means the player cannot step back the way they came. KIT.game.setCoop
+    // flips this when co-op is switched on; a world built without a game (a test,
+    // a tool) gets the right answer from the project's own setting.
     function makeHeroes() {
       world.heroes = (project.heroes || []).map((h, i) => {
         const st = (save.heroes || [])[i] || {};
-        return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: true });
+        return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: i === 0 || world.coop });
       });
     }
     makeHeroes();
@@ -255,21 +267,37 @@
       return () => { const i = extraTargets.indexOf(fn); if (i >= 0) extraTargets.splice(i, 1); };
     };
 
-    /** interact(heroIndex) -> Promise<boolean> — the A button. */
-    world.interact = async function (heroIndex) {
+    /**
+     * interact(heroIndex, opts) -> Promise<boolean> — the A button.
+     *
+     * By default this resolves when the CONVERSATION is over, which is what the
+     * map scene wants. `{ wait: false }` resolves as soon as the press has landed
+     * and the script has started, which is what anything driving the game from
+     * outside wants — a test, a tool, a module that only needs to know somebody
+     * was talked to. Awaiting the default from outside waits for the player.
+     *
+     * `world.interacting` is the running script's promise either way, for a
+     * caller that wants both answers.
+     */
+    world.interact = async function (heroIndex, opts) {
+      const wait = !(opts && opts.wait === false);
       if (world.busy) return false;
       const h = world.hero(heroIndex);
       if (!h || h.mover.moving) return false;
       const t = world.map.interactTarget(h.x, h.y, h.dir);
       if (!t) return false;
+      const started = (p) => {
+        world.interacting = Promise.resolve(p).catch((e) => { (KIT.log || console).error('[world] interact', e); });
+        return wait ? world.interacting.then(() => true) : true;
+      };
       const spots = [t.first].concat(t.second ? [t.second] : []);
       for (const spot of spots) {
         const hit = world.entities.find(e => e.x === spot.x && e.y === spot.y && e.page && e.page.on && e.page.on.interact);   // invisible events still react (MV transparency)
-        if (hit) { await world.runSlot(hit, 'interact', h.id); return true; }
+        if (hit) return started(world.runSlot(hit, 'interact', h.id));
       }
       // an object under the hero's own feet (a sign mat, an item) may also react
       const under = world.entities.find(e => e.x === h.x && e.y === h.y && e.layer === 'below' && e.page && e.page.on && e.page.on.interact);
-      if (under) { await world.runSlot(under, 'interact', h.id); return true; }
+      if (under) return started(world.runSlot(under, 'interact', h.id));
 
       // nothing on the map answered: ask whatever else is standing there
       for (const fn of extraTargets.slice()) {
@@ -278,8 +306,10 @@
         for (const target of list || []) {
           if (!target || !spots.some(sp => sp.x === target.x && sp.y === target.y)) continue;
           if (typeof target.answer !== 'function') continue;
+          // An extra target's own answer decides whether it took the press, so
+          // this one is always awaited — there is nothing else to go on.
           const answered = await target.answer(h);
-          if (answered !== false) return true;
+          if (answered !== false) { world.interacting = Promise.resolve(); return true; }
         }
       }
 
@@ -300,7 +330,23 @@
         await world.enterMap(c.map, c.x, c.y, dir);
         return r;
       }
-      if (!r.ok) { if (ports.audio && ports.audio.play && r.reason !== 'turn') ports.audio.play('bump'); return r; }
+      if (!r.ok) {
+        if (ports.audio && ports.audio.play && r.reason !== 'turn') ports.audio.play('bump');
+        // "The hero tried to move and could not" — the mirror of `step`, and what
+        // pushing a block, a locked door's rattle or a wall that answers back is
+        // really listening for. Without it a module has to poll the input port
+        // every tick to guess that a press happened, which only works for a
+        // player pressing a d-pad and not for a route or a script.
+        if (r.reason !== 'turn') {
+          events.emit('bump', {
+            hero: h, heroIndex: heroIndex == null ? world.activeHero : heroIndex,
+            dir, reason: r.reason, x: h.x, y: h.y, map: world.map.id,
+            // the square they were trying to reach, whether or not anything is on it
+            to: r.to || { x: h.x + KIT.delta(dir).dx, y: h.y + KIT.delta(dir).dy },
+          });
+        }
+        return r;
+      }
       if (world.companion) E.noteLeaderStep(world.companion, h);
       if (world.heroes[1] && heroIndex === world.activeHero && !world.coop) E.noteLeaderStep(world.heroes[1], h);
       refreshBlockers();

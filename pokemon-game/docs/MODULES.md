@@ -188,7 +188,12 @@ require('./tools/load-modules.js').load(KIT, ['mons', 'home']);
 
 ## What the engine still owes a module
 
-`docs/ENGINE-HOOKS.md` is the punch list: seventeen places where a module had to
-work around something the engine did not offer, with the workaround it used and
-the fix that would serve every module. Six are fixed and the entries say how;
-the rest are open. Read it before inventing an eighteenth.
+`docs/ENGINE-HOOKS.md` is the punch list three modules produced: seventeen places
+where a module had to work around something the engine did not offer. All
+seventeen are fixed, and each entry says what the module did before and what the
+engine does now — so it doubles as a tour of the joins a module actually uses.
+
+It is also the method. When you build a module, do not change `js/kit/**`: work
+around what is missing, write down every place you did, and then fix those. That
+is where `KIT.clock`, `world.markers`, `addInteractTarget`,
+`interpreter.whenIdle` and scene `suspend`/`resume` all came from.

@@ -474,6 +474,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-chip { min-height: 36px; padding: 6px 10px; border-radius: 999px; background: #1d2532; color: #cbd6e8; border: 1px solid #2f3a4f; cursor: pointer; font: inherit; font-size: 12px; }
 .ed-chip:hover { border-color: #4f8bf0; }
 .ed-chip.is-preset { background: #1d2c47; border-color: #3d5c8f; }
+/* A module this project asks for that is not on the page. */
+.ed-chip-warn { border-color: #8f5c3d; color: #e8c3a8; }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
@@ -854,6 +856,27 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
   };
 
+  /**
+   * labelOf(def, ctx) -> what to call this thing, on screen.
+   *
+   * A registry entry's `label` may be a function of the context (usually the
+   * game or the editor) rather than a string, so an entry can take its name from
+   * the Terms table instead of freezing one language into the code. Everything
+   * that shows a label goes through here, so either kind works everywhere.
+   */
+  KIT.labelOf = function (def, ctx, fallback) {
+    if (def == null) return fallback != null ? fallback : '';
+    if (typeof def === 'string') return def;
+    let v = def.label;
+    if (typeof v === 'function') {
+      try { v = v(ctx); } catch (e) { v = null; }
+    }
+    if (typeof v === 'string' && v) return v;
+    if (typeof def.name === 'string' && def.name) return def.name;
+    if (fallback != null) return fallback;
+    return typeof def.id === 'string' ? def.id : '';
+  };
+
   KIT.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   KIT.isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -1115,8 +1138,14 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   function enumOptions(field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).ids();
-      else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
+      // An EMPTY registry constrains nothing. It means the file that fills it has
+      // not loaded yet (a headless test using half the engine, a tool), not that
+      // every value is wrong — refusing them all would report a working project
+      // as broken. Unknown is null, and null passes.
+      if (KIT.registry.exists(field.optionsFrom)) {
+        const ids = KIT.registry(field.optionsFrom).ids();
+        opts = ids.length ? ids : null;
+      } else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
       else opts = null;
     }
     if (!opts) return null;
@@ -1136,6 +1165,17 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   S.defineType('string', stringLike);
   S.defineType('text', stringLike);
   S.defineType('note', stringLike);
+  // A label the player reads. Text, or a function of the context that returns
+  // text — so a registry entry can take its name from the Terms table instead of
+  // freezing one language into the code. Content never stores one of these; only
+  // registry definitions, which are code. KIT.labelOf resolves either.
+  S.defineType('label', {
+    validate(f, v, ctx, path, errors) {
+      if (typeof v === 'function') return;
+      return stringLike.validate(f, v, ctx, path, errors);
+    },
+    default(f) { return f.default != null ? f.default : ''; },
+  });
   S.defineType('number', {
     validate(f, v, ctx, path, errors) {
       if (!isNum(v)) return err(errors, path, 'must be a number', 'type');
@@ -1328,8 +1368,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   S.registryRefKind = function (kind, registryName) {
     return S.refKind(kind, {
       has(id) { return KIT.registry.exists(registryName) ? KIT.registry(registryName).has(id) : null; },
-      list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: d.name || d.label || d.id })) : []; },
-      label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? (d.name || d.label || id) : id; },
+      list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: KIT.labelOf(d, null, d.id) })) : []; },
+      label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? KIT.labelOf(d, null, id) : id; },
     });
   };
   /** Helper: a resolver backed by a project table (ctx.project[table] keyed by id). */
@@ -1355,7 +1395,11 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   const base = [
     { key: 'id', type: 'string', min: 1, pattern: '^[a-z0-9][a-z0-9-_.:]*$', patternMessage: 'ids are lowercase letters, digits, - _ . :' },
   ];
-  const named = base.concat([{ key: 'name', type: 'string', optional: true }, { key: 'label', type: 'string', optional: true }, { key: 'doc', type: 'text', optional: true }, { key: 'group', type: 'string', optional: true }]);
+  // `label` is type 'label', not 'string': a registry entry may compute its own
+  // name from the Terms table — `(game) => KIT.strings.get(game.project, 'x')` —
+  // so a module does not freeze one language into its code. Read one with
+  // KIT.labelOf(def, ctx), never def.label.
+  const named = base.concat([{ key: 'name', type: 'string', optional: true }, { key: 'label', type: 'label', optional: true }, { key: 'doc', type: 'text', optional: true }, { key: 'group', type: 'string', optional: true }]);
 
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },
@@ -1379,6 +1423,14 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   ]), doc: 'Script commands: { id, label, group, fields, run(ctx, cmd), summary(cmd, ctx), text:{ toLine, fromLine } }.' });
   KIT.defineRegistry('conditions', { fields: named, doc: 'Condition kinds: { id, label, fields, test(cond, ctx) }.' });
   KIT.defineRegistry('itemKinds', { fields: named, doc: 'Item kinds: { id, label, fields (extra item props), use(ctx, item) }.' });
+  // The default kind, registered beside the schema default that names it
+  // (`project.items[].kind` is 'item'). Without this the kind check is silently
+  // skipped while the registry is empty, and then the first module to register a
+  // kind turns every plain keepsake in every project into a warning.
+  KIT.registry('itemKinds').add({
+    id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
+    fields: [], use() { return false; },
+  });
   KIT.defineRegistry('systems', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Per-tick systems: { id, order, update(world, dt), onMapEnter, onMapLeave }.' });
   KIT.defineRegistry('scenes', { fields: named, doc: 'Scene factories: { id, create(params) -> scene }.' });
   KIT.defineRegistry('menus', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Pause-menu entries: { id, label, icon, order, open(game) }.' });
@@ -1421,6 +1473,235 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     list(ctx) { const m = ctx && ctx.map; return m && m.objects ? m.objects.map(o => ({ id: o.id, label: o.name || o.id })) : []; },
     label(id, ctx) { const m = ctx && ctx.map; const o = m && m.objects && m.objects.find(x => x.id === id); return o ? (o.name || id) : id; },
   });
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/core/modules.js ----
+// KIT.modules (§6.9): the module system.
+//
+// A module is a folder of ordinary kit code that declares itself once:
+//
+//   KIT.module({
+//     id: 'home', version: 1, requires: [],
+//     register(KIT) { … },                                  // add to the registries
+//     save:    { key: 'home', defaults: () => …, migrate: [ { from, to, up } ], repair(d) { … } },
+//     content: { key: 'home', fields: […], at: 'tuning', defaults: () => … },
+//   })
+//
+// `register` is the module's own business. The two declarations below it are the
+// engine's: it fills and migrates `save.modules.<key>` whenever a save is made or
+// loaded, and it fills and validates `project.packs.<key>` in normalize. A module
+// therefore does not need a hand-written `ensure(save)` / `pack(project)` pair,
+// and — because packs.<key> has a declared shape — the generic inspector can edit
+// its content like anything else.
+//
+//   KIT.modules.activate(project)      switch on what this project enables
+//   KIT.modules.ensureSaves(save)      fill + migrate every loaded module's slice
+//   KIT.modules.ensurePacks(project)   fill every loaded module's content slice
+//   KIT.modules.order(ids)             the dependency sort, pure and testable
+//
+// This file is the engine's; js/main.js is only the page's entry point.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+
+  const defs = [];
+  const loaded = [];
+
+  /** Say it loudly. The page defines KIT.banner; headless, the console will do. */
+  const complain = (text) => {
+    if (typeof KIT.banner === 'function') KIT.banner(text);
+    else (KIT.log || console).error('[kit] ' + text);
+  };
+
+  /** KIT.module({ id, version, requires, register, save, content }) — called by a manifest at load time. */
+  KIT.module = function (def) {
+    if (!def || !def.id) throw new Error('KIT.module: a module needs an id');
+    const i = defs.findIndex(d => d.id === def.id);
+    if (i >= 0) defs[i] = def; else defs.push(def);
+    return def;
+  };
+
+  const M = KIT.modules = {
+    /** all() -> every manifest seen, in load order. */
+    all() { return defs.slice(); },
+    /** loaded() -> the ones whose register() ran, in dependency order. */
+    loaded() { return loaded.slice(); },
+    get(id) { return defs.find(d => d.id === id) || null; },
+    has(id) { return loaded.some(d => d.id === id); },
+
+    /**
+     * order(ids) -> { order, missing, cycles } — a topological sort of the manifests.
+     * Pure, so the module test can check it without a page.
+     */
+    order(ids) {
+      const wanted = ids ? defs.filter(d => ids.includes(d.id)) : defs.slice();
+      const byId = new Map(wanted.map(d => [d.id, d]));
+      const order = [], missing = [], cycles = [];
+      const state = new Map();                 // id -> 'visiting' | 'done'
+      const visit = (def, trail) => {
+        if (state.get(def.id) === 'done') return;
+        if (state.get(def.id) === 'visiting') { cycles.push(trail.concat(def.id).join(' → ')); return; }
+        state.set(def.id, 'visiting');
+        for (const req of def.requires || []) {
+          const dep = byId.get(req);
+          if (!dep) { missing.push({ module: def.id, requires: req }); continue; }
+          visit(dep, trail.concat(def.id));
+        }
+        state.set(def.id, 'done');
+        order.push(def);
+      };
+      for (const d of wanted) visit(d, []);
+      return { order, missing, cycles };
+    },
+
+    /** activate(project) — register the modules this project enables, in dependency order. */
+    activate(project) {
+      const enabled = project && Array.isArray(project.modules) ? project.modules : defs.map(d => d.id);
+      const { order, missing, cycles } = M.order(enabled);
+      for (const m of missing) complain(`The module “${m.module}” needs “${m.requires}”, which is not loaded.`);
+      for (const c of cycles) complain(`The modules ${c} require each other in a circle.`);
+      for (const def of order) {
+        if (loaded.some(d => d.id === def.id)) continue;
+        try {
+          if (typeof def.register === 'function') def.register(KIT);
+          loaded.push(def);
+        } catch (e) {
+          (KIT.log || console).error(`[module ${def.id}] register threw`, e);
+          complain(`The module “${def.id}” failed to start: ${e.message}`);
+        }
+      }
+      return loaded.slice();
+    },
+
+    /** Forget every activation. Tests and the editor's "switch modules off" path. */
+    reset() { loaded.length = 0; },
+
+    /**
+     * forget(id) — unsay KIT.module(id) entirely: it is neither loaded nor
+     * declared afterwards. Nothing in a game does this; a test that declares a
+     * throwaway module does, so the next test does not inherit it.
+     */
+    forget(id) {
+      for (const list of [loaded, defs]) {
+        const i = list.findIndex(d => d.id === id);
+        if (i >= 0) list.splice(i, 1);
+      }
+    },
+
+    // ---- the save slice ----------------------------------------------------------
+    /**
+     * saveSection(save, id) -> save.modules[key], created, migrated and filled.
+     *
+     * Migrations run oldest first: each `{ from, to, up(data) }` takes the section
+     * at `from` and returns it at `to`, so a save written before this module
+     * existed, or by an older version of it, still loads. Missing keys then take
+     * their default, which is what makes adding a field to a module safe.
+     */
+    saveSection(save, id) {
+      const def = M.get(id);
+      const decl = def && def.save;
+      if (!decl || !decl.key) return null;
+      if (!save || typeof save !== 'object') return defaultsOf(decl);
+      save.modules = save.modules || {};
+      let data = save.modules[decl.key];
+      if (!data || typeof data !== 'object' || Array.isArray(data)) data = defaultsOf(decl);
+      const chain = decl.migrate || [];
+      if (chain.length && !Number.isFinite(data.version)) data.version = 1;
+      for (const m of chain) {
+        if (!m || data.version !== m.from) continue;
+        try { data = m.up(data) || data; }
+        catch (e) { (KIT.log || console).error(`[module ${id}] migration ${m.from}→${m.to}`, e); }
+        data.version = m.to;
+      }
+      const d = defaultsOf(decl);
+      for (const k of Object.keys(d)) {
+        if (!Object.prototype.hasOwnProperty.call(data, k) || data[k] === undefined) data[k] = KIT.deepClone(d[k]);
+      }
+      // A save can arrive edited, truncated or written by a version that spelt a
+      // field differently. `repair` is the module's last word on its own shape.
+      if (typeof decl.repair === 'function') {
+        try { data = decl.repair(data) || data; }
+        catch (e) { (KIT.log || console).error(`[module ${id}] repair threw`, e); }
+      }
+      save.modules[decl.key] = data;
+      return data;
+    },
+
+    /** ensureSaves(save) -> save — every loaded module's slice, in dependency order. */
+    ensureSaves(save) {
+      for (const def of loaded) M.saveSection(save, def.id);
+      return save;
+    },
+
+    // ---- the content slice -------------------------------------------------------
+    /**
+     * pack(project, id) -> project.packs[key] with every declared field filled in.
+     * Never mutates the project: this is the reading view. ensurePacks() writes.
+     */
+    pack(project, id) {
+      const def = M.get(id);
+      const decl = def && def.content;
+      if (!decl || !decl.key) return null;
+      const raw = (project && project.packs && project.packs[decl.key]) || {};
+      const out = Object.assign({}, defaultsOf(decl), raw);
+      if (decl.fields && KIT.schema) {
+        // Declared fields are filled inside whichever object they were declared
+        // against — a pack is usually { tuning: {…}, … }, and `fields` describes
+        // the tuning. `at` names that object; the default is the pack itself.
+        const at = decl.at || null;
+        const target = at ? Object.assign({}, defaultsOf(decl)[at], raw[at] || {}) : out;
+        const filled = KIT.schema.fill(decl.fields, target);
+        if (at) out[at] = filled; else Object.assign(out, filled);
+      }
+      return out;
+    },
+
+    /** ensurePacks(project) -> project — writes each loaded module's filled pack back. */
+    ensurePacks(project) {
+      if (!project) return project;
+      for (const def of loaded) {
+        if (!def.content || !def.content.key) continue;
+        project.packs = project.packs || {};
+        project.packs[def.content.key] = M.pack(project, def.id);
+      }
+      return project;
+    },
+
+    /**
+     * problems(project) -> [{ severity, code, message, where }] — each loaded
+     * module's content validated against the fields it declared. KIT.project's
+     * validator calls this, so a module's numbers are checked like everything else.
+     */
+    problems(project) {
+      const out = [];
+      if (!project || !KIT.schema) return out;
+      for (const def of loaded) {
+        const decl = def.content;
+        if (!decl || !decl.key || !decl.fields) continue;
+        const pack = (project.packs && project.packs[decl.key]) || {};
+        const value = decl.at ? (pack[decl.at] || {}) : pack;
+        const path = ['packs', decl.key].concat(decl.at ? [decl.at] : []);
+        for (const e of KIT.schema.validate(decl.fields, KIT.schema.fill(decl.fields, value))) {
+          out.push({
+            severity: 'error', code: 'module-content',
+            message: `${def.id}: ${e.path.join('.')} ${e.message}`,
+            where: { path: path.concat(e.path) },
+          });
+        }
+      }
+      return out;
+    },
+  };
+
+  function defaultsOf(decl) {
+    try {
+      const d = typeof decl.defaults === 'function' ? decl.defaults() : decl.defaults;
+      return (d && typeof d === 'object') ? d : {};
+    } catch (e) { return {}; }
+  }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -2230,7 +2511,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 // so the whole game stays one page. A registry entry may still be
 // `{ kind:'file', src }`; then an <audio> element plays it.
 //
-//   KIT.audio.init()                  // safe before the first gesture (see unlock())
+//   KIT.audio.unlock()                // from a real gesture: makes the context
 //   KIT.audio.play('blip')
 //   KIT.audio.music('town', { fade: 300 })
 //   KIT.audio.jingle('heal')          // pauses the music, plays, resumes
@@ -2255,6 +2536,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   }
 
   let ctx = null;             // AudioContext (null until init() succeeds)
+  let gestured = false;       // has the page been touched? No context before it has.
   let master = null, sfxBus = null, musicBus = null;
   let enabled = true, musicOn = true;
   let volumes = { master: 0.8, sound: 0.9, music: 0.5 };
@@ -2267,9 +2549,18 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   const reg = (name) => (KIT.registry.exists(name) ? KIT.registry(name) : null);
   const defOf = (name, id) => { const r = reg(name); return r && id ? r.get(id) : null; };
 
-  /** init() — create the AudioContext if the browser allows it. Safe to call at any time, any number of times. */
+  /**
+   * init() — create the AudioContext, if we are allowed one yet.
+   *
+   * Browsers refuse to start an AudioContext before the page has been touched,
+   * and Chrome says so in the console. The title screen asks for music before
+   * anybody has touched anything, so the context is not made until the first
+   * gesture: until then this returns null, calls become no-ops, and `current`
+   * remembers what was wanted. unlock() makes the context and starts it.
+   */
   function init() {
     if (ctx) return ctx;
+    if (!gestured) return null;
     try {
       const AC = root.AudioContext || root.webkitAudioContext;
       if (!AC) return null;
@@ -2282,12 +2573,26 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     }
     return ctx;
   }
-  /** unlock() — resume after a user gesture (browsers start the context suspended). */
+  /**
+   * unlock() — called from a real user gesture. Makes the context (see init),
+   * resumes it if the browser suspended it, and starts whatever music was asked
+   * for while we were still silent.
+   */
   function unlock() {
+    const first = !gestured;
+    gestured = true;
     const c = init();
     if (!c) return Promise.resolve(false);
-    if (c.state === 'suspended') { try { return c.resume().then(() => true, () => false); } catch (e) { return Promise.resolve(false); } }
-    return Promise.resolve(true);
+    const started = (ok) => {
+      if (first && ok && current && current.id && current.def && current.def.kind !== 'file' && musicOn && enabled) {
+        const want = current.id;
+        current = null;                   // music() ignores a repeat of the same id
+        music(want);
+      }
+      return ok;
+    };
+    if (c.state === 'suspended') { try { return c.resume().then(() => started(true), () => false); } catch (e) { return Promise.resolve(false); } }
+    return Promise.resolve(started(true));
   }
 
   // ---- one-shot sounds ---------------------------------------------------------
@@ -2349,8 +2654,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const def = defOf('sounds', id);
     if (!def) return;
     if (def.kind === 'file') { playFile(def, (opts && opts.volume) || 1, false); return; }
-    if (!init()) return;
-    unlock();
+    if (!init()) return;                     // no gesture yet, so nothing to play into
     const vol = (opts && opts.volume == null ? 1 : (opts && opts.volume)) || 1;
     const base = (def.gain == null ? 0.3 : def.gain) * vol;
     const at0 = ctx.currentTime + 0.001;
@@ -2433,8 +2737,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     current = { id, def };
     if (!def) return Promise.resolve();
     if (def.kind === 'file') { current.el = playFile(def, opts.volume, true); return Promise.resolve(); }
-    if (!init()) return Promise.resolve();
-    unlock();
+    if (!init()) return Promise.resolve();   // no gesture yet; `current` holds the wish, unlock() plays it
     musicBus.gain.value = volumes.music * (opts.volume == null ? 1 : opts.volume);
     if (opts.fade) {
       musicBus.gain.setValueAtTime(0.0001, ctx.currentTime);
@@ -2478,7 +2781,6 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     current = null;
     const notes = def.notes || (def.lead || []).map(n => [n, 160]);
     if (init() && enabled) {
-      unlock();
       const at0 = ctx.currentTime + 0.01;
       let cursor = 0;
       for (const n of notes) {
@@ -2755,8 +3057,14 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   }
 
   /**
-   * loadProject() -> { project, source, problems }
+   * loadProject(opts) -> { project, source, problems }
    * draft → embedded `project-data` → content files (KIT.project.fromContent) → KIT.project.blank().
+   *
+   *   opts.draft      false to ignore a saved Creator Mode draft
+   *   opts.projectId  which content project to read
+   *   opts.before     before(rawProject) — run once the project is found and
+   *                   before it is normalized or validated, so anything it
+   *                   registers counts. This is where modules start.
    */
   S.loadProject = async function (opts) {
     opts = opts || {};
@@ -2776,6 +3084,16 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
     }
     let project = base, problems = [];
+    // Last chance to teach the registries what this project is made of, while it
+    // is still the raw thing that came off disk. Everything validated below —
+    // every tile id, every object type, every command in every page — is checked
+    // against what is registered NOW, so whatever registers late is reported as
+    // unknown. `opts.before(base)` is where the modules the project enables get
+    // switched on (js/main.js); it may be async.
+    if (typeof opts.before === 'function') {
+      try { await opts.before(base); }
+      catch (e) { (KIT.log || console).error('[storage] the project’s modules did not start', e); }
+    }
     // Imported art (tiles/sprites/faces/icons/assets the project carries) has no
     // js/art file to register it, so the project registers its own — before
     // normalize, which validates every tile id a map uses.
@@ -3207,7 +3525,17 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       { key: 'zoom', type: 'enum', options: ['auto', 'small', 'normal', 'large'], default: 'auto' },
       { key: 'coop', type: 'group', fields: [{ key: 'enabled', type: 'bool', default: false }] },
       { key: 'palette', type: 'group', fields: [{ key: 'remap', type: 'strings' }, { key: 'tint', type: 'color', nullable: true, default: null }, { key: 'amount', type: 'number', min: 0, max: 1, default: 0 }] },
-      { key: 'clock', type: 'group', fields: [{ key: 'enabled', type: 'bool', default: false }, { key: 'minutesPerStep', type: 'number', min: 0, default: 1 }, { key: 'minutesPerSecond', type: 'number', min: 0, default: 0 }] },
+      { key: 'clock', type: 'group', fields: [
+        { key: 'enabled', type: 'bool', default: false, label: 'Show time passing', doc: 'The running clock: in-game minutes while you play.' },
+        { key: 'minutesPerStep', type: 'number', min: 0, default: 1, label: 'Minutes per step' },
+        { key: 'minutesPerSecond', type: 'number', min: 0, default: 0, label: 'Minutes per second' },
+        { key: 'awayMinutesPerRealMinute', type: 'number', min: 0, max: 1440, default: 0, label: 'Minutes gained per real minute away',
+          doc: 'Time that passes between sessions. 0 means the world waits for you. The gap is reported either way (sessionResumed).' },
+        { key: 'awayCapMinutes', type: 'number', min: 0, default: 4320, label: 'Most minutes a gap can add',
+          doc: 'Three days by default: a month away does not skip the whole story.' },
+        { key: 'stampEverySeconds', type: 'number', min: 1, max: 600, default: 20, label: 'Seconds between “still here” stamps',
+          doc: 'How often the save records that you are playing, so the next gap is measured from the truth even after a crash.' },
+      ] },
       { key: 'encounterRate', type: 'number', min: 0, max: 100, default: 12 },
     ],
     hero: [idField('id'), { key: 'name', type: 'string', default: 'Player' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
@@ -3240,7 +3568,11 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       { key: 'visible', type: 'bool', default: true }, { key: 'once', type: 'bool', doc: 'Sugar for self.done on interact/step/touch.' }, { key: 'needsBoth', type: 'bool' },
     ],
     behaviour: [
-      { key: 'kind', type: 'enum', options: ['none', 'wander', 'look', 'route', 'approach'], default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
+      // From the registry, not a list written here: the `behaviours` system looks
+      // each kind up there, so a module that registers `pace` can put
+      // `behaviour: { kind: 'pace' }` on a page and have it validate and appear
+      // in the dropdown. The kit's own five are registered in systems/index.js.
+      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
       { key: 'speed', type: 'number', min: 0.1, max: 20, default: 1 }, { key: 'frequency', type: 'number', min: 0, max: 10, default: 2 }, { key: 'route', type: 'route', when: { field: 'kind', eq: 'route' } }, { key: 'repeat', type: 'bool', default: true },
     ],
     autotileGroup: [idField('id'), { key: 'name', type: 'string' }, { key: 'active', type: 'bool', default: true }, { key: 'terrain', type: 'number', integer: true, default: 0 }, { key: 'layer', type: 'enum', options: ['ground', 'deco'], default: 'ground' }],
@@ -3561,9 +3893,23 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     if (p.meta.created === undefined) delete p.meta.created;
     p.modules = Array.isArray(src.modules) ? src.modules.filter(m => typeof m === 'string') : [];
     p.settings = S.fill(F.settings, isObj(src.settings) ? src.settings : {});
+    // Only the OVERRIDES. `KIT.strings.get` falls back to the registry and the
+    // Terms panel lists from it, so copying every registered default in here
+    // would freeze a snapshot into the content — one that silently wins over the
+    // engine or a module the day somebody rewords a default, and dead weight in a
+    // project that later switches that module off. A key stays when it differs
+    // from its registered default, or when nothing registers it at all.
     p.strings = {};
-    for (const s of KIT.registry('strings').list()) p.strings[s.id] = s.default;
-    if (isObj(src.strings)) for (const k of Object.keys(src.strings)) if (typeof src.strings[k] === 'string') p.strings[k] = src.strings[k];
+    if (isObj(src.strings)) {
+      const reg = KIT.registry('strings');
+      for (const k of Object.keys(src.strings)) {
+        const v = src.strings[k];
+        if (typeof v !== 'string') continue;
+        const def = reg.get(k);
+        if (def && def.default === v) continue;
+        p.strings[k] = v;
+      }
+    }
     const heroes = Array.isArray(src.heroes) && src.heroes.length ? src.heroes : [{ id: 'p1', name: 'Player 1', sprite: 'hero-boy' }, { id: 'p2', name: 'Player 2', sprite: 'hero-girl' }];
     p.heroes = heroes.map((h, i) => { const o = S.fill(F.hero, isObj(h) ? h : {}); if (!o.id) o.id = `p${i + 1}`; if (!o.name) o.name = `Player ${i + 1}`; return o; });
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});
@@ -3587,6 +3933,11 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     p.world = { maps: {}, connections: (Array.isArray(w.connections) ? w.connections : []).map(c => S.fill(F.connection, isObj(c) ? c : {})) };
     Object.keys(p.maps).forEach((id, i) => { const e = isObj(w.maps) && isObj(w.maps[id]) ? w.maps[id] : { x: i * 24, y: 0 }; p.world.maps[id] = S.fill(F.worldMap, e); });
     p.packs = isObj(src.packs) ? src.packs : {};
+    // Every module that declared a content slice gets its defaults filled in, so
+    // `packs.<key>` always has the shape the module said it would — an author who
+    // never opened that panel still has the numbers, and the generic inspector can
+    // edit them because their fields are declared.
+    if (KIT.modules && KIT.modules.ensurePacks) KIT.modules.ensurePacks(p);
     if (!p.start.map && Object.keys(p.maps).length) p.start.map = Object.keys(p.maps)[0];
     for (const k of Object.keys(src)) if (!(k in p) && k !== 'version') p[k] = src[k];   // keep unknown top-level keys (modules' data)
     if (!(ctx && ctx.skipRegisterArt)) P.registerArt(p);        // the project's own art has to exist before anything references it
@@ -3796,6 +4147,10 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     (project.heroes || []).forEach((h, i) => errors('schema', stripRefErrors(S.validate(F.hero, h)), { path: ['heroes', i] }, `hero ${i + 1}`));
     if (!Array.isArray(project.heroes) || !project.heroes.length) prob('error', 'no-heroes', 'the project needs at least one hero', { path: ['heroes'] });
     errors('schema', stripRefErrors(S.validate(F.start, project.start || {})), { path: ['start'] }, 'start');
+    // A module's content is checked against the fields the module declared, the
+    // same way everything else here is. A number an author typed into a module's
+    // panel is reported in the same list as a broken tile id.
+    if (KIT.modules && KIT.modules.problems) for (const m of KIT.modules.problems(project)) problems.push(m);
     for (const name of Object.keys(project.vars || {})) {
       const v = project.vars[name];
       errors('schema', S.validate(F.var, v), { path: ['vars', name] }, `var ${name}`);
@@ -5210,7 +5565,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const def = reg.get(cond.kind);
     if (!def) return `(unknown: ${cond.kind})`;
     if (typeof def.describe === 'function') return def.describe(cond, ctx || {});
-    return def.label || cond.kind;
+    return KIT.labelOf(def, ctx, cond.kind);
   };
   /** withDefaults(fields, value) -> a copy where missing keys take their defaults, except defaults that are null (so 'required' still reports). */
   C.withDefaults = function (fields, value) {
@@ -6382,8 +6737,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const def = reg.get(cmd.t);
     let s;
     if (!def) s = `Unknown command '${cmd.t}'`;
-    else if (typeof def.summary === 'function') { try { s = def.summary(cmd, ctx || {}); } catch (e) { s = def.label || cmd.t; } }
-    else s = def.label || cmd.t;
+    else if (typeof def.summary === 'function') { try { s = def.summary(cmd, ctx || {}); } catch (e) { s = KIT.labelOf(def, ctx, cmd.t); } }
+    else s = KIT.labelOf(def, ctx, cmd.t);
     return cmd.disabled ? `(off) ${s}` : s;
   };
   /**
@@ -6801,6 +7156,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
         if (kind === 'main') mainActive--;
         thread.current = null;
         threads.delete(thread.id);
+        if (kind === 'main' && !I.mainBusy()) settleIdle();
       }
     };
     if (kind === 'main') {
@@ -6814,6 +7170,36 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   };
   I.threads = () => Array.from(threads.values());
   I.mainBusy = () => mainActive > 0 || Array.from(threads.values()).some(t => t.kind === 'main');
+
+  // ---- waiting for the conversation to end ---------------------------------------
+  // A module that wants to say something of its own — a level-up, a gift, a name
+  // box — must not say it in the middle of somebody else's script. A listener that
+  // fires from inside a running script (a `varChanged`, say) is exactly that
+  // middle: the script still has lines to say, and a box opened now lands
+  // UNDERNEATH the one the script pushes next, waiting for an answer it can never
+  // be given. whenIdle() is how you wait for your turn.
+  let idleWaiters = [];
+  function settleIdle() {
+    if (!idleWaiters.length) return;
+    // A microtask later: the thread that just ended may synchronously start the
+    // next one (a common event calling another), and that is still not idle.
+    const waiters = idleWaiters;
+    Promise.resolve().then(() => {
+      if (I.mainBusy()) return;                      // it started something; wait for that one
+      idleWaiters = idleWaiters.filter(w => waiters.indexOf(w) < 0);
+      for (const resolve of waiters) { try { resolve(); } catch (e) { /* the caller's problem */ } }
+    });
+  }
+  /**
+   * whenIdle() -> Promise — resolves when no main-thread script is running.
+   * Already idle resolves immediately. It says nothing about scenes: a dialogue
+   * box can still be on screen after its script has finished, so a caller that
+   * needs the screen clear as well checks KIT.scenes too.
+   */
+  I.whenIdle = function () {
+    if (!I.mainBusy()) return Promise.resolve();
+    return new Promise((resolve) => { idleWaiters.push(resolve); });
+  };
   I.cancelAll = () => { for (const t of threads.values()) t.cancel(); };
   I.cancel = (thread) => { if (thread) thread.cancel(); };
 
@@ -6927,6 +7313,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 
   const isObj = KIT.isObject;
   const LAYERS = ['ground', 'deco', 'above'];
+  const EMPTY = Object.freeze({});      // stood in for a missing overlay or object table
+  const EMPTY_LIST = Object.freeze([]);
 
   /**
    * mapView(project, save, mapId) -> view
@@ -6942,23 +7330,30 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   KIT.mapView = function mapView(project, save, mapId, opts) {
     const map = project && project.maps ? project.maps[mapId] : null;
     if (!map) throw new Error(`mapView: unknown map '${mapId}'`);
-    const dimName = (opts && opts.dimension !== undefined) ? opts.dimension : (save && save.dimension) || null;
-    const dim = (dimName && map.dimensions && map.dimensions[dimName]) || null;
-    const dimTiles = (dim && dim.tiles) || null;
-    const dimObjects = (dim && dim.objects) || null;
-    const overlay = (save && save.overlays && save.overlays[mapId]) || null;
-    const objectState = (save && save.objects) || {};
+    // Everything the SAVE says about this map is read when it is asked for, never
+    // captured here. The player is standing in the map they are changing — put a
+    // rug down, open a door, shift to another layer of reality — and a view that
+    // had closed over the old save would go on showing the room they left. Read
+    // live and that trap cannot be stepped in.
+    const pinned = (opts && opts.dimension !== undefined) ? { name: opts.dimension || null } : null;
+    const dimNameNow = () => (pinned ? pinned.name : ((save && save.dimension) || null));
+    const dimNow = () => { const n = dimNameNow(); return (n && map.dimensions && map.dimensions[n]) || null; };
+    const dimTilesNow = () => { const d = dimNow(); return (d && d.tiles) || null; };
+    const dimObjectsNow = () => { const d = dimNow(); return (d && d.objects) || null; };
+    const overlayNow = () => (save && save.overlays && save.overlays[mapId]) || null;
+    const objectStateNow = () => (save && save.objects) || EMPTY;
     const width = map.width, height = map.height;
 
     const index = (x, y) => y * width + x;
     const inBounds = (x, y) => x >= 0 && y >= 0 && x < width && y < height;
-    const overlayCell = (x, y) => (overlay && overlay.tiles ? overlay.tiles[`${x},${y}`] : null);
+    const overlayCell = (x, y) => { const o = overlayNow(); return o && o.tiles ? o.tiles[`${x},${y}`] : null; };
 
     /** The tile id on a layer, overlay first. `null` = nothing on that layer. */
     function tileAt(layer, x, y) {
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, layer)) return o[layer];
+      const dimTiles = dimTilesNow();
       if (dimTiles) {
         const d = dimTiles[`${x},${y}`];
         if (d && Object.prototype.hasOwnProperty.call(d, layer)) return d[layer];
@@ -6972,6 +7367,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       if (!inBounds(x, y)) return null;
       const o = overlayCell(x, y);
       if (o && Object.prototype.hasOwnProperty.call(o, 'collision')) return o.collision;
+      const dimTiles = dimTilesNow();
       if (dimTiles) {
         const d = dimTiles[`${x},${y}`];
         if (d && Object.prototype.hasOwnProperty.call(d, 'collision')) return d.collision;
@@ -7029,10 +7425,24 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     }
 
     // ---- objects -------------------------------------------------------------
-    const objects = (map.objects || []).concat((overlay && overlay.objects) || []);
+    // The authored objects plus any the save has added. Always a copy — a system
+    // may put something on the map for the length of a visit (mons puts the
+    // creatures you own into the garden), and the authored map must not learn
+    // about it. Recomputed only when one of the two lists is replaced, so it is
+    // the same array from one frame to the next and those additions survive.
+    let objectsMemo = null, memoFrom = null, memoLen = -1;
+    function objectsNow() {
+      const extra = (overlayNow() || EMPTY).objects || null;
+      const authored = map.objects || EMPTY_LIST;
+      if (objectsMemo && extra === memoFrom && authored.length === memoLen) return objectsMemo;
+      memoFrom = extra; memoLen = authored.length;
+      objectsMemo = extra && extra.length ? authored.concat(extra) : authored.slice();
+      return objectsMemo;
+    }
     const key = (objOrId) => `${mapId}:${typeof objOrId === 'string' ? objOrId : objOrId.id}`;
-    const stateOf = (objOrId) => objectState[key(objOrId)] || null;
+    const stateOf = (objOrId) => objectStateNow()[key(objOrId)] || null;
     const isHidden = (obj) => {
+      const dimObjects = dimObjectsNow();
       const d = dimObjects && dimObjects[obj.id];
       if (d && d.hidden !== undefined) return !!d.hidden;      // this layer of reality decides
       const s = stateOf(obj);
@@ -7054,7 +7464,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     }
     function objectsAt(x, y) {
       const out = [];
-      for (const o of objects) { const p = positionOf(o); if (p.x === x && p.y === y) out.push(o); }
+      for (const o of objectsNow()) { const p = positionOf(o); if (p.x === x && p.y === y) out.push(o); }
       return out;
     }
 
@@ -7117,16 +7527,17 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 
     return {
       id: mapId, map, project, save, width, height, kind: map.kind,
-      dimension: dimName || null,
+      get dimension() { return dimNameNow(); },
       dimensions: map.dimensions ? Object.keys(map.dimensions) : [],
-      music: (dim && dim.music) || map.music,
-      atmosphere: (dim && dim.atmosphere) || (map.props && map.props.atmosphere) || null,
+      get music() { const d = dimNow(); return (d && d.music) || map.music; },
+      get atmosphere() { const d = dimNow(); return (d && d.atmosphere) || (map.props && map.props.atmosphere) || null; },
       index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, passable, hopTarget, connectionAt, interactTarget,
-      objects, objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
+      get objects() { return objectsNow(); },
+      objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
       setBlockers(list) { blockers = list || []; },
       get blockers() { return blockers; },
       /** Cells whose drawn tiles changed since the map was authored (for the renderer's cache). */
-      overlayCells() { return overlay && overlay.tiles ? Object.keys(overlay.tiles).map(k => { const [x, y] = k.split(',').map(Number); return { x, y }; }) : []; },
+      overlayCells() { const o = overlayNow(); return o && o.tiles ? Object.keys(o.tiles).map(k => { const [x, y] = k.split(',').map(Number); return { x, y }; }) : []; },
     };
   };
 
@@ -7367,9 +7778,22 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const events = opts.events || KIT.events('world');
     const rng = opts.rng || KIT.rng(save.seed || 1);
 
+    // Every module that declared a save slice gets it filled and migrated here,
+    // once, before anything reads it — whether this save is a new game, one
+    // loaded from a slot, or one written before the module existed. A module's
+    // own code can then assume `save.modules.<key>` is there and current.
+    if (KIT.modules && KIT.modules.ensureSaves) KIT.modules.ensureSaves(save);
+
     const world = {
       project, save, events, rng, ports,
       map: null, entities: [], heroes: [], companion: null,
+      // Things DRAWN on the map that are not IN it: a ghost of the thing you are
+      // about to put down, a shaded square, a target, a footprint. Push one, and
+      // take it away again when you are done. Nothing walks into a marker and
+      // nothing talks to it — that is the whole point of it not being an entity.
+      // See drawMarkers in render/renderer.js for the fields.
+      markers: [],
+      interacting: null,           // the promise of the script the last A press started
       viewport: Object.assign({ w: 16, h: 12 }, (project.settings && project.settings.viewport) || {}),   // live tiles on screen; the renderer updates it, the project is not touched
       activeEntity: null,          // the object whose script is running (ports read it to resolve target 'self')
       activeHero: 0, coop: !!(project.settings && project.settings.coop && project.settings.coop.enabled),
@@ -7380,10 +7804,15 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     };
 
     // ---- heroes ---------------------------------------------------------------
+    // Hero 2 is solid only in co-op. On one pad they walk the leader's trail —
+    // one step behind, on the square the leader has just left — so a solid hero 2
+    // means the player cannot step back the way they came. KIT.game.setCoop
+    // flips this when co-op is switched on; a world built without a game (a test,
+    // a tool) gets the right answer from the project's own setting.
     function makeHeroes() {
       world.heroes = (project.heroes || []).map((h, i) => {
         const st = (save.heroes || [])[i] || {};
-        return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: true });
+        return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: i === 0 || world.coop });
       });
     }
     makeHeroes();
@@ -7577,21 +8006,71 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     }
     world.runSlotsForMap = runSlotsForMap;
 
-    /** interact(heroIndex) -> Promise<boolean> — the A button. */
-    world.interact = async function (heroIndex) {
+    /**
+     * interactTargets(hero) -> [{ x, y, answer(hero) }] — things that are not map
+     * objects and would still like to be talked to: a follower walking behind
+     * you, somebody in a vehicle, a door a module drew itself. A system adds one
+     * with `world.addInteractTarget(fn)`, where fn(hero) returns such a list.
+     *
+     * The map's own objects always answer first; these are asked afterwards, in
+     * the order they were added, and the first one at the right square wins.
+     */
+    const extraTargets = [];
+    world.addInteractTarget = function (fn) {
+      if (typeof fn !== 'function') return () => {};
+      extraTargets.push(fn);
+      return () => { const i = extraTargets.indexOf(fn); if (i >= 0) extraTargets.splice(i, 1); };
+    };
+
+    /**
+     * interact(heroIndex, opts) -> Promise<boolean> — the A button.
+     *
+     * By default this resolves when the CONVERSATION is over, which is what the
+     * map scene wants. `{ wait: false }` resolves as soon as the press has landed
+     * and the script has started, which is what anything driving the game from
+     * outside wants — a test, a tool, a module that only needs to know somebody
+     * was talked to. Awaiting the default from outside waits for the player.
+     *
+     * `world.interacting` is the running script's promise either way, for a
+     * caller that wants both answers.
+     */
+    world.interact = async function (heroIndex, opts) {
+      const wait = !(opts && opts.wait === false);
       if (world.busy) return false;
       const h = world.hero(heroIndex);
       if (!h || h.mover.moving) return false;
       const t = world.map.interactTarget(h.x, h.y, h.dir);
       if (!t) return false;
+      const started = (p) => {
+        world.interacting = Promise.resolve(p).catch((e) => { (KIT.log || console).error('[world] interact', e); });
+        return wait ? world.interacting.then(() => true) : true;
+      };
       const spots = [t.first].concat(t.second ? [t.second] : []);
       for (const spot of spots) {
         const hit = world.entities.find(e => e.x === spot.x && e.y === spot.y && e.page && e.page.on && e.page.on.interact);   // invisible events still react (MV transparency)
-        if (hit) { await world.runSlot(hit, 'interact', h.id); return true; }
+        if (hit) return started(world.runSlot(hit, 'interact', h.id));
       }
       // an object under the hero's own feet (a sign mat, an item) may also react
       const under = world.entities.find(e => e.x === h.x && e.y === h.y && e.layer === 'below' && e.page && e.page.on && e.page.on.interact);
-      if (under) { await world.runSlot(under, 'interact', h.id); return true; }
+      if (under) return started(world.runSlot(under, 'interact', h.id));
+
+      // nothing on the map answered: ask whatever else is standing there
+      for (const fn of extraTargets.slice()) {
+        let list = null;
+        try { list = fn(h); } catch (e) { (KIT.log || console).error('[world] interactTarget', e); }
+        for (const target of list || []) {
+          if (!target || !spots.some(sp => sp.x === target.x && sp.y === target.y)) continue;
+          if (typeof target.answer !== 'function') continue;
+          // An extra target's own answer decides whether it took the press, so
+          // this one is always awaited — there is nothing else to go on.
+          const answered = await target.answer(h);
+          if (answered !== false) { world.interacting = Promise.resolve(); return true; }
+        }
+      }
+
+      // and still nothing. A module may want to know: this is the mirror of the
+      // `step` event, and it is how an object type reacts without a page.
+      events.emit('interactMissed', { hero: h, x: t.first.x, y: t.first.y, dir: h.dir });
       return false;
     };
 
@@ -7606,7 +8085,23 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
         await world.enterMap(c.map, c.x, c.y, dir);
         return r;
       }
-      if (!r.ok) { if (ports.audio && ports.audio.play && r.reason !== 'turn') ports.audio.play('bump'); return r; }
+      if (!r.ok) {
+        if (ports.audio && ports.audio.play && r.reason !== 'turn') ports.audio.play('bump');
+        // "The hero tried to move and could not" — the mirror of `step`, and what
+        // pushing a block, a locked door's rattle or a wall that answers back is
+        // really listening for. Without it a module has to poll the input port
+        // every tick to guess that a press happened, which only works for a
+        // player pressing a d-pad and not for a route or a script.
+        if (r.reason !== 'turn') {
+          events.emit('bump', {
+            hero: h, heroIndex: heroIndex == null ? world.activeHero : heroIndex,
+            dir, reason: r.reason, x: h.x, y: h.y, map: world.map.id,
+            // the square they were trying to reach, whether or not anything is on it
+            to: r.to || { x: h.x + KIT.delta(dir).dx, y: h.y + KIT.delta(dir).dy },
+          });
+        }
+        return r;
+      }
       if (world.companion) E.noteLeaderStep(world.companion, h);
       if (world.heroes[1] && heroIndex === world.activeHero && !world.coop) E.noteLeaderStep(world.heroes[1], h);
       refreshBlockers();
@@ -7659,6 +8154,13 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     world.update = function (dt) {
       world.time += dt;
       for (const s of world.systems) { try { s.update(world, dt); } catch (e) { (KIT.log || console).error(`[system ${s.id}]`, e); } }
+      // How long were we away? Said once, at the end of the FIRST tick, so every
+      // system has installed its listeners and no module has to guess whether it
+      // is the one that should announce it. KIT.clock does the measuring.
+      if (!world._resumeSaid) {
+        world._resumeSaid = true;
+        if (KIT.clock && KIT.clock.resume) KIT.clock.resume(world);
+      }
     };
 
     // Keep pages fresh when the story state changes.
@@ -7681,6 +8183,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   const KIT = root.KIT = root.KIT || {};
   const E = KIT.entities;
   const reg = KIT.registry('systems');
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
 
   // --- 10 movement: interpolation, arrivals, hero touch checks -------------------
   const routePorts = (world) => ({ hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) });
@@ -7763,19 +8266,109 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
   } });
 
   // --- 50 clock -------------------------------------------------------------------
+  // Two different clocks live here and should not be confused:
+  //
+  //   the RUNNING clock  in-game minutes while you play (settings.clock.enabled)
+  //   the GAP            how long the player was away, between sessions
+  //
+  // The gap is measured whether or not the running clock is switched on, because
+  // “what happened while I was gone” is a thing a game may want without the
+  // time of day ever being shown.
+  const DEFAULT_CLOCK = () => ({ day: 1, minutes: 480, lastSeenAt: null });
+
+  KIT.clock = {
+    /** settings(project) -> the clock settings, with every default in place. */
+    settings(project) {
+      const s = (project && project.settings && project.settings.clock) || {};
+      return {
+        enabled: !!s.enabled,
+        minutesPerStep: num(s.minutesPerStep, 1),
+        minutesPerSecond: num(s.minutesPerSecond, 0),
+        awayMinutesPerRealMinute: num(s.awayMinutesPerRealMinute, 0),
+        awayCapMinutes: num(s.awayCapMinutes, 4320),
+        stampEverySeconds: num(s.stampEverySeconds, 20),
+      };
+    },
+    /** of(save) -> save.clock, created if it is not there. */
+    of(save) {
+      if (!save) return DEFAULT_CLOCK();
+      save.clock = save.clock || DEFAULT_CLOCK();
+      return save.clock;
+    },
+    /**
+     * add(save, minutes) -> the clock. Days roll over; nothing else moves.
+     * `clockTick` is the running clock's event, so this does not emit it — the
+     * caller decides whether what it just did counts as time passing on screen.
+     */
+    add(save, minutes) {
+      const c = KIT.clock.of(save);
+      const n = Math.floor(num(minutes, 0));
+      if (!n) return c;
+      c.minutes += n;
+      while (c.minutes >= 1440) { c.minutes -= 1440; c.day++; }
+      while (c.minutes < 0) { c.minutes += 1440; c.day = Math.max(1, c.day - 1); }
+      return c;
+    },
+    /** stamp(save) -> the ISO string written to save.clock.lastSeenAt. */
+    stamp(save) {
+      const c = KIT.clock.of(save);
+      c.lastSeenAt = new Date().toISOString();
+      return c.lastSeenAt;
+    },
+    /** gap(save) -> milliseconds since lastSeenAt, or 0 when there is no stamp. */
+    gap(save) {
+      const at = KIT.clock.of(save).lastSeenAt;
+      if (!at) return 0;
+      const then = Date.parse(at);
+      if (!Number.isFinite(then)) return 0;
+      return Math.max(0, Date.now() - then);
+    },
+    /**
+     * resume(world) -> { elapsedMs, minutesAdded } | null
+     *
+     * Said once per world, at the end of its first tick (see world.update), so
+     * every system has its listeners on. `awayMinutesPerRealMinute` turns the
+     * gap into in-game minutes, capped by `awayCapMinutes` — a month away does
+     * not skip the whole story. A game that wants the gap and not the minutes
+     * leaves that setting at 0 and reads `elapsedMs` itself.
+     */
+    resume(world) {
+      if (!world || !world.save) return null;
+      const elapsedMs = KIT.clock.gap(world.save);
+      const s = KIT.clock.settings(world.project);
+      let minutesAdded = 0;
+      if (elapsedMs > 0 && s.awayMinutesPerRealMinute > 0) {
+        minutesAdded = Math.min(s.awayCapMinutes, Math.floor((elapsedMs / 60000) * s.awayMinutesPerRealMinute));
+        if (minutesAdded > 0) KIT.clock.add(world.save, minutesAdded);
+      }
+      KIT.clock.stamp(world.save);
+      if (elapsedMs <= 0) return null;                       // a new game was never away
+      const payload = { elapsedMs, minutesAdded };
+      if (world.events) world.events.emit('sessionResumed', payload);
+      return payload;
+    },
+  };
+
   reg.add({ id: 'clock', order: 50, update(world, dt) {
-    const s = (world.project.settings && world.project.settings.clock) || {};
-    if (!s.enabled) return;
+    const s = KIT.clock.settings(world.project);
     const save = world.save;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    const perSecond = s.minutesPerSecond || 0;
-    if (!perSecond) return;
-    world._clockAcc = (world._clockAcc || 0) + dt * perSecond;
+    KIT.clock.of(save);
+
+    // Keep the stamp fresh, whatever else is switched on: it is what the NEXT
+    // session measures its gap against, and a session that ends in a crash still
+    // has to leave an honest one behind.
+    world._stampAcc = (world._stampAcc || 0) + dt;
+    if (world._resumeSaid && world._stampAcc >= s.stampEverySeconds) {
+      world._stampAcc = 0;
+      KIT.clock.stamp(save);
+    }
+
+    if (!s.enabled || !s.minutesPerSecond) return;
+    world._clockAcc = (world._clockAcc || 0) + dt * s.minutesPerSecond;
     if (world._clockAcc >= 1) {
       const add = Math.floor(world._clockAcc);
       world._clockAcc -= add;
-      save.clock.minutes += add;
-      while (save.clock.minutes >= 1440) { save.clock.minutes -= 1440; save.clock.day++; }
+      KIT.clock.add(save, add);
       world.events.emit('clockTick', { minutes: save.clock.minutes, day: save.clock.day });
     }
   } });
@@ -12367,6 +12960,20 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
    * draw(ctx, world, view) — paint the atmosphere over the finished frame.
    * view: { tilePx, camX, camY, W, H, time } in DEVICE pixels (the renderer's own units).
    */
+  /**
+   * One offscreen canvas, kept and resized rather than made every frame. The
+   * darkness pass draws itself here so its light holes cut the darkness and not
+   * the picture underneath it.
+   */
+  let pad = null;
+  function scratch(w, h) {
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    if (!pad) pad = document.createElement('canvas');
+    if (pad.width !== w || pad.height !== h) { pad.width = w; pad.height = h; }
+    return pad;
+  }
+  A.LAYERED_DARKNESS = true;          // a module can ask whether it still has to help
+
   A.draw = function (ctx, world, view) {
     const a = current;
     if (!a) return;
@@ -12374,24 +12981,41 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     const time = view.time || 0;
 
     // 1. darkness with holes where the lights are
+    //
+    // On its OWN layer, and this matters. Punching the holes with
+    // `destination-out` straight onto the finished frame erases the map as well
+    // as the darkness over it, so the lit circle comes out nearly as blank as the
+    // dark — measured on a dungeon at darkness 0.88, the floor inside the lantern
+    // read 64 against 51 outside it, which is not a lantern, it is a smudge.
+    // Built on a layer and composited with `source-over`, the same floor reads
+    // 135 against 51: the light shows you the room.
     if (a.darkness > 0.001) {
       const lights = A.lights(world);
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = A.rgba(a.ambient, a.darkness);
-      ctx.fillRect(0, 0, W, H);
+      const layer = lights.length ? scratch(W, H) : null;
+      const lc = layer ? layer.getContext('2d') : null;
+      const c = lc || ctx;
+      if (lc) { lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, W, H); }
+      else ctx.save();
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = A.rgba(a.ambient, a.darkness);
+      c.fillRect(0, 0, W, H);
       if (lights.length) {
-        ctx.globalCompositeOperation = 'destination-out';
+        c.globalCompositeOperation = 'destination-out';
         for (const l of lights) {
           const flick = l.flicker ? 1 + Math.sin(time / 90 + KIT.hash(l.seed) % 100) * 0.06 * l.flicker + (KIT.hash(l.seed, Math.floor(time / 120)) % 100) / 100 * 0.04 * l.flicker : 1;
           const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * tilePx);
           const x = (l.x - camX) * tilePx, y = (l.y - camY) * tilePx;
-          const g = ctx.createRadialGradient(x, y, r * (1 - KIT.clamp(l.softness, 0, 0.95)), x, y, r);
+          const g = c.createRadialGradient(x, y, r * (1 - KIT.clamp(l.softness, 0, 0.95)), x, y, r);
           g.addColorStop(0, 'rgba(0,0,0,1)');
           g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+          c.fillStyle = g;
+          c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
         }
+        c.globalCompositeOperation = 'source-over';
+        // the darkness, with its holes, over the frame — and nothing erased
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(layer, 0, 0);
         // warm the lit area back up a little, so a lantern reads as a lantern
         ctx.globalCompositeOperation = 'lighter';
         for (const l of lights) {
@@ -12704,6 +13328,62 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       if (e.data && e.data.balloon) drawBalloon(e, sx + dims.w * scale / 2, sy);
     }
 
+    /**
+     * Markers (§8.4): things drawn on the map that are not IN the world.
+     *
+     *   world.markers.push({ x, y, tile:'rug', opacity: 0.6, pulse: 400, tint: '#7fd' })
+     *
+     * A ghost while you decide where to put something down, a square shaded
+     * because you may move there, a footprint, a target. They are NOT entities:
+     * nothing walks into them, nothing talks to them, and nothing iterating
+     * world.entities has to learn to skip them. `world.markers` is a plain array
+     * a system or a scene fills and empties.
+     *
+     *   x, y      in tiles; fractions are fine
+     *   tile      a tile id, OR `art` for pixel art (a sprite frame, an image)
+     *   layer     'below' | 'same' (default) | 'above' — the same three the
+     *             entities use, so a marker can sit under or over a character
+     *   opacity   0..1, default 0.75
+     *   pulse     ms for one breath in and out; 0 or absent is steady
+     *   tint      a colour washed over it
+     *   outline   a colour drawn round the tile's square
+     */
+    function drawMarkers(world, layer, view, camX, camY, time) {
+      const list = world.markers;
+      if (!Array.isArray(list) || !list.length) return;
+      for (const m of list) {
+        if (!m) continue;
+        if ((m.layer || 'same') !== layer) continue;
+        const def = m.tile ? tileDef(m.tile) : null;
+        const art = m.art || (m.tile ? (def ? tileArt(def) : missingArt(m.tile, TILE(), TILE(), true)) : null);
+        const sx = Math.round(((Number.isFinite(m.x) ? m.x : 0) - camX) * tilePx);
+        const sy = Math.round(((Number.isFinite(m.y) ? m.y : 0) - camY) * tilePx);
+        let alpha = m.opacity == null ? 0.75 : m.opacity;
+        if (m.pulse) alpha *= 0.65 + 0.35 * (0.5 + 0.5 * Math.sin((time / m.pulse) * Math.PI * 2));
+        if (alpha <= 0) continue;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, alpha);
+        if (art) {
+          const dims = KIT.pixels.dims(art);
+          KIT.pixels.draw(ctx, art, sx + Math.round((tilePx - dims.w * scale) / 2),
+            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), { scale, recolor });
+        }
+        if (m.tint) {
+          ctx.globalCompositeOperation = art ? 'source-atop' : 'source-over';
+          ctx.fillStyle = m.tint;
+          ctx.fillRect(sx, sy, tilePx, tilePx);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        if (m.outline) {
+          ctx.globalAlpha = Math.min(1, alpha + 0.2);
+          ctx.strokeStyle = m.outline;
+          ctx.lineWidth = Math.max(1, scale);
+          ctx.strokeRect(sx + scale / 2, sy + scale / 2, tilePx - scale, tilePx - scale);
+        }
+        ctx.restore();
+      }
+    }
+
     const BALLOON_MS = 1200;
     function drawBalloon(e, cx, topY) {
       const b = e.data.balloon;
@@ -12860,13 +13540,16 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       for (const e of all) (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
       const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
       below.sort(byY); same.sort(byY); above.sort(byY);
+      drawMarkers(world, 'below', view, camX, camY, time);
       for (const e of below) drawEntity(e, view, camX, camY);
       for (const e of same) drawEntity(e, view, camX, camY);
+      drawMarkers(world, 'same', view, camX, camY, time);
 
       // the `above` tile layer covers characters (treetops, roofs, bridges)
       blit(c, view, 'above', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['above']);
       for (const e of above) drawEntity(e, view, camX, camY);
+      drawMarkers(world, 'above', view, camX, camY, time);
 
       // atmosphere sits over the world but under the pictures and the UI overlays
       if (KIT.atmosphere && KIT.atmosphere.draw) {
@@ -13136,6 +13819,34 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     return s;
   }
 
+  /**
+   * suspend / resume (§8.6): the mirror of enter/exit for being COVERED rather
+   * than closed.
+   *
+   *   enter   → you exist and you are on top
+   *   suspend → something opened over you; you still exist and still update
+   *   resume  → it closed; you are on top again
+   *   exit    → you are gone
+   *
+   * A scene that has nothing shared to give up needs neither. One that renders
+   * into a shared host (`#pause-menu`, say) or listens on the document must drop
+   * that listener in `suspend` and take it back in `resume` — otherwise one tap
+   * on the screen above it also reaches the stale rows underneath, which is a
+   * real bug and a silent one. `scene.suspended` says which it is.
+   */
+  function suspend(scene, by) {
+    if (!scene || scene.suspended) return;
+    scene.suspended = true;
+    try { if (scene.suspend) scene.suspend(by || null); }
+    catch (e) { (KIT.log || console).error(`[scene ${scene.id}] suspend threw`, e); }
+  }
+  function resume(scene) {
+    if (!scene || !scene.suspended) return;
+    scene.suspended = false;
+    try { if (scene.resume) scene.resume(); }
+    catch (e) { (KIT.log || console).error(`[scene ${scene.id}] resume threw`, e); }
+  }
+
   const SCENES = KIT.scenes = {
     events: bus,
     get stack() { return stack; },
@@ -13146,11 +13857,16 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 
     /** push(scene|id, params) -> scene */
     push(sceneOrId, params) {
+      const covered = SCENES.top();
       const scene = make(sceneOrId, params);
       scene.params = params || {};
       scene._promise = scene._promise || new Promise((resolve) => { scene._resolve = resolve; });
       scene.finish = (result) => SCENES.finish(scene, result);
       stack.push(scene);
+      // The scene that was on top is now underneath. A scene that listens to
+      // anything shared — a DOM host, a key handler, the world bus — has to be
+      // told, or it goes on answering clicks meant for whatever is over it.
+      suspend(covered, scene);
       try { if (scene.enter) scene.enter(params || {}); }
       catch (e) { (KIT.log || console).error(`[scene ${scene.id}] enter threw`, e); }
       bus.emit('sceneChange', { id: scene.id, ids: SCENES.ids() });
@@ -13168,11 +13884,13 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     finish(scene, result) {
       const i = stack.indexOf(scene);
       if (i < 0) return scene;
+      const wasTop = i === stack.length - 1;
       stack.splice(i, 1);
       try { if (scene.exit) scene.exit(result); }
       catch (e) { (KIT.log || console).error(`[scene ${scene.id}] exit threw`, e); }
       scene.result = result;
       if (scene._resolve) scene._resolve(result);
+      if (wasTop) resume(SCENES.top());
       bus.emit('sceneChange', { id: SCENES.top() ? SCENES.top().id : null, ids: SCENES.ids() });
       return scene;
     },
@@ -13699,7 +14417,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
         const out = [{ label: 'Keep playing', action: 'close' }];
         for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
           if (typeof def.when === 'function' && !def.when(game)) continue;
-          out.push({ label: typeof def.label === 'function' ? def.label(game) : (def.label || def.name || def.id), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
+          out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
         }
         return out;
       }
@@ -13788,7 +14506,17 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
           this._saveRows = null;
           build(this);
         },
-        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
+        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
+        /**
+         * Something opened over us — very likely a module's own screen, drawn
+         * into this same `#pause-menu` host, because that is the one overlay the
+         * kit offers for a list over the map. Our delegated click listener is
+         * still on that host, so one tap on their row would fire ours too, read
+         * `data-index` off THEIR row and act on whatever our stale rows array has
+         * at that number. Let go until we are on top again.
+         */
+        suspend() { if (this._off) { this._off(); this._off = null; } },
+        resume() { const host = UI.el('pause-menu'); if (host) { host.hidden = false; } build(this); },
         input(ev) {
           if (ev.key === 'up') { index = (index - 1 + rows.length) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
           if (ev.key === 'down') { index = (index + 1) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
@@ -14500,13 +15228,26 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     return G;
   };
 
-  /** The title runs in a loop: New Game or Continue leaves it, Settings comes back. */
+  /**
+   * The title runs in a loop: New Game or Continue leaves it, Settings comes back.
+   *
+   * `titleRun` is what stops it fighting anything that starts a game from
+   * OUTSIDE the title — a test, a tool, Creator Mode's Play here. Those call
+   * newGame or continueGame, which clear the scene stack, which finishes the
+   * title scene this loop is awaiting; without the check the loop would read
+   * that as “the player chose nothing” and start a new game over the top of the
+   * one just loaded. Every run gets its own token, so a loop that has been
+   * superseded stops rather than acting on a stale answer.
+   */
+  let titleRun = null;
   async function titleLoop() {
+    const mine = titleRun = {};
     for (;;) {
       const action = await KIT.scenes.run('title', { project: G.project, game: G });
+      if (titleRun !== mine) return;             // somebody started a game without us
       if (action === 'continue') {
         const ok = await G.continueGame();
-        if (ok) return;
+        if (ok || titleRun !== mine) return;
         await KIT.toast('No save to continue from yet.');
         continue;
       }
@@ -14514,6 +15255,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
       return;
     }
   }
+  /** Called by anything that starts a game: the title loop is not in charge any more. */
+  function leaveTitle() { titleRun = null; }
 
   G.toTitle = function () {
     KIT.scenes.clear();
@@ -14536,6 +15279,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     await KIT.storage.saveMeta({ runs: (meta.runs || 0) + 1, firstPlayed: meta.firstPlayed || new Date().toISOString() });
 
     const world = buildWorld(save);
+    leaveTitle();
     KIT.scenes.clear();
     KIT.fx.reset();
     KIT.scenes.push('map', { game: G });
@@ -14560,6 +15304,7 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
     if (!save) return false;
     playtimeMs = save.playtimeMs || 0;
     const world = buildWorld(save);
+    leaveTitle();
     KIT.scenes.clear();
     KIT.fx.reset();
     KIT.scenes.push('map', { game: G });
@@ -17092,378 +17837,427 @@ PKMN.TILES.register([
 </script>
 <script>
 // ---- js/sprites/charizard.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.charizard = {
-  size: 32,
-  palette: {
-    k: '#6e2a0e', // dark orange-brown outline
-    O: '#f08030', // base orange
-    o: '#f8a868', // light orange highlight
-    d: '#c8561c', // shadow orange
-    c: '#f8e4a8', // cream belly
-    C: '#d8b878', // cream shade
-    n: '#1a4650', // dark teal wing outline
-    T: '#3a8ea0', // teal wing membrane
-    t: '#6cc4d0', // light teal membrane highlight
-    q: '#a02818', // dark red flame outline / mouth
-    R: '#f85030', // red-orange flame
-    Y: '#fce860', // yellow flame core
-    e: '#141414', // pupil
-    w: '#ffffff', // eye highlight / teeth / claws
-  },
-  rows: [
-    '............kk..................', // 0
-    '...kk......kOOk.................', // 1
-    '..kOok....kOOTTnk....k..........', // 2
-    '..ntOok...kOTTTnkOk..kOk........', // 3
-    '.ntTOok...kOtTTn.kOOk.kOOk......', // 4
-    '.ntTTOok..kOtTTnkOOOkkOOOkkk....', // 5
-    '.ntTTTOok.kOTTnkooOOOOOOOOOOk...', // 6
-    '.ntTTTTOokkOTTnkoOOOOOOOkweOOk..', // 7
-    '.ntTTTTTOokOTTnkOOOOOOOOkeeOOdk.', // 8
-    '.ntTTTTTTOokTTnkOOOOOOOdkkkkkkk.', // 9
-    '.nTTTTTTTOOknnnkOOOOOOdkqqwqqqk.', // 10
-    '..qnTTTTTTOOkOOOOOOOOOdkOOOOOOk.', // 11
-    '.qRq.nTTTTOOkOOOOOOOOcckkkkkkk..', // 12
-    '.qRRq..nTTOOkoOOOOOOccck........', // 13
-    '.qRYRq...nTOkoOOOOOcccccck......', // 14
-    '.qYYRq....kooOOOOOOcccccck......', // 15
-    '.qRYYRq..koOOOOOOOcCCCkOk.......', // 16
-    '.qRYRRq..kOOOOOOOccccckOOk......', // 17
-    '..qRRq...kOOOOOOOcccccckOOk.....', // 18
-    '.koOOk...kOOOOOOcCCCCCCkOdk.....', // 19
-    '..koOdk..kOOOOOOcccccccckwk.....', // 20
-    '...kOOOdkkOOOOOOccccccccCk......', // 21
-    '....kOOOdOOOOOOOcCCCCCCCCk......', // 22
-    '.....kkkddOOOOOOcccccccCk.......', // 23
-    '........kkdddddkccccccck........', // 24
-    '.........kdddddkkOOOOOdk........', // 25
-    '.........kdddddkkOOOOOdk........', // 26
-    '.........kddddk.kOOOOdk.........', // 27
-    '.........kddddk.kOOOOdk.........', // 28
-    '........kddddddk.kOOOOOOOk......', // 29
-    '........kddddddwkkdOOOOOOwk.....', // 30
-    '........kkkkkkkk.kkkkkkkkkk.....', // 31
-  ]
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.charizard = {
+    size: 32,
+    palette: {
+      k: '#6e2a0e', // dark orange-brown outline
+      O: '#f08030', // base orange
+      o: '#f8a868', // light orange highlight
+      d: '#c8561c', // shadow orange
+      c: '#f8e4a8', // cream belly
+      C: '#d8b878', // cream shade
+      n: '#1a4650', // dark teal wing outline
+      T: '#3a8ea0', // teal wing membrane
+      t: '#6cc4d0', // light teal membrane highlight
+      q: '#a02818', // dark red flame outline / mouth
+      R: '#f85030', // red-orange flame
+      Y: '#fce860', // yellow flame core
+      e: '#141414', // pupil
+      w: '#ffffff', // eye highlight / teeth / claws
+    },
+    rows: [
+      '............kk..................', // 0
+      '...kk......kOOk.................', // 1
+      '..kOok....kOOTTnk....k..........', // 2
+      '..ntOok...kOTTTnkOk..kOk........', // 3
+      '.ntTOok...kOtTTn.kOOk.kOOk......', // 4
+      '.ntTTOok..kOtTTnkOOOkkOOOkkk....', // 5
+      '.ntTTTOok.kOTTnkooOOOOOOOOOOk...', // 6
+      '.ntTTTTOokkOTTnkoOOOOOOOkweOOk..', // 7
+      '.ntTTTTTOokOTTnkOOOOOOOOkeeOOdk.', // 8
+      '.ntTTTTTTOokTTnkOOOOOOOdkkkkkkk.', // 9
+      '.nTTTTTTTOOknnnkOOOOOOdkqqwqqqk.', // 10
+      '..qnTTTTTTOOkOOOOOOOOOdkOOOOOOk.', // 11
+      '.qRq.nTTTTOOkOOOOOOOOcckkkkkkk..', // 12
+      '.qRRq..nTTOOkoOOOOOOccck........', // 13
+      '.qRYRq...nTOkoOOOOOcccccck......', // 14
+      '.qYYRq....kooOOOOOOcccccck......', // 15
+      '.qRYYRq..koOOOOOOOcCCCkOk.......', // 16
+      '.qRYRRq..kOOOOOOOccccckOOk......', // 17
+      '..qRRq...kOOOOOOOcccccckOOk.....', // 18
+      '.koOOk...kOOOOOOcCCCCCCkOdk.....', // 19
+      '..koOdk..kOOOOOOcccccccckwk.....', // 20
+      '...kOOOdkkOOOOOOccccccccCk......', // 21
+      '....kOOOdOOOOOOOcCCCCCCCCk......', // 22
+      '.....kkkddOOOOOOcccccccCk.......', // 23
+      '........kkdddddkccccccck........', // 24
+      '.........kdddddkkOOOOOdk........', // 25
+      '.........kdddddkkOOOOOdk........', // 26
+      '.........kddddk.kOOOOdk.........', // 27
+      '.........kddddk.kOOOOdk.........', // 28
+      '........kddddddk.kOOOOOOOk......', // 29
+      '........kddddddwkkdOOOOOOwk.....', // 30
+      '........kkkkkkkk.kkkkkkkkkk.....', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/venusaur.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.venusaur = {
-  size: 32,
-  palette: {
-    d: '#1c4840', // teal outline
-    T: '#50a890', // teal body
-    t: '#88d4b8', // teal light (jaw)
-    s: '#347868', // teal shadow / warts
-    q: '#8c2028', // petal outline
-    p: '#e85050', // petal
-    P: '#f89898', // petal light
-    o: '#b88020', // flower centre outline
-    y: '#f8d040', // flower centre
-    Y: '#fff8a8', // flower centre light
-    h: '#245c28', // leaf outline
-    g: '#58b048', // leaf
-    G: '#90d860', // leaf light
-    e: '#e02828', // eye red
-    k: '#101010', // pupil
-    w: '#ffffff', // glint, fangs, claws
-  },
-  rows: [
-    '...........qqqq.................',
-    '......qqq.qPPppq.qqq............',
-    '.....qPPPpqPpppqppppq...........',
-    '....qPPPppqppppqpppppq..........',
-    '....qPPpppoYYyyopppppq..........',
-    '...qPPpppoYYyyyyoppppppq........',
-    '...qPppppoYyyyyyoppppppq........',
-    '...qpppppoyyyyyyoppppppq........',
-    '....qppppqooooooqpppppq.........',
-    '.h..qqppppppppppppppqq...hh.....',
-    'hGh..qqppppppppppppqq...hGgh....',
-    'hGGGh.qqqqqqqqqqqqqq...hGGggh...',
-    '.hGGGGGGGGGGGGGGGGGGGGGGGGgggh..',
-    '..hGGGGGGGGGGGGGGGGggggdgggdgh..',
-    '...hGGGGGGGGGGGgggggggdTdddTdh..',
-    '....hhGGGGhhGGGGhhgggdTTTTTTTd..',
-    '...dTThhhhTThhhhTThhdTTTTTTTTTd.',
-    '..dTTTTTTTTTTTTTTTTTdTTTTddddTTd',
-    '.dTtTTTTTsTTTTTTTTTTdTTTTewkeTTd',
-    '.dTtTTTTTTTTTTTsTTTTTTTTTeekeTTd',
-    '.dTTTTTTTTTTTTTTTTTTTTTTTdeedTsd',
-    '.dTTTTsTTTTTTTTTTTTTTTTTTTTTTTTd',
-    '.dsTTTTTTTTTTTsTTTTTTTddddddddd.',
-    '.dsTTTTTTTTTTTTTTTTTdttwtttwttd.',
-    '.dsTTTTTTTsTTTTTTTTTdtttttttttd.',
-    '.dsTTTTTTTTTTTTTTTTTTdddddddddd.',
-    '.dTTTTTTdsTTTdTTdsTTTddTTTTTTTd.',
-    '.dTTTTTTdsTTTddddsTTTddTTTTTTTd.',
-    '.dTTTTTd.dTTTd..dTTTTd.dTTTTTTd.',
-    '.dTTTTTd.dTTTd..dTTTTd.dTTTTTTd.',
-    '.dTTTwwd.dTwwd..dTTwwd.dTTTTwwd.',
-    '.ddddddd.ddddd..dddddd.dddddddd.',
-  ],
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.venusaur = {
+    size: 32,
+    palette: {
+      d: '#1c4840', // teal outline
+      T: '#50a890', // teal body
+      t: '#88d4b8', // teal light (jaw)
+      s: '#347868', // teal shadow / warts
+      q: '#8c2028', // petal outline
+      p: '#e85050', // petal
+      P: '#f89898', // petal light
+      o: '#b88020', // flower centre outline
+      y: '#f8d040', // flower centre
+      Y: '#fff8a8', // flower centre light
+      h: '#245c28', // leaf outline
+      g: '#58b048', // leaf
+      G: '#90d860', // leaf light
+      e: '#e02828', // eye red
+      k: '#101010', // pupil
+      w: '#ffffff', // glint, fangs, claws
+    },
+    rows: [
+      '...........qqqq.................',
+      '......qqq.qPPppq.qqq............',
+      '.....qPPPpqPpppqppppq...........',
+      '....qPPPppqppppqpppppq..........',
+      '....qPPpppoYYyyopppppq..........',
+      '...qPPpppoYYyyyyoppppppq........',
+      '...qPppppoYyyyyyoppppppq........',
+      '...qpppppoyyyyyyoppppppq........',
+      '....qppppqooooooqpppppq.........',
+      '.h..qqppppppppppppppqq...hh.....',
+      'hGh..qqppppppppppppqq...hGgh....',
+      'hGGGh.qqqqqqqqqqqqqq...hGGggh...',
+      '.hGGGGGGGGGGGGGGGGGGGGGGGGgggh..',
+      '..hGGGGGGGGGGGGGGGGggggdgggdgh..',
+      '...hGGGGGGGGGGGgggggggdTdddTdh..',
+      '....hhGGGGhhGGGGhhgggdTTTTTTTd..',
+      '...dTThhhhTThhhhTThhdTTTTTTTTTd.',
+      '..dTTTTTTTTTTTTTTTTTdTTTTddddTTd',
+      '.dTtTTTTTsTTTTTTTTTTdTTTTewkeTTd',
+      '.dTtTTTTTTTTTTTsTTTTTTTTTeekeTTd',
+      '.dTTTTTTTTTTTTTTTTTTTTTTTdeedTsd',
+      '.dTTTTsTTTTTTTTTTTTTTTTTTTTTTTTd',
+      '.dsTTTTTTTTTTTsTTTTTTTddddddddd.',
+      '.dsTTTTTTTTTTTTTTTTTdttwtttwttd.',
+      '.dsTTTTTTTsTTTTTTTTTdtttttttttd.',
+      '.dsTTTTTTTTTTTTTTTTTTdddddddddd.',
+      '.dTTTTTTdsTTTdTTdsTTTddTTTTTTTd.',
+      '.dTTTTTTdsTTTddddsTTTddTTTTTTTd.',
+      '.dTTTTTd.dTTTd..dTTTTd.dTTTTTTd.',
+      '.dTTTTTd.dTTTd..dTTTTd.dTTTTTTd.',
+      '.dTTTwwd.dTwwd..dTTwwd.dTTTTwwd.',
+      '.ddddddd.ddddd..dddddd.dddddddd.',
+    ],
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/machamp.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.machamp = {
-  size: 32,
-  palette: { k: '#24364f', d: '#4b6b92', B: '#6e92bd', b: '#9dbce0', n: '#1f1f2b', N: '#3a3a4d', y: '#f4c842', Y: '#a8771a', t: '#eedfa8', T: '#b89a58', r: '#e03a3a', e: '#141414', w: '#ffffff' },
-  rows: [
-    '............k...k...k...........',
-    '...........kbk.kbk.kbk..........',
-    '..kkkk.....kbbkbbbkbbk...kkkkk..',
-    '.kbbbBk....kbbbbbbbBBk..kbbbbBk.',
-    '.kbBkBk....kbbkkbbkkBk..kbBkBBk.',
-    '.kBBBdk....kbbwrbBwrBk..kBBBBdk.',
-    '..kBBdk....kbBreBBreBk...kBBBdk.',
-    '..kBBdk....kbBBBtttttk...kBBBdk.',
-    '..kBBdk.kk.kBBBBTTTTTk.kk.kBBBdk',
-    '..kBBdkkbbk.kkkkkkkkk.kbbkkBBBdk',
-    '..kBBBBBbBkkbbbbbbBBBkkBbBBBBBdk',
-    '..kBBBBBBBkbbbbbbbBBBBkBBBBBBBdk',
-    '..kdddddddkbbbbbbBBBBBkdddddddk.',
-    '...kkkkkkkkbbbbbBBBBBBkkkkkkkk..',
-    '..........kbbbBBBBBBBBk.........',
-    '......kkkkkbbbBBBBBBBBkkkkk.....',
-    '.....kbbBBkbbBBBBBBBBBkBBBBbk...',
-    '....kbbBBBkBBBBBBBBBBBkBBBBBbk..',
-    '...kbbBBBdkBBBBBBBBBBBkdBBBBBbk.',
-    '..kkBBBBdkkBBBBBBBBBBBkkdBBBBkk.',
-    '..kBBBBdk.kyyyyyyyyyyyyk.kdBBBk.',
-    '..kBBBBk..kYYYYYYYYYwYYk..kBBBk.',
-    '...kkkk...knnnnnnnnnnnnk...kkkk.',
-    '..........kNNnnnnnnnnnnk........',
-    '..........knnnnnnnnnnnnk........',
-    '.........kdBBBkkkbbBBBBk........',
-    '.........kdBBBk.kbbBBBBk........',
-    '.........kdBBBk.kbbBBBBk........',
-    '.........kdBBBk.kbbBBBBk........',
-    '........kkdBBBk.kbbBBBBkk.......',
-    '........kdBBBBk.kbbBBBBBBk......',
-    '........kkkkkkk.kkkkkkkkkk......',
-  ]
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.machamp = {
+    size: 32,
+    palette: { k: '#24364f', d: '#4b6b92', B: '#6e92bd', b: '#9dbce0', n: '#1f1f2b', N: '#3a3a4d', y: '#f4c842', Y: '#a8771a', t: '#eedfa8', T: '#b89a58', r: '#e03a3a', e: '#141414', w: '#ffffff' },
+    rows: [
+      '............k...k...k...........',
+      '...........kbk.kbk.kbk..........',
+      '..kkkk.....kbbkbbbkbbk...kkkkk..',
+      '.kbbbBk....kbbbbbbbBBk..kbbbbBk.',
+      '.kbBkBk....kbbkkbbkkBk..kbBkBBk.',
+      '.kBBBdk....kbbwrbBwrBk..kBBBBdk.',
+      '..kBBdk....kbBreBBreBk...kBBBdk.',
+      '..kBBdk....kbBBBtttttk...kBBBdk.',
+      '..kBBdk.kk.kBBBBTTTTTk.kk.kBBBdk',
+      '..kBBdkkbbk.kkkkkkkkk.kbbkkBBBdk',
+      '..kBBBBBbBkkbbbbbbBBBkkBbBBBBBdk',
+      '..kBBBBBBBkbbbbbbbBBBBkBBBBBBBdk',
+      '..kdddddddkbbbbbbBBBBBkdddddddk.',
+      '...kkkkkkkkbbbbbBBBBBBkkkkkkkk..',
+      '..........kbbbBBBBBBBBk.........',
+      '......kkkkkbbbBBBBBBBBkkkkk.....',
+      '.....kbbBBkbbBBBBBBBBBkBBBBbk...',
+      '....kbbBBBkBBBBBBBBBBBkBBBBBbk..',
+      '...kbbBBBdkBBBBBBBBBBBkdBBBBBbk.',
+      '..kkBBBBdkkBBBBBBBBBBBkkdBBBBkk.',
+      '..kBBBBdk.kyyyyyyyyyyyyk.kdBBBk.',
+      '..kBBBBk..kYYYYYYYYYwYYk..kBBBk.',
+      '...kkkk...knnnnnnnnnnnnk...kkkk.',
+      '..........kNNnnnnnnnnnnk........',
+      '..........knnnnnnnnnnnnk........',
+      '.........kdBBBkkkbbBBBBk........',
+      '.........kdBBBk.kbbBBBBk........',
+      '.........kdBBBk.kbbBBBBk........',
+      '.........kdBBBk.kbbBBBBk........',
+      '........kkdBBBk.kbbBBBBkk.......',
+      '........kdBBBBk.kbbBBBBBBk......',
+      '........kkkkkkk.kkkkkkkkkk......',
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/jynx.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.jynx = {
-  size: 32,
-  palette: {
-    h: '#7a5410', // hair outline (dark blonde)
-    d: '#d0a020', // hair shade
-    y: '#f8d848', // hair base blonde
-    Y: '#fff8a8', // hair / gold highlight
-    q: '#2c1440', // face outline (very dark purple)
-    p: '#6a3c90', // face base purple
-    P: '#8e5cb4', // face light purple
-    W: '#f0ecff', // eye sclera
-    e: '#141020', // pupil
-    w: '#ffffff', // eye highlight
-    m: '#b8386c', // lip outline
-    n: '#e06898', // lip shade
-    l: '#f890c0', // lip base pink
-    L: '#ffc4dc', // lip highlight
-    k: '#5c0c14', // dress outline (dark red)
-    s: '#a81c24', // dress shade
-    r: '#e83c3c', // dress base red
-    R: '#f87070', // dress light
-    G: '#a87810', // gold outline / shade
-    g: '#f8c840', // gold base (chest plate, hands)
-  },
-  rows: [
-    '................................', // 0
-    '..........hhhhhhhhhh............', // 1
-    '........hhyYYYYyyyyyhh..........', // 2
-    '.......hyYYYYYyyyyyyyyh.........', // 3
-    '......hyYYYYyyyyyyyyyyyh........', // 4
-    '.....hyYYYyyyyyyyyyyyyyyh.......', // 5
-    '....hyYYyyyyyyqqqqqqqyyyh.......', // 6
-    '...hyyyyyyyyyqPPpppppqyyh.......', // 7
-    '..hyyyyyyyyyqPpWWppWWWqydh......', // 8
-    '..hyyyyyyyddqPpWeppWweqydh......', // 9
-    '.hyyyyyyyyddqppWeppWeeqydh......', // 10
-    '.hyyyyyyyyddqppppppppmmmmmm.....', // 11
-    '.hyyyydyyyddqpppppppmLLllllm....', // 12
-    '..hyyydyyyddqppppppmLlllllllm...', // 13
-    '..hyyydyyyddqppppppmlmmmmmmlm...', // 14
-    '.hyyyydyyyddqppppppmlllllnnnm...', // 15
-    '.hyyyydyyyddqpppppppmnnnnnnm....', // 16
-    '.hyyyydyyyddqppppppppmmmmmm.....', // 17
-    '..hyyydyyyddhqppppppq...........', // 18
-    '..hyyydyyyddhGGGGGGGGGGkkkGGG...', // 19
-    '.hyyyydyyyddhGYgggggggGkRGYggG..', // 20
-    '.hyyyydyyyddhGggggggggGrrGggggG.', // 21
-    '.hyyyydyyyddhGGGGGGGGGGrsGggggG.', // 22
-    '.hyyyyddyddhRRrrrrrrrrrkkGgggG..', // 23
-    '.hyyhhyyhhdhRRRrrrrrrrrrk.GGG...', // 24
-    '..hh..hhkRhRRRrrrrrrrrrrrk......', // 25
-    '.......kRRrrrrrrrrrrrrrssk......', // 26
-    '......kRRrrrrrrrrrrrrrssssk.....', // 27
-    '.....kRRrrrrrrrrrrrrrsssssk.....', // 28
-    '....kRrrrrrrrrrrrrrrsssssssk....', // 29
-    '....krrrrssssssssssssssssssk....', // 30
-    '....kkkkkkkkkkkkkkkkkkkkkkkk....', // 31
-  ],
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.jynx = {
+    size: 32,
+    palette: {
+      h: '#7a5410', // hair outline (dark blonde)
+      d: '#d0a020', // hair shade
+      y: '#f8d848', // hair base blonde
+      Y: '#fff8a8', // hair / gold highlight
+      q: '#2c1440', // face outline (very dark purple)
+      p: '#6a3c90', // face base purple
+      P: '#8e5cb4', // face light purple
+      W: '#f0ecff', // eye sclera
+      e: '#141020', // pupil
+      w: '#ffffff', // eye highlight
+      m: '#b8386c', // lip outline
+      n: '#e06898', // lip shade
+      l: '#f890c0', // lip base pink
+      L: '#ffc4dc', // lip highlight
+      k: '#5c0c14', // dress outline (dark red)
+      s: '#a81c24', // dress shade
+      r: '#e83c3c', // dress base red
+      R: '#f87070', // dress light
+      G: '#a87810', // gold outline / shade
+      g: '#f8c840', // gold base (chest plate, hands)
+    },
+    rows: [
+      '................................', // 0
+      '..........hhhhhhhhhh............', // 1
+      '........hhyYYYYyyyyyhh..........', // 2
+      '.......hyYYYYYyyyyyyyyh.........', // 3
+      '......hyYYYYyyyyyyyyyyyh........', // 4
+      '.....hyYYYyyyyyyyyyyyyyyh.......', // 5
+      '....hyYYyyyyyyqqqqqqqyyyh.......', // 6
+      '...hyyyyyyyyyqPPpppppqyyh.......', // 7
+      '..hyyyyyyyyyqPpWWppWWWqydh......', // 8
+      '..hyyyyyyyddqPpWeppWweqydh......', // 9
+      '.hyyyyyyyyddqppWeppWeeqydh......', // 10
+      '.hyyyyyyyyddqppppppppmmmmmm.....', // 11
+      '.hyyyydyyyddqpppppppmLLllllm....', // 12
+      '..hyyydyyyddqppppppmLlllllllm...', // 13
+      '..hyyydyyyddqppppppmlmmmmmmlm...', // 14
+      '.hyyyydyyyddqppppppmlllllnnnm...', // 15
+      '.hyyyydyyyddqpppppppmnnnnnnm....', // 16
+      '.hyyyydyyyddqppppppppmmmmmm.....', // 17
+      '..hyyydyyyddhqppppppq...........', // 18
+      '..hyyydyyyddhGGGGGGGGGGkkkGGG...', // 19
+      '.hyyyydyyyddhGYgggggggGkRGYggG..', // 20
+      '.hyyyydyyyddhGggggggggGrrGggggG.', // 21
+      '.hyyyydyyyddhGGGGGGGGGGrsGggggG.', // 22
+      '.hyyyyddyddhRRrrrrrrrrrkkGgggG..', // 23
+      '.hyyhhyyhhdhRRRrrrrrrrrrk.GGG...', // 24
+      '..hh..hhkRhRRRrrrrrrrrrrrk......', // 25
+      '.......kRRrrrrrrrrrrrrrssk......', // 26
+      '......kRRrrrrrrrrrrrrrssssk.....', // 27
+      '.....kRRrrrrrrrrrrrrrsssssk.....', // 28
+      '....kRrrrrrrrrrrrrrrsssssssk....', // 29
+      '....krrrrssssssssssssssssssk....', // 30
+      '....kkkkkkkkkkkkkkkkkkkkkkkk....', // 31
+    ],
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/electabuzz.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.electabuzz = {
-  size: 32,
-  palette: {
-    k: '#5a3c0c', // dark brown outline
-    y: '#f8d028', // base yellow
-    Y: '#ffee80', // yellow highlight
-    d: '#d89c1c', // yellow shade
-    n: '#202028', // black stripe
-    N: '#4a4a58', // stripe highlight
-    w: '#ffffff', // eye white / fangs
-    e: '#101010', // pupil
-    m: '#8c2a2a', // mouth interior
-  },
-  rows: [
-    '...........kk.............kk....', // 0
-    '..........kYyk...........kyYk...', // 1
-    '..........kynk...........knyk...', // 2
-    '..........knnk...........knnk...', // 3
-    '...........kyyk.........kyyk....', // 4
-    '..........kkyyykkkkkkkkkyyykk...', // 5
-    '.........kYynnnnnnnnnnnnnnnyyk..', // 6
-    '........kYyyynnnnnnnnnnnnnyyyk..', // 7
-    '........kYyyyyynnnnnnnnnyyyyyk..', // 8
-    '........kyyyyyyyykwwknkwwwkyyk..', // 9
-    '........kyyyyyyyykwekykweekyyk..', // 10
-    '...kk...kyyyyyyyykkkyykkkkyyyk..', // 11
-    '..kyyk..kdyyyyykkkkkkkkkkkkyyk..', // 12
-    '.kyYyyk.kdyyyykmmwmmmmmmmwmyyk..', // 13
-    '.kNnnnk..kdyyyykkkkkkkkkkkkyyk..', // 14
-    '.knnnnk..kdyyyyyyyyyyyyyyyyyk...', // 15
-    '.kyyyyk.kdyyyyyyyyyyyyykYyyyyk..', // 16
-    '.kyyyyk.kdyyyyyyyyyyyyykYyyyydk.', // 17
-    '.kNnnnk.kdNNnnnnnnnnnnnkNnnnnnk.', // 18
-    '.knnnnk.kdnnnnnnnnnnnnnknnnnnnk.', // 19
-    '.kyyyyyykdyyyyyyyyyyyykyyyyyydk.', // 20
-    '.kyyyyyykdyyyyyyyyyyykyyyyyyyyk.', // 21
-    '..kyyyyykdNNnnnnnnnnkykykykykyk.', // 22
-    '...kkkkkkdnnnnnnnnnnkykykykykyk.', // 23
-    '........kdyyyyyyyyyk.kkykykykk..', // 24
-    '.......kdyyykyyyyyyk..kkkkkkk...', // 25
-    '.......kdyyykyyyyyyk............', // 26
-    '.....kkkdyyykyyyyyykkkkkk.......', // 27
-    '.....kdyyyyykyyyyyyyyyyyyk......', // 28
-    '.....kdyyyyykyyyyyyyyyyyyyk.....', // 29
-    '.....kddyyyykdyyyyyykyykyyk.....', // 30
-    '.....kkkkkkkkkkkkkkkkkkkkkk.....', // 31
-  ]
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.electabuzz = {
+    size: 32,
+    palette: {
+      k: '#5a3c0c', // dark brown outline
+      y: '#f8d028', // base yellow
+      Y: '#ffee80', // yellow highlight
+      d: '#d89c1c', // yellow shade
+      n: '#202028', // black stripe
+      N: '#4a4a58', // stripe highlight
+      w: '#ffffff', // eye white / fangs
+      e: '#101010', // pupil
+      m: '#8c2a2a', // mouth interior
+    },
+    rows: [
+      '...........kk.............kk....', // 0
+      '..........kYyk...........kyYk...', // 1
+      '..........kynk...........knyk...', // 2
+      '..........knnk...........knnk...', // 3
+      '...........kyyk.........kyyk....', // 4
+      '..........kkyyykkkkkkkkkyyykk...', // 5
+      '.........kYynnnnnnnnnnnnnnnyyk..', // 6
+      '........kYyyynnnnnnnnnnnnnyyyk..', // 7
+      '........kYyyyyynnnnnnnnnyyyyyk..', // 8
+      '........kyyyyyyyykwwknkwwwkyyk..', // 9
+      '........kyyyyyyyykwekykweekyyk..', // 10
+      '...kk...kyyyyyyyykkkyykkkkyyyk..', // 11
+      '..kyyk..kdyyyyykkkkkkkkkkkkyyk..', // 12
+      '.kyYyyk.kdyyyykmmwmmmmmmmwmyyk..', // 13
+      '.kNnnnk..kdyyyykkkkkkkkkkkkyyk..', // 14
+      '.knnnnk..kdyyyyyyyyyyyyyyyyyk...', // 15
+      '.kyyyyk.kdyyyyyyyyyyyyykYyyyyk..', // 16
+      '.kyyyyk.kdyyyyyyyyyyyyykYyyyydk.', // 17
+      '.kNnnnk.kdNNnnnnnnnnnnnkNnnnnnk.', // 18
+      '.knnnnk.kdnnnnnnnnnnnnnknnnnnnk.', // 19
+      '.kyyyyyykdyyyyyyyyyyyykyyyyyydk.', // 20
+      '.kyyyyyykdyyyyyyyyyyykyyyyyyyyk.', // 21
+      '..kyyyyykdNNnnnnnnnnkykykykykyk.', // 22
+      '...kkkkkkdnnnnnnnnnnkykykykykyk.', // 23
+      '........kdyyyyyyyyyk.kkykykykk..', // 24
+      '.......kdyyykyyyyyyk..kkkkkkk...', // 25
+      '.......kdyyykyyyyyyk............', // 26
+      '.....kkkdyyykyyyyyykkkkkk.......', // 27
+      '.....kdyyyyykyyyyyyyyyyyyk......', // 28
+      '.....kdyyyyykyyyyyyyyyyyyyk.....', // 29
+      '.....kddyyyykdyyyyyykyykyyk.....', // 30
+      '.....kkkkkkkkkkkkkkkkkkkkkk.....', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/jolteon.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.jolteon = {
-  size: 32,
-  palette: { k: '#5c4410', y: '#f8d830', Y: '#fff490', d: '#d8a020', w: '#ffffff', W: '#d0d0c8', e: '#101010' },
-  rows: [
-    '..................k.............',
-    '.................kyk......k.....',
-    '.................kyyk....kyk....',
-    '................kYyyk....kyyk...',
-    '................kYyyyk..kyyddk..',
-    '...............kYyyyyk..kyyddk..',
-    '...............kYyyyyykkkyyyddk.',
-    '..............kYyyyyyyyyyyyyyyk.',
-    '..............kyyyyyyyyyyyyyyyyk',
-    '...........k.kyyyyyyyyyyyyyyyyyk',
-    '..........kykkyyyyyyyyyyyykkyyyk',
-    '..........kyyyyyyyyyyyyyykewyyyk',
-    '...........kyyyyyyyyyyyyykeeyyyk',
-    '......k.....kyyyyyyyyyyyyykkyyyk',
-    '.....kyk...kkyyyyyyyyyyyyyyyyykk',
-    '....kyyykkkwwkyyyyyyyyyyyyyykkk.',
-    '...kyyyyykwwwwkyyyyyyyyyyyykk...',
-    '..kyyyyyykwwwwwkkyyyyyyyykkw....',
-    '..kyyyyyyykWwwwwwkkkkkkkkwwwk...',
-    '.kyyyyyyyyykWwwwwwwwwwwwwwwwk...',
-    '.kdyyyyyyyyykWWwwwwwwwwwwwwk....',
-    '.kdyyyyyyyyyykWWWwwwwwwwkwk.....',
-    '.kddyyyyyyyyyyykWWWwwwkkkkk.....',
-    '..kddyyyyyyyyyyykkkWkk..........',
-    '..kdddyyyyyyyyyyyyykk...........',
-    '...kddddyyyyyyyyyyyyk...........',
-    '....kddkyyyykkyyyyyyk...........',
-    '.....kk.kyyk..kyyyykk...........',
-    '.......kdyk...kyykyyk...........',
-    '.......kdyk...kyykdyk...........',
-    '......kdyyk..kyykkdyk...........',
-    '......kkkk...kkkk.kkk...........',
-  ]
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.jolteon = {
+    size: 32,
+    palette: { k: '#5c4410', y: '#f8d830', Y: '#fff490', d: '#d8a020', w: '#ffffff', W: '#d0d0c8', e: '#101010' },
+    rows: [
+      '..................k.............',
+      '.................kyk......k.....',
+      '.................kyyk....kyk....',
+      '................kYyyk....kyyk...',
+      '................kYyyyk..kyyddk..',
+      '...............kYyyyyk..kyyddk..',
+      '...............kYyyyyykkkyyyddk.',
+      '..............kYyyyyyyyyyyyyyyk.',
+      '..............kyyyyyyyyyyyyyyyyk',
+      '...........k.kyyyyyyyyyyyyyyyyyk',
+      '..........kykkyyyyyyyyyyyykkyyyk',
+      '..........kyyyyyyyyyyyyyykewyyyk',
+      '...........kyyyyyyyyyyyyykeeyyyk',
+      '......k.....kyyyyyyyyyyyyykkyyyk',
+      '.....kyk...kkyyyyyyyyyyyyyyyyykk',
+      '....kyyykkkwwkyyyyyyyyyyyyyykkk.',
+      '...kyyyyykwwwwkyyyyyyyyyyyykk...',
+      '..kyyyyyykwwwwwkkyyyyyyyykkw....',
+      '..kyyyyyyykWwwwwwkkkkkkkkwwwk...',
+      '.kyyyyyyyyykWwwwwwwwwwwwwwwwk...',
+      '.kdyyyyyyyyykWWwwwwwwwwwwwwk....',
+      '.kdyyyyyyyyyykWWWwwwwwwwkwk.....',
+      '.kddyyyyyyyyyyykWWWwwwkkkkk.....',
+      '..kddyyyyyyyyyyykkkWkk..........',
+      '..kdddyyyyyyyyyyyyykk...........',
+      '...kddddyyyyyyyyyyyyk...........',
+      '....kddkyyyykkyyyyyyk...........',
+      '.....kk.kyyk..kyyyykk...........',
+      '.......kdyk...kyykyyk...........',
+      '.......kdyk...kyykdyk...........',
+      '......kdyyk..kyykkdyk...........',
+      '......kkkk...kkkk.kkk...........',
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
 // ---- js/sprites/vaporeon.js ----
-window.PKMN = window.PKMN || {}; PKMN.SPRITES = PKMN.SPRITES || {};
-PKMN.SPRITES.vaporeon = {
-  size: 32,
-  palette: {
-    k: '#1c3d66', // dark blue outline
-    b: '#b0e6fa', // light blue highlight
-    B: '#6fc8ec', // base blue
-    d: '#3f9ccc', // shadow blue
-    n: '#27508f', // navy back ridge (dark)
-    N: '#4a80cc', // navy back ridge (light)
-    c: '#fdf7e3', // cream frill
-    C: '#dccfa0', // cream frill shade
-    K: '#8a7440', // cream frill outline
-    e: '#101822', // pupil / nose
-    w: '#ffffff', // eye highlight
-  },
-  rows: [
-    '................................', // 0
-    '..................kk....kk......', // 1
-    '.................kbbk..kbbk.....', // 2
-    '.................kbBbk.kbBbk....', // 3
-    '................kbBBbkkbBBbk....', // 4
-    '....kk..........kbBBBkkbBBBbk...', // 5
-    '...kbbk.kk......kdBBBBkbBBBBk...', // 6
-    '..kbBBbkbbk.....kdBBBBkBBBBdk...', // 7
-    '..kBBBBBBBk......kdBBBkbBBBdk...', // 8
-    '.kbBBBBBBBdk......kkbbbbbbbkk...', // 9
-    '.kBBBBBBBBdk.....kbbbbbbbbbbk...', // 10
-    '.kdBBBBBBdk.....kbbbbbbbkkbbk...', // 11
-    '..kdBBBBdk......kbbbbbbkwekbbk..', // 12
-    '...kdBBdk......kBbbbbbbkeekbbbk.', // 13
-    '....kBBdk......kBBbbbbbbkkbbbbk.', // 14
-    '....kBBdk.....KKBBBbbbbbbbbbbek.', // 15
-    '....kBBdk....KccKBBBBbbbbbbbbkk.', // 16
-    '....kBBdk...KcccKkBBBBBbbbbbbk..', // 17
-    '....kBBBdk..KcccCKkkBBBBBBkkk...', // 18
-    '.....kBBdk.KcccCCKnKKKKKKKKKKK..', // 19
-    '.....kBBBdkKccCCCKNnKcccccccccK.', // 20
-    '......kBBdkKcCCKKKNnKCCcCCcCCcK.', // 21
-    '.......kBBkKCKBBBBKNnKKCKKCKKCK.', // 22
-    '........kkkKKBBBBBBKNKK.K..K..K.', // 23
-    '.........kBBBBBBBBBBBkK.........', // 24
-    '........kBBBBBBBBBBBBBBk........', // 25
-    '.......kdBBBBBBBBBBBBBBBk.......', // 26
-    '.......kdBBBBdkkkkkkkkBBBk.kk...', // 27
-    '.......kdBBBdk........kBBBkkBk..', // 28
-    '.......kdBBBdk........kBBdkBBk..', // 29
-    '.......kdBBBdk........kBBdkBBk..', // 30
-    '.......kkkkkk.........kkkkkkkk..', // 31
-  ]
-};
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.vaporeon = {
+    size: 32,
+    palette: {
+      k: '#1c3d66', // dark blue outline
+      b: '#b0e6fa', // light blue highlight
+      B: '#6fc8ec', // base blue
+      d: '#3f9ccc', // shadow blue
+      n: '#27508f', // navy back ridge (dark)
+      N: '#4a80cc', // navy back ridge (light)
+      c: '#fdf7e3', // cream frill
+      C: '#dccfa0', // cream frill shade
+      K: '#8a7440', // cream frill outline
+      e: '#101822', // pupil / nose
+      w: '#ffffff', // eye highlight
+    },
+    rows: [
+      '................................', // 0
+      '..................kk....kk......', // 1
+      '.................kbbk..kbbk.....', // 2
+      '.................kbBbk.kbBbk....', // 3
+      '................kbBBbkkbBBbk....', // 4
+      '....kk..........kbBBBkkbBBBbk...', // 5
+      '...kbbk.kk......kdBBBBkbBBBBk...', // 6
+      '..kbBBbkbbk.....kdBBBBkBBBBdk...', // 7
+      '..kBBBBBBBk......kdBBBkbBBBdk...', // 8
+      '.kbBBBBBBBdk......kkbbbbbbbkk...', // 9
+      '.kBBBBBBBBdk.....kbbbbbbbbbbk...', // 10
+      '.kdBBBBBBdk.....kbbbbbbbkkbbk...', // 11
+      '..kdBBBBdk......kbbbbbbkwekbbk..', // 12
+      '...kdBBdk......kBbbbbbbkeekbbbk.', // 13
+      '....kBBdk......kBBbbbbbbkkbbbbk.', // 14
+      '....kBBdk.....KKBBBbbbbbbbbbbek.', // 15
+      '....kBBdk....KccKBBBBbbbbbbbbkk.', // 16
+      '....kBBdk...KcccKkBBBBBbbbbbbk..', // 17
+      '....kBBBdk..KcccCKkkBBBBBBkkk...', // 18
+      '.....kBBdk.KcccCCKnKKKKKKKKKKK..', // 19
+      '.....kBBBdkKccCCCKNnKcccccccccK.', // 20
+      '......kBBdkKcCCKKKNnKCCcCCcCCcK.', // 21
+      '.......kBBkKCKBBBBKNnKKCKKCKKCK.', // 22
+      '........kkkKKBBBBBBKNKK.K..K..K.', // 23
+      '.........kBBBBBBBBBBBkK.........', // 24
+      '........kBBBBBBBBBBBBBBk........', // 25
+      '.......kdBBBBBBBBBBBBBBBk.......', // 26
+      '.......kdBBBBdkkkkkkkkBBBk.kk...', // 27
+      '.......kdBBBdk........kBBBkkBk..', // 28
+      '.......kdBBBdk........kBBdkBBk..', // 29
+      '.......kdBBBdk........kBBdkBBk..', // 30
+      '.......kkkkkk.........kkkkkkkk..', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 
@@ -17703,15 +18497,11 @@ PKMN.SPRITES.vaporeon = {
         "y": 8
       },
       "tuning": {
-        "awayCapMinutes": 4320,
-        "awayMinutesPerRealMinute": 1,
-        "driveClock": true,
         "feedFriendship": 10,
         "giftChance": 0.2,
         "giftFriendship": 1,
         "jobFriendship": 8,
         "maxGifts": 2,
-        "minutesPerSecond": 6,
         "moodDriftMinutes": 90,
         "petFriendship": 6,
         "suitedSpeed": 0.75
@@ -17727,9 +18517,11 @@ PKMN.SPRITES.vaporeon = {
       "berryBonus": 10,
       "defaultProfile": "friendly",
       "difficulty": "gentle",
+      "encounters": {},
       "favouriteBerryBonus": 5,
       "followStepBonus": 1,
       "followers": true,
+      "garden": null,
       "goldenBerry": "golden-berry",
       "petBonus": 3,
       "profiles": [
@@ -17821,6 +18613,7 @@ PKMN.SPRITES.vaporeon = {
           }
         }
       ],
+      "rarity": {},
       "shinyChance": 0.02,
       "starters": {
         "ask": true,
@@ -17919,9 +18712,12 @@ PKMN.SPRITES.vaporeon = {
   },
   "settings": {
     "clock": {
-      "enabled": false,
-      "minutesPerSecond": 0,
-      "minutesPerStep": 1
+      "awayCapMinutes": 4320,
+      "awayMinutesPerRealMinute": 1,
+      "enabled": true,
+      "minutesPerSecond": 6,
+      "minutesPerStep": 1,
+      "stampEverySeconds": 20
     },
     "coop": {
       "enabled": false
@@ -17946,28 +18742,7 @@ PKMN.SPRITES.vaporeon = {
     "x": 5,
     "y": 6
   },
-  "strings": {
-    "bag": "Bag",
-    "cancel": "Cancel",
-    "continue": "Continue",
-    "empty-bag": "Your bag is empty.",
-    "got-item": "Got {count} {item}!",
-    "lost-item": "Lost {count} {item}.",
-    "name-prompt": "What is your name?",
-    "new-game": "New Game",
-    "no": "No",
-    "number-prompt": "Enter a number",
-    "ok": "OK",
-    "quit": "Quit to title",
-    "save": "Save",
-    "save-failed": "Could not save.",
-    "save-prompt": "Save your progress?",
-    "saved": "Saved.",
-    "settings": "Settings",
-    "the-end": "The End",
-    "timer-up": "Time is up!",
-    "yes": "Yes"
-  },
+  "strings": {},
   "terrains": [
     {
       "base": "grass",
@@ -21275,7 +22050,7 @@ PKMN.SPRITES.vaporeon = {
     if (!tool) return;
     drawing = true;
     el.setPointerCapture(ev.pointerId);
-    ED.beginStroke(tool.label || tool.id);
+    ED.beginStroke(KIT.labelOf(tool, ED, tool.id));
     try { if (tool.begin) tool.begin(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); }
     state.cursor = { x: pt.tx, y: pt.ty };
     ED.repaint();
@@ -21380,7 +22155,7 @@ PKMN.SPRITES.vaporeon = {
     const bar = ED.el.tabs;
     UI.clear(bar);
     for (const p of panelList()) {
-      const b = UI.make('button.ed-tab', { text: p.label || p.id });
+      const b = UI.make('button.ed-tab', { text: KIT.labelOf(p, ED, p.id) });
       b.dataset.panel = p.id;
       b.setAttribute('aria-selected', String(p.id === state.panel));
       b.onclick = () => ED.set({ panel: p.id });
@@ -21459,9 +22234,9 @@ PKMN.SPRITES.vaporeon = {
       if (tools.children.length !== defs.length) {
         UI.clear(tools);
         for (const t of defs) {
-          const b = UI.make('button.ed-tool', { text: t.icon || t.label || t.id });
+          const b = UI.make('button.ed-tool', { text: t.icon || KIT.labelOf(t, ED, t.id) });
           b.dataset.tool = t.id;
-          b.title = `${t.label || t.id}${t.key ? ` (${t.key})` : ''}`;
+          b.title = `${KIT.labelOf(t, ED, t.id)}${t.key ? ` (${t.key})` : ''}`;
           b.onclick = () => ED.set({ tool: t.id });
           tools.appendChild(b);
         }
@@ -22484,7 +23259,7 @@ PKMN.SPRITES.vaporeon = {
   INS.enumOptions = function (field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: d.name || d.label || d.id }));
+      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: KIT.labelOf(d, ctx, d.id) }));
       else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
       else opts = [];
     }
@@ -22869,11 +23644,14 @@ PKMN.SPRITES.vaporeon = {
 
   // ---- text ------------------------------------------------------------------------
   FE.add({
-    id: 'string', types: ['string'],
+    // 'label' is here too: in content it is always plain text. The other kind
+    // of label — a function of the game — only ever appears in a registry
+    // definition, which is code, and code is not edited through a form.
+    id: 'string', types: ['string', 'label'],
     mount(el, f, value, onChange) {
       const input = make('input');
       input.type = 'text';
-      input.value = value == null ? '' : String(value);
+      input.value = value == null || typeof value === 'function' ? '' : String(value);
       if (f.placeholder) input.placeholder = f.placeholder;
       const t = typed(onChange);
       input.oninput = () => t.push(input.value);
@@ -23351,7 +24129,7 @@ PKMN.SPRITES.vaporeon = {
     const def = KIT.registry('conditions').get(cond.kind);
     const head = make('div.ed-row.ed-cond-head');
     const kindSel = make('select.ed-cond-kind');
-    for (const d of INS.conditionKinds()) { const o = make('option', { text: d.label || titleCase(d.id) }); o.value = d.id; kindSel.appendChild(o); }
+    for (const d of INS.conditionKinds()) { const o = make('option', { text: KIT.labelOf(d, null, titleCase(d.id)) }); o.value = d.id; kindSel.appendChild(o); }
     kindSel.value = cond.kind;
     kindSel.onchange = () => {
       const next = INS.newCondition(kindSel.value);
@@ -23406,7 +24184,7 @@ PKMN.SPRITES.vaporeon = {
     const menu = make('div.ed-add-menu');
     menu.hidden = true;
     for (const d of INS.conditionKinds()) {
-      const item = btn(d.label || titleCase(d.id), d.doc || '', () => { menu.hidden = true; onPick(d.id); });
+      const item = btn(KIT.labelOf(d, null, titleCase(d.id)), d.doc || '', () => { menu.hidden = true; onPick(d.id); });
       menu.appendChild(item);
     }
     wrap.appendChild(b); wrap.appendChild(menu);
@@ -25386,7 +26164,7 @@ PKMN.SPRITES.vaporeon = {
   SE.labelOf = function (idOrDef) {
     const def = typeof idOrDef === 'string' ? SE.def(idOrDef) : idOrDef;
     if (!def) return titleCase(idOrDef);
-    return def.mv || def.label || titleCase(def.id);
+    return def.mv || KIT.labelOf(def, ED, titleCase(def.id));
   };
 
   const BRANCH_LABELS = { then: 'Then', else: 'Else', body: 'Do', options: 'Choice' };
@@ -26152,7 +26930,7 @@ PKMN.SPRITES.vaporeon = {
         for (const f of S.fields(def.fields || [])) {
           if (f.type !== 'text') continue;
           push({ path: where.path.concat(f.key), text: cmd[f.key] == null ? '' : String(cmd[f.key]), kind: 'command',
-            command: cmd.t, field: f.key, label, fieldLabel: `${def.label || cmd.t}${f.key === 'text' ? '' : ' · ' + (f.label || titleCase(f.key))}`,
+            command: cmd.t, field: f.key, label, fieldLabel: `${KIT.labelOf(def, null, cmd.t)}${f.key === 'text' ? '' : ' · ' + (f.label || titleCase(f.key))}`,
             speaker: cmd.t === 'say' ? (cmd.who || '') : '', where: Object.assign({}, where) });
         }
         if (cmd.t === 'choice' && Array.isArray(cmd.options)) {
@@ -27095,14 +27873,22 @@ PKMN.SPRITES.vaporeon = {
       });
 
       section(host, 'Modules', false, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on.' }));
-        const known = new Set((p.modules || []).concat(Object.keys(p.packs || {})).concat(['mons']));
+        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
+        // Every module the page has LOADED, so one can be switched on as well as
+        // off — plus any this project names that did not load, which is worth
+        // seeing rather than hiding. The engine knows no module's name.
+        const loaded = (KIT.modules && KIT.modules.all) ? KIT.modules.all() : [];
+        const byId = new Map(loaded.map(d => [d.id, d]));
+        const known = Array.from(new Set(loaded.map(d => d.id).concat(p.modules || []))).sort();
         const chips = make('div.ed-chips');
-        for (const id of Array.from(known).sort()) {
+        for (const id of known) {
+          const def = byId.get(id) || null;
           const on = (p.modules || []).includes(id);
-          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${titleCase(id)}` });
+          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${KIT.labelOf(def, ED, titleCase(id))}` });
           c.type = 'button';
           c.setAttribute('aria-pressed', String(on));
+          if (!def) { c.classList.add('ed-chip-warn'); c.title = `This project asks for “${id}”, but it is not on the page.`; }
+          else if (def.describe) c.title = def.describe;
           c.onclick = () => {
             const list = (p.modules || []).slice();
             const i = list.indexOf(id);
@@ -27111,6 +27897,7 @@ PKMN.SPRITES.vaporeon = {
           };
           chips.appendChild(c);
         }
+        if (!known.length) body.appendChild(make('div.ed-hint', { text: 'No modules are loaded. tools/new-module.js writes one.' }));
         body.appendChild(chips);
       });
     },
@@ -27864,10 +28651,16 @@ PKMN.SPRITES.vaporeon = {
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
-<!-- Modules (docs/MODULES.md). They load BEFORE main.js so main.js still captures
-     the whole page as KIT.PRISTINE_HTML (publish rebuilds the page from that).
-     KIT.module does not exist yet at this point, so manifest.js registers on
-     DOMContentLoaded — its listener is added first, so it runs before boot. -->
+<!-- Modules (docs/MODULES.md). These two are what this demo enables
+     (project.modules); the third the engine ships, `dungeon`, belongs to the
+     dungeon template and is not loaded here. tools/load-modules.js loads the
+     same files in the same order for the demo builder and the Node tests.
+
+     They load BEFORE main.js so main.js still captures the whole page as
+     KIT.PRISTINE_HTML (publish rebuilds the page from that). KIT.module does
+     not exist yet at this point, so each manifest.js registers on
+     DOMContentLoaded — its listener is added first, so it runs before boot.
+     (docs/ENGINE-HOOKS.md §9 is the fix that would make this ordinary.) -->
 <script>
 // ---- js/modules/mons/rules.js ----
 // mons/rules.js — every rule the Pokémon side runs on, as pure functions.
@@ -28022,6 +28815,10 @@ PKMN.SPRITES.vaporeon = {
 
   /** pack(project) -> packs.mons with every default filled in (never mutates the project). */
   M.pack = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
+      const p = KIT.modules.pack(project, 'mons');
+      if (p) return p;
+    }
     const raw = (project && project.packs && isObj(project.packs.mons)) ? project.packs.mons : {};
     return Object.assign(M.contentDefaults(), raw);
   };
@@ -28422,6 +29219,31 @@ PKMN.SPRITES.vaporeon = {
   };
 
   /**
+   * repair(data) -> the same object, with its shape put right.
+   *
+   * In place, deliberately: everything that holds a section holds this object,
+   * and reading twice has to give the same one back. A section that is the wrong
+   * version is not this function's business — the migrate chain does that, and
+   * the engine runs it first.
+   */
+  M.repair = function (data) {
+    if (!isObj(data)) return M.migrateSave(data);
+    if (num(data.version, 0) !== M.SAVE_VERSION) return M.migrateSave(data);
+    data.party = (Array.isArray(data.party) ? data.party : []).map(fillMon).filter(Boolean);
+    data.box = (Array.isArray(data.box) ? data.box : []).map(fillMon).filter(Boolean);
+    if (!isObj(data.dex)) data.dex = { seen: {}, caught: {} };
+    if (!isObj(data.dex.seen)) data.dex.seen = {};
+    if (!isObj(data.dex.caught)) data.dex.caught = {};
+    if (typeof data.follower !== 'string') data.follower = null;
+    data.steps = num(data.steps, 0);
+    if (!Array.isArray(data.petted)) data.petted = [];
+    if (data.lastSeenAt === undefined) data.lastSeenAt = null;
+    // The party cannot be longer than the party: the rest wait in the garden.
+    if (data.party.length > M.PARTY_MAX) data.box = data.party.splice(M.PARTY_MAX).concat(data.box);
+    return data;
+  };
+
+  /**
    * migrateSave(data) -> the current shape.
    * v1 (the flat Pokémon game before the kit): { pokemon:[{species,name,friendship}],
    * dex:['pikachu'], follower:<index> }. Old saves must keep loading.
@@ -28484,6 +29306,13 @@ PKMN.SPRITES.vaporeon = {
    */
   M.section = function (save) {
     if (!isObj(save)) return M.saveDefaults();
+    // The engine fills, migrates and repairs the section when the world is made
+    // (see `save` in manifest.js). This reads it — and still does the whole job
+    // for a bare save, because a module has to work without a world around it.
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
+      const section = KIT.modules.saveSection(save, 'mons');
+      if (section) return section;
+    }
     save.modules = isObj(save.modules) ? save.modules : {};
     const cur = save.modules.mons;
     if (!isObj(cur) || num(cur.version, 0) !== M.SAVE_VERSION || !Array.isArray(cur.party)) {
@@ -29237,19 +30066,21 @@ PKMN.SPRITES.vaporeon = {
      * The variable is set *inside* the script that sets it — the lab stand still
      * has lines to say afterwards. Asking for a nickname there would push a name
      * box under the script's own message box and wedge both: the box below waits
-     * for an answer it can never be given. So we wait for the main thread to
-     * finish saying its piece, and only then say hello.
+     * for an answer it can never be given. So we wait for our turn.
+     *
+     * `KIT.interpreter.whenIdle()` is the engine's answer to "has the script
+     * finished"; the screen is a separate question, because a message box stays
+     * up after the script that pushed it has ended.
      */
-    const grantWhenQuiet = (justChosen) => {
-      let tries = 0;
-      const attempt = () => {
-        const busy = (KIT.interpreter && KIT.interpreter.mainBusy && KIT.interpreter.mainBusy()) ||
-          (world && world.busy) ||
-          (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
-        if (busy && tries++ < 600) { setTimeout(attempt, 100); return; }   // a minute, then give up waiting
-        grantIfNeeded(justChosen);
-      };
-      attempt();
+    const grantWhenQuiet = async (justChosen) => {
+      try { await KIT.interpreter.whenIdle(); } catch (e) { /* nothing was running */ }
+      const onScreen = () => (world && world.busy) ||
+        (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
+      for (let tries = 0; onScreen() && tries < 600; tries++) {
+        await new Promise(r => setTimeout(r, 100));               // a minute, then say it anyway
+        try { await KIT.interpreter.whenIdle(); } catch (e) { /* ditto */ }
+      }
+      grantIfNeeded(justChosen);
     };
     const off = world.events.on('varChanged', (p) => { if (p && p.name === cfg.var) grantWhenQuiet(true); });
     grantIfNeeded(false);            // catching a save up is quiet: no prompt, no fanfare
@@ -29429,17 +30260,6 @@ PKMN.SPRITES.vaporeon = {
    */
   M.registerItems = function () {
     const kinds = KIT.registry('itemKinds');
-    // The engine's own default kind. `project.items[].kind` defaults to 'item'
-    // and the kit registers nothing, so validation only starts checking kinds
-    // once somebody registers one — and then every plain keepsake in every
-    // project becomes an `unknown-item-kind` warning. Registering the default
-    // (if nobody has) keeps that from being our fault. See docs/ENGINE-HOOKS.md §16.
-    if (!kinds.has('item')) {
-      kinds.add({
-        id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
-        fields: [], use() { return false; },
-      });
-    }
     kinds.add({
       id: 'ball', label: 'Poké Ball', replace: true,
       doc: 'Thrown in the catch scene. `power` multiplies the chance.',
@@ -29509,24 +30329,18 @@ PKMN.SPRITES.vaporeon = {
    */
   function install(world) {
     if (!world || world._mons) return world && world._mons;
-    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, awayDone: false, awayPending: 0 };
+    const state = world._mons = { offs: [], gardenIds: [], followerUid: null, sparkle: 0, awayDone: false };
     const section = M.section(world.save);
 
     // --- the session gap ------------------------------------------------------
-    // ARCHITECTURE §10 says the world emits `sessionResumed { elapsedMs }`; it
-    // does not (see README, "the missing hook"). There must still be only ONE
-    // session gap in a game, whichever module notices it, so:
-    //   · `save.clock.lastSeenAt` is the stamp — the field the kit already has
-    //     in the save shape, not a second one of our own;
-    //   · we listen for `sessionResumed` first, so a module that owns the clock
-    //     (and can turn the gap into in-game minutes) gets to announce it;
-    //   · if nobody has by the first update tick, we announce it ourselves and
-    //     latch `world._sessionResumed` so it is said exactly once.
+    // The engine measures it, keeps the stamp fresh and says `sessionResumed`
+    // once, at the end of the world's first tick. All we do is listen, and mirror
+    // the stamp into our own section so the module still knows when it was last
+    // here if it is ever read without a world around it.
     state.offs.push(world.events.on('sessionResumed', (p) => {
       awayBonus(world, p && p.elapsedMs);
     }));
-    state.awayPending = gapMs(world);
-    stampSeen(world);
+    M.section(world.save).lastSeenAt = (world.save.clock && world.save.clock.lastSeenAt) || null;
 
     // --- steps: encounters, and friendship for walking together --------------
     state.offs.push(world.events.on('step', (p) => {
@@ -29536,39 +30350,15 @@ PKMN.SPRITES.vaporeon = {
     state.offs.push(M.starterHook(world));
 
     // --- talking to the follower ----------------------------------------------
-    // The kit's `interact` only looks at map objects, and the follower is
-    // world.companion. Wrapping this one world's method (never the kit file)
-    // is the smallest honest workaround; see README.
-    const baseInteract = world.interact;
-    world.interact = async function (heroIndex) {
-      const handled = await baseInteract.call(world, heroIndex);
-      if (handled) return true;
-      return await talkToFollower(world, heroIndex);
-    };
+    // The follower is world.companion, not a map object, so it is an extra
+    // interact target: the map's own objects answer first, and if none did and
+    // you were facing the friend walking behind you, they answer.
+    state.offs.push(world.addInteractTarget(() => {
+      const comp = world.companion;
+      if (!comp || !comp.data || !comp.data.monUid) return [];
+      return [{ x: comp.x, y: comp.y, answer: (hero) => talkToFollower(world, hero) }];
+    }));
     return state;
-  }
-
-  /**
-   * gapMs(world) — how long ago somebody last said "we are still here".
-   * `save.clock.lastSeenAt` wins because the module that owns the clock keeps it
-   * fresh every second; our own section stamp is only the fallback when mons is
-   * the only module in the game.
-   */
-  function gapMs(world) {
-    const save = world.save;
-    const clock = (save && save.clock) || {};
-    const stamp = clock.lastSeenAt || M.section(save).lastSeenAt;
-    return M.elapsedSince({ lastSeenAt: stamp }, Date.now());
-  }
-
-  /** The one stamp: the kit's own `save.clock.lastSeenAt`, mirrored into our section. */
-  function stampSeen(world) {
-    const stamp = new Date().toISOString();
-    const save = world.save;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    M.section(save).lastSeenAt = stamp;
-    return stamp;
   }
 
   /** Everyone you have befriended gets a little something for a long gap — once. */
@@ -29584,22 +30374,6 @@ PKMN.SPRITES.vaporeon = {
       Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
     }
     return gained;
-  }
-
-  /**
-   * settleAway(world) — the fallback, one tick after install: nobody else owns
-   * the clock, so we say how long we were away ourselves.
-   */
-  function settleAway(world) {
-    const state = world._mons;
-    if (!state || state.awayDone) return;
-    const elapsed = state.awayPending;
-    state.awayPending = 0;
-    if (!(elapsed > 0)) { state.awayDone = true; return; }
-    if (world._sessionResumed) { awayBonus(world, elapsed); return; }
-    world._sessionResumed = true;
-    world.events.emit('sessionResumed', { elapsedMs: elapsed, minutesAdded: 0 });
-    awayBonus(world, elapsed);
   }
 
   function uninstall(world) {
@@ -29658,15 +30432,11 @@ PKMN.SPRITES.vaporeon = {
     state.followerUid = mon.uid;
   }
 
-  async function talkToFollower(world, heroIndex) {
+  async function talkToFollower(world, hero) {
     const comp = world.companion;
     if (!comp || !comp.data || !comp.data.monUid) return false;
-    const h = world.hero(heroIndex);
+    const h = typeof hero === 'number' ? world.hero(hero) : hero;
     if (!h) return false;
-    const near = Math.abs(comp.x - h.x) + Math.abs(comp.y - h.y);
-    const facing = E.facingTile ? E.facingTile(h) : null;
-    const infront = facing && facing.x === comp.x && facing.y === comp.y;
-    if (!infront && near > 1) return false;
     const section = M.section(world.save);
     const mon = M.find(section, comp.data.monUid);
     if (!mon) return false;
@@ -29761,17 +30531,8 @@ PKMN.SPRITES.vaporeon = {
     const reg = KIT.registry('systems');
     reg.add({
       id: 'mons-encounters', name: 'Pokémon encounters', order: 35, replace: true,
-      // The gap is settled on the first *update*, never on map entry: that gives
-      // every other system its turn at onMapEnter first, so the module that owns
-      // the clock announces the gap and we only fall back when nobody does.
       update(world, dt) {
         install(world);
-        settleAway(world);
-        // Keep the stamp fresh while we play, so a long session is never mistaken
-        // for a long absence. (A module that owns the clock does this every
-        // second; this is what happens when nobody else is here to.)
-        world._monsSeen = (world._monsSeen || 0) + (dt || 0);
-        if (world._monsSeen >= 20) { world._monsSeen = 0; stampSeen(world); }
       },
       onMapEnter(world) { install(world); },
       onMapLeave(world) { /* the listeners live as long as the world does */ },
@@ -29787,7 +30548,6 @@ PKMN.SPRITES.vaporeon = {
       onMapEnter(world) {
         install(world);
         M.newVisit(M.section(world.save));
-        stampSeen(world);
         try { fillGarden(world); } catch (e) { (KIT.log || console).error('[mons] garden', e); }
       },
       onMapLeave(world) {
@@ -29798,7 +30558,6 @@ PKMN.SPRITES.vaporeon = {
   };
 
   M._install = install;
-  M._settleAway = settleAway;
   M._uninstall = uninstall;
   M._syncFollower = syncFollower;
   M._fillGarden = fillGarden;
@@ -30671,27 +31430,24 @@ PKMN.SPRITES.vaporeon = {
     scenes.add({ id: 'mons-dex', name: 'Pokédex', replace: true, create: dexScene });
     scenes.add({ id: 'mons-card', name: 'Pokémon card', replace: true, create: cardScene });
 
-    // The pause menu reads `label` as a function when it is one (scenes/menu.js),
-    // but the `menus` registry schema types `label` as text and rejects one — so
-    // the entry is added with the plain default and given its live, re-wordable
-    // label afterwards. (See README, "the missing hook".)
+    // A menu label is a function of the game, so the Terms table can reword it
+    // without a reload and a translation is a project edit rather than a code one.
     const menus = KIT.registry('menus');
-    const liveLabel = (def, key) => { def.label = (game) => M.t(game && game.project, key); return def; };
     // The pause menu, in one order across every module the demo ships:
     //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
     //   Save (20), Two players (30), Settings (40)…
-    liveLabel(menus.add({
+    menus.add({
       id: 'mons-party', order: 10, replace: true,
-      label: M.t(null, 'mons-menu-party'),
+      label: (game) => M.t(game && game.project, 'mons-menu-party'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); const n = (s.party || []).length; return n ? String(n) : ''; },
       async open(game) { await KIT.scenes.run('mons-party', { game, project: game && game.project }); return null; },
-    }), 'mons-menu-party');
-    liveLabel(menus.add({
+    });
+    menus.add({
       id: 'mons-dex', order: 12, replace: true,
-      label: M.t(null, 'mons-menu-dex'),
+      label: (game) => M.t(game && game.project, 'mons-menu-dex'),
       value: (game) => { const s = M.read((game && game.world && game.world.save) || {}); return String(M.dexCounts(s).caught); },
       async open(game) { await KIT.scenes.run('mons-dex', { game, project: game && game.project }); return null; },
-    }), 'mons-menu-dex');
+    });
     injectStyle();
   };
 
@@ -30995,6 +31751,8 @@ PKMN.SPRITES.vaporeon = {
       key: 'mons',
       defaults: () => M.saveDefaults(),
       migrate: [{ from: 1, to: 2, up: (data) => M.migrateSave(data) }],
+      // Shape repair, in place, after the chain above has settled the version.
+      repair: (data) => M.repair(data),
     },
 
     content: {
@@ -31017,23 +31775,15 @@ PKMN.SPRITES.vaporeon = {
     },
   };
 
-  // main.js says a manifest may load before or after it, but KIT.module only
-  // exists once main.js has run — and index.html loads the modules *before*
-  // main.js so that main.js still captures the whole page as KIT.PRISTINE_HTML.
-  // So: announce ourselves now if we can, and otherwise on DOMContentLoaded,
-  // whose listener we registered first and which therefore runs before boot.
-  // (See README, "the missing hook".)
   M.MANIFEST = DEF;
-  function announce(loud) {
-    if (typeof KIT.module !== 'function') {
-      if (loud) (KIT.log || console).error('[mons] KIT.module is still not defined — is js/main.js in the page?');
-      return false;
-    }
+
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file. Declaring
+  // is one line.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[mons] KIT.module is missing: the engine is not on the page, so this module cannot be enabled');
+  } else {
     KIT.module(DEF);
-    return true;
-  }
-  if (!announce(false) && typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('DOMContentLoaded', () => announce(true));
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
@@ -31041,7 +31791,8 @@ PKMN.SPRITES.vaporeon = {
 
 </script>
 
-<!-- home: decorating, jobs, moods. rules.js first — manifest.js reads KIT.home at load. -->
+<!-- home: decorating, jobs, moods. rules.js first — manifest.js reads KIT.home at load.
+     It works with or without mons; loading it second means its roster finds mons. -->
 <script>
 // ---- js/modules/home/rules.js ----
 // home/rules — the pure half of the Home module: what there is to DO once the
@@ -31082,12 +31833,35 @@ PKMN.SPRITES.vaporeon = {
   ];
 
   /**
-   * ensure(save) -> the module's save section, created and migrated in place.
-   * Every entry point calls this first, so a save written before this module
-   * existed (or by an older version of it) still works.
+   * repair(data) -> the section with its shape put right. The engine calls this
+   * after filling and migrating, so an edited or truncated save cannot hand the
+   * module a string where it expects a list.
+   */
+  H.repair = function (data) {
+    if (!Array.isArray(data.jobs)) data.jobs = [];
+    if (!Array.isArray(data.gifts)) data.gifts = [];
+    if (!Array.isArray(data.furniture)) data.furniture = [];
+    if (!Array.isArray(data.log)) data.log = [];
+    if (!data.moods || typeof data.moods !== 'object') data.moods = {};
+    data.placed = data.furniture.length;
+    data.version = H.SAVE_VERSION;
+    return data;
+  };
+
+  /**
+   * ensure(save) -> the module's save section.
+   *
+   * The engine fills, migrates and repairs it when the world is made (see
+   * `save` in manifest.js), so normally this just reads it. It still does the
+   * whole job when handed a bare save — a headless test, a tool — because a
+   * module has to work without a world around it.
    */
   H.ensure = function (save) {
-    if (!save || typeof save !== 'object') return H.defaults();
+    if (!save || typeof save !== 'object') return H.repair(H.defaults());
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
+      const section = KIT.modules.saveSection(save, 'home');
+      if (section) return section;
+    }
     save.modules = save.modules || {};
     let data = save.modules.home;
     if (!data || typeof data !== 'object') data = H.defaults();
@@ -31099,24 +31873,17 @@ PKMN.SPRITES.vaporeon = {
     }
     const d = H.defaults();
     for (const k of Object.keys(d)) if (!has(data, k)) data[k] = d[k];
-    if (!Array.isArray(data.jobs)) data.jobs = [];
-    if (!Array.isArray(data.gifts)) data.gifts = [];
-    if (!Array.isArray(data.furniture)) data.furniture = [];
-    if (!Array.isArray(data.log)) data.log = [];
-    if (!data.moods || typeof data.moods !== 'object') data.moods = {};
-    data.placed = data.furniture.length;
-    data.version = H.SAVE_VERSION;
-    save.modules.home = data;
-    return data;
+    save.modules.home = H.repair(data);
+    return save.modules.home;
   };
 
   // ---- content (project.packs.home) ------------------------------------------
   /** The numbers the author tunes. Every one of them lives in content, none in code. */
   H.TUNING = [
-    { key: 'driveClock', type: 'bool', default: true, label: 'Run the clock for me', doc: 'Advance the in-game clock even when the engine clock setting is off, so jobs can finish.' },
-    { key: 'minutesPerSecond', type: 'number', min: 0, max: 120, default: 6, label: 'In-game minutes per second', doc: 'How fast that clock runs while you play.' },
-    { key: 'awayMinutesPerRealMinute', type: 'number', min: 0, max: 60, default: 1, label: 'Minutes gained per real minute away', doc: 'Time that passes for your friends between sessions.' },
-    { key: 'awayCapMinutes', type: 'number', min: 0, default: 4320, label: 'Most minutes a gap can add', doc: 'Three days by default: a month away does not skip the whole story.' },
+    // How fast the clock runs, and what a gap between sessions is worth, are the
+    // GAME's settings, not this module's: Project › Clock. Jobs are timed against
+    // whatever that clock says.
+
     { key: 'moodDriftMinutes', type: 'number', min: 10, default: 120, label: 'Minutes between mood drifts' },
     { key: 'suitedSpeed', type: 'number', min: 0.1, max: 2, default: 0.75, label: 'Speed when the job suits them', doc: 'A job that suits a friend takes this much of the time.' },
     { key: 'jobFriendship', type: 'number', min: 0, default: 8, label: 'Friendship for finishing a job' },
@@ -31136,8 +31903,16 @@ PKMN.SPRITES.vaporeon = {
     for (const f of H.TUNING) t[f.key] = f.default;
     return t;
   };
-  /** pack(project) -> packs.home with every default filled in (never mutates the project). */
+  /**
+   * pack(project) -> packs.home with every default filled in (never mutates the
+   * project). normalize() has usually written this already; this still fills it
+   * for a project that never went through normalize.
+   */
   H.pack = function (project) {
+    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
+      const p = KIT.modules.pack(project, 'home');
+      if (p) return p;
+    }
     const raw = (project && project.packs && project.packs.home) || {};
     const out = Object.assign(H.contentDefaults(), raw);
     out.tuning = Object.assign(H.tuningDefaults(), raw.tuning || {});
@@ -31153,13 +31928,14 @@ PKMN.SPRITES.vaporeon = {
     const day = Math.max(1, num(c.day, 1));
     return (day - 1) * H.DAY + Math.max(0, num(c.minutes, 0));
   };
-  /** addMinutes(save, n) -> the new absolute minute, with day/minutes renormalised. */
+  /**
+   * addMinutes(save, n) -> the new absolute minute.
+   * The engine owns the clock (KIT.clock); this is the module's name for it, so
+   * a caller reading about jobs does not have to change vocabulary.
+   */
   H.addMinutes = function (save, n) {
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    const total = H.now(save) + Math.max(0, Math.round(num(n, 0)));
-    save.clock.day = Math.floor(total / H.DAY) + 1;
-    save.clock.minutes = total % H.DAY;
-    return total;
+    KIT.clock.add(save, Math.max(0, Math.round(num(n, 0))));
+    return H.now(save);
   };
   /** clockText(save) -> 'Day 2 · 08:30'. */
   H.clockText = function (save) {
@@ -31175,46 +31951,10 @@ PKMN.SPRITES.vaporeon = {
     return r ? `${h}h ${r}m` : `${h}h`;
   };
 
-  /** Longer than this between two stamps and we call it a session gap, not a slow frame. */
-  H.AWAY_GAP_MS = 30000;
-
-  /** touch(save, nowIso) -> the stamp. Says "we are still here" without adding any time. */
-  H.touch = function (save, nowIso) {
-    const data = H.ensure(save);
-    const nowMs = nowIso == null ? Date.now() : (typeof nowIso === 'number' ? nowIso : Date.parse(nowIso));
-    const stamp = new Date(nowMs).toISOString();
-    data.seenAt = stamp;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    return stamp;
-  };
-
-  /**
-   * resume(save, nowIso, tuning) -> { elapsedMs, minutesAdded }
-   * The gap between sessions, turned into in-game minutes and added to the
-   * clock, so a job left running overnight is waiting when you come back.
-   * The first call only stamps the clock (nothing to catch up on yet).
-   */
-  H.resume = function (save, nowIso, tuning) {
-    const data = H.ensure(save);
-    const t = Object.assign(H.tuningDefaults(), tuning || {});
-    const nowMs = nowIso == null ? Date.now() : (typeof nowIso === 'number' ? nowIso : Date.parse(nowIso));
-    const stamp = new Date(nowMs).toISOString();
-    // One stamp for the whole game. Ours mirrors `save.clock.lastSeenAt`, which
-    // is the field the kit already has in the save shape and the one another
-    // module will have written if it got here first.
-    const stampedAt = data.seenAt || ((save && save.clock) || {}).lastSeenAt;
-    const seen = stampedAt ? Date.parse(stampedAt) : NaN;
-    data.seenAt = stamp;
-    save.clock = save.clock || { day: 1, minutes: 480, lastSeenAt: null };
-    save.clock.lastSeenAt = stamp;
-    if (!Number.isFinite(seen) || nowMs <= seen) return { elapsedMs: 0, minutesAdded: 0 };
-    const elapsedMs = nowMs - seen;
-    const raw = (elapsedMs / 60000) * Math.max(0, t.awayMinutesPerRealMinute);
-    const minutesAdded = Math.min(Math.max(0, t.awayCapMinutes), Math.floor(raw));
-    if (minutesAdded > 0) H.addMinutes(save, minutesAdded);
-    return { elapsedMs, minutesAdded };
-  };
+  // The clock — running it, stamping it, measuring the gap between sessions — is
+  // the engine's: `settings.clock`, `KIT.clock` and the `sessionResumed` event.
+  // This module listens for that event and catches its jobs up; it does not keep
+  // a second clock of its own, and neither should anything else.
 
   // ---- who can work -----------------------------------------------------------
   // The module is happy either way: with the mons module the workers are the
@@ -31925,9 +32665,12 @@ PKMN.SPRITES.vaporeon = {
         if (x == null) r.invalidate(mapId);
         else r.invalidate(mapId, x, y);
       },
-      /** The overlay grew an object (a present): rebuild the map's entities. */
+      /**
+       * The overlay grew an object (a present). The map view reads the overlay
+       * live, so it needs no rebuilding — but the entities were built from it, so
+       * they do.
+       */
       rebuild() {
-        if (world.map && world.map.id) world.map = KIT.mapView(project, save, world.map.id);
         if (world.rebuildEntities) world.rebuildEntities();
       },
     };
@@ -31948,17 +32691,6 @@ PKMN.SPRITES.vaporeon = {
     if (typeof H.registerPanel === 'function') H.registerPanel();
 
     // --- item kinds ---------------------------------------------------------------
-    // The engine's own default kind first: `project.items[].kind` defaults to
-    // 'item' and the kit registers nothing for it, so the moment any module
-    // registers a kind, every plain keepsake in every project turns into an
-    // `unknown-item-kind` warning. See docs/ENGINE-HOOKS.md §16.
-    if (!KIT.registry('itemKinds').has('item')) {
-      KIT.registry('itemKinds').add({
-        id: 'item', label: 'Keepsake', doc: 'Something you carry. Using it does nothing on its own.',
-        fields: [], use() { return false; },
-      });
-    }
-
     KIT.registry('itemKinds').add({
       id: 'furniture', label: 'Furniture', doc: 'Something you can carry home and put down. Using it opens the placement screen.',
       fields: H.FURNITURE_FIELDS,
@@ -32150,7 +32882,7 @@ PKMN.SPRITES.vaporeon = {
 
     // --- the system --------------------------------------------------------------------
     // Order 60: after the kit clock (50), so the minute it just added is the one
-    // we time jobs against.
+    // we time jobs against. The clock itself is not ours — we only read it.
     KIT.registry('systems').add({
       id: 'home', order: 60,
       onMapEnter(world) { listen(world); H.sweep(world, { quiet: false }); },
@@ -32158,17 +32890,6 @@ PKMN.SPRITES.vaporeon = {
         const project = world.project, save = world.save;
         if (!project || !save) return;
         listen(world);
-        const t = H.tuning(project);
-        const engineClock = project.settings && project.settings.clock && project.settings.clock.enabled && (project.settings.clock.minutesPerSecond || 0) > 0;
-        if (!engineClock && t.driveClock && num(t.minutesPerSecond, 0) > 0 && !world.busy) {
-          world._homeAcc = (world._homeAcc || 0) + dt * num(t.minutesPerSecond, 6);
-          if (world._homeAcc >= 1) {
-            const add = Math.floor(world._homeAcc);
-            world._homeAcc -= add;
-            H.addMinutes(save, add);
-            if (world.events) world.events.emit('clockTick', { minutes: save.clock.minutes, day: save.clock.day });
-          }
-        }
         world._homeCheck = (world._homeCheck || 0) + dt;
         if (world._homeCheck < 1) return;
         world._homeCheck = 0;
@@ -32178,15 +32899,12 @@ PKMN.SPRITES.vaporeon = {
 
     // --- pause-menu entries -----------------------------------------------------------
     const menus = KIT.registry('menus');
-    // Workaround (core issue): the pause menu reads a function `label` (menu.js),
-    // but the menus registry validates `label` as a plain string, so a module
-    // cannot register one. We add the entry with a plain label and put the
-    // re-wordable one on afterwards — add() returns the stored definition.
-    const jobsMenu = menus.add({
+    menus.add({
       // The pause menu, in one order across every module the demo ships:
       //   10 Party · 12 Pokédex · 14 Jobs · 16 Decorate · then the kit's own
       //   Save (20), Two players (30), Settings (40)…
-      id: 'home-jobs', order: 14, label: 'Jobs',
+      id: 'home-jobs', order: 14,
+      label: (game) => KIT.strings.get(game && game.project, 'home-menu-jobs'),
       value: (game) => {
         const w = game && game.world;
         if (!w) return undefined;
@@ -32197,14 +32915,13 @@ PKMN.SPRITES.vaporeon = {
       },
       async open(game) { await KIT.scenes.run('home-jobs', { game }); return null; },
     });
-    jobsMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-jobs');
 
-    const decorateMenu = menus.add({
-      id: 'home-decorate', order: 16, label: 'Decorate',
+    menus.add({
+      id: 'home-decorate', order: 16,
+      label: (game) => KIT.strings.get(game && game.project, 'home-menu-decorate'),
       when: (game) => !!(game && game.project && H.furnitureItems(game.project).length),
       async open(game) { await KIT.scenes.run('home-place', { game }); return null; },
     });
-    decorateMenu.label = (game) => KIT.strings.get(game && game.project, 'home-menu-decorate');
 
     // --- one mood, wherever a friend is shown -------------------------------------
     // A module that owns creatures shows how they are feeling on its own screens.
@@ -32239,6 +32956,30 @@ PKMN.SPRITES.vaporeon = {
         H.react(world.save, p.uid, p.what || 'petted', H.now(world.save));
       } catch (e) { (KIT.log || console).error('[home] friendCared', e); }
     });
+    // A board the author has emptied of pages still opens. The type ships a
+    // default page carrying @openJobBoard — that is the visible, editable way,
+    // and it is what a board placed in Creator Mode uses. This is the safety net
+    // underneath it: if nothing on the map answered the A button and the player
+    // was facing a board, the board answers for itself.
+    world.events.on('interactMissed', (p) => {
+      try {
+        if (!p || !world.map) return;
+        const here = world.map.objectsAt(p.x, p.y).find(o => o.type === 'job-board' && !world.map.isHidden(o));
+        if (!here) return;
+        KIT.scenes.run('home-board', { game: KIT.game, world, object: here });
+      } catch (e) { (KIT.log || console).error('[home] interactMissed', e); }
+    });
+    // The engine measured the gap between sessions and has already moved the
+    // clock on by whatever Project › Clock says a gap is worth. All this module
+    // does is notice — the jobs are timed against the clock, so they finished
+    // while we were away without anyone having to catch them up by hand.
+    world.events.on('sessionResumed', (p) => {
+      try {
+        H.ensure(world.save).seenAt = new Date().toISOString();
+        world._homeResumed = { elapsedMs: (p && p.elapsedMs) || 0, minutesAdded: (p && p.minutesAdded) || 0 };
+        H.sweep(world, { quiet: false });
+      } catch (e) { (KIT.log || console).error('[home] sessionResumed', e); }
+    });
   }
 
   /**
@@ -32250,28 +32991,10 @@ PKMN.SPRITES.vaporeon = {
     const o = opts || {};
     const project = world.project, save = world.save;
     if (!project || !save) return null;
-    const data = H.ensure(save);
-    const tuning = H.tuning(project);
-    // A gap bigger than half a minute is a gap between sessions, not a slow
-    // frame: that is when time at home catches up. Otherwise we only re-stamp,
-    // so the stamp stays fresh and playing for an hour never counts as "away".
-    let resumed = { elapsedMs: 0, minutesAdded: 0 };
-    const stampedAt = data.seenAt || ((save.clock || {}).lastSeenAt);
-    const seenMs = stampedAt ? Date.parse(stampedAt) : NaN;
-    const gapMs = Number.isFinite(seenMs) ? Date.now() - seenMs : 0;
-    if (o.resume || gapMs > H.AWAY_GAP_MS) {
-      resumed = H.resume(save, null, tuning);
-      // One session gap per world, said once, by whoever noticed it first. This
-      // module owns the clock, so it is normally us — the latch is what stops a
-      // second module saying it again. (The engine should do this; ENGINE-HOOKS 1.)
-      if (resumed.elapsedMs > 0 && world.events && !world._sessionResumed) {
-        world._sessionResumed = true;
-        world.events.emit('sessionResumed', { elapsedMs: resumed.elapsedMs, minutesAdded: resumed.minutesAdded });
-      }
-    } else {
-      H.touch(save);
-    }
-
+    H.ensure(save);
+    // The gap between sessions is the engine's to measure and announce
+    // (`sessionResumed`); by the time it reaches us the clock has already moved.
+    const resumed = world._homeResumed || { elapsedMs: 0, minutesAdded: 0 };
     const now = H.now(save);
     const drifted = H.driftMoods(save, project, now);
     const gifts = H.rollGifts(save, project, now);
@@ -32336,15 +33059,14 @@ PKMN.SPRITES.vaporeon = {
   }
 
   /**
-   * onlyAction(el, fn) — UI.onAction, except that the click stops here.
+   * onlyAction(el, fn) — UI.onAction, and the click stops here.
    *
-   * Our screens are opened from the pause menu and draw into the same host
-   * (#pause-menu), and the menu scene keeps its own delegated click listener on
-   * that host the whole time it is on the stack. Without this, one tap on
-   * "welcome them home" is also read as a tap on whatever pause-menu row
-   * happened to share its index, and the menu paints itself back over us.
-   * Listening in the capture phase and stopping the event is the smallest fix a
-   * module can make; see docs/ENGINE-HOOKS.md §15 for the one the engine should.
+   * These screens draw into the same host as the pause menu (#pause-menu), which
+   * is the one overlay the kit offers for a list over the map. The menu now lets
+   * go of that host while it is covered (KIT.scenes suspend/resume), so this is
+   * belt and braces rather than the fix it used to be — kept because a click
+   * meant for our row has no business reaching anything underneath us, whatever
+   * happens to be listening there.
    */
   function onlyAction(el, fn) {
     const handler = (e) => {
@@ -32470,12 +33192,15 @@ PKMN.SPRITES.vaporeon = {
           .map(id => ({ id, item: project().items[id], count: inv[id] }));
       }
 
-      // ---- the ghost: ordinary entities the renderer already knows how to draw ----
+      // ---- the ghost -------------------------------------------------------------
+      // Markers, not entities: the thing you are about to put down is not in the
+      // world yet, so nothing should be able to walk into it or talk to it, and
+      // nothing iterating world.entities should have to learn to skip it.
       function clearGhosts() {
-        if (!world) return;
+        if (!world || !Array.isArray(world.markers)) { ghosts = []; return; }
         for (const g of ghosts) {
-          const i = world.entities.indexOf(g);
-          if (i >= 0) world.entities.splice(i, 1);
+          const i = world.markers.indexOf(g);
+          if (i >= 0) world.markers.splice(i, 1);
         }
         ghosts = [];
       }
@@ -32488,12 +33213,12 @@ PKMN.SPRITES.vaporeon = {
           const rec = H.placedAt(save(), mapId(), cx, cy);
           cells = rec ? rec.cells.map(c => ({ x: c.x, y: c.y, tile: c.tile })) : [{ x: cx, y: cy, tile: null }];
         }
+        const ok = mode !== 'place' || !itemDef() || H.canPlace(project(), save(), mapId(), itemDef(), variant, cx, cy).ok;
         for (const c of cells) {
-          const g = KIT.entities.create({ id: 'home-ghost-' + c.x + '-' + c.y, kind: 'look', x: c.x, y: c.y, through: true, solid: false, opacity: 0.65 });
-          g.look = c.tile || null;
-          g.data.homeGhost = true;
+          const g = { x: c.x, y: c.y, tile: c.tile || null, layer: 'same', opacity: 0.65,
+            outline: ok ? '#9fe6b0' : '#e69f9f' };
           ghosts.push(g);
-          world.entities.push(g);
+          world.markers.push(g);
         }
       }
       /** Keep the cursor on screen without moving the hero. */
@@ -32514,11 +33239,10 @@ PKMN.SPRITES.vaporeon = {
         follow();
         build();
       }
-      /** The overlay changed: rebuild the map view (it captured the old overlay) and repaint. */
+      /** The overlay changed: rebuild the entities it made and repaint. */
       function syncWorld() {
         if (!world || !world.map) return;
         const id = world.map.id;
-        world.map = KIT.mapView(project(), save(), id);
         if (world.rebuildEntities) world.rebuildEntities();
         const r = KIT.game && KIT.game.renderer;
         if (r) r.invalidate(id);
@@ -33258,36 +33982,36 @@ PKMN.SPRITES.vaporeon = {
       KIT.home.registerAll(kit);
     },
 
-    // The slice of the save this module owns. The engine does not read these
-    // declarations yet (see README, "What the engine still owes us"), so
-    // KIT.home.ensure(save) fills and migrates the section itself on first use.
+    // The slice of the save this module owns. The engine fills it, migrates it
+    // and calls `repair` whenever a world is made, so KIT.home.ensure(save) is
+    // only a named way of reading what is already there.
     save: {
       key: 'home',
       defaults: () => KIT.home.defaults(),
       migrate: KIT.home.migrations,
+      repair: (data) => KIT.home.repair(data),
     },
 
-    // The slice of the project this module owns: project.packs.home.
+    // The slice of the project this module owns: project.packs.home, whose
+    // `tuning` is the declared shape — so the engine fills every number and
+    // Creator Mode's generic inspector can edit them.
     content: {
       key: 'home',
       fields: KIT.home.TUNING,
+      at: 'tuning',
       defaults: () => KIT.home.contentDefaults(),
     },
   };
   KIT.home.MANIFEST = DEF;
 
-  // index.html loads the modules before main.js, so the whole page is captured
-  // as KIT.PRISTINE_HTML — which means KIT.module does not exist yet. Our
-  // DOMContentLoaded listener is added before main.js adds its own, so we
-  // declare the module before boot reads project.modules.
-  function declare() {
-    if (typeof KIT.module === 'function') return KIT.module(DEF);
-    (KIT.log || console).error('[home] KIT.module is missing: js/main.js never loaded, so the module cannot be enabled');
-    return null;
+  // The module system is the engine's (js/kit/core/modules.js), so KIT.module
+  // exists as soon as the kit is on the page — long before this file. Declaring
+  // is one line.
+  if (typeof KIT.module !== 'function') {
+    (KIT.log || console).error('[home] KIT.module is missing: the engine is not on the page, so this module cannot be enabled');
+  } else {
+    KIT.module(DEF);
   }
-  if (typeof KIT.module === 'function') declare();
-  else if (typeof document !== 'undefined' && document.readyState === 'loading') document.addEventListener('DOMContentLoaded', declare);
-  else declare();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -33300,12 +34024,13 @@ PKMN.SPRITES.vaporeon = {
 //
 //  1. capture the page exactly as it was authored (KIT.PRISTINE_HTML) — publish
 //     rebuilds from this, never from the live DOM;
-//  2. provide KIT.module() / KIT.modules so module manifests can register
-//     themselves, sorted by their `requires` (a missing one is a loud banner);
-//  3. load the project (draft → embedded → content files → blank) and boot.
+//  2. put up a banner nobody can miss when something fails to start;
+//  3. load the project and boot.
 //
-// Module manifests may be loaded before or after this file: KIT.module() is
-// defined as soon as this script runs, and boot waits for DOMContentLoaded.
+// The module system itself is the engine's (js/kit/core/modules.js), not this
+// file's: KIT.module exists as soon as the engine is on the page, so a manifest
+// may be loaded before or after this file, and boot waits for DOMContentLoaded
+// either way.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -33316,68 +34041,7 @@ PKMN.SPRITES.vaporeon = {
     }
   } catch (e) { KIT.PRISTINE_HTML = null; }
 
-  // ---- 2. modules -------------------------------------------------------------
-  const defs = [];
-  const loaded = [];
-
-  /** KIT.module({ id, version, requires, register, save, content }) — called by a manifest at load time. */
-  KIT.module = function (def) {
-    if (!def || !def.id) throw new Error('KIT.module: a module needs an id');
-    const i = defs.findIndex(d => d.id === def.id);
-    if (i >= 0) defs[i] = def; else defs.push(def);
-    return def;
-  };
-
-  KIT.modules = {
-    /** all() -> every manifest seen, in load order. */
-    all() { return defs.slice(); },
-    /** loaded() -> the ones whose register() ran, in dependency order. */
-    loaded() { return loaded.slice(); },
-    get(id) { return defs.find(d => d.id === id) || null; },
-    has(id) { return loaded.some(d => d.id === id); },
-    /**
-     * order(ids) -> { order, missing, cycles } — a topological sort of the manifests.
-     * Pure, so the module test can check it without a page.
-     */
-    order(ids) {
-      const wanted = ids ? defs.filter(d => ids.includes(d.id)) : defs.slice();
-      const byId = new Map(wanted.map(d => [d.id, d]));
-      const order = [], missing = [], cycles = [];
-      const state = new Map();                 // id -> 'visiting' | 'done'
-      const visit = (def, trail) => {
-        if (state.get(def.id) === 'done') return;
-        if (state.get(def.id) === 'visiting') { cycles.push(trail.concat(def.id).join(' → ')); return; }
-        state.set(def.id, 'visiting');
-        for (const req of def.requires || []) {
-          const dep = byId.get(req);
-          if (!dep) { missing.push({ module: def.id, requires: req }); continue; }
-          visit(dep, trail.concat(def.id));
-        }
-        state.set(def.id, 'done');
-        order.push(def);
-      };
-      for (const d of wanted) visit(d, []);
-      return { order, missing, cycles };
-    },
-    /** activate(project) — register the modules this project enables, in dependency order. */
-    activate(project) {
-      const enabled = project && Array.isArray(project.modules) ? project.modules : defs.map(d => d.id);
-      const { order, missing, cycles } = KIT.modules.order(enabled);
-      for (const m of missing) banner(`The module “${m.module}” needs “${m.requires}”, which is not loaded.`);
-      for (const c of cycles) banner(`The modules ${c} require each other in a circle.`);
-      for (const def of order) {
-        try {
-          if (typeof def.register === 'function') def.register(KIT);
-          loaded.push(def);
-        } catch (e) {
-          (KIT.log || console).error(`[module ${def.id}] register threw`, e);
-          banner(`The module “${def.id}” failed to start: ${e.message}`);
-        }
-      }
-      return loaded.slice();
-    },
-  };
-
+  // ---- 2. the banner -----------------------------------------------------------
   /** A banner nobody can miss: modules and boot failures must not fail silently. */
   function banner(text) {
     (KIT.log || console).error('[kit] ' + text);
@@ -33400,14 +34064,22 @@ PKMN.SPRITES.vaporeon = {
   // ---- 3. load and boot --------------------------------------------------------
   async function start() {
     try {
-      const { project, source, problems } = await KIT.storage.loadProject();
+      // The modules start BEFORE the project is validated, not after. A module
+      // brings object types, commands and item kinds with it, and the content
+      // that uses them is checked against whatever is registered at the moment
+      // it is checked — so activating afterwards means every page that says
+      // @openJobBoard is reported as unknown, in the console, at every boot, on
+      // a game that works perfectly.
+      const { project, source, problems } = await KIT.storage.loadProject({
+        before: (raw) => { KIT.modules.activate(raw); },
+      });
       (KIT.log || console).info(`[kit] project “${(project.meta && project.meta.title) || '?'}” from ${source}` +
-        (KIT.storage.info().adapter ? ` · storage: ${KIT.storage.info().adapter}` : ''));
+        (KIT.storage.info().adapter ? ` · storage: ${KIT.storage.info().adapter}` : '') +
+        (KIT.modules.loaded().length ? ` · modules: ${KIT.modules.loaded().map(m => m.id).join(', ')}` : ''));
       for (const p of (problems || []).filter(p2 => p2.severity === 'error').slice(0, 3)) {
         (KIT.log || console).warn('[project]', p.code, p.message, p.where);
       }
       if (KIT.storage.warning) banner(KIT.storage.warning);
-      KIT.modules.activate(project);
       await KIT.game.boot({ mount: document.getElementById('app') || document.body, project });
     } catch (e) {
       (KIT.log || console).error('[kit] boot failed', e);

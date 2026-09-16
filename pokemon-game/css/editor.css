@@ -134,6 +134,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-chip { min-height: 36px; padding: 6px 10px; border-radius: 999px; background: #1d2532; color: #cbd6e8; border: 1px solid #2f3a4f; cursor: pointer; font: inherit; font-size: 12px; }
 .ed-chip:hover { border-color: #4f8bf0; }
 .ed-chip.is-preset { background: #1d2c47; border-color: #3d5c8f; }
+/* A module this project asks for that is not on the page. */
+.ed-chip-warn { border-color: #8f5c3d; color: #e8c3a8; }
 
 .ed-route-step, .ed-list-row, .ed-kv { gap: 4px; }
 .ed-route-text { flex: 1 1 auto; min-width: 0; background: #131a26; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 6px; min-height: 36px; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }

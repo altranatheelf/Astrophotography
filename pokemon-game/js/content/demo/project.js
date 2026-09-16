@@ -455,28 +455,7 @@
     "x": 5,
     "y": 6
   },
-  "strings": {
-    "bag": "Bag",
-    "cancel": "Cancel",
-    "continue": "Continue",
-    "empty-bag": "Your bag is empty.",
-    "got-item": "Got {count} {item}!",
-    "lost-item": "Lost {count} {item}.",
-    "name-prompt": "What is your name?",
-    "new-game": "New Game",
-    "no": "No",
-    "number-prompt": "Enter a number",
-    "ok": "OK",
-    "quit": "Quit to title",
-    "save": "Save",
-    "save-failed": "Could not save.",
-    "save-prompt": "Save your progress?",
-    "saved": "Saved.",
-    "settings": "Settings",
-    "the-end": "The End",
-    "timer-up": "Time is up!",
-    "yes": "Yes"
-  },
+  "strings": {},
   "terrains": [
     {
       "base": "grass",

@@ -420,13 +420,26 @@
     return G;
   };
 
-  /** The title runs in a loop: New Game or Continue leaves it, Settings comes back. */
+  /**
+   * The title runs in a loop: New Game or Continue leaves it, Settings comes back.
+   *
+   * `titleRun` is what stops it fighting anything that starts a game from
+   * OUTSIDE the title — a test, a tool, Creator Mode's Play here. Those call
+   * newGame or continueGame, which clear the scene stack, which finishes the
+   * title scene this loop is awaiting; without the check the loop would read
+   * that as “the player chose nothing” and start a new game over the top of the
+   * one just loaded. Every run gets its own token, so a loop that has been
+   * superseded stops rather than acting on a stale answer.
+   */
+  let titleRun = null;
   async function titleLoop() {
+    const mine = titleRun = {};
     for (;;) {
       const action = await KIT.scenes.run('title', { project: G.project, game: G });
+      if (titleRun !== mine) return;             // somebody started a game without us
       if (action === 'continue') {
         const ok = await G.continueGame();
-        if (ok) return;
+        if (ok || titleRun !== mine) return;
         await KIT.toast('No save to continue from yet.');
         continue;
       }
@@ -434,6 +447,8 @@
       return;
     }
   }
+  /** Called by anything that starts a game: the title loop is not in charge any more. */
+  function leaveTitle() { titleRun = null; }
 
   G.toTitle = function () {
     KIT.scenes.clear();
@@ -456,6 +471,7 @@
     await KIT.storage.saveMeta({ runs: (meta.runs || 0) + 1, firstPlayed: meta.firstPlayed || new Date().toISOString() });
 
     const world = buildWorld(save);
+    leaveTitle();
     KIT.scenes.clear();
     KIT.fx.reset();
     KIT.scenes.push('map', { game: G });
@@ -480,6 +496,7 @@
     if (!save) return false;
     playtimeMs = save.playtimeMs || 0;
     const world = buildWorld(save);
+    leaveTitle();
     KIT.scenes.clear();
     KIT.fx.reset();
     KIT.scenes.push('map', { game: G });

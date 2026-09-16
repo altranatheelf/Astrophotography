@@ -198,3 +198,24 @@ test('world: an interact target that throws does not eat the button', async () =
     assert.equal(await world.interact(0), true, 'the next one still got its turn');
   } finally { (KIT.log || console).error = before; }
 });
+
+test('world: interact can be awaited for the press rather than the conversation', async () => {
+  const world = makeWorld(makeProject());
+  await world.enterMap('home', 2, 2, 'right');        // facing Mom
+
+  // { wait: false } comes back as soon as the script has started, so anything
+  // driving the game from outside is not left waiting for the player.
+  const pressed = await world.interact(0, { wait: false });
+  assert.equal(pressed, true);
+  assert.ok(world.interacting && typeof world.interacting.then === 'function', 'the script is still running');
+  await world.interacting;
+  assert.deepEqual(world.said().slice(-1), ['Good morning, Ash!'], 'and it finished when we waited for it');
+
+  // the default still waits for the whole thing
+  assert.equal(await world.interact(0), true);
+  assert.deepEqual(world.said().slice(-1), ['Off you go.']);
+
+  // a press that lands on nothing sets no promise and answers false either way
+  world.hero().dir = 'down';
+  assert.equal(await world.interact(0, { wait: false }), false);
+});

@@ -134,6 +134,7 @@
         if (kind === 'main') mainActive--;
         thread.current = null;
         threads.delete(thread.id);
+        if (kind === 'main' && !I.mainBusy()) settleIdle();
       }
     };
     if (kind === 'main') {
@@ -147,6 +148,36 @@
   };
   I.threads = () => Array.from(threads.values());
   I.mainBusy = () => mainActive > 0 || Array.from(threads.values()).some(t => t.kind === 'main');
+
+  // ---- waiting for the conversation to end ---------------------------------------
+  // A module that wants to say something of its own — a level-up, a gift, a name
+  // box — must not say it in the middle of somebody else's script. A listener that
+  // fires from inside a running script (a `varChanged`, say) is exactly that
+  // middle: the script still has lines to say, and a box opened now lands
+  // UNDERNEATH the one the script pushes next, waiting for an answer it can never
+  // be given. whenIdle() is how you wait for your turn.
+  let idleWaiters = [];
+  function settleIdle() {
+    if (!idleWaiters.length) return;
+    // A microtask later: the thread that just ended may synchronously start the
+    // next one (a common event calling another), and that is still not idle.
+    const waiters = idleWaiters;
+    Promise.resolve().then(() => {
+      if (I.mainBusy()) return;                      // it started something; wait for that one
+      idleWaiters = idleWaiters.filter(w => waiters.indexOf(w) < 0);
+      for (const resolve of waiters) { try { resolve(); } catch (e) { /* the caller's problem */ } }
+    });
+  }
+  /**
+   * whenIdle() -> Promise — resolves when no main-thread script is running.
+   * Already idle resolves immediately. It says nothing about scenes: a dialogue
+   * box can still be on screen after its script has finished, so a caller that
+   * needs the screen clear as well checks KIT.scenes too.
+   */
+  I.whenIdle = function () {
+    if (!I.mainBusy()) return Promise.resolve();
+    return new Promise((resolve) => { idleWaiters.push(resolve); });
+  };
   I.cancelAll = () => { for (const t of threads.values()) t.cancel(); };
   I.cancel = (thread) => { if (thread) thread.cancel(); };
 

@@ -199,6 +199,34 @@
     return s;
   }
 
+  /**
+   * suspend / resume (§8.6): the mirror of enter/exit for being COVERED rather
+   * than closed.
+   *
+   *   enter   → you exist and you are on top
+   *   suspend → something opened over you; you still exist and still update
+   *   resume  → it closed; you are on top again
+   *   exit    → you are gone
+   *
+   * A scene that has nothing shared to give up needs neither. One that renders
+   * into a shared host (`#pause-menu`, say) or listens on the document must drop
+   * that listener in `suspend` and take it back in `resume` — otherwise one tap
+   * on the screen above it also reaches the stale rows underneath, which is a
+   * real bug and a silent one. `scene.suspended` says which it is.
+   */
+  function suspend(scene, by) {
+    if (!scene || scene.suspended) return;
+    scene.suspended = true;
+    try { if (scene.suspend) scene.suspend(by || null); }
+    catch (e) { (KIT.log || console).error(`[scene ${scene.id}] suspend threw`, e); }
+  }
+  function resume(scene) {
+    if (!scene || !scene.suspended) return;
+    scene.suspended = false;
+    try { if (scene.resume) scene.resume(); }
+    catch (e) { (KIT.log || console).error(`[scene ${scene.id}] resume threw`, e); }
+  }
+
   const SCENES = KIT.scenes = {
     events: bus,
     get stack() { return stack; },
@@ -209,11 +237,16 @@
 
     /** push(scene|id, params) -> scene */
     push(sceneOrId, params) {
+      const covered = SCENES.top();
       const scene = make(sceneOrId, params);
       scene.params = params || {};
       scene._promise = scene._promise || new Promise((resolve) => { scene._resolve = resolve; });
       scene.finish = (result) => SCENES.finish(scene, result);
       stack.push(scene);
+      // The scene that was on top is now underneath. A scene that listens to
+      // anything shared — a DOM host, a key handler, the world bus — has to be
+      // told, or it goes on answering clicks meant for whatever is over it.
+      suspend(covered, scene);
       try { if (scene.enter) scene.enter(params || {}); }
       catch (e) { (KIT.log || console).error(`[scene ${scene.id}] enter threw`, e); }
       bus.emit('sceneChange', { id: scene.id, ids: SCENES.ids() });
@@ -231,11 +264,13 @@
     finish(scene, result) {
       const i = stack.indexOf(scene);
       if (i < 0) return scene;
+      const wasTop = i === stack.length - 1;
       stack.splice(i, 1);
       try { if (scene.exit) scene.exit(result); }
       catch (e) { (KIT.log || console).error(`[scene ${scene.id}] exit threw`, e); }
       scene.result = result;
       if (scene._resolve) scene._resolve(result);
+      if (wasTop) resume(SCENES.top());
       bus.emit('sceneChange', { id: SCENES.top() ? SCENES.top().id : null, ids: SCENES.ids() });
       return scene;
     },
