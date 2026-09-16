@@ -138,14 +138,60 @@
    * darkness pass draws itself here so its light holes cut the darkness and not
    * the picture underneath it.
    */
-  let pad = null;
-  function scratch(w, h) {
+  const pads = {};
+  function scratch(w, h, which) {
     if (typeof document === 'undefined' || !document.createElement) return null;
-    if (!pad) pad = document.createElement('canvas');
+    const k = which || 'dark';
+    let pad = pads[k];
+    if (!pad) pad = pads[k] = document.createElement('canvas');
     if (pad.width !== w || pad.height !== h) { pad.width = w; pad.height = h; }
     return pad;
   }
   A.LAYERED_DARKNESS = true;          // a module can ask whether it still has to help
+  A.lightDetail = 'soft';             // 'soft' builds the dark at half size; 'full' at every pixel
+
+  /**
+   * One radial falloff, drawn once and then blitted.
+   *
+   * `createRadialGradient` plus two `addColorStop`s, per light, twice per frame,
+   * was the only thing measuring below 60: thirty-two lanterns on a dark map ran
+   * 56.5fps and the gradients were all of it. A gradient is a small program the
+   * rasteriser has to build; a sprite is a `drawImage`. Cached on the shape
+   * (softness) and the colour, both of which a game has a handful of, so the
+   * cache fills in the first second and never grows again.
+   */
+  const SPRITE_R = 128;
+  const sprites = new Map();
+  function falloff(key, inner, stop0, stop1) {
+    const had = sprites.get(key);
+    if (had !== undefined) return had;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = SPRITE_R * 2;
+    const c = cv.getContext('2d');
+    const g = c.createRadialGradient(SPRITE_R, SPRITE_R, SPRITE_R * inner, SPRITE_R, SPRITE_R, SPRITE_R);
+    g.addColorStop(0, stop0);
+    g.addColorStop(1, stop1);
+    c.fillStyle = g;
+    c.fillRect(0, 0, SPRITE_R * 2, SPRITE_R * 2);
+    if (sprites.size > 32) sprites.clear();   // a palette swap, not a leak
+    sprites.set(key, cv);
+    return cv;
+  }
+
+  /** Paint one light. Blit when we can, build the gradient when there is no DOM. */
+  function blot(c, key, inner, stop0, stop1, x, y, r) {
+    const sp = falloff(key, inner, stop0, stop1);
+    if (sp) { c.drawImage(sp, x - r, y - r, r * 2, r * 2); return; }
+    const g = c.createRadialGradient(x, y, r * inner, x, y, r);
+    g.addColorStop(0, stop0);
+    g.addColorStop(1, stop1);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  }
+
+  /** Forget the cached falloffs — after a palette change, or between tests. */
+  A.forgetLightSprites = function () { sprites.clear(); };
 
   A.draw = function (ctx, world, view) {
     const a = current;
@@ -163,42 +209,88 @@
     // Built on a layer and composited with `source-over`, the same floor reads
     // 135 against 51: the light shows you the room.
     if (a.darkness > 0.001) {
-      const lights = A.lights(world);
-      const layer = lights.length ? scratch(W, H) : null;
+      // Two things decide what this costs, and neither is the gradient.
+      //
+      // The first is how many lights are painted: the benchmark put 32 lanterns
+      // on a 16x12 patch of a map the camera only shows 12x9 of, and every one
+      // of them painted a 444px circle whether or not it was on screen. Lights
+      // off screen are skipped now.
+      //
+      // The second is fill rate. A light of radius 3 on a 74px tile is a 444px
+      // disc, and thirty of those, twice, is twelve million blended pixels a
+      // frame. But darkness has no detail in it — a flat fill and some soft
+      // holes — so it is built at half resolution and blown up on the way out.
+      // Four times fewer pixels, and you cannot see the difference.
+      const all = A.lights(world);
+      const S = Math.max(1, A.lightDetail === 'full' ? 1 : 2);
+      const lw = Math.max(1, Math.ceil(W / S)), lh = Math.max(1, Math.ceil(H / S));
+      const px = tilePx / S;
+      const lights = [];
+      for (const l of all) {
+        const r = Math.max(2, l.radius * (a.lightScale || 1) * 1.14 * px);   // 1.14: room for the flicker
+        const x = (l.x - camX) * px, y = (l.y - camY) * px;
+        if (x + r < 0 || x - r > lw || y + r < 0 || y - r > lh) continue;    // not on screen
+        lights.push(l);
+      }
+      const layer = lights.length ? scratch(lw, lh) : null;
       const lc = layer ? layer.getContext('2d') : null;
       const c = lc || ctx;
-      if (lc) { lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, W, H); }
-      else ctx.save();
+      const k = lc ? px : tilePx;                  // the units `c` is working in
+      ctx.save();
+      if (lc) {
+        lc.save();
+        lc.setTransform(1, 0, 0, 1, 0, 0);
+        lc.clearRect(0, 0, lw, lh);
+      }
       c.globalCompositeOperation = 'source-over';
       c.fillStyle = A.rgba(a.ambient, a.darkness);
-      c.fillRect(0, 0, W, H);
+      c.fillRect(0, 0, lc ? lw : W, lc ? lh : H);
       if (lights.length) {
         c.globalCompositeOperation = 'destination-out';
+        c.imageSmoothingEnabled = true;      // the falloff is a gradient, not pixel art
         for (const l of lights) {
           const flick = l.flicker ? 1 + Math.sin(time / 90 + KIT.hash(l.seed) % 100) * 0.06 * l.flicker + (KIT.hash(l.seed, Math.floor(time / 120)) % 100) / 100 * 0.04 * l.flicker : 1;
-          const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * tilePx);
-          const x = (l.x - camX) * tilePx, y = (l.y - camY) * tilePx;
-          const g = c.createRadialGradient(x, y, r * (1 - KIT.clamp(l.softness, 0, 0.95)), x, y, r);
-          g.addColorStop(0, 'rgba(0,0,0,1)');
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          c.fillStyle = g;
-          c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+          const r = Math.max(2, l.radius * (a.lightScale || 1) * flick * k);
+          const x = (l.x - camX) * k, y = (l.y - camY) * k;
+          const soft = Math.round(KIT.clamp(l.softness, 0, 0.95) * 32) / 32;
+          blot(c, 'hole:' + soft, 1 - soft, 'rgba(0,0,0,1)', 'rgba(0,0,0,0)', x, y, r);
         }
-        c.globalCompositeOperation = 'source-over';
-        // the darkness, with its holes, over the frame — and nothing erased
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(layer, 0, 0);
-        // warm the lit area back up a little, so a lantern reads as a lantern
-        ctx.globalCompositeOperation = 'lighter';
+        if (lc) {
+          lc.restore();
+          // the darkness, with its holes, over the frame — and nothing erased
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(layer, 0, 0, lw, lh, 0, 0, W, H);
+        } else {
+          c.globalCompositeOperation = 'source-over';
+        }
+        // Warm the lit area back up a little, so a lantern reads as a lantern.
+        // Gathered on its own half-size layer for the same reason as the dark,
+        // then laid over the frame in one blit.
+        const glow = lc ? scratch(lw, lh, 'glow') : null;
+        const gc = glow ? glow.getContext('2d') : null;
+        const w2 = gc || ctx;
+        const k2 = gc ? px : tilePx;
+        if (gc) {
+          gc.save();
+          gc.setTransform(1, 0, 0, 1, 0, 0);
+          gc.clearRect(0, 0, lw, lh);
+        }
+        w2.globalCompositeOperation = 'lighter';
+        w2.imageSmoothingEnabled = true;
+        w2.globalAlpha = 0.18 * a.darkness;
         for (const l of lights) {
-          const r = Math.max(2, l.radius * (a.lightScale || 1) * tilePx);
-          const x = (l.x - camX) * tilePx, y = (l.y - camY) * tilePx;
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-          g.addColorStop(0, A.rgba(l.color, 0.18 * a.darkness));
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+          const r = Math.max(2, l.radius * (a.lightScale || 1) * k2);
+          const x = (l.x - camX) * k2, y = (l.y - camY) * k2;
+          const col = l.color || '#ffd9a0';
+          blot(w2, 'warm:' + col, 0, A.rgba(col, 1), 'rgba(0,0,0,0)', x, y, r);
+        }
+        if (gc) {
+          gc.restore();
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(glow, 0, 0, lw, lh, 0, 0, W, H);
         }
       }
       ctx.restore();
