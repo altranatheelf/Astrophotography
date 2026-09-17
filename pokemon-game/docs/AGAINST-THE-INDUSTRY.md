@@ -172,23 +172,58 @@ exposed no extension point.
 
 ## 5. What landed this round
 
-1. **A scene can draw.** This was the decisive gap and it was invisible until a
-   real battle was built against the API. Scenes now get `draw(ctx, view)` and
-   `opaque`. Without it, an Undertale battle is not possible; with it, it is
-   `js/modules/bullet/`.
-2. **Localization**, keyed on the lines themselves, extractable at any point,
-   with a translation file a person can read. 227 lines found in the demo world
-   without anyone listing one.
-3. **Layered music.** Named layers on one clock, brought up and down with
-   `@layer danger on`. The piece never restarts.
-4. **Boot got 8.5× faster** at OMORI scale, by deferring validation off the
-   critical path.
-5. **Light got cheap.** Culling, half-resolution darkness and cached falloff
-   sprites: 128 lights went from 11fps to 32.5, and 32 lights from 56.5 to a
-   solid 60. Measured pixel-identical — 2 levels out of 255 at worst.
-6. **Gamepads**, and **voices** — per-character blips while text types.
+Ordered by how badly it was needed, not by how it sounds.
 
----
+**Things the platform was quietly taking from a player**
+
+1. **Safari deletes everything a page stored** after seven days without a visit
+   — IndexedDB, localStorage, all of it, with no warning and no event to catch.
+   A browser game you send to one person to play would forget them over a
+   fortnight's holiday. The engine now asks for persistent storage on the first
+   gesture and, when the browser refuses, *says so on the save screen* instead of
+   letting somebody lose thirty hours.
+2. **The iPhone's mute switch killed Web Audio** — and only Web Audio, while
+   video kept playing — until iOS 17. One line most engines still don't set.
+3. **The tile cache had no ceiling.** Measured on an ordinary dpr-3 phone: one
+   room costs 85MB and five rooms reached **258MB, held forever**. OMORI has
+   four hundred rooms. Now accounted in bytes and evicted least-recently-used;
+   the same walk settles at 122MB.
+
+**Things an Undertale-scope game actually needs**
+
+4. **A scene can draw.** Invisible until a real battle was built against the API.
+5. **A scene can draw TEXT** — which is most of what an Undertale battle is.
+   Same pipeline as the dialogue box, so `{color:}`, `{fx:wave}` and `{voice:}`
+   work in a fight without being rewritten.
+6. **A voice is a bundle** — font, colour, pace and blip together, switchable
+   mid-sentence with `{voice:sans}`. This is exactly Undertale's typer preset,
+   which it has 114 of in a 310-line if-chain.
+7. **Named text effects** (`{fx:shiver,3}`) instead of Undertale's single `shake`
+   scalar whose meaning changes at 39.
+8. **Layered music** — `@layer danger on` swells a part in without restarting
+   the piece. **Ducking** under dialogue, counted so overlapping lines behave.
+   **File music decoded onto the graph** with real loop points, so an intro plays
+   once and the body loops seamlessly.
+9. **Localization** that a player can actually reach — a setting, a menu row, and
+   a first-boot guess from the browser's own languages. The engine's own menu
+   words moved into the Terms table, because a literal is a line nobody can
+   translate.
+10. **Two fingers undo, three redo** — what Procreate and Nomad Sculpt both
+    settled on, and it costs no screen space. Godot's Android editor docs tell
+    you to bring a Bluetooth keyboard.
+11. **Light got cheap**: 128 lights went 11fps → 32.5, verified pixel-identical.
+12. **Boot got 8.5× faster** at OMORI scale. Gamepads. Voice blips.
+
+Every one of items 1, 2, 3, 9 and the double-translation bug below was found by
+research or by an audit, not by playing the game — which is the argument for
+doing it this way.
+
+**And three bugs in work from this same session**, found by auditing it:
+the language pipeline terminated one line short of the player; every visible
+line was translated *twice* (with `'Yes.' → 'Non.'` and `'Non.'` also a source
+line, a French player saw the wrong sentence); and the battle's text band was
+computed from one font size while the writer drew at another, so a long line
+landed on top of the arena.
 
 ## 6. The honest summary
 
