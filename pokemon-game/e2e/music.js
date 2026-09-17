@@ -149,7 +149,47 @@ async function run(browser) {
   check(ducked.back === 0, 'and the last one lets it back up');
   check(ducked.playing === 'e2e-storm', 'all without touching the track');
 
-  beat(8, 'nothing broke');
+  beat(8, 'a file track loops where the composer said, and is on the graph');
+  const file = await page.evaluate(async () => {
+    const rate = 44100, secs = 3, n = rate * secs;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const view = new DataView(buf);
+    const put = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+    put(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); put(8, 'WAVEfmt ');
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    put(36, 'data'); view.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      view.setInt16(44 + i * 2, Math.sin(t * (t < 1 ? 220 : 440) * 2 * Math.PI) * 8000, true);
+    }
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    KIT.registry('music').add({ id: 'e2e-file', name: 'File', kind: 'file', src: url,
+                                loop: true, loopStart: 1, loopEnd: 3 });
+    await KIT.audio.music('e2e-file');
+    await new Promise((r) => setTimeout(r, 700));
+    const decoded = KIT.audio.loaded(url);
+    const playing = KIT.audio.current();
+    // Ducking only reaches it if it is on the audio graph. An <audio> element
+    // would keep playing at full volume, which is exactly the old bug.
+    KIT.audio.duck(0.2, 20);
+    await new Promise((r) => setTimeout(r, 120));
+    const ducked = KIT.audio.duckedBy();
+    KIT.audio.unduck(20);
+    await new Promise((r) => setTimeout(r, 100));
+    const released = KIT.audio.duckedBy();
+    // an <audio> element would still be in flight; there should be none
+    const elements = document.querySelectorAll('audio').length;
+    URL.revokeObjectURL(url);
+    return { decoded, playing, ducked, released, elements };
+  });
+  check(file.decoded, 'the file was decoded rather than handed to an <audio> element');
+  check(file.playing === 'e2e-file', 'and it is the playing track');
+  check(file.elements === 0, 'with no <audio> element in the page at all');
+  check(file.ducked === 1 && file.released === 0, 'and it ducks, which only works on the graph');
+
+  beat(9, 'nothing broke');
   await page.evaluate(() => KIT.audio.stop('all'));
   check(errors.length === 0, `no console errors or page errors${errors.length ? ': ' + errors[0] : ''}`);
   for (const e of errors) log('     ! ' + e);

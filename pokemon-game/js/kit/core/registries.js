@@ -22,7 +22,18 @@
   KIT.defineRegistry('faces', { fields: named, doc: 'Dialogue faces.' });
   KIT.defineRegistry('icons', { fields: named, doc: 'Small UI icons.' });
   KIT.defineRegistry('sounds', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['synth', 'file'], default: 'synth' }]) });
-  KIT.defineRegistry('music', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['synth', 'file'], default: 'synth' }, { key: 'loop', type: 'bool', default: true }]) });
+  // A track is either synthesised from note steps or a file. A file track wants
+  // LOOP POINTS: almost every game score has an intro that plays once and a body
+  // that repeats, and an <audio> element can only loop the whole file from zero.
+  KIT.defineRegistry('music', { fields: named.concat([
+    { key: 'kind', type: 'enum', options: ['synth', 'file'], default: 'synth' },
+    { key: 'src', type: 'string', default: '', doc: 'For a file track: a path next to the page.' },
+    { key: 'loop', type: 'bool', default: true },
+    { key: 'loopStart', type: 'number', min: 0, nullable: true, default: null,
+      doc: 'Seconds. Where the repeat goes back TO — everything before it is the intro, played once.' },
+    { key: 'loopEnd', type: 'number', min: 0, nullable: true, default: null,
+      doc: 'Seconds. Where the repeat goes back FROM. Empty means the end of the file.' },
+  ]) });
   KIT.defineRegistry('objectTypes', { fields: named.concat([
     { key: 'tags', type: 'list', of: { type: 'string' }, default: [] },
     { key: 'maxCount', type: 'number', integer: true, optional: true }, { key: 'limit', type: 'enum', options: ['moveLast', 'prevent'], default: 'prevent' },

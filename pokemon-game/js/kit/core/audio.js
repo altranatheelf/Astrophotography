@@ -146,6 +146,68 @@
     return noiseBuf;
   }
 
+  /**
+   * Decoded file music, with loop points.
+   *
+   * An <audio> element can loop, but only the whole file from zero — so a score
+   * with a four-bar intro and a repeating body (which is most scores) either
+   * replays its intro every time round or has no intro at all. A decoded buffer
+   * on an AudioBufferSourceNode has `loopStart` and `loopEnd` in seconds, and
+   * the loop is sample-accurate rather than "whenever the element gets round to
+   * it", so there is no gap at the seam.
+   *
+   * It also puts music on the same graph as everything else, which is what lets
+   * it be ducked and faded with the rest.
+   */
+  const buffers = new Map();            // src -> AudioBuffer (decoded once)
+  const pending = new Map();            // src -> Promise, so a fast double-play decodes once
+  function loadBuffer(src) {
+    if (buffers.has(src)) return Promise.resolve(buffers.get(src));
+    if (pending.has(src)) return pending.get(src);
+    const job = fetch(src)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('fetch ' + r.status))))
+      // decodeAudioData DETACHES the buffer it is given, so a retry on the same
+      // ArrayBuffer silently decodes nothing. Hand it a copy.
+      .then((buf) => ctx.decodeAudioData(buf.slice(0)))
+      .then((decoded) => { buffers.set(src, decoded); pending.delete(src); return decoded; })
+      .catch((e) => { pending.delete(src); (KIT.log || console).warn('[audio] could not load ' + src, e); return null; });
+    pending.set(src, job);
+    return job;
+  }
+
+  let fileSource = null;                // the AudioBufferSourceNode currently playing music
+  function stopFileSource() {
+    if (!fileSource) return;
+    try { fileSource.onended = null; fileSource.stop(); } catch (e) { /* already done */ }
+    try { fileSource.disconnect(); } catch (e) { /* ignore */ }
+    fileSource = null;
+  }
+
+  /** Start a decoded track on the music bus. Returns a promise for tests. */
+  function playMusicFile(def, volume) {
+    if (!init() || !def || !def.src) return Promise.resolve(false);
+    const mine = def.id;
+    return loadBuffer(def.src).then((buf) => {
+      if (!buf) return false;
+      if (!current || current.id !== mine) return false;      // the track changed while we decoded
+      stopFileSource();
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      if (def.loop !== false) {
+        src.loop = true;
+        const end = def.loopEnd != null ? Math.min(def.loopEnd, buf.duration) : buf.duration;
+        const start = def.loopStart != null ? Math.min(def.loopStart, Math.max(0, end - 0.01)) : 0;
+        src.loopStart = start;
+        src.loopEnd = end;
+      }
+      src.connect(musicBus);
+      musicBus.gain.value = volumes.music * (volume == null ? 1 : volume);
+      src.start(0);
+      fileSource = src;
+      return true;
+    });
+  }
+
   function playFile(def, volume, loop) {
     try {
       const el = new Audio(def.src);
@@ -348,12 +410,20 @@
     if (id && current && current.id === id) return Promise.resolve();
     stopSchedule();
     dropLayers();          // the nodes belong to the old track; the wishes outlive it
+    stopFileSource();
     stopFiles(true);
     if (!id) { current = null; if (musicBus && ctx) fadeBus(musicBus, 0, opts.fade || 0, () => { musicBus.gain.value = volumes.music; }); return Promise.resolve(); }
     const def = defOf('music', id);
     current = { id, def };
     if (!def) return Promise.resolve();
-    if (def.kind === 'file') { current.el = playFile(def, opts.volume, true); return Promise.resolve(); }
+    if (def.kind === 'file') {
+      stopFileSource();
+      // Through the AudioContext when we can, so it loops properly and can be
+      // ducked; an <audio> element is the fallback when there is no context yet.
+      if (init()) return playMusicFile(Object.assign({ id }, def), opts.volume).then(() => undefined);
+      current.el = playFile(def, opts.volume, true);
+      return Promise.resolve();
+    }
     if (!init()) return Promise.resolve();   // no gesture yet; `current` holds the wish, unlock() plays it
     musicBus.gain.value = volumes.music * (opts.volume == null ? 1 : opts.volume);
     if (opts.fade) {
@@ -419,7 +489,7 @@
   /** stop('sound'|'music'|'all') */
   function stop(what) {
     const w = what || 'all';
-    if (w === 'music' || w === 'all') { stopSchedule(); dropLayers(); current = null; stopFiles(true); }
+    if (w === 'music' || w === 'all') { stopSchedule(); dropLayers(); stopFileSource(); current = null; stopFiles(true); }
     if (w === 'sound' || w === 'all') stopFiles(false);
     return Promise.resolve();
   }
@@ -451,6 +521,8 @@
     play, playAt, music, stop, jingle,
     layer, layers, layersOf, layerGain,
     duck, unduck, duckedBy,
+    /** loaded(src) — is this file decoded yet? For tests and a loading screen. */
+    loaded(src) { return buffers.has(src); },
     /** save()/replay() — the saveMusic/replayMusic commands. */
     save() { saved = current ? current.id : null; return Promise.resolve(); },
     replay() { return music(saved); },
