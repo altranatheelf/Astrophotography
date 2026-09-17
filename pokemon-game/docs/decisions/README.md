@@ -30,3 +30,4 @@ mark the old one superseded, with the number. The trail is the point.
 | [0010](0010-reachability-is-the-definition-of-done.md) | Done means a player or author can reach it | accepted |
 | [0011](0011-history-is-tally-plus-window.md) | History is a permanent tally plus a bounded window | accepted |
 | [0012](0012-rules-are-entities.md) | A rule of the world is a condition plus a script, and can be eaten | accepted |
+| [0013](0013-saves-are-a-tree.md) | Saves are a tree of moments, stored as deltas | accepted |

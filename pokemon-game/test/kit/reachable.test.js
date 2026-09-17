@@ -118,6 +118,26 @@ test('every table a project carries is editable by an author', () => {
     'Add a panel to the editorPanels registry, or add the table to AUTHORED_IN with the place it IS edited.');
 });
 
+test('a player can actually walk back into a moment', () => {
+  // The tree of moments (ADR-0013) is the same kind of thing the top of this
+  // file is about: a capability with nothing in front of it. It is not a
+  // setting and not a project table, so neither of the checks above would see
+  // it — and the whole feature is "go back to when you were in the graveyard",
+  // which is a screen or it is nothing.
+  const menu = read('js/kit/scenes/menu.js');
+  const game = read('js/kit/game.js');
+  assert.ok(/\{ id: 'moments'/.test(menu), 'there is a Moments entry in the pause menu');
+  assert.ok(/mode === 'moments'/.test(menu), 'and the menu scene knows how to draw it');
+  assert.ok(/function momentRows/.test(menu), 'from real rows');
+  assert.ok(/'moment:'/.test(menu) && /action\.startsWith\('moment:'\)/.test(menu),
+    'and choosing a row does something');
+  assert.ok(/G\.gotoMoment = /.test(game), 'which the game implements');
+  assert.ok(/KIT\.timeline\.record\(/.test(game),
+    'and every save records one, so the list is never empty for a player who has played');
+  assert.ok(/KIT\.timeline\.headTo\(/.test(game),
+    'and loading a save stands at its moment, which is what makes the next save branch');
+});
+
 test('the settings menu does not offer settings that do not exist', () => {
   const storage = read('js/kit/core/storage.js');
   const menu = read('js/kit/scenes/menu.js');

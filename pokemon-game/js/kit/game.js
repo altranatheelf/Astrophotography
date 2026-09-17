@@ -356,10 +356,65 @@
     w.save.music = { current: KIT.audio.current(), saved: w.save.music ? w.save.music.saved : null };
     return w.save;
   }
-  G.save = async function (slot) {
+  G.save = async function (slot, opts) {
     const s = snapshot();
     if (!s) return false;
+    // Every save is also a moment in the tree (ADR-0013). The node id goes into
+    // the save, so LOADING it puts the player back at that point in the tree and
+    // the next save branches from there instead of overwriting it. That is the
+    // whole mechanic and it needs no button: going back and playing on IS
+    // branching. A save that changed nothing does not make a node.
+    if (KIT.timeline) {
+      const id = KIT.timeline.record(s, { label: (opts && opts.label) || '' });
+      if (id) { s.moment = id; await KIT.timeline.flush(); }
+    }
     return await KIT.storage.saveGame(slot || 'autosave', s);
+  };
+
+  /**
+   * enterSave(save, where) -> bool — put the player into a save that is already
+   * in hand. Shared by Continue and by walking back into a moment, because the
+   * awkward part (a map that was renamed since, a content bug in an `enter`
+   * slot, the music) is the same either way and was worth writing once.
+   */
+  G.enterSave = async function (save, where) {
+    playtimeMs = save.playtimeMs || 0;
+    const world = buildWorld(save);
+    leaveTitle();
+    KIT.scenes.clear();
+    KIT.fx.reset();
+    KIT.scenes.push('map', { game: G });
+    const at = (save.heroes && save.heroes[save.activeHero || 0]) || (save.heroes && save.heroes[0]) || {};
+    const start = G.project.start || {};
+    const landed = await G.guard(
+      world.enterMap(at.map || start.map, at.x || 0, at.y || 0, at.dir || 'down'),
+      where || 'continue', { tell: false },
+    );
+    if (landed === false) {
+      // Put them somewhere that exists rather than nowhere. The start of the
+      // game is the one place the project guarantees.
+      const ok = await G.guard(
+        world.enterMap(start.map, start.x || 0, start.y || 0, start.dir || 'down'),
+        (where || 'continue') + '-fallback',
+      );
+      if (ok === false) { await G.toTitle(); return false; }
+      await KIT.toast(KIT.strings.get(G.project, 'save-moved'));
+    }
+    if (save.music && save.music.current) KIT.audio.music(save.music.current, { fade: 300 });
+    return true;
+  };
+
+  /**
+   * gotoMoment(id) -> bool — walk back into a moment. Nothing is lost: where the
+   * player was is still a node, and playing on from here makes a new branch
+   * beside it rather than on top of it.
+   */
+  G.gotoMoment = async function (id) {
+    if (!KIT.timeline) return false;
+    const save = KIT.timeline.goto(id);
+    if (!save) return false;
+    await KIT.timeline.flush();
+    return await G.enterSave(save, 'moment');
   };
   function queueAutosave() {
     if (autosaveQueued) return;
@@ -444,6 +499,10 @@
     G.project = opts.project || KIT.project.blank();
     useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
+    // The tree of moments is per project and lives beside the save slots, so it
+    // is read once here — after the project id is known and before anything can
+    // record into it.
+    if (KIT.timeline) await KIT.timeline.load();
 
     canvas = KIT.ui.el('game-canvas');
     controls = KIT.ui.el('controls');
@@ -580,35 +639,15 @@
       if (list[0]) save = await KIT.storage.loadGame(list[0].slot);
     }
     if (!save) return false;
-    playtimeMs = save.playtimeMs || 0;
-    const world = buildWorld(save);
-    leaveTitle();
-    KIT.scenes.clear();
-    KIT.fx.reset();
-    KIT.scenes.push('map', { game: G });
-    const at = (save.heroes && save.heroes[0]) || {};
-    // The title is already gone and the scene stack already cleared by this
-    // point, so a throw here leaves the player looking at nothing. The most
-    // ordinary cause is a map that was renamed or deleted between the save and
-    // now — which is an ordinary week in year two of a long project — but any
-    // content bug in an `init` or `enter` slot arrives the same way.
-    const start = G.project.start || {};
-    const landed = await G.guard(
-      world.enterMap(at.map || start.map, at.x || 0, at.y || 0, at.dir || 'down'),
-      'continue', { tell: false },
-    );
-    if (landed === false) {
-      // Put them somewhere that exists rather than nowhere. The start of the
-      // game is the one place the project guarantees.
-      const ok = await G.guard(
-        world.enterMap(start.map, start.x || 0, start.y || 0, start.dir || 'down'),
-        'continue-fallback',
-      );
-      if (ok === false) { await G.toTitle(); return false; }
-      await KIT.toast(KIT.strings.get(G.project, 'save-moved'));
-    }
-    if (save.music && save.music.current) KIT.audio.music(save.music.current, { fade: 300 });
-    return true;
+    // Stand where this save stands in the tree, so the next save branches from
+    // it. Loading slot 2 after playing on from slot 3 is exactly the case that
+    // used to mean "one of these is about to be overwritten".
+    if (KIT.timeline && save.moment) KIT.timeline.headTo(save.moment);
+    // The title goes and the scene stack is cleared inside enterSave, so a throw
+    // in there would leave the player looking at nothing. The most ordinary
+    // cause is a map renamed or deleted between the save and now — an ordinary
+    // week in year two of a long project — and it is guarded there.
+    return await G.enterSave(save, 'continue');
   };
 
   // ---- Creator Mode ---------------------------------------------------------------------------

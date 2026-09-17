@@ -207,6 +207,50 @@
       },
     },
     {
+      // The question no variable can answer, because the variable was in the
+      // other branch. See ADR-0013.
+      id: 'elsewhere', label: 'Did, in another branch', group: 'Progress',
+      doc: 'Did this happen somewhere this playthrough went and then came back from? Not counting what happened before the fork, and not counting this line.',
+      fields: [
+        { key: 'verb', type: 'string', min: 1, default: 'did', label: 'What happened' },
+        { key: 'what', type: 'string', default: '', label: 'To what' },
+        opField('>='),
+        { key: 'times', type: 'number', integer: true, min: 0, default: 1, label: 'Times' },
+      ],
+      test(c, ctx) {
+        if (!KIT.timeline) return false;
+        const q = { verb: c.verb };
+        if (c.what) q.what = c.what;
+        return C.compare(KIT.timeline.elsewhere(q), c.op || '>=', c.times == null ? 1 : c.times);
+      },
+      describe(c) {
+        const n = c.times == null ? 1 : c.times;
+        const thing = `${c.verb}${c.what ? ' ' + c.what : ''}`;
+        if ((c.op || '>=') === '>=' && n === 1) return `${thing} somewhere else`;
+        return `${thing} ${SYM[c.op] || c.op || '>='} ${n} times somewhere else`;
+      },
+    },
+    {
+      id: 'everywhere', label: 'Did, in any branch', group: 'Progress',
+      doc: 'The most any one line of this playthrough ever did it — this one included.',
+      fields: [
+        { key: 'verb', type: 'string', min: 1, default: 'did', label: 'What happened' },
+        { key: 'what', type: 'string', default: '', label: 'To what' },
+        opField('>='),
+        { key: 'times', type: 'number', integer: true, min: 0, default: 1, label: 'Times' },
+      ],
+      test(c, ctx) {
+        if (!KIT.timeline) return false;
+        const q = { verb: c.verb };
+        if (c.what) q.what = c.what;
+        return C.compare(KIT.timeline.everywhere(q), c.op || '>=', c.times == null ? 1 : c.times);
+      },
+      describe(c) {
+        const n = c.times == null ? 1 : c.times;
+        return `${c.verb}${c.what ? ' ' + c.what : ''} ${SYM[c.op] || c.op || '>='} ${n} times in some line`;
+      },
+    },
+    {
       id: 'self', label: 'Self state', group: 'Progress', doc: "Compare one of this object's self state keys.",
       fields: [{ key: 'key', type: 'string', min: 1 }, opField('=='), { key: 'value', type: 'scalar', default: true }],
       test(c, ctx) { return C.compare(C.getSelf(ctx, c.key), c.op, c.value); },
@@ -456,8 +500,8 @@
     // `did.ate >= 2`, or narrowed: `did.ate/bread >= 2`. The same prefix shape
     // as item./self./meta., because an author should only learn one.
     if (k === 'rule' && word(c.id)) return `rule.${c.id}`;
-    if (k === 'did' && word(c.verb) && (!c.what || word(c.what))) {
-      return `did.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
+    if ((k === 'did' || k === 'elsewhere' || k === 'everywhere') && word(c.verb) && (!c.what || word(c.what))) {
+      return `${k}.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
     }
     if (k === 'all' || k === 'any') {
       const parts = (c.of || []);
@@ -558,10 +602,11 @@
       if (k.v.startsWith('self.')) { if (v.var !== undefined) throw new Error('condition: self cannot compare to a var'); return { kind: 'self', key: k.v.slice(5), op: opTok.v, value: v.value }; }
       if (k.v.startsWith('item.')) { if (typeof v.value !== 'number') throw new Error('condition: item count must be a number'); return { kind: 'item', id: k.v.slice(5), op: opTok.v, count: v.value }; }
       if (k.v.startsWith('meta.')) { if (v.var !== undefined) throw new Error('condition: meta cannot compare to a var'); return { kind: 'meta', key: k.v.slice(5), op: opTok.v, value: v.value }; }
-      if (k.v.startsWith('did.')) {
-        if (typeof v.value !== 'number') throw new Error('condition: did must compare to a number of times');
-        const [verb, what] = k.v.slice(4).split('/');
-        return { kind: 'did', verb, what: what || '', op: opTok.v, times: v.value };
+      for (const kind of ['did', 'elsewhere', 'everywhere']) {
+        if (!k.v.startsWith(kind + '.')) continue;
+        if (typeof v.value !== 'number') throw new Error(`condition: ${kind} must compare to a number of times`);
+        const [verb, what] = k.v.slice(kind.length + 1).split('/');
+        return { kind, verb, what: what || '', op: opTok.v, times: v.value };
       }
       const out = { kind: 'var', name: k.v, op: opTok.v, value: v.var !== undefined ? 0 : v.value, var: v.var !== undefined ? v.var : null };
       return out;

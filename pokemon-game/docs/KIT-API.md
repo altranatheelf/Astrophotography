@@ -110,6 +110,19 @@ The world listens on `'*'` and queues firings so two events in a frame cannot st
 
 Scripts: `@rule eat|on|off <id>`. Conditions: `rule.<id>` (a bare word — `not rule.<id>` asks whether it was eaten).
 
+## world/timeline — stable
+Saves as a tree of moments, not a row of slots. Every save is a node; playing on from an older one branches. Stored as deltas with an anchor when the chain has cost as much as a whole save. ADR-0013.
+
+Store: `kit.<projectId>.timeline = { v, head, n, nodes: { m1: { p, at, label, where, layer, day, min, tk, keep?, d? | full?, cb?, cl? } } }`. `tk` is what that moment ADDED to the run's tally; `d` is its delta, `full` a whole save.
+
+Delta (pure, and the part that has to be exactly right): `diff(a, b) -> ops` · `patch(base, ops) -> value` · `apply(target, ops) -> target` (in place). Ops: `{p,v}` set · `{p,x:1}` delete · `{p,cut,add}` an array lost n from its front and gained these.
+
+Tree: `load()` · `now()` · `flush()` · `forgetAll()` · `record(save, { label, parent }) -> id` · `rebuild(id) -> save|null` · `goto(id) -> save|null` (stands there and stamps `save.moment`) · `headTo(id) -> bool` · `node(id)` · `head()` · `count()` · `path(id)` · `children(id)` · `label(id, text)` · `keep(id, on)` · `tallyAt(id)` · `bytes()` · `prune(budget)` · `moments() -> [{ id, depth, label, where, layer, day, min, at, mine, head, kept, branches }]` · `MAX_CHAIN` `CUT_PROBE` `BUDGET`.
+
+What the game can ask: `elsewhere(query) -> n` — how many times this happened in a branch that is NOT the player's, counting only after the fork · `everywhere(query) -> n` — the most any one line managed.
+
+Scripts: `@moment <label>` (a named point, never pruned). Conditions: `elsewhere.<verb>[/<what>] >= n` · `everywhere.<verb>[/<what>] >= n`. Lines: `{elsewhere:ate/bread}` · `{everywhere:ate/bread}`. Player: the **Moments** row in the pause menu.
+
 ## world/map — stable
 `KIT.mapView(project, save, mapId) -> view` — the authored map composed with `save.overlays[mapId]`.
 `view.id width height kind music index(x,y) inBounds tileAt(layer,x,y) terrainAt region collisionAt flagsAt(x,y)` (merged over ground/deco/above + collision override) ·

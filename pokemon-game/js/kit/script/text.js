@@ -135,6 +135,21 @@
       const [verb, what] = String(arg || '').split('/');
       return String(KIT.history.everDid(verb, what));
     },
+    // What happened somewhere this playthrough went and came back from.
+    // {elsewhere:killed/dog} is a line that knows about the other branch —
+    // which is the one thing a variable can never tell you, because the
+    // variable was over there. ADR-0013.
+    elsewhere: (ctx, arg) => {
+      if (!KIT.timeline) return '0';
+      const [verb, what] = String(arg || '').split('/');
+      return String(KIT.timeline.elsewhere(what ? { verb, what } : { verb }));
+    },
+    // The most any one line of this playthrough ever did it, this one included.
+    everywhere: (ctx, arg) => {
+      if (!KIT.timeline) return '0';
+      const [verb, what] = String(arg || '').split('/');
+      return String(KIT.timeline.everywhere(what ? { verb, what } : { verb }));
+    },
     // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
     // are her pronouns, so a line can be written once for anybody.
     who: (ctx, arg) => T.translate(KIT.cast && KIT.cast.nameOf ? KIT.cast.nameOf(ctx.project, arg) : fmt(arg)),

@@ -49,6 +49,7 @@
       const build = function (self) {
         if (mode === 'settings') rows = settingRows();
         else if (mode === 'save') rows = self._saveRows || [{ label: 'Loading…', disabled: true }];
+        else if (mode === 'moments') rows = momentRows();
         else rows = pauseRows();
         ui = panel(titleFor(), rows, { hint: KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes' });
         index = Math.min(index, Math.max(0, rows.length - 1));
@@ -63,6 +64,7 @@
       function titleFor() {
         if (mode === 'settings') return KIT.strings.get(game && game.project, 'settings');
         if (mode === 'save') return KIT.strings.get(game && game.project, 'save');
+        if (mode === 'moments') return KIT.strings.get(game && game.project, 'moments');
         return 'Paused';
       }
 
@@ -153,10 +155,20 @@
           mode = 'pause'; index = 0; build(this);
           return;
         }
+        if (action.startsWith('moment:')) {
+          const id = action.slice(7);
+          const row = (KIT.timeline ? KIT.timeline.node(id) : null);
+          const name = (row && row.label) || (row && row.where) || t('this-moment');
+          this.finish('close');
+          const ok = await KIT.game.gotoMoment(id);
+          if (ok) await KIT.toast(t('went-back', { label: name }));
+          return;
+        }
         if (action.startsWith('menu:')) {
           const def = menus.get(action.slice(5));
           if (!def) return;
           if (def.id === 'settings') { mode = 'settings'; index = 0; build(this); return; }
+          if (def.id === 'moments') { mode = 'moments'; index = 0; build(this); return; }
           if (def.id === 'save') {
             this._saveRows = await saveRows(game);
             mode = 'save'; index = 0; build(this);
@@ -166,6 +178,37 @@
           if (result === 'close') { this.finish('close'); return; }
           build(this);
         }
+      }
+
+      /**
+       * The tree of moments, as a list a player can walk into (ADR-0013).
+       *
+       * A list and not a drawing: the tree is a shape, but the thing a player
+       * wants is "take me back to when I was in the graveyard", and indentation
+       * says branch well enough for that. A drawn graph is a nicer screen and a
+       * worse answer to the question, and it can come later without changing
+       * anything underneath.
+       */
+      function momentRows() {
+        const T = KIT.timeline;
+        const all = T ? T.moments() : [];
+        if (!all.length) return [{ label: t('no-moments'), disabled: true }, { label: t('back'), action: 'back' }];
+        // Newest first: what a player wants is almost always recent, and the
+        // root of a long game is a hundred rows away from anything useful.
+        const rows = all.slice().sort((a, b) => b.at - a.at).map((m) => ({
+          label: ('· '.repeat(Math.min(m.depth, 6))) + (m.label || labelFor(m)),
+          value: m.head ? t('you-are-here') : (m.mine ? '' : t('another-way')),
+          note: t('day-time', { day: m.day, time: clockText(m.min) }) + (m.where ? ' · ' + m.where : ''),
+          action: 'moment:' + m.id,
+          disabled: m.head,
+        }));
+        return rows.concat([{ label: t('back'), action: 'back' }]);
+      }
+      /** What to call a moment nobody named: where it happened. */
+      function labelFor(m) { return m.where || t('this-moment'); }
+      function clockText(min) {
+        const h = Math.floor((Number(min) || 0) / 60) % 24, mm = (Number(min) || 0) % 60;
+        return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
       }
 
       async function saveRows(g) {
@@ -239,6 +282,12 @@
     { id: 'coop', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'two-players'), order: 30,
       value: (game) => (game && game.world && game.world.coop ? 'on' : 'off'),
       open(game) { game.setCoop(!(game.world && game.world.coop)); return null; } },
+    // Going back is not "load": nothing is overwritten, so it sits beside Save
+    // rather than inside it, and it only appears once there is somewhere to go.
+    { id: 'moments', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'moments'), order: 25,
+      when: () => !!(KIT.timeline && KIT.timeline.count() > 1),
+      value: () => (KIT.timeline ? String(KIT.timeline.count()) : ''),
+      open() { return null; } },
     { id: 'settings', label: 'Settings', order: 40, open() { return null; } },
     { id: 'debug', label: 'Debug', order: 55,
       when: (game) => !!(game && game.flags && game.flags.debug),

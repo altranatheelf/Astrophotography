@@ -111,6 +111,8 @@
   };
 
   const key = (what) => `kit.${projectId}.${what}`;
+  /** The naming rule, for anything that wants its own key beside the saves. */
+  S.key = key;
 
   async function pickAdapter() {
     const tries = [];

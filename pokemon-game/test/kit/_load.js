@@ -25,6 +25,7 @@ const files = [
   'js/kit/world/cast.js',
   'js/kit/world/log.js',
   'js/kit/world/rules.js',
+  'js/kit/world/timeline.js',
   'js/kit/script/text.js',
   'js/kit/script/conditions.js',
   'js/kit/script/commands.js',

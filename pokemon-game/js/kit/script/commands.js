@@ -1133,6 +1133,25 @@
   //   @rule off gravity
   //   @rule on gravity
   defs.push({
+    id: 'moment', label: 'Mark a Moment', group: 'Story', icon: 'label', blocking: false,
+    doc: 'Put a named point in the tree of moments, so a player can walk back to exactly here. A named moment is never pruned.',
+    fields: [{ key: 'label', type: 'string', min: 1, default: '', shown: true, label: 'Called' }],
+    async run(ctx, cmd) {
+      const save = ctx.world && ctx.world.save;
+      if (!save || !KIT.timeline) return undefined;
+      // Through the game's own save, not straight into the tree: a moment the
+      // player can go back to has to be a save they can go back to, and the
+      // engine only has one place that knows how to make one of those.
+      if (KIT.game && KIT.game.save) await KIT.game.save('autosave', { label: cmd.label });
+      else KIT.timeline.record(save, { label: cmd.label });
+      const head = KIT.timeline.head();
+      if (head) KIT.timeline.keep(head, true);
+      return undefined;
+    },
+    summary(cmd) { return `Moment: ${cmd.label}`; },
+    text: positional('moment', ['label']),
+  });
+  defs.push({
     id: 'rule', label: 'Change a Rule', group: 'Story', icon: 'label', blocking: false,
     doc: 'Take a rule of the world out, put it back, or switch it off for a while.',
     fields: [

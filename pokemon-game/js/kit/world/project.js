@@ -186,6 +186,12 @@
     { id: 'sound-volume', default: 'Sound volume' }, { id: 'music-volume', default: 'Music volume' },
     { id: 'went-wrong', default: 'Something went wrong there.' },
     { id: 'save-moved', default: 'That place is gone. Starting you somewhere else.' },
+    { id: 'moments', default: 'Moments' }, { id: 'you-are-here', default: 'you are here' },
+    { id: 'another-way', default: 'another way this went' },
+    { id: 'no-moments', default: 'Nothing to go back to yet.' },
+    { id: 'went-back', default: 'You are back at {label}. Nothing was lost.' },
+    { id: 'this-moment', default: 'this moment' },
+    { id: 'day-time', default: 'day {day}, {time}' },
   ]);
 
   // ---- basic object types (§5) ----------------------------------------------
