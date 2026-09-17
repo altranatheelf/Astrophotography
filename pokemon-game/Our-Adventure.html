@@ -2332,10 +2332,41 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 
   // event.code -> button, per player. Tab is handled separately (swap heroes).
-  const KEYMAP = [
+  const DEFAULT_KEYMAP = [
     { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyZ: 'a', Enter: 'a', NumpadEnter: 'a', Space: 'a', KeyX: 'b', Backspace: 'b', Escape: 'menu' },
     { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right', KeyF: 'a', KeyG: 'b' },
   ];
+  // The Game Accessibility Guidelines' Basic tier — the realistic floor for a
+  // one-person game — opens with "allow controls to be remapped", and Steam
+  // Deck's compatibility review requires the default configuration reach all
+  // content with no in-game changes. Z/X/Enter/Space/Escape is not remappable
+  // for somebody who cannot reach those keys, so the table is data now.
+  let KEYMAP = DEFAULT_KEYMAP.map((m) => Object.assign({}, m));
+
+  /** keymap(player) -> { code: button } for that player (0-based). */
+  function keymap(player) { return Object.assign({}, KEYMAP[player || 0] || {}); }
+
+  /**
+   * bind(player, code, button) — point a key at a button. `button` null unbinds
+   * the key. A code may only mean one thing per player, so binding a code that
+   * is already taken moves it.
+   */
+  function bind(player, code, button) {
+    const i = player || 0;
+    KEYMAP[i] = KEYMAP[i] || {};
+    if (button == null) delete KEYMAP[i][code];
+    else KEYMAP[i][code] = button;
+    return keymap(i);
+  }
+  /** setKeymap(list) — replace the whole table (from a saved setting). */
+  function setKeymap(list) {
+    if (!Array.isArray(list)) return;
+    KEYMAP = list.map((m, i) => Object.assign({}, DEFAULT_KEYMAP[i] || {}, m && typeof m === 'object' ? m : {}));
+  }
+  /** resetKeymap() — back to the keys the engine ships with. */
+  function resetKeymap() { KEYMAP = DEFAULT_KEYMAP.map((m) => Object.assign({}, m)); return KEYMAP.map((m) => Object.assign({}, m)); }
+  /** keymaps() -> the whole table, to save it. */
+  function keymaps() { return KEYMAP.map((m) => Object.assign({}, m)); }
 
   const TAP_MS = 90;                    // a direction held for less than this only turns
   const SWIPE_PX = 22;                  // finger travel that counts as a swipe
@@ -2602,6 +2633,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // ---- public API --------------------------------------------------------------
   const INPUT = KIT.input = {
     KEYS, TAP_MS,
+    keymap, keymaps, bind, setKeymap, resetKeymap,
 
     /** attach(target) — keyboard on the window, swipe/tap on `target` (the canvas). */
     attach(target) {
@@ -3708,6 +3740,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     // null = never chosen, so the first boot may guess from the browser.
     // A chosen language is a device preference and outlives every save.
     language: null,
+    // Remapped keys, as [{ code: button }, ...] per player. Empty = the
+    // engine's own. A device preference, like language: it outlives saves.
+    keys: null,
   };
   const DEFAULT_META = { runs: 0, firstPlayed: null, endingsSeen: [], namesUsed: [] };
   const SLOTS = ['autosave', '1', '2', '3'];
@@ -4587,6 +4622,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
     { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
     { id: 'save-failed', default: 'Could not save.' },
+    { id: 'sound-volume', default: 'Sound volume' }, { id: 'music-volume', default: 'Music volume' },
     { id: 'went-wrong', default: 'Something went wrong there.' },
     { id: 'save-moved', default: 'That place is gone. Starting you somewhere else.' },
   ]);
@@ -16825,6 +16861,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
       /** The engine's own words, through the Terms table so they translate. */
       const t = (id, vars) => KIT.strings.get(game && game.project, id, vars);
+      const pct = (v, d) => Math.round((v == null ? d : v) * 100) + '%';
 
       function settingRows() {
         const s = settings();
@@ -16838,7 +16875,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           { label: t('text-speed'), value: t('speed-' + s.textSpeed), action: 'cycle:textSpeed' },
           { label: t('zoom'), value: s.zoom, action: 'cycle:zoom' },
           { label: t('sound'), value: t(s.sound ? 'on' : 'off'), action: 'toggle:sound' },
+          // The Accessibility Guidelines' Basic tier asks for SEPARATE volumes
+          // for effects and music, not just mutes. The audio API had setVolume
+          // and the settings had the numbers; nothing ever let a player touch
+          // them. Shown only when that kind of sound is on at all.
+          ...(s.sound ? [{ label: t('sound-volume'), value: pct(s.soundVolume, 0.9), action: 'cycle:soundVolume' }] : []),
           { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
+          ...(s.music ? [{ label: t('music-volume'), value: pct(s.musicVolume, 0.5), action: 'cycle:musicVolume' }] : []),
           { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
           { label: t('back'), action: 'back' },
         ]);
@@ -16858,6 +16901,19 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const i = (langs.indexOf(KIT.lang.current()) + (dir || 1) + langs.length) % langs.length;
           KIT.lang.use(langs[i]);
           save({ language: langs[i] });
+        } else if (action === 'cycle:soundVolume' || action === 'cycle:musicVolume') {
+          const kind = action === 'cycle:soundVolume' ? 'sound' : 'music';
+          const key = kind + 'Volume';
+          const now = s[key] == null ? (kind === 'sound' ? 0.9 : 0.5) : s[key];
+          // Steps of a tenth, wrapping round through zero, so a single button
+          // reaches every level — the same shape as the text-speed and zoom
+          // rows, and the only shape that works with one confirm key.
+          let next = Math.round((now + 0.1 * (dir || 1)) * 10) / 10;
+          if (next > 1) next = 0;
+          if (next < 0) next = 1;
+          save({ [key]: next });
+          KIT.audio.setVolume(kind, next);
+          if (kind === 'sound') KIT.audio.play('select');
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
@@ -17699,6 +17755,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);
     KIT.audio.setVolume('music', s.musicVolume == null ? 0.5 : s.musicVolume);
+    if (s.keys && KIT.input.setKeymap) KIT.input.setKeymap(s.keys);
 
     G.ports = buildPorts();
     G.renderer = KIT.renderer.create({ canvas, project: G.project });

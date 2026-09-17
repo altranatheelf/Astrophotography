@@ -468,6 +468,7 @@
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);
     KIT.audio.setVolume('music', s.musicVolume == null ? 0.5 : s.musicVolume);
+    if (s.keys && KIT.input.setKeymap) KIT.input.setKeymap(s.keys);
 
     G.ports = buildPorts();
     G.renderer = KIT.renderer.create({ canvas, project: G.project });

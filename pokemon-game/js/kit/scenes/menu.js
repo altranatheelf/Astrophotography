@@ -77,6 +77,7 @@
 
       /** The engine's own words, through the Terms table so they translate. */
       const t = (id, vars) => KIT.strings.get(game && game.project, id, vars);
+      const pct = (v, d) => Math.round((v == null ? d : v) * 100) + '%';
 
       function settingRows() {
         const s = settings();
@@ -90,7 +91,13 @@
           { label: t('text-speed'), value: t('speed-' + s.textSpeed), action: 'cycle:textSpeed' },
           { label: t('zoom'), value: s.zoom, action: 'cycle:zoom' },
           { label: t('sound'), value: t(s.sound ? 'on' : 'off'), action: 'toggle:sound' },
+          // The Accessibility Guidelines' Basic tier asks for SEPARATE volumes
+          // for effects and music, not just mutes. The audio API had setVolume
+          // and the settings had the numbers; nothing ever let a player touch
+          // them. Shown only when that kind of sound is on at all.
+          ...(s.sound ? [{ label: t('sound-volume'), value: pct(s.soundVolume, 0.9), action: 'cycle:soundVolume' }] : []),
           { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
+          ...(s.music ? [{ label: t('music-volume'), value: pct(s.musicVolume, 0.5), action: 'cycle:musicVolume' }] : []),
           { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
           { label: t('back'), action: 'back' },
         ]);
@@ -110,6 +117,19 @@
           const i = (langs.indexOf(KIT.lang.current()) + (dir || 1) + langs.length) % langs.length;
           KIT.lang.use(langs[i]);
           save({ language: langs[i] });
+        } else if (action === 'cycle:soundVolume' || action === 'cycle:musicVolume') {
+          const kind = action === 'cycle:soundVolume' ? 'sound' : 'music';
+          const key = kind + 'Volume';
+          const now = s[key] == null ? (kind === 'sound' ? 0.9 : 0.5) : s[key];
+          // Steps of a tenth, wrapping round through zero, so a single button
+          // reaches every level — the same shape as the text-speed and zoom
+          // rows, and the only shape that works with one confirm key.
+          let next = Math.round((now + 0.1 * (dir || 1)) * 10) / 10;
+          if (next > 1) next = 0;
+          if (next < 0) next = 1;
+          save({ [key]: next });
+          KIT.audio.setVolume(kind, next);
+          if (kind === 'sound') KIT.audio.play('select');
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });

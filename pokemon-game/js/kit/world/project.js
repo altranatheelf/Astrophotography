@@ -161,6 +161,7 @@
     { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
     { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
     { id: 'save-failed', default: 'Could not save.' },
+    { id: 'sound-volume', default: 'Sound volume' }, { id: 'music-volume', default: 'Music volume' },
     { id: 'went-wrong', default: 'Something went wrong there.' },
     { id: 'save-moved', default: 'That place is gone. Starting you somewhere else.' },
   ]);

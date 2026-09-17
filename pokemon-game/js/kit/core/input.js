@@ -17,10 +17,41 @@
   const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 
   // event.code -> button, per player. Tab is handled separately (swap heroes).
-  const KEYMAP = [
+  const DEFAULT_KEYMAP = [
     { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyZ: 'a', Enter: 'a', NumpadEnter: 'a', Space: 'a', KeyX: 'b', Backspace: 'b', Escape: 'menu' },
     { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right', KeyF: 'a', KeyG: 'b' },
   ];
+  // The Game Accessibility Guidelines' Basic tier — the realistic floor for a
+  // one-person game — opens with "allow controls to be remapped", and Steam
+  // Deck's compatibility review requires the default configuration reach all
+  // content with no in-game changes. Z/X/Enter/Space/Escape is not remappable
+  // for somebody who cannot reach those keys, so the table is data now.
+  let KEYMAP = DEFAULT_KEYMAP.map((m) => Object.assign({}, m));
+
+  /** keymap(player) -> { code: button } for that player (0-based). */
+  function keymap(player) { return Object.assign({}, KEYMAP[player || 0] || {}); }
+
+  /**
+   * bind(player, code, button) — point a key at a button. `button` null unbinds
+   * the key. A code may only mean one thing per player, so binding a code that
+   * is already taken moves it.
+   */
+  function bind(player, code, button) {
+    const i = player || 0;
+    KEYMAP[i] = KEYMAP[i] || {};
+    if (button == null) delete KEYMAP[i][code];
+    else KEYMAP[i][code] = button;
+    return keymap(i);
+  }
+  /** setKeymap(list) — replace the whole table (from a saved setting). */
+  function setKeymap(list) {
+    if (!Array.isArray(list)) return;
+    KEYMAP = list.map((m, i) => Object.assign({}, DEFAULT_KEYMAP[i] || {}, m && typeof m === 'object' ? m : {}));
+  }
+  /** resetKeymap() — back to the keys the engine ships with. */
+  function resetKeymap() { KEYMAP = DEFAULT_KEYMAP.map((m) => Object.assign({}, m)); return KEYMAP.map((m) => Object.assign({}, m)); }
+  /** keymaps() -> the whole table, to save it. */
+  function keymaps() { return KEYMAP.map((m) => Object.assign({}, m)); }
 
   const TAP_MS = 90;                    // a direction held for less than this only turns
   const SWIPE_PX = 22;                  // finger travel that counts as a swipe
@@ -287,6 +318,7 @@
   // ---- public API --------------------------------------------------------------
   const INPUT = KIT.input = {
     KEYS, TAP_MS,
+    keymap, keymaps, bind, setKeymap, resetKeymap,
 
     /** attach(target) — keyboard on the window, swipe/tap on `target` (the canvas). */
     attach(target) {

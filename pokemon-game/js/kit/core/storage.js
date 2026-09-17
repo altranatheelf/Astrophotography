@@ -22,6 +22,9 @@
     // null = never chosen, so the first boot may guess from the browser.
     // A chosen language is a device preference and outlives every save.
     language: null,
+    // Remapped keys, as [{ code: button }, ...] per player. Empty = the
+    // engine's own. A device preference, like language: it outlives saves.
+    keys: null,
   };
   const DEFAULT_META = { runs: 0, firstPlayed: null, endingsSeen: [], namesUsed: [] };
   const SLOTS = ['autosave', '1', '2', '3'];

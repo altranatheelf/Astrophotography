@@ -154,6 +154,19 @@ The OMORI/Fear & Hunger convergent hack. Worth checking that a battler here can
 swap visual state and hold sub-parts without duplicating rows — the modules
 layer suggests yes, but it has not been proven the way the bullet-hell was.
 
+### Control remapping
+The keymap is data and `KIT.input.bind()` exists; what is missing is the
+key-capture screen a player would use. The Game Accessibility Guidelines' Basic
+tier opens with "allow controls to be remapped", and Steam Deck's compatibility
+review requires the default configuration to reach all content without changing
+settings. Z/X/Enter/Space is not remappable for somebody who cannot reach those
+keys.
+
+### The engine has never had a game built in it
+Every scale number here is synthetic — generated projects, not authored ones.
+That is the honest caveat on the whole document, and the only thing that fixes
+it is building Elsewhenowhere in it.
+
 ### Shaders / WebGL
 Canvas 2D only. Everything measured holds 60fps, so this is about *effects that
 are impossible*, not speed. Real, but not blocking.
