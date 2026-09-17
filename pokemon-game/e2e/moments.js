@@ -92,6 +92,22 @@ async function run(browser) {
   check(rows.filter(r => (r.action || '').startsWith('moment:')).length === 2, 'both moments are listed');
   check(rows.some(r => r.action === 'moment:' + m2 && r.off), 'the one we are standing in is not offered as somewhere to go');
   check(rows.some(r => r.text.includes('the fork')), `a named moment is listed by its name (${rows.map(r => r.text).join(' | ')})`);
+  // The cursor must not open on a line that cannot be chosen. Both lists with
+  // unchoosable rows put one first — the Save screen's autosave slot and the
+  // moment the player is already in — so the screen opened greyed and the first
+  // keypress looked like it did nothing.
+  const cursor = await page.evaluate(() => {
+    const on = document.querySelector('#pause-menu .kit-menu-item.is-selected');
+    return on ? { action: on.getAttribute('data-action'), off: on.disabled } : null;
+  });
+  check(!!cursor && !cursor.off, `the cursor opens on a line you can choose (${cursor && cursor.action})`);
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(150);
+  const moved = await page.evaluate(() => {
+    const on = document.querySelector('#pause-menu .kit-menu-item.is-selected');
+    return on ? { action: on.getAttribute('data-action'), off: on.disabled } : null;
+  });
+  check(!!moved && !moved.off, `and arrowing skips the unchoosable ones (${moved && moved.action})`);
   await page.screenshot({ path: SHOTS + '/moments-list.png' });
 
   beat(4, 'walking back into one, and playing on, is a BRANCH');

@@ -53,6 +53,11 @@
         else rows = pauseRows();
         ui = panel(titleFor(), rows, { hint: KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes' });
         index = Math.min(index, Math.max(0, rows.length - 1));
+        // Never start on a row that cannot be chosen. Both lists that have
+        // unchoosable rows put one FIRST — the Save screen's autosave slot, and
+        // the moment the player is already standing in — so the cursor opened on
+        // a greyed line and the first keypress appeared to do nothing.
+        if (rows[index] && rows[index].disabled) index = step(index, 1);
         UI.select(ui.list, index);
         if (self._off) self._off();
         self._off = UI.onAction(ui.host, (action, el) => {
@@ -60,6 +65,15 @@
           activate.call(self);
         });
       };
+
+      /** The next row in that direction that can actually be chosen. */
+      function step(from, dir) {
+        for (let i = 1; i <= rows.length; i++) {
+          const at = (from + dir * i + rows.length * i) % rows.length;
+          if (rows[at] && !rows[at].disabled) return at;
+        }
+        return from;                                  // every row is a label; leave the cursor be
+      }
 
       function titleFor() {
         if (mode === 'settings') return KIT.strings.get(game && game.project, 'settings');
@@ -258,8 +272,8 @@
         suspend() { if (this._off) { this._off(); this._off = null; } },
         resume() { const host = UI.el('pause-menu'); if (host) { host.hidden = false; } build(this); },
         input(ev) {
-          if (ev.key === 'up') { index = (index - 1 + rows.length) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down') { index = (index + 1) % rows.length; UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
           if (ev.key === 'left' || ev.key === 'right') {
             const row = rows[index];
             if (row && nudge(row.action, ev.key === 'left' ? -1 : 1)) build(this);
