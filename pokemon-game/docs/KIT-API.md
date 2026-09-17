@@ -52,6 +52,15 @@ Types: `string text note number bool enum color position direction region route 
 API: `KIT.schema.field(f)` · `fields(list)` · `validate(fields, value, ctx) -> [{path,message,code}]` · `validateValue(field, v, ctx)` · `defaults(fields, ctx)` · `defaultFor(field)` · `fill(fields, value, ctx)` · `refs(fields, value, ctx) -> [{kind,id,path,access}]` · `walk(fields, value, fn)` · `visible(field, siblings)` · `defineType(name, handler)` · `refKind(kind, resolver)` · `registryRefKind(kind, registryName)` · `projectRefKind(kind, table)`.
 Ref kinds wired: tile sprite face icon sound music preset map item script var fragment object (+ modules add their own).
 
+## core/input — stable
+Buttons, not keys: `KIT.input.KEYS = ['up','down','left','right','a','b','menu']`, per player (0-based). Keyboard, gamepad, on-screen pad and swipe all arrive as the same seven.
+
+The keymap is DATA, so it can be changed: `keymap(player) -> { code: button }` · `keymaps()` (the whole table, to save) · `bind(player, code, button)` (null unbinds; a code may only mean one thing per player, so binding a taken code MOVES it) · `setKeymap(list)` (overlays the defaults, so a saved table only overrides what it names) · `resetKeymap()` · `boundTo(player, button) -> [code]` · `isDefaultKeymap()`.
+
+For a remapping screen: `keyLabel(code)` turns a `KeyboardEvent.code` (a physical position — `KeyZ` whatever the cap says) into what a person would recognise · `capturable(code)` · `NOT_CAPTURABLE = ['Escape']` — the one key the screen cannot take, because it is how a player gets out of it.
+
+Player-facing: **Settings → Controls** (`js/kit/scenes/menu.js`, the `keys` scene; rows from `KIT.keysScreen.rows(project, players)`). Saved in `settings.keys`, a device preference like language, restored at boot.
+
 ## core/pixels — stable
 Art is `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows,...]`, or image-backed `{ image, frame:{x,y,w,h} }`.
 `KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint })` (cached; browser only) · `draw(ctx, art, x, y, opts)` · `downscale(art, size)` · `silhouette(w, h, color)` (**the placeholder for missing art — never crash**) · `validate(art)` · `dims(art)` · `rowsOf(art, frame)` · `frameCount(art)` · `paletteWith(art, map)` · `invalidate(art)` · `artOf(def)`.

@@ -53,6 +53,51 @@
   /** keymaps() -> the whole table, to save it. */
   function keymaps() { return KEYMAP.map((m) => Object.assign({}, m)); }
 
+  /** boundTo(player, button) -> the codes that currently mean that button. */
+  function boundTo(player, button) {
+    const m = KEYMAP[player || 0] || {};
+    return Object.keys(m).filter((code) => m[code] === button).sort();
+  }
+  /** isDefaultKeymap() -> is the table still the one the engine ships with? */
+  function isDefaultKeymap() {
+    return KEYMAP.length === DEFAULT_KEYMAP.length
+      && KEYMAP.every((m, i) => KIT.deepEqual(m, DEFAULT_KEYMAP[i]));
+  }
+
+  // A KeyboardEvent.code is a physical-key name, not a label: it says `KeyZ`
+  // whatever is printed on the cap, and `Digit1` for the 1 above the letters.
+  // A remapping screen has to show something a person recognises, so the
+  // common shapes are turned back into what the key looks like and everything
+  // else falls through as its own name with the noise trimmed.
+  const KEY_NAMES = {
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+    Space: 'Space', Enter: 'Enter', NumpadEnter: 'Enter (num)', Escape: 'Esc',
+    Backspace: '⌫', Tab: 'Tab', ShiftLeft: 'Shift', ShiftRight: 'Shift (right)',
+    ControlLeft: 'Ctrl', ControlRight: 'Ctrl (right)', AltLeft: 'Alt', AltRight: 'Alt (right)',
+    Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Backslash: '\\',
+    Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Backquote: '`',
+    CapsLock: 'Caps Lock', ContextMenu: 'Menu key',
+  };
+  /** keyLabel(code) -> what to print on a remapping screen for that physical key. */
+  function keyLabel(code) {
+    const c = String(code || '');
+    if (!c) return '—';
+    if (KEY_NAMES[c]) return KEY_NAMES[c];
+    if (/^Key[A-Z]$/.test(c)) return c.slice(3);
+    if (/^Digit\d$/.test(c)) return c.slice(5);
+    if (/^Numpad(\d|Add|Subtract|Multiply|Divide|Decimal)$/.test(c)) return 'Num ' + c.slice(6);
+    if (/^F\d{1,2}$/.test(c)) return c;
+    // CamelCase into words, so an unknown code still reads as something.
+    return c.replace(/([a-z])([A-Z])/g, '$1 $2');
+  }
+  /**
+   * A code this screen will not capture, because it is how a person gets out of
+   * the screen. Stated here rather than buried in the scene, so the one key a
+   * player cannot rebind is a decision somebody can find.
+   */
+  const NOT_CAPTURABLE = ['Escape'];
+  function capturable(code) { return !!code && NOT_CAPTURABLE.indexOf(code) < 0; }
+
   const TAP_MS = 90;                    // a direction held for less than this only turns
   const SWIPE_PX = 22;                  // finger travel that counts as a swipe
   const SWIPE_HOLD_MS = 160;            // how long a swipe keeps the direction held
@@ -317,8 +362,8 @@
 
   // ---- public API --------------------------------------------------------------
   const INPUT = KIT.input = {
-    KEYS, TAP_MS,
-    keymap, keymaps, bind, setKeymap, resetKeymap,
+    KEYS, TAP_MS, NOT_CAPTURABLE,
+    keymap, keymaps, bind, setKeymap, resetKeymap, boundTo, isDefaultKeymap, keyLabel, capturable,
 
     /** attach(target) — keyboard on the window, swipe/tap on `target` (the canvas). */
     attach(target) {

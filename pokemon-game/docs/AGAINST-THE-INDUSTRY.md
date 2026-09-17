@@ -156,14 +156,6 @@ The OMORI/Fear & Hunger convergent hack. Worth checking that a battler here can
 swap visual state and hold sub-parts without duplicating rows — the modules
 layer suggests yes, but it has not been proven the way the bullet-hell was.
 
-### Control remapping
-The keymap is data and `KIT.input.bind()` exists; what is missing is the
-key-capture screen a player would use. The Game Accessibility Guidelines' Basic
-tier opens with "allow controls to be remapped", and Steam Deck's compatibility
-review requires the default configuration to reach all content without changing
-settings. Z/X/Enter/Space is not remappable for somebody who cannot reach those
-keys.
-
 ### The engine has never had a game built in it
 Every scale number here is synthetic — generated projects, not authored ones.
 That is the honest caveat on the whole document, and the only thing that fixes
@@ -254,6 +246,16 @@ doing it this way.
     history announced themselves to nobody, and nothing said so, because emitting
     into an empty bus is legal and returns 0. A test now fails if that spelling
     comes back.
+18. **Control remapping has a screen.** The keymap was data and
+    `KIT.input.bind()` worked and `settings.keys` was saved and restored at
+    boot — for weeks, with no way for a player to reach any of it, carried in
+    `reachable.test.js` as a written admission. Settings → Controls now lists
+    every button, captures a raw keypress, says what it took a key away from
+    rather than stealing it silently, and puts everything back. The Game
+    Accessibility Guidelines' Basic tier opens with "allow controls to be
+    remapped" and Steam Deck's compatibility review requires the default
+    configuration to reach all content without changing settings; Z/X/Enter/Space
+    was not remappable for somebody who cannot reach those keys.
 17. **"You have been here before" had no way to be said.** `KIT.history.promote`
     is the one function that carries a fact across New Game — the whole of the
     engine's memory of the *player* rather than of the run. It was called by

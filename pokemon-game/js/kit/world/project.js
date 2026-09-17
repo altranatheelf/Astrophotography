@@ -192,6 +192,15 @@
     { id: 'went-back', default: 'You are back at {label}. Nothing was lost.' },
     { id: 'this-moment', default: 'this moment' },
     { id: 'day-time', default: 'day {day}, {time}' },
+    { id: 'controls', default: 'Controls' }, { id: 'keys-default', default: 'default' },
+    { id: 'keys-custom', default: 'changed' }, { id: 'press-a-key', default: 'press a key…' },
+    { id: 'keys-reset', default: 'Put the keys back' }, { id: 'keys-none', default: 'nothing' },
+    { id: 'keys-taken', default: '{key} was {button}; it is {now} now.' },
+    { id: 'player-n', default: 'Player {n}' },
+    { id: 'btn-up', default: 'Up' }, { id: 'btn-down', default: 'Down' },
+    { id: 'btn-left', default: 'Left' }, { id: 'btn-right', default: 'Right' },
+    { id: 'btn-a', default: 'Talk / choose' }, { id: 'btn-b', default: 'Back / run' },
+    { id: 'btn-menu', default: 'Menu' },
   ]);
 
   // ---- basic object types (§5) ----------------------------------------------

@@ -8,6 +8,9 @@
   const UI = KIT.ui;
   const scenes = KIT.registry('scenes');
   const menus = KIT.registry('menus');
+  // The one part of the Controls screen that is not DOM, so a test can check the
+  // rows without a browser.
+  const ED_KEYS = KIT.keysScreen = KIT.keysScreen || {};
 
   const TEXT_SPEEDS = ['slow', 'normal', 'fast', 'instant'];
   const ZOOMS = ['auto', 'small', 'normal', 'large'];
@@ -115,6 +118,12 @@
           { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
           ...(s.music ? [{ label: t('music-volume'), value: pct(s.musicVolume, 0.5), action: 'cycle:musicVolume' }] : []),
           { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
+          // The Game Accessibility Guidelines' Basic tier opens with "allow
+          // controls to be remapped", and this engine had the whole API — bind,
+          // setKeymap, resetKeymap, keymaps, saved in settings.keys — with no
+          // screen, for weeks. `test/kit/reachable.test.js` carried it as a
+          // written admission in NOT_IN_MENU. This row is that admission paid.
+          { label: t('controls'), value: t(s.keys ? 'keys-custom' : 'keys-default'), action: 'keys' },
           { label: t('back'), action: 'back' },
         ]);
       }
@@ -167,6 +176,11 @@
           await KIT.toast(KIT.strings.get(game.project, ok ? 'saved' : 'save-failed'));
           if (ok) KIT.audio.play('save');
           mode = 'pause'; index = 0; build(this);
+          return;
+        }
+        if (action === 'keys') {
+          await KIT.scenes.run('keys', { game });
+          build(this);                                 // the row's value may have changed
           return;
         }
         if (action.startsWith('moment:')) {
@@ -325,6 +339,164 @@
         return null;
       } },
   ]);
+
+  // ---- the keys ----------------------------------------------------------------------
+  // Remapping was a complete API with no screen: bind, setKeymap, resetKeymap,
+  // keymaps, and `settings.keys` saved and restored at boot. Every piece worked
+  // and no player could reach any of it, which is the defect this repo keeps
+  // shipping (ADR-0010). This is the screen.
+  //
+  // It reads RAW keydown rather than the mapped buttons, because the whole point
+  // is to catch a key that does not mean anything yet. That listener is only
+  // alive while a row is waiting for a key.
+
+  /** The rows this screen shows: pure, so a test can check it without a browser. */
+  ED_KEYS.rows = function (project, players) {
+    const t = (id, vars) => KIT.strings.get(project, id, vars);
+    const out = [];
+    const n = Math.max(1, Math.min(2, players || 1));
+    for (let p = 0; p < n; p++) {
+      if (n > 1) out.push({ label: t('player-n', { n: p + 1 }), heading: true });
+      for (const button of KIT.input.KEYS) {
+        const codes = KIT.input.boundTo(p, button);
+        out.push({
+          label: (n > 1 ? '· ' : '') + t('btn-' + button),
+          value: codes.length ? codes.map(KIT.input.keyLabel).join(' / ') : t('keys-none'),
+          action: `bind:${p}:${button}`,
+          player: p, button,
+        });
+      }
+    }
+    out.push({ label: t('keys-reset'), action: 'keys-reset', disabled: KIT.input.isDefaultKeymap() });
+    out.push({ label: t('back'), action: 'back' });
+    return out;
+  };
+
+  scenes.add({
+    id: 'keys', name: 'Controls',
+    create() {
+      let rows = [], index = 0, ui = null, game = null, waiting = null, off = null, note = '';
+
+      const t = (id, vars) => KIT.strings.get(game && game.project, id, vars);
+      function players() {
+        const w = game && game.world;
+        return w && w.coop ? 2 : 1;
+      }
+
+      function build(self) {
+        rows = ED_KEYS.rows(game && game.project, players()).map((r) => (
+          waiting && r.action === waiting.action
+            ? Object.assign({}, r, { value: t('press-a-key') })
+            : r));
+        ui = panel(t('controls'), rows, {
+          hint: note || (KIT.input.isTouch()
+            ? 'Tap a line, then press a key · X closes'
+            : 'Arrows · Z chooses, then press the key you want · Esc cancels'),
+        });
+        index = Math.min(index, Math.max(0, rows.length - 1));
+        if (rows[index] && (rows[index].disabled || rows[index].heading)) index = step(index, 1);
+        UI.select(ui.list, index);
+        if (self._off) self._off();
+        self._off = UI.onAction(ui.host, (action, el) => {
+          index = Number(el.getAttribute('data-index')) || 0;
+          choose.call(self);
+        });
+      }
+      function step(from, dir) {
+        for (let i = 1; i <= rows.length; i++) {
+          const at = (from + dir * i + rows.length * i) % rows.length;
+          if (rows[at] && !rows[at].disabled && !rows[at].heading) return at;
+        }
+        return from;
+      }
+
+      function stopWaiting() {
+        waiting = null;
+        if (off) { off(); off = null; }
+      }
+
+      /**
+       * A key arrived while a row was waiting. Binding moves the key rather than
+       * doubling it up — a code can only mean one thing per player — so the
+       * screen says what it took the key away from, because a silent steal is
+       * how a player ends up unable to open the menu with no idea why.
+       */
+      function take(code) {
+        const w = waiting;
+        if (!w) return;
+        const was = KIT.input.keymap(w.player)[code];
+        KIT.input.bind(w.player, code, w.button);
+        save({ keys: KIT.input.keymaps() });
+        note = was && was !== w.button
+          ? t('keys-taken', { key: KIT.input.keyLabel(code), button: t('btn-' + was), now: t('btn-' + w.button) })
+          : '';
+        stopWaiting();
+        KIT.audio.play('save');
+      }
+
+      function choose() {
+        const row = rows[index];
+        if (!row || row.disabled || row.heading) return;
+        if (row.action === 'back') { this.finish('close'); return; }
+        if (row.action === 'keys-reset') {
+          KIT.input.resetKeymap();
+          save({ keys: null });
+          note = '';
+          KIT.audio.play('back');
+          build(this);
+          return;
+        }
+        if (!row.action.startsWith('bind:')) return;
+        note = '';
+        waiting = { action: row.action, player: row.player, button: row.button };
+        KIT.audio.play('blip');
+        build(this);
+        // Raw, and only while waiting. `capture` so it runs before anything
+        // else can treat the key as a button and act on it.
+        const self = this;
+        const onKey = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (!KIT.input.capturable(ev.code)) { stopWaiting(); note = ''; build(self); return; }
+          take(ev.code);
+          build(self);
+        };
+        if (typeof window !== 'undefined') {
+          window.addEventListener('keydown', onKey, true);
+          off = () => window.removeEventListener('keydown', onKey, true);
+        }
+      }
+
+      return {
+        id: 'keys', transparent: true, pausesWorld: true,
+        enter(params) {
+          game = (params && params.game) || KIT.game;
+          index = 0; note = ''; waiting = null;
+          build(this);
+        },
+        exit() {
+          stopWaiting();
+          const host = UI.el('pause-menu');
+          if (host) { host.hidden = true; UI.clear(host); }
+          if (this._off) this._off();
+          this._off = null;
+        },
+        suspend() { stopWaiting(); if (this._off) { this._off(); this._off = null; } },
+        resume() { const host = UI.el('pause-menu'); if (host) host.hidden = false; build(this); },
+        input(ev) {
+          // While a row is waiting, the raw listener owns the keyboard: the
+          // mapped buttons must not also fire, or pressing the key you are
+          // binding would choose the next row with it.
+          if (waiting) return true;
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'a') { choose.call(this); return true; }
+          if (ev.key === 'b' || ev.key === 'menu') { KIT.audio.play('back'); this.finish('close'); return true; }
+          return true;
+        },
+      };
+    },
+  });
 
   // ---- debug panel -------------------------------------------------------------------
   scenes.add({

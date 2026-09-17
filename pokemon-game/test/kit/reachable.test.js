@@ -33,7 +33,6 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
  */
 const NOT_IN_MENU = {
   coop: 'has its own pause-menu row (menus registry: "Two players"), not a settings row',
-  keys: 'remapping needs a key-capture screen; the API is there and the screen is not — see docs',
 };
 
 test('every player setting is reachable from the settings menu', () => {
