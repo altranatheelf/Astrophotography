@@ -225,3 +225,46 @@ test('lang: a language survives normalize, and junk in it does not', () => {
   assert.ok(!('worse' in p.languages.ja.lines));
   assert.deepEqual(p.languages.junk, { name: 'junk', lines: {} }, 'and a junk entry becomes an empty one rather than exploding');
 });
+
+test('lang: a browser asking for a language it has gets it, on the primary subtag', () => {
+  const p = game();
+  L.put(p, 'ja', { name: '日本語', lines: {} });
+  L.put(p, 'pt', { name: 'Português', lines: {} });
+  L.bind(p, 'en');
+  assert.equal(L.guess(['ja-JP', 'en-US']), 'ja', 'ja-JP finds ja');
+  assert.equal(L.guess(['pt-BR']), 'pt', 'and pt-BR finds pt');
+  assert.equal(L.guess(['en-GB']), 'en', 'en-GB finds the source');
+  assert.equal(L.guess(['kl', 'cy']), 'en', 'and a language it does not have falls back to the one it was written in');
+  assert.equal(L.guess([]), 'en', 'as does a browser that says nothing');
+  assert.equal(L.guess(['JA']), 'ja', 'case does not matter');
+});
+
+test('lang: laying out already-substituted text does not translate it a second time', () => {
+  const p = game();
+  // 'Yes.' translated to 'Non.' — and 'Non.' is itself a source line elsewhere.
+  L.put(p, 'fr', { name: 'Français', lines: { 'Yes.': 'Non.', 'Non.': 'WRONG LINE' } });
+  L.bind(p, 'fr');
+  try {
+    const once = T.substitute('Yes.', {});
+    assert.equal(once, 'Non.', 'the command translates it once');
+    const pages = T.layout(once, { width: 40 });
+    assert.equal(pages[0].pages[0][0][0].text, 'Non.', 'and the scene lays it out without translating again');
+    assert.deepEqual(L.missing(), [], 'so missing() is not poisoned by lines that were translated');
+    // the old path, for contrast — this is what the bug looked like
+    assert.equal(T.substitute(once, {}), 'WRONG LINE', 'substituting twice really does swap the line');
+  } finally { L.bind(p, 'en'); }
+});
+
+test('lang: the engine\'s own menu words are in the Terms table, not in the code', () => {
+  const p = game();
+  for (const id of ['language', 'text-speed', 'zoom', 'sound', 'music', 'motion', 'back',
+                    'keep-playing', 'two-players', 'creator-mode', 'autosave', 'slot', 'empty-slot',
+                    'on', 'off', 'speed-normal', 'motion-reduced']) {
+    assert.ok(KIT.registry('strings').has(id), `Terms has '${id}'`);
+  }
+  assert.equal(KIT.strings.get(p, 'slot', { n: 2 }), 'Slot 2', 'and a slot label takes its number');
+  // which means they are extracted, and therefore translatable
+  const texts = L.extract(p).map(f => f.text);
+  assert.ok(texts.includes('Text speed'), 'the pause menu is in the translation file');
+  assert.ok(texts.includes('Keep playing'));
+});

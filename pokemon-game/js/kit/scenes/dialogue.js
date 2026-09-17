@@ -261,14 +261,25 @@
           voice = voiceFor(p.voice);
           sinceBlip = 0;
           if (p.voice) dress(ui.name, voice);      // so the name looks like the person saying it
-          const rendered = KIT.text.render(p.text == null ? '' : p.text, p.ctx || {}, layoutFor(ui.text));
+          // The say command already substituted (and therefore translated) this
+          // text — doing it again can swap a translated line for a different
+          // one entirely. A `ctx` on the payload is the explicit opt-in for raw
+          // text that still needs templating.
+          const body = p.text == null ? '' : p.text;
+          const lay = layoutFor(ui.text);
+          const rendered = p.ctx ? KIT.text.render(body, p.ctx, lay) : KIT.text.layout(body, lay);
           pages = rendered[0].pages;
           pageIndex = 0;
           buildPage(pages[0] || []);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
           ui.host.addEventListener('click', this._tap);
+          // Get the music out from under the voice. Counted, so a run of lines
+          // ducks once and comes back up once at the end rather than pumping
+          // between every box.
+          if (KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
         },
         exit() {
+          if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
           if (ui) {
             ui.host.hidden = true;
             if (this._tap) ui.host.removeEventListener('click', this._tap);

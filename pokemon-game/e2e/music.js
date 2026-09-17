@@ -125,7 +125,31 @@ async function run(browser) {
   check(script.cmds[2].name === 'the far rain', 'a name with spaces survives the quotes');
   check(script.back === '@layer rain on ms=1200\n@layer danger off\n@layer "the far rain" on', 'and it writes back exactly as typed');
 
-  beat(7, 'nothing broke');
+  beat(7, 'the music gets out of the way of a voice');
+  const ducked = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await KIT.audio.music('e2e-storm');
+    await wait(150);
+    const idle = KIT.audio.duckedBy();
+    KIT.scenes.push('dialogue', { text: 'Someone is talking.' });
+    await wait(300);
+    const one = KIT.audio.duckedBy();
+    KIT.scenes.push('dialogue', { text: 'And someone else.' });
+    await wait(200);
+    const two = KIT.audio.duckedBy();
+    KIT.scenes.pop(); await wait(200);
+    const stillOne = KIT.audio.duckedBy();
+    KIT.scenes.pop(); await wait(600);
+    return { idle, one, two, stillOne, back: KIT.audio.duckedBy(), playing: KIT.audio.current() };
+  });
+  check(ducked.idle === 0, 'nothing ducking to begin with');
+  check(ducked.one === 1, 'a line of dialogue pulls the music down');
+  check(ducked.two === 2, 'a second line over the top does not double-duck the level');
+  check(ducked.stillOne === 1, 'closing one leaves the other one holding it down');
+  check(ducked.back === 0, 'and the last one lets it back up');
+  check(ducked.playing === 'e2e-storm', 'all without touching the track');
+
+  beat(8, 'nothing broke');
   await page.evaluate(() => KIT.audio.stop('all'));
   check(errors.length === 0, `no console errors or page errors${errors.length ? ': ' + errors[0] : ''}`);
   for (const e of errors) log('     ! ' + e);

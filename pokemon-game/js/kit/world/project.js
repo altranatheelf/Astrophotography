@@ -147,6 +147,20 @@
     { id: 'yes', default: 'Yes' }, { id: 'no', default: 'No' }, { id: 'cancel', default: 'Cancel' }, { id: 'ok', default: 'OK' },
     { id: 'name-prompt', default: 'What is your name?' }, { id: 'bag', default: 'Bag' }, { id: 'save', default: 'Save' }, { id: 'quit', default: 'Quit to title' },
     { id: 'empty-bag', default: 'Your bag is empty.' }, { id: 'the-end', default: 'The End' },
+    // The engine's own words. These were English literals sitting in menu.js,
+    // which meant a fully translated game still had an English pause menu —
+    // extraction is Terms-driven, so a literal is a line nobody can ever reach.
+    { id: 'language', default: 'Language' }, { id: 'text-speed', default: 'Text speed' },
+    { id: 'zoom', default: 'Zoom' }, { id: 'sound', default: 'Sound' }, { id: 'music', default: 'Music' },
+    { id: 'motion', default: 'Motion' }, { id: 'back', default: 'Back' },
+    { id: 'keep-playing', default: 'Keep playing' }, { id: 'two-players', default: 'Two players' },
+    { id: 'creator-mode', default: 'Creator Mode' }, { id: 'autosave', default: 'Autosave' },
+    { id: 'slot', default: 'Slot {n}' }, { id: 'empty-slot', default: 'empty' },
+    { id: 'on', default: 'on' }, { id: 'off', default: 'off' },
+    { id: 'speed-slow', default: 'slow' }, { id: 'speed-normal', default: 'normal' },
+    { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
+    { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
+    { id: 'save-failed', default: 'Could not save.' },
   ]);
 
   // ---- basic object types (§5) ----------------------------------------------

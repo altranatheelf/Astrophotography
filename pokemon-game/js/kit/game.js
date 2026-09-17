@@ -389,7 +389,18 @@
     const s = settings();
     // Which language to play in is a property of this device, not of a save
     // file: you do not change language by loading a different slot.
-    if (KIT.lang) KIT.lang.bind(G.project, s.language);
+    if (KIT.lang) {
+      KIT.lang.bind(G.project, s.language);
+      // Never chosen: take the browser's word for it, once, and remember the
+      // answer so it is a choice from then on rather than a guess every boot.
+      if (s.language == null) {
+        const nav = root.navigator;
+        const want = (nav && (nav.languages || (nav.language ? [nav.language] : []))) || [];
+        const pick = KIT.lang.guess(want);
+        KIT.lang.use(pick);
+        KIT.storage.saveSettings({ language: pick });
+      }
+    }
     KIT.audio.setEnabled(s.sound !== false);
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);

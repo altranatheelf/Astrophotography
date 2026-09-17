@@ -19,6 +19,9 @@
   const DEFAULT_SETTINGS = {
     textSpeed: 'normal', zoom: 'auto', sound: true, music: true,
     soundVolume: 0.9, musicVolume: 0.5, coop: false, reduceMotion: false,
+    // null = never chosen, so the first boot may guess from the browser.
+    // A chosen language is a device preference and outlives every save.
+    language: null,
   };
   const DEFAULT_META = { runs: 0, firstPlayed: null, endingsSeen: [], namesUsed: [] };
   const SLOTS = ['autosave', '1', '2', '3'];

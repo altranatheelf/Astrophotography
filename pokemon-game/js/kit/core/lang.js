@@ -86,6 +86,26 @@
     return current;
   };
 
+  /**
+   * guess(prefer) -> the best language this project has for somebody whose
+   * browser asks for `prefer` (navigator.languages). Matched on the primary
+   * subtag, so a pt-BR browser finds a `pt` translation and an en-GB one finds
+   * `en`. Falls back to the language the game was written in, which is always
+   * a language the game definitely has.
+   */
+  L.guess = function (prefer) {
+    const have = L.known();
+    const want = Array.isArray(prefer) ? prefer : (prefer ? [prefer] : []);
+    const base = (c) => String(c || '').toLowerCase().split(/[-_]/)[0];
+    for (const w of want) {
+      const exact = have.find((h) => h.toLowerCase() === String(w).toLowerCase());
+      if (exact) return exact;
+      const near = have.find((h) => base(h) === base(w));
+      if (near) return near;
+    }
+    return L.source();
+  };
+
   L.current = () => current;
   /** translating() — false when the game is being played in the language it was written in. */
   L.translating = () => table !== null;

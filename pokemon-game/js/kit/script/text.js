@@ -313,6 +313,26 @@
     return list.map(s => ({ pages: T.paginate(T.wrap(T.tokenize(T.substitute(s, ctx)), layout), layout.lines) }));
   };
 
+  /**
+   * layout(str | str[], layoutOpts) -> the same shape as render(), for text
+   * that has ALREADY been substituted.
+   *
+   * This exists because substituting twice translates twice, and translating
+   * twice is not harmless: if a line's translation happens to match another
+   * source line, the second pass replaces it again and the player is shown a
+   * sentence from somewhere else entirely. It also poisons `KIT.lang.missing()`,
+   * which is supposed to be the list of lines still needing a translator —
+   * every already-translated line comes back through and is counted as a miss.
+   *
+   * Commands substitute before they hand text to a scene (that is the `io.say`
+   * contract), so scenes lay out rather than render.
+   */
+  T.layout = function (str, layout) {
+    layout = layout || {};
+    const list = Array.isArray(str) ? str : [str];
+    return list.map(s => ({ pages: T.paginate(T.wrap(T.tokenize(s), layout), layout.lines) }));
+  };
+
   // ---- KIT.strings: the Terms table ----------------------------------------
   // Kit and modules register { id, default, doc } in the 'strings' registry;
   // project.strings overrides per key. get() substitutes {name} from vars.

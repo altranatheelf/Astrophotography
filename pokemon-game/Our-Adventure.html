@@ -2745,7 +2745,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   let ctx = null;             // AudioContext (null until init() succeeds)
   let gestured = false;       // has the page been touched? No context before it has.
-  let master = null, sfxBus = null, musicBus = null;
+  let master = null, sfxBus = null, musicBus = null, duckBus = null;
+  let ducks = 0;             // how many things currently want the music quieter
   let enabled = true, musicOn = true;
   let volumes = { master: 0.8, sound: 0.9, music: 0.5 };
   let current = null;         // { id, def, stopAt } the playing track
@@ -2787,7 +2788,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = volumes.master; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = volumes.sound; sfxBus.connect(master);
-      musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(master);
+      // Music runs through its own duck stage on the way to the master, so
+      // getting out of the way of a voice never touches the volume the player
+      // set — turn the music back up after a conversation and you get THEIR
+      // level back, not whatever the duck happened to leave behind.
+      duckBus = ctx.createGain(); duckBus.gain.value = 1; duckBus.connect(master);
+      musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(duckBus);
     } catch (e) {
       ctx = null;
     }
@@ -3091,6 +3097,41 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     fileNodes = fileNodes.filter(el => !el.paused);
   }
 
+  /**
+   * duck(amount, ms) / unduck(ms) — pull the music down under something that
+   * matters, and let it back up after.
+   *
+   * Counted rather than set, because the things that duck overlap: a line of
+   * dialogue starts while a jingle is still playing, and whichever finishes
+   * first must not undo the other one's duck. Nothing in this engine ducked
+   * before, which means every line of dialogue in a story game was competing
+   * with the music at full volume — the most-noticed audio problem there is,
+   * and about fifteen lines to fix.
+   */
+  let duckTo = 0.35;
+  function rampDuck(to, ms) {
+    if (!duckBus || !ctx) return;
+    try {
+      const t = ctx.currentTime;
+      duckBus.gain.cancelScheduledValues(t);
+      duckBus.gain.setValueAtTime(duckBus.gain.value, t);
+      duckBus.gain.linearRampToValueAtTime(Math.max(0, Math.min(1, to)), t + Math.max(0.01, (ms == null ? 180 : ms) / 1000));
+    } catch (e) { /* ignore */ }
+  }
+  function duck(amount, ms) {
+    ducks++;
+    if (amount != null) duckTo = Math.max(0, Math.min(1, amount));
+    rampDuck(duckTo, ms);
+    return Promise.resolve();
+  }
+  function unduck(ms) {
+    ducks = Math.max(0, ducks - 1);
+    if (ducks === 0) rampDuck(1, ms == null ? 400 : ms);   // back up slower than it went down
+    return Promise.resolve();
+  }
+  /** duckedBy() -> how many things are holding the music down. For tests and a debug panel. */
+  function duckedBy() { return ducks; }
+
   /** stop('sound'|'music'|'all') */
   function stop(what) {
     const w = what || 'all';
@@ -3125,6 +3166,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     freq, init, unlock,
     play, playAt, music, stop, jingle,
     layer, layers, layersOf, layerGain,
+    duck, unduck, duckedBy,
     /** save()/replay() — the saveMusic/replayMusic commands. */
     save() { saved = current ? current.id : null; return Promise.resolve(); },
     replay() { return music(saved); },
@@ -3293,6 +3335,26 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     misses.clear();
     if (KIT.events) KIT.events('kit').emit('languageChanged', { language: current });
     return current;
+  };
+
+  /**
+   * guess(prefer) -> the best language this project has for somebody whose
+   * browser asks for `prefer` (navigator.languages). Matched on the primary
+   * subtag, so a pt-BR browser finds a `pt` translation and an en-GB one finds
+   * `en`. Falls back to the language the game was written in, which is always
+   * a language the game definitely has.
+   */
+  L.guess = function (prefer) {
+    const have = L.known();
+    const want = Array.isArray(prefer) ? prefer : (prefer ? [prefer] : []);
+    const base = (c) => String(c || '').toLowerCase().split(/[-_]/)[0];
+    for (const w of want) {
+      const exact = have.find((h) => h.toLowerCase() === String(w).toLowerCase());
+      if (exact) return exact;
+      const near = have.find((h) => base(h) === base(w));
+      if (near) return near;
+    }
+    return L.source();
   };
 
   L.current = () => current;
@@ -3560,6 +3622,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const DEFAULT_SETTINGS = {
     textSpeed: 'normal', zoom: 'auto', sound: true, music: true,
     soundVolume: 0.9, musicVolume: 0.5, coop: false, reduceMotion: false,
+    // null = never chosen, so the first boot may guess from the browser.
+    // A chosen language is a device preference and outlives every save.
+    language: null,
   };
   const DEFAULT_META = { runs: 0, firstPlayed: null, endingsSeen: [], namesUsed: [] };
   const SLOTS = ['autosave', '1', '2', '3'];
@@ -4425,6 +4490,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'yes', default: 'Yes' }, { id: 'no', default: 'No' }, { id: 'cancel', default: 'Cancel' }, { id: 'ok', default: 'OK' },
     { id: 'name-prompt', default: 'What is your name?' }, { id: 'bag', default: 'Bag' }, { id: 'save', default: 'Save' }, { id: 'quit', default: 'Quit to title' },
     { id: 'empty-bag', default: 'Your bag is empty.' }, { id: 'the-end', default: 'The End' },
+    // The engine's own words. These were English literals sitting in menu.js,
+    // which meant a fully translated game still had an English pause menu —
+    // extraction is Terms-driven, so a literal is a line nobody can ever reach.
+    { id: 'language', default: 'Language' }, { id: 'text-speed', default: 'Text speed' },
+    { id: 'zoom', default: 'Zoom' }, { id: 'sound', default: 'Sound' }, { id: 'music', default: 'Music' },
+    { id: 'motion', default: 'Motion' }, { id: 'back', default: 'Back' },
+    { id: 'keep-playing', default: 'Keep playing' }, { id: 'two-players', default: 'Two players' },
+    { id: 'creator-mode', default: 'Creator Mode' }, { id: 'autosave', default: 'Autosave' },
+    { id: 'slot', default: 'Slot {n}' }, { id: 'empty-slot', default: 'empty' },
+    { id: 'on', default: 'on' }, { id: 'off', default: 'off' },
+    { id: 'speed-slow', default: 'slow' }, { id: 'speed-normal', default: 'normal' },
+    { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
+    { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
+    { id: 'save-failed', default: 'Could not save.' },
   ]);
 
   // ---- basic object types (§5) ----------------------------------------------
@@ -6355,6 +6434,26 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     layout = layout || {};
     const list = Array.isArray(str) ? str : [str];
     return list.map(s => ({ pages: T.paginate(T.wrap(T.tokenize(T.substitute(s, ctx)), layout), layout.lines) }));
+  };
+
+  /**
+   * layout(str | str[], layoutOpts) -> the same shape as render(), for text
+   * that has ALREADY been substituted.
+   *
+   * This exists because substituting twice translates twice, and translating
+   * twice is not harmless: if a line's translation happens to match another
+   * source line, the second pass replaces it again and the player is shown a
+   * sentence from somewhere else entirely. It also poisons `KIT.lang.missing()`,
+   * which is supposed to be the list of lines still needing a translator —
+   * every already-translated line comes back through and is counted as a miss.
+   *
+   * Commands substitute before they hand text to a scene (that is the `io.say`
+   * contract), so scenes lay out rather than render.
+   */
+  T.layout = function (str, layout) {
+    layout = layout || {};
+    const list = Array.isArray(str) ? str : [str];
+    return list.map(s => ({ pages: T.paginate(T.wrap(T.tokenize(s), layout), layout.lines) }));
   };
 
   // ---- KIT.strings: the Terms table ----------------------------------------
@@ -15938,14 +16037,25 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           voice = voiceFor(p.voice);
           sinceBlip = 0;
           if (p.voice) dress(ui.name, voice);      // so the name looks like the person saying it
-          const rendered = KIT.text.render(p.text == null ? '' : p.text, p.ctx || {}, layoutFor(ui.text));
+          // The say command already substituted (and therefore translated) this
+          // text — doing it again can swap a translated line for a different
+          // one entirely. A `ctx` on the payload is the explicit opt-in for raw
+          // text that still needs templating.
+          const body = p.text == null ? '' : p.text;
+          const lay = layoutFor(ui.text);
+          const rendered = p.ctx ? KIT.text.render(body, p.ctx, lay) : KIT.text.layout(body, lay);
           pages = rendered[0].pages;
           pageIndex = 0;
           buildPage(pages[0] || []);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
           ui.host.addEventListener('click', this._tap);
+          // Get the music out from under the voice. Counted, so a run of lines
+          // ducks once and comes back up once at the end rather than pumping
+          // between every box.
+          if (KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
         },
         exit() {
+          if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
           if (ui) {
             ui.host.hidden = true;
             if (this._tap) ui.host.removeEventListener('click', this._tap);
@@ -16288,7 +16398,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
 
       function pauseRows() {
-        const out = [{ label: 'Keep playing', action: 'close' }];
+        const out = [{ label: t('keep-playing'), action: 'close' }];
         for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
           if (typeof def.when === 'function' && !def.when(game)) continue;
           out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
@@ -16296,16 +16406,25 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         return out;
       }
 
+      /** The engine's own words, through the Terms table so they translate. */
+      const t = (id, vars) => KIT.strings.get(game && game.project, id, vars);
+
       function settingRows() {
         const s = settings();
-        return [
-          { label: 'Text speed', value: s.textSpeed, action: 'cycle:textSpeed' },
-          { label: 'Zoom', value: s.zoom, action: 'cycle:zoom' },
-          { label: 'Sound', value: s.sound ? 'on' : 'off', action: 'toggle:sound' },
-          { label: 'Music', value: s.music ? 'on' : 'off', action: 'toggle:music' },
-          { label: 'Motion', value: s.reduceMotion ? 'reduced' : 'normal', action: 'toggle:reduceMotion' },
-          { label: 'Back', action: 'back' },
-        ];
+        // Shown only when there is a choice to make. A game in one language
+        // should not have a row that does nothing.
+        const langs = KIT.lang ? KIT.lang.known() : [];
+        const language = langs.length > 1
+          ? [{ label: t('language'), value: KIT.lang.nameOf(KIT.lang.current()), action: 'cycle:language' }]
+          : [];
+        return language.concat([
+          { label: t('text-speed'), value: t('speed-' + s.textSpeed), action: 'cycle:textSpeed' },
+          { label: t('zoom'), value: s.zoom, action: 'cycle:zoom' },
+          { label: t('sound'), value: t(s.sound ? 'on' : 'off'), action: 'toggle:sound' },
+          { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
+          { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
+          { label: t('back'), action: 'back' },
+        ]);
       }
 
       function nudge(action, dir) {
@@ -16317,6 +16436,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const i = (ZOOMS.indexOf(s.zoom) + (dir || 1) + ZOOMS.length) % ZOOMS.length;
           save({ zoom: ZOOMS[i] });
           if (KIT.game && KIT.game.resize) KIT.game.resize();
+        } else if (action === 'cycle:language') {
+          const langs = KIT.lang.known();
+          const i = (langs.indexOf(KIT.lang.current()) + (dir || 1) + langs.length) % langs.length;
+          KIT.lang.use(langs[i]);
+          save({ language: langs[i] });
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
@@ -16358,8 +16482,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       async function saveRows(g) {
         const list = await KIT.storage.listGames();
         const rows = list.map(s => ({
-          label: s.slot === 'autosave' ? 'Autosave' : 'Slot ' + s.slot,
-          value: s.exists ? when(s.savedAt) : 'empty',
+          label: s.slot === 'autosave' ? t('autosave') : t('slot', { n: s.slot }),
+          value: s.exists ? when(s.savedAt) : t('empty-slot'),
           note: s.exists && s.map ? s.map : '',
           action: 'slot:' + s.slot,
           disabled: s.slot === 'autosave',
@@ -16371,7 +16495,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         // this game, they deserve to know before they rely on it.
         const d = KIT.storage.durability ? KIT.storage.durability() : null;
         if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
-        return rows.concat([{ label: 'Back', action: 'back' }]);
+        return rows.concat([{ label: t('back'), action: 'back' }]);
       }
       function when(iso) {
         if (!iso) return '';
@@ -16423,14 +16547,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // ---- the standard pause-menu entries -------------------------------------------
   menus.addAll([
     { id: 'save', label: 'Save', order: 20, open() { return null; } },
-    { id: 'coop', label: 'Two players', order: 30,
+    { id: 'coop', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'two-players'), order: 30,
       value: (game) => (game && game.world && game.world.coop ? 'on' : 'off'),
       open(game) { game.setCoop(!(game.world && game.world.coop)); return null; } },
     { id: 'settings', label: 'Settings', order: 40, open() { return null; } },
     { id: 'debug', label: 'Debug', order: 55,
       when: (game) => !!(game && game.flags && game.flags.debug),
       async open(game) { await KIT.scenes.run('debug', { game }); return null; } },
-    { id: 'creator', label: 'Creator Mode', order: 60,
+    { id: 'creator', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'creator-mode'), order: 60,
       async open(game) {
         if (game && game.openEditor && game.openEditor()) return 'close';
         await KIT.toast('Creator Mode is not in this build yet.');
@@ -17079,7 +17203,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const s = settings();
     // Which language to play in is a property of this device, not of a save
     // file: you do not change language by loading a different slot.
-    if (KIT.lang) KIT.lang.bind(G.project, s.language);
+    if (KIT.lang) {
+      KIT.lang.bind(G.project, s.language);
+      // Never chosen: take the browser's word for it, once, and remember the
+      // answer so it is a choice from then on rather than a guess every boot.
+      if (s.language == null) {
+        const nav = root.navigator;
+        const want = (nav && (nav.languages || (nav.language ? [nav.language] : []))) || [];
+        const pick = KIT.lang.guess(want);
+        KIT.lang.use(pick);
+        KIT.storage.saveSettings({ language: pick });
+      }
+    }
     KIT.audio.setEnabled(s.sound !== false);
     KIT.audio.setMusic(s.music !== false);
     KIT.audio.setVolume('sound', s.soundVolume == null ? 0.9 : s.soundVolume);

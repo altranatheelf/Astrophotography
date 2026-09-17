@@ -67,7 +67,7 @@
       }
 
       function pauseRows() {
-        const out = [{ label: 'Keep playing', action: 'close' }];
+        const out = [{ label: t('keep-playing'), action: 'close' }];
         for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
           if (typeof def.when === 'function' && !def.when(game)) continue;
           out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
@@ -75,16 +75,25 @@
         return out;
       }
 
+      /** The engine's own words, through the Terms table so they translate. */
+      const t = (id, vars) => KIT.strings.get(game && game.project, id, vars);
+
       function settingRows() {
         const s = settings();
-        return [
-          { label: 'Text speed', value: s.textSpeed, action: 'cycle:textSpeed' },
-          { label: 'Zoom', value: s.zoom, action: 'cycle:zoom' },
-          { label: 'Sound', value: s.sound ? 'on' : 'off', action: 'toggle:sound' },
-          { label: 'Music', value: s.music ? 'on' : 'off', action: 'toggle:music' },
-          { label: 'Motion', value: s.reduceMotion ? 'reduced' : 'normal', action: 'toggle:reduceMotion' },
-          { label: 'Back', action: 'back' },
-        ];
+        // Shown only when there is a choice to make. A game in one language
+        // should not have a row that does nothing.
+        const langs = KIT.lang ? KIT.lang.known() : [];
+        const language = langs.length > 1
+          ? [{ label: t('language'), value: KIT.lang.nameOf(KIT.lang.current()), action: 'cycle:language' }]
+          : [];
+        return language.concat([
+          { label: t('text-speed'), value: t('speed-' + s.textSpeed), action: 'cycle:textSpeed' },
+          { label: t('zoom'), value: s.zoom, action: 'cycle:zoom' },
+          { label: t('sound'), value: t(s.sound ? 'on' : 'off'), action: 'toggle:sound' },
+          { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
+          { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
+          { label: t('back'), action: 'back' },
+        ]);
       }
 
       function nudge(action, dir) {
@@ -96,6 +105,11 @@
           const i = (ZOOMS.indexOf(s.zoom) + (dir || 1) + ZOOMS.length) % ZOOMS.length;
           save({ zoom: ZOOMS[i] });
           if (KIT.game && KIT.game.resize) KIT.game.resize();
+        } else if (action === 'cycle:language') {
+          const langs = KIT.lang.known();
+          const i = (langs.indexOf(KIT.lang.current()) + (dir || 1) + langs.length) % langs.length;
+          KIT.lang.use(langs[i]);
+          save({ language: langs[i] });
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
@@ -137,8 +151,8 @@
       async function saveRows(g) {
         const list = await KIT.storage.listGames();
         const rows = list.map(s => ({
-          label: s.slot === 'autosave' ? 'Autosave' : 'Slot ' + s.slot,
-          value: s.exists ? when(s.savedAt) : 'empty',
+          label: s.slot === 'autosave' ? t('autosave') : t('slot', { n: s.slot }),
+          value: s.exists ? when(s.savedAt) : t('empty-slot'),
           note: s.exists && s.map ? s.map : '',
           action: 'slot:' + s.slot,
           disabled: s.slot === 'autosave',
@@ -150,7 +164,7 @@
         // this game, they deserve to know before they rely on it.
         const d = KIT.storage.durability ? KIT.storage.durability() : null;
         if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
-        return rows.concat([{ label: 'Back', action: 'back' }]);
+        return rows.concat([{ label: t('back'), action: 'back' }]);
       }
       function when(iso) {
         if (!iso) return '';
@@ -202,14 +216,14 @@
   // ---- the standard pause-menu entries -------------------------------------------
   menus.addAll([
     { id: 'save', label: 'Save', order: 20, open() { return null; } },
-    { id: 'coop', label: 'Two players', order: 30,
+    { id: 'coop', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'two-players'), order: 30,
       value: (game) => (game && game.world && game.world.coop ? 'on' : 'off'),
       open(game) { game.setCoop(!(game.world && game.world.coop)); return null; } },
     { id: 'settings', label: 'Settings', order: 40, open() { return null; } },
     { id: 'debug', label: 'Debug', order: 55,
       when: (game) => !!(game && game.flags && game.flags.debug),
       async open(game) { await KIT.scenes.run('debug', { game }); return null; } },
-    { id: 'creator', label: 'Creator Mode', order: 60,
+    { id: 'creator', label: () => KIT.strings.get(KIT.game && KIT.game.project, 'creator-mode'), order: 60,
       async open(game) {
         if (game && game.openEditor && game.openEditor()) return 'close';
         await KIT.toast('Creator Mode is not in this build yet.');

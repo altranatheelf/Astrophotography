@@ -29,7 +29,8 @@
 
   let ctx = null;             // AudioContext (null until init() succeeds)
   let gestured = false;       // has the page been touched? No context before it has.
-  let master = null, sfxBus = null, musicBus = null;
+  let master = null, sfxBus = null, musicBus = null, duckBus = null;
+  let ducks = 0;             // how many things currently want the music quieter
   let enabled = true, musicOn = true;
   let volumes = { master: 0.8, sound: 0.9, music: 0.5 };
   let current = null;         // { id, def, stopAt } the playing track
@@ -71,7 +72,12 @@
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = volumes.master; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = volumes.sound; sfxBus.connect(master);
-      musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(master);
+      // Music runs through its own duck stage on the way to the master, so
+      // getting out of the way of a voice never touches the volume the player
+      // set — turn the music back up after a conversation and you get THEIR
+      // level back, not whatever the duck happened to leave behind.
+      duckBus = ctx.createGain(); duckBus.gain.value = 1; duckBus.connect(master);
+      musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(duckBus);
     } catch (e) {
       ctx = null;
     }
@@ -375,6 +381,41 @@
     fileNodes = fileNodes.filter(el => !el.paused);
   }
 
+  /**
+   * duck(amount, ms) / unduck(ms) — pull the music down under something that
+   * matters, and let it back up after.
+   *
+   * Counted rather than set, because the things that duck overlap: a line of
+   * dialogue starts while a jingle is still playing, and whichever finishes
+   * first must not undo the other one's duck. Nothing in this engine ducked
+   * before, which means every line of dialogue in a story game was competing
+   * with the music at full volume — the most-noticed audio problem there is,
+   * and about fifteen lines to fix.
+   */
+  let duckTo = 0.35;
+  function rampDuck(to, ms) {
+    if (!duckBus || !ctx) return;
+    try {
+      const t = ctx.currentTime;
+      duckBus.gain.cancelScheduledValues(t);
+      duckBus.gain.setValueAtTime(duckBus.gain.value, t);
+      duckBus.gain.linearRampToValueAtTime(Math.max(0, Math.min(1, to)), t + Math.max(0.01, (ms == null ? 180 : ms) / 1000));
+    } catch (e) { /* ignore */ }
+  }
+  function duck(amount, ms) {
+    ducks++;
+    if (amount != null) duckTo = Math.max(0, Math.min(1, amount));
+    rampDuck(duckTo, ms);
+    return Promise.resolve();
+  }
+  function unduck(ms) {
+    ducks = Math.max(0, ducks - 1);
+    if (ducks === 0) rampDuck(1, ms == null ? 400 : ms);   // back up slower than it went down
+    return Promise.resolve();
+  }
+  /** duckedBy() -> how many things are holding the music down. For tests and a debug panel. */
+  function duckedBy() { return ducks; }
+
   /** stop('sound'|'music'|'all') */
   function stop(what) {
     const w = what || 'all';
@@ -409,6 +450,7 @@
     freq, init, unlock,
     play, playAt, music, stop, jingle,
     layer, layers, layersOf, layerGain,
+    duck, unduck, duckedBy,
     /** save()/replay() — the saveMusic/replayMusic commands. */
     save() { saved = current ? current.id : null; return Promise.resolve(); },
     replay() { return music(saved); },
