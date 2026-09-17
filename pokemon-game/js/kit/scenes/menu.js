@@ -190,8 +190,10 @@
        * anything underneath.
        */
       function momentRows() {
-        const T = KIT.timeline;
-        const all = T ? T.moments() : [];
+        // Spelled out rather than aliased: test/kit/story-reach.test.js checks
+        // that something a player is SHOWN is really called by a screen, and it
+        // can only see the full name.
+        const all = KIT.timeline ? KIT.timeline.moments() : [];
         if (!all.length) return [{ label: t('no-moments'), disabled: true }, { label: t('back'), action: 'back' }];
         // Newest first: what a player wants is almost always recent, and the
         // root of a long game is a hundred rows away from anything useful.

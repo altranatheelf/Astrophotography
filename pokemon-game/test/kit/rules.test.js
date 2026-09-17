@@ -325,6 +325,30 @@ test('rules × history: a rule can listen for a thing that was written down', as
   assert.equal(world.save.vars.mood, 1, 'it fired on the third loaf and not before');
 });
 
+test('rules × sessions: a rule can hang off coming back after a while', async () => {
+  // The plan's LOOM pitch — "NPCs keep living between sessions" — needed module
+  // code in every game that wanted it: listen for `sessionResumed`, work out
+  // what to pay, pay it. With rules as entities it is a row an author writes,
+  // and the clock was already measuring the gap. This test is the claim.
+  const project = makeProject({
+    'the-garden-grew': {
+      when: 'sessionResumed',
+      if: { kind: 'var', name: 'mood', op: '>=', value: 0 },
+      do: body(['@set steps += 1', '@did returned what=after-a-while']),
+    },
+  });
+  const world = makeWorld(project);
+  await world.enterMap('home', 2, 2, 'down');
+  // Away for two hours, as far as the save is concerned.
+  world.save.clock = { day: 1, minutes: 480, lastSeenAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString() };
+  const payload = KIT.clock.resume(world);
+  await world.rulesSettled();
+  assert.ok(payload && payload.elapsedMs > 0, 'the engine noticed the gap');
+  assert.equal(world.save.vars.steps, 1, 'and the rule ran, with no module and no code');
+  assert.equal(KIT.history.has(world.save, { verb: 'returned', what: 'after-a-while' }), true,
+    'and wrote it down, so a line can open with it');
+});
+
 test('rules: two events in one frame do not start two conversations at once', async () => {
   const world = makeWorld(makeProject({
     slow: { when: 'step', do: body(['Narrator: one', 'Narrator: two']) },

@@ -95,7 +95,7 @@ Save: `save.log = { n, entries:[{ n, verb, what, who, where, layer, at, data? }]
 `add(save, verb, { what, who, where, layer, at, data }) -> entry` (`where`/`layer` default to wherever the world is) · `count(save, query) -> n` · `has(save, query) -> bool` · `exact(query) -> bool` (is this question answered from the tally, and so for all time?) · `last(save, query) -> entry|null` · `all` · `since(save, n, query)` · `seq(save)` · `WINDOW = 400`.
 Across runs: `promote(save, verb, what)` carries one fact to `meta`, deliberately · `everDid(verb, what)`.
 
-Scripts: `@did <verb> [what=… who=…]`. Conditions: `did.<verb>[/<what>] >= n`. Lines: `{did:ate/bread}` · `{ever:ate/bread}`.
+Scripts: `@did <verb> [what=… who=…]` writes one down · `@remember <verb>[/<what>] ever` carries one across New Game. Conditions: `did.<verb>[/<what>] >= n` (this run) · `ever.<verb>[/<what>] >= n` (every run this player has had). Lines: `{did:ate/bread}` · `{ever:ate/bread}`.
 
 ## world/rules — stable
 The rules of the world as **things in it**: `when` an event happens, `if` a condition holds, `do` a script. They can be switched off, rewritten and **eaten**. ADR-0012.

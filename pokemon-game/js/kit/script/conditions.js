@@ -207,6 +207,30 @@
       },
     },
     {
+      // Across every run this player has ever had — Undertale's "you've been here
+      // before" as something an author writes rather than a hack. The other half
+      // of `did` (ADR-0008, ADR-0011): a run's log dies with the run, and this
+      // reads what a story deliberately carried over with `@remember … ever`.
+      id: 'ever', label: 'Ever did, across runs', group: 'Progress',
+      doc: 'Did this happen in ANY run this player has had, including ones they reset? Only counts what a story carried over with “@remember … ever”.',
+      fields: [
+        { key: 'verb', type: 'string', min: 1, default: 'did', label: 'What happened' },
+        { key: 'what', type: 'string', default: '', label: 'To what' },
+        opField('>='),
+        { key: 'times', type: 'number', integer: true, min: 0, default: 1, label: 'Times' },
+      ],
+      test(c, ctx) {
+        if (!KIT.history || !KIT.history.everDid) return false;
+        return C.compare(KIT.history.everDid(c.verb, c.what || undefined), c.op || '>=', c.times == null ? 1 : c.times);
+      },
+      describe(c) {
+        const n = c.times == null ? 1 : c.times;
+        const thing = `${c.verb}${c.what ? ' ' + c.what : ''}`;
+        if ((c.op || '>=') === '>=' && n === 1) return `ever ${thing}, in any run`;
+        return `${thing} ${SYM[c.op] || c.op || '>='} ${n} times across every run`;
+      },
+    },
+    {
       // The question no variable can answer, because the variable was in the
       // other branch. See ADR-0013.
       id: 'elsewhere', label: 'Did, in another branch', group: 'Progress',
@@ -500,7 +524,7 @@
     // `did.ate >= 2`, or narrowed: `did.ate/bread >= 2`. The same prefix shape
     // as item./self./meta., because an author should only learn one.
     if (k === 'rule' && word(c.id)) return `rule.${c.id}`;
-    if ((k === 'did' || k === 'elsewhere' || k === 'everywhere') && word(c.verb) && (!c.what || word(c.what))) {
+    if ((k === 'did' || k === 'ever' || k === 'elsewhere' || k === 'everywhere') && word(c.verb) && (!c.what || word(c.what))) {
       return `${k}.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
     }
     if (k === 'all' || k === 'any') {
@@ -602,7 +626,7 @@
       if (k.v.startsWith('self.')) { if (v.var !== undefined) throw new Error('condition: self cannot compare to a var'); return { kind: 'self', key: k.v.slice(5), op: opTok.v, value: v.value }; }
       if (k.v.startsWith('item.')) { if (typeof v.value !== 'number') throw new Error('condition: item count must be a number'); return { kind: 'item', id: k.v.slice(5), op: opTok.v, count: v.value }; }
       if (k.v.startsWith('meta.')) { if (v.var !== undefined) throw new Error('condition: meta cannot compare to a var'); return { kind: 'meta', key: k.v.slice(5), op: opTok.v, value: v.value }; }
-      for (const kind of ['did', 'elsewhere', 'everywhere']) {
+      for (const kind of ['did', 'ever', 'elsewhere', 'everywhere']) {
         if (!k.v.startsWith(kind + '.')) continue;
         if (typeof v.value !== 'number') throw new Error(`condition: ${kind} must compare to a number of times`);
         const [verb, what] = k.v.slice(kind.length + 1).split('/');

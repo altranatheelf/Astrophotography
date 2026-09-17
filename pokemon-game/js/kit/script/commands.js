@@ -519,8 +519,8 @@
     fields: [
       { key: 'key', type: 'string', min: 1, label: 'What to remember',
         doc: 'Your own name for it. The engine keeps `runs`, `firstPlayed`, `endingsSeen` and `namesUsed` of its own.' },
-      { key: 'op', type: 'enum', options: ['set', 'add', 'count', 'forget'], default: 'set', label: 'How',
-        doc: 'set: one value · add: put it in a list, once · count: add to a number · forget: remove it' },
+      { key: 'op', type: 'enum', options: ['set', 'add', 'count', 'forget', 'ever'], default: 'set', label: 'How',
+        doc: 'set: one value · add: put it in a list, once · count: add to a number · forget: remove it · ever: carry a thing they DID across New Game, so {ever:…} and the Ever condition can see it' },
       { key: 'value', type: 'scalar', default: '', when: { field: 'op', in: ['set', 'add'] } },
       { key: 'by', type: 'number', default: 1, when: { field: 'op', eq: 'count' } },
     ],
@@ -531,6 +531,19 @@
       if (!key) return;
       const meta = store.meta();
       const op = cmd.op || 'set';
+      // `ever` is the other half of the history (ADR-0011): a run's log dies with
+      // the run, and what survives a reset is authored content rather than a side
+      // effect — so it is carried one fact at a time, deliberately, here. The key
+      // is the tally's own: `ate` or `ate/bread`.
+      if (op === 'ever') {
+        if (!KIT.history || !KIT.history.promote) return;
+        const save = ctx.world && ctx.world.save;
+        if (!save) return;
+        const [verb, what] = key.split('/');
+        KIT.history.promote(save, verb, what);
+        if (ctx.emit) ctx.emit('metaChanged', { key: 'everDid', value: key });
+        return;
+      }
       let value;
       if (op === 'forget') value = null;
       else if (op === 'count') value = (Number(meta[key]) || 0) + (Number(cmd.by) == null ? 1 : Number(cmd.by) || 0);
@@ -550,6 +563,7 @@
     summary(cmd) {
       const op = cmd.op || 'set';
       if (op === 'forget') return `forget ${cmd.key}`;
+      if (op === 'ever') return `keep ${cmd.key} after New Game`;
       if (op === 'count') return `${cmd.key} counts up by ${cmd.by == null ? 1 : cmd.by}`;
       if (op === 'add') return `remember ${V.format(cmd.value)} in ${cmd.key}`;
       return `remember ${cmd.key} = ${V.format(cmd.value)}`;
@@ -559,6 +573,7 @@
         if (!V.WORD.test(cmd.key || '')) return null;
         const op = cmd.op || 'set';
         if (op === 'forget') return `@remember ${cmd.key} forget`;
+        if (op === 'ever') return `@remember ${cmd.key} ever`;
         if (op === 'count') return `@remember ${cmd.key} += ${Number(cmd.by) == null ? 1 : Number(cmd.by) || 0}`;
         if (op === 'add') return `@remember ${cmd.key} has ${V.format(cmd.value)}`;
         return `@remember ${cmd.key} = ${V.format(cmd.value)}`;
@@ -568,6 +583,7 @@
         if (!m) return null;
         const key = m[1], rest = m[2].trim();
         if (rest === 'forget') return { t: 'remember', key, op: 'forget' };
+        if (rest === 'ever') return { t: 'remember', key, op: 'ever' };
         const read = (text) => { const v = V.scan(text.trim(), 0, ''); return v ? v.value : text.trim(); };
         const plus = /^\+=\s*(.*)$/.exec(rest);
         if (plus) return { t: 'remember', key, op: 'count', by: Number(read(plus[1])) || 0 };

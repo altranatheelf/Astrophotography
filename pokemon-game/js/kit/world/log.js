@@ -180,10 +180,18 @@
    */
   L.promote = function (save, verb, what) {
     if (!KIT.storage || !KIT.storage.meta) return false;
+    const n = L.count(save, what === undefined || what === null || what === '' ? { verb } : { verb, what });
+    // Nothing to carry is not an error and is not a 1. This used to read
+    // `Math.max(1, n)`, which meant carrying over something that never happened
+    // wrote it down as having happened once — and a story asking `ever.x` would
+    // then be told yes, forever, because of a line that ran on the wrong branch
+    // of an `@if`. `count` is exact from the tally for this shape of question
+    // (ADR-0011), so there was never anything for the max to protect against.
+    if (!n) return false;
     const k = tallyKey(verb, what);
     const meta = KIT.storage.meta();
     const ever = Object.assign({}, meta.everDid || {});
-    ever[k] = (ever[k] || 0) + Math.max(1, L.count(save, what === undefined ? { verb } : { verb, what }));
+    ever[k] = (ever[k] || 0) + n;
     KIT.storage.saveMeta({ everDid: ever });
     return true;
   };

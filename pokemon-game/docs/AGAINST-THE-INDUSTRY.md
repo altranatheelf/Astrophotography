@@ -254,6 +254,17 @@ doing it this way.
     history announced themselves to nobody, and nothing said so, because emitting
     into an empty bus is legal and returns 0. A test now fails if that spelling
     comes back.
+17. **"You have been here before" had no way to be said.** `KIT.history.promote`
+    is the one function that carries a fact across New Game — the whole of the
+    engine's memory of the *player* rather than of the run. It was called by
+    nothing. Not a command, not a condition, not a screen. It had a doc comment
+    quoting Undertale's True Reset, a unit test, and no way for a story to use
+    it: the headline feature, half-built, with a green suite. Now
+    `@remember <verb>/<what> ever` says it and `ever.<verb>/<what> >= n` asks it,
+    and `test/kit/story-reach.test.js` classifies every function the story layer
+    exports as SAID, ASKED, SHOWN or PLUMBING and fails until a new one is
+    classified. It also found that carrying over something that never happened
+    recorded it as having happened once.
 16. **Reachability got its second half.** A setting a player can change had a
     test; a table an author can edit did not — and `rules` was normalized, saved,
     validated and referenced by a command, a condition and a screenplay form,
@@ -284,7 +295,18 @@ all now here:
   `npm run experiments`. Every other number in this document was measured after
   the thing was built, which makes it a discovery rather than a decision.
 
-All three of the plan's primitives that this repo did not have are now here, and
+The plan merged five pitches, and it is worth listing all five against what is
+here rather than only the ones that were missing:
+
+| the plan's pitch | what it means | here |
+|---|---|---|
+| **LATTICE** | dimensions as real layers, swapping as a verb | ADR-0009 — a layer overrides sparse cells, not whole maps, and `save.dimension` is one global value because a layer of reality is a property of the world and not of a room |
+| **PALIMPSEST** | every playthrough remembered; Undertale's "you have been here before" as a primitive | ADR-0008 + ADR-0011 — and the *reach* for it was missing until this round: `promote` existed and nothing called it |
+| **LIVEMOD** | rules as in-world objects, Baba Is You scaled to an RPG | ADR-0012 |
+| **LOOM** | NPCs keep living between sessions | the clock measures the gap and the world says `sessionResumed`; two modules pay out on it, and a rule can now hang off it with no code at all |
+| **FORK** | saves as a branching tree | ADR-0013 |
+
+Three of the plan's primitives that this repo did not have are now here, and
 each one's design diverges from the plan's on purpose, in the same direction every
 time — because a save here is one JSON document in browser storage rather than a
 row in a database, and that one fact changes the right answer three times:
