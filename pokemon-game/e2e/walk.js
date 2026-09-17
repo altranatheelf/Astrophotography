@@ -383,6 +383,39 @@ async function run(browser, label, size, opts) {
     `both heroes walked (${JSON.stringify(plan.start)} → ${JSON.stringify(endPos)})`);
   await page.screenshot({ path: `${SHOTS}/${label}-8-coop.png` });
 
+  // --- the baked tile layers are bounded ----------------------------------------------
+  // Each map bakes its tile layers to one canvas per layer, which is what makes
+  // walking a big map free. The bill is that those canvases are huge — on a
+  // dpr-3 phone the renderer picks tilePx 128, so one 24x18 room is three
+  // canvases of 3072x2304, about 85MB — and they used to be kept forever. Five
+  // rooms measured 258MB, and a game with four hundred of them is not a game.
+  const mem = await page.evaluate(async () => {
+    const r = KIT.game.renderer;
+    const ids = Object.keys(KIT.game.project.maps);
+    const before = KIT.renderer.cacheBudget;
+    KIT.renderer.cacheBudget = 24 * 1024 * 1024;      // deliberately tight, so eviction must run
+    r.clearCaches();
+    let peakMaps = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const id of ids) {
+        try { await KIT.game.world.enterMap(id, 2, 2, 'down'); } catch (e) { continue; }
+        KIT.game.tick(32);
+        peakMaps = Math.max(peakMaps, r.cacheStats().maps);
+      }
+    }
+    const held = r.cacheStats();
+    KIT.renderer.cacheBudget = before;
+    r.clearCaches();
+    const after = r.cacheStats();
+    return { mapCount: ids.length, peakMaps, heldMaps: held.maps, heldMB: +(held.bytes / 1e6).toFixed(1),
+             clearedBytes: after.bytes, clearedMaps: after.maps };
+  });
+  check(mem.peakMaps < mem.mapCount,
+    `a tight budget really evicts: held at most ${mem.peakMaps} of ${mem.mapCount} maps`);
+  check(mem.heldMaps >= 1, 'but never the map being drawn — that would rebuild it every frame');
+  check(mem.clearedBytes === 0 && mem.clearedMaps === 0,
+    'and clearing gives every byte back, so the accounting is not drifting');
+
   // --- the page stayed quiet ----------------------------------------------------------
   check(problems.length === 0, 'no console errors or page errors' + (problems.length ? ':\n     ' + problems.slice(0, 6).join('\n     ') : ''));
 

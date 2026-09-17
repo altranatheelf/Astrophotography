@@ -20,6 +20,13 @@
   const LAYERS = ['ground', 'deco', 'above'];
   const ZOOM = { small: 0.8, normal: 1, large: 1.25, auto: 1 };
   const MAX_CACHE_PX = 8192;                   // bigger maps are drawn cell by cell
+  /**
+   * How much backing store the baked tile layers may hold, across all maps.
+   * 192MB sounds enormous and is about two rooms on a dpr-3 phone — the point
+   * is not to be small, it is to be FINITE, because the old answer was "all of
+   * it, forever". A game may raise or lower it: KIT.renderer.cacheBudget.
+   */
+  R.cacheBudget = 192 * 1024 * 1024;
 
   const spriteArts = new WeakMap();            // frame.rows -> art object (stable identity = cached canvases)
   const missingArts = new Map();               // id -> silhouette art
@@ -52,7 +59,20 @@
     const TILE = () => ((project.settings && project.settings.tileSize) || 16);
 
     let dpr = 1, scale = 2, tilePx = 32;        // device pixels per art pixel / per tile
-    const caches = new Map();                    // mapId -> { canvases, animated, scale, w, h, cached }
+    let cacheBytes = 0;                         // what the tile caches are costing, in bytes
+    // mapId -> { canvases, animated, scale, w, h, cached, bytes, used }
+    //
+    // Baking each tile layer to one canvas per map is what makes walking a
+    // 64x48 map cost nothing. The bill is that those canvases are enormous and
+    // they were never given back: a 24x18 map at tilePx 128 — which is what a
+    // 390x844 phone at dpr 3 actually picks — is three canvases of 3072x2304,
+    // 85MB, and every map you walked through kept its own. Five rooms was a
+    // quarter of a gigabyte; a game with four hundred of them is not a game.
+    //
+    // So the cache is accounted in bytes and evicted least-recently-used. The
+    // budget is generous enough that a normal few rooms never evict anything,
+    // and finite enough that a long game cannot walk off the end of memory.
+    const caches = new Map();
     let recolor = null, recolorKey = '';
     const weatherBits = [];
 
@@ -74,7 +94,7 @@
       recolorKey = k;
       const list = Object.keys(map).map(from => ({ from, to: map[from] }));
       recolor = list.length ? list : null;
-      caches.clear();
+      dropCaches();
     }
 
     // ---- sizing ----------------------------------------------------------------
@@ -102,7 +122,7 @@
         ? Math.max(1, Math.min(16, Math.round(forcedScale * dpr)))
         : Math.max(1, Math.min(8, Math.round(wantCss * dpr / TILE())));
       baseScale = next;
-      if (next !== scale) { scale = next; caches.clear(); }
+      if (next !== scale) { scale = next; dropCaches(); }
       fittedMap = null;                       // re-fit small maps after a resize
       tilePx = TILE() * scale;
       const w = Math.max(1, Math.floor(cssW * dpr));
@@ -118,18 +138,44 @@
     }
 
     // ---- per-map layer caches ---------------------------------------------------
+    let cacheTick = 0;
     function cacheFor(view) {
       let c = caches.get(view.id);
-      if (c && c.scale === scale && c.w === view.width && c.h === view.height) return c;
+      if (c && c.scale === scale && c.w === view.width && c.h === view.height) { c.used = ++cacheTick; return c; }
+      if (c) { cacheBytes -= c.bytes || 0; caches.delete(view.id); }
       c = buildCache(view);
+      c.used = ++cacheTick;
       caches.set(view.id, c);
+      cacheBytes += c.bytes || 0;
+      evict(view.id);
       return c;
+    }
+    /**
+     * Drop the least recently drawn maps until we are inside the budget. The
+     * map being drawn right now is never a candidate, however big it is — a
+     * budget that evicts what you are looking at would rebuild it every frame.
+     */
+    function evict(keepId) {
+      if (cacheBytes <= R.cacheBudget) return;
+      const order = Array.from(caches.entries())
+        .filter(([id]) => id !== keepId)
+        .sort((a, b) => (a[1].used || 0) - (b[1].used || 0));
+      for (const [id, c] of order) {
+        if (cacheBytes <= R.cacheBudget) break;
+        // Let the backing store go NOW rather than whenever the collector
+        // notices: a detached canvas keeps its pixels until it is collected,
+        // and 0x0 is the one portable way to say "give them back".
+        for (const k of Object.keys(c.canvases || {})) { const cv = c.canvases[k]; if (cv) { cv.width = 0; cv.height = 0; } }
+        cacheBytes -= c.bytes || 0;
+        caches.delete(id);
+      }
     }
     function buildCache(view) {
       const wpx = view.width * tilePx, hpx = view.height * tilePx;
       const cached = wpx <= MAX_CACHE_PX && hpx <= MAX_CACHE_PX;
-      const c = { scale, w: view.width, h: view.height, cached, canvases: {}, animated: [] };
+      const c = { scale, w: view.width, h: view.height, cached, canvases: {}, animated: [], bytes: 0 };
       if (!cached) return c;
+      c.bytes = wpx * hpx * 4 * LAYERS.length;
       for (const layer of LAYERS) {
         const cv = document.createElement('canvas');
         cv.width = wpx; cv.height = hpx;
@@ -165,12 +211,21 @@
       KIT.pixels.draw(g, art, dx, dy, opts);
     }
 
+    /** dropCaches() — let every baked layer go, and reset the bill. */
+    function dropCaches() {
+      for (const c of caches.values()) {
+        for (const k of Object.keys(c.canvases || {})) { const cv = c.canvases[k]; if (cv) { cv.width = 0; cv.height = 0; } }
+      }
+      caches.clear();
+      cacheBytes = 0;
+    }
+
     /** invalidate(mapId, x, y) — one cell (or the whole map when x is omitted). */
     function invalidate(mapId, x, y) {
-      if (mapId == null) { caches.clear(); return; }
+      if (mapId == null) { dropCaches(); return; }
       const c = caches.get(mapId);
       if (!c) return;
-      if (x == null) { caches.delete(mapId); return; }
+      if (x == null) { cacheBytes -= (c.bytes || 0); caches.delete(mapId); return; }
       c.dirty = c.dirty || [];
       c.dirty.push({ x, y });
     }
@@ -400,7 +455,7 @@
         if (vw <= view.width && vh <= view.height) break;
         s++;
       }
-      if (s !== scale) { scale = s; tilePx = TILE() * scale; caches.clear(); }
+      if (s !== scale) { scale = s; tilePx = TILE() * scale; dropCaches(); }
     }
 
     function render(world) {
@@ -522,11 +577,13 @@
 
     const api = {
       canvas, render, resize, invalidate, screenToTile, tileToScreen, viewTiles,
-      setProject(p) { project = p; caches.clear(); },
+      setProject(p) { project = p; dropCaches(); },
       get scale() { return scale; },
       get tilePx() { return tilePx; },
       get dpr() { return dpr; },
-      clearCaches() { caches.clear(); },
+      clearCaches() { dropCaches(); },
+      /** cacheStats() -> { maps, bytes, budget } — what the baked layers are costing. */
+      cacheStats() { return { maps: caches.size, bytes: cacheBytes, budget: R.cacheBudget }; },
       setScale,
       get cssTileSize() { return TILE() * scale / dpr; },
     };
