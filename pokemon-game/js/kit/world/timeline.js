@@ -18,10 +18,16 @@
 // WHY A DELTA AND NOT A SAVE PER NODE
 //
 // Measured, before any of this was wired to anything (tools/experiments/timeline.js):
-// a save of the demo world is a few KB, and 200 of them at full size would be a
-// tree bigger than the project. So a node keeps only what CHANGED from its
-// parent, plus a full snapshot every ANCHOR nodes so that rebuilding one is
-// bounded rather than a walk to the beginning of time.
+// a save of the demo world with its history window full is 34KB, so 200 moments
+// at full size is 6.65MB — larger than a 400-map project. A node keeps only what
+// CHANGED from its parent, and keeps a whole save when the chain of deltas behind
+// it has cost as much as one save would, so that rebuilding is bounded rather
+// than a walk back to the beginning of time. 200 moments: 409KB.
+//
+// "When the chain has cost as much as a save" rather than "every Nth node" is
+// not a detail — the first version was every twelfth and the experiment refused
+// it, because the whole saves were 592KB of a 1.1MB tree while every delta put
+// together was 119KB. See ADR-0013.
 //
 // The delta format is three ops and no more:
 //
