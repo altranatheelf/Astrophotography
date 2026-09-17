@@ -239,12 +239,70 @@
     });
   }
 
+  // ---- the legacy table, on the map panel ------------------------------------
+  // A v2 project's encounters were migrated to `packs.mons.encounters[mapId]`
+  // and the runtime still reads them (rules.js) as the fallback for a project
+  // that has not been re-authored. The KIT used to draw this editor itself,
+  // inside js/kit/editor/panels-map.js, reading this module's pack shape — the
+  // engine's editor knowing one module's content, which ADR-0005 records as a
+  // crack in its own decision. The kit offers a registry now and this is the
+  // module's own code sitting in it.
+  /**
+   * legacyEncounters(project, mapId) -> the old-format table, or null.
+   * On the module rather than inside the section, so it can be checked without
+   * a browser — the section itself is DOM and cannot be.
+   */
+  M.legacyEncounters = function (project, mapId) {
+    const p = project || {};
+    const t = ((p.packs && p.packs.mons && p.packs.mons.encounters) || {})[mapId];
+    return t && Array.isArray(t.table) && t.table.length ? t : null;
+  };
+  const legacyTable = (project, mapId) => M.legacyEncounters(project, mapId);
+  function registerMapSection() {
+    if (!KIT.registry.exists('mapSections')) return;
+    KIT.registry('mapSections').add({
+      id: 'mons-legacy-encounters', label: 'Wild encounters (from the old format)', order: 20, replace: true,
+      when(project, mapId) { return !!legacyTable(project, mapId); },
+      render(body, ctx) {
+        const t = legacyTable(ctx.project, ctx.mapId);
+        if (!t) return;
+        const list = make('div.ed-list');
+        t.table.forEach((row, i) => {
+          const item = make('div.ed-item');
+          item.appendChild(make('strong', { text: String(row.mon || row.id || '?') }));
+          item.appendChild(cell('text', row.level == null ? '' : String(row.level), 'Level',
+            (v) => set(ctx, i, 'level', v)));
+          item.appendChild(cell('number', row.weight == null ? 1 : row.weight, 'How often, next to the others',
+            (v) => set(ctx, i, 'weight', Number(v) || 0)));
+          list.appendChild(item);
+        });
+        body.appendChild(list);
+        body.appendChild(make('p.ed-hint', {
+          text: 'These came from an older project file and the game still reads them. The Encounters panel is where new ones go.',
+        }));
+      },
+    });
+  }
+  function cell(type, value, title, onChange) {
+    const el = make('input.ed-small-input');
+    el.type = type;
+    el.value = value == null ? '' : String(value);
+    el.title = title;
+    el.onchange = () => onChange(el.value);
+    return el;
+  }
+  function set(ctx, i, key, value) {
+    ctx.ed.commit(`Encounter ${key}`, (doc, O) => O.setField(doc, ['packs', 'mons', 'encounters', ctx.mapId, 'table', i, key], value, `Encounter ${key}`));
+    if (KIT.editor.afterEdit) KIT.editor.afterEdit();
+  }
+
   /** registerEditor() — the panel, the widget and the validator, when there is a page. */
   M.registerEditor = function () {
     registerFieldEditor();
     registerValidator();
     if (!hasDom()) return;
     registerPanel();
+    registerMapSection();
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

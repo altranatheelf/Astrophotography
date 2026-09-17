@@ -240,7 +240,9 @@ A scene is `{ id, transparent, opaque, background, enter(params), exit(result), 
 
 ## editor/* — Creator Mode (docs/EDITOR-CONTRACT.md, docs/CREATOR-MODE.md)
 Load order (after the game): `editor/ops.js  editor/editor.js  editor/tools.js  editor/inspector.js  editor/panels-map.js  editor/panels-objects.js  editor/script-editor.js  editor/panels-writing.js  editor/panels-project.js  editor/integration.js`.
-Everything visible is a registered panel (`editorPanels`), tool (`editorTools`) or field widget (`fieldEditors`); nothing writes to the project except through `KIT.editor.ops` or `KIT.editor.commit`, so undo covers all of it.
+Everything visible is a registered panel (`editorPanels`), tool (`editorTools`), field widget (`fieldEditors`) or map section (`mapSections`); nothing writes to the project except through `KIT.editor.ops` or `KIT.editor.commit`, so undo covers all of it.
+
+`mapSections` is the Map panel's Props area, for a module that has something to say about one map: `{ id, label, order, when(project, mapId) -> bool, render(body, { project, mapId, ed }) }`. `when` false keeps the section — and the whole Props box, if nothing else is in it — out of the way. A `render` that throws is caught and named, because it is somebody else's code inside the kit's screen. It exists because the kit used to draw `packs.mons.encounters` itself (ADR-0005).
 
 `KIT.editor` — the shell: `open({game,project,mapId})` `close()` `isOpen()` `state` `set(patch)` `select(sel)` `openMap(id)` `on(event,fn)` `refresh()` `repaint()` `commit(label,fn)` `beginStroke/endStroke` `undo/redo` `saveNow()` `problemsFor(sel)` `toast/confirm` `playHere({at,testState})` `backToEdit()` `previewWorld()` `tilePixels()` `pointFromEvent(ev)` `zoom(d,at)` `el` `ops`. Events: `change document selection problems mode`.
 

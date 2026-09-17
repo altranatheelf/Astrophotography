@@ -29035,6 +29035,22 @@ PKMN.TILES.register([
   }
   ED.panelEdit = edit;      // the Map panel and the Tiles panel share it
 
+  /**
+   * The module sections that have something to say about THIS map, in order.
+   *
+   * The extension point that replaced the kit drawing one module's content on
+   * its own map panel. A section is `{ id, label, order, when(project, mapId),
+   * render(body, { project, mapId, ed }) }`; `when` keeps the section — and the
+   * whole Props box — out of the way when there is nothing to show.
+   */
+  function mapSections(project, mapId) {
+    if (!KIT.registry.exists('mapSections')) return [];
+    return KIT.registry('mapSections').list()
+      .filter(d => typeof d.render === 'function')
+      .filter(d => (typeof d.when !== 'function' || d.when(project, mapId)))
+      .sort((a, b) => (a.order || 50) - (b.order || 50));
+  }
+
   // =============================================================================
   // The Tiles panel
   // =============================================================================
@@ -29675,33 +29691,38 @@ PKMN.TILES.register([
       this.refresh(ED);
     },
 
-    // ---- props / encounters ----------------------------------------------------
+    // ---- props, and whatever a module wants to say about this map ---------------
+    // The kit used to render a "Wild encounters" table here, reading
+    // `project.packs.mons.encounters` — the editor of the engine knowing the
+    // shape of one module's content, which is the exact thing ADR-0005 says the
+    // manifest exists to avoid, and which that decision recorded as a crack in
+    // itself. It is a registry now: a module adds a section and gets a place on
+    // this panel, and the kit does not know what is in it.
+    //
+    //   KIT.registry('mapSections').add({
+    //     id: 'mons-legacy-encounters', label: 'Wild encounters', order: 20,
+    //     when(project, mapId) { … },        // is there anything to show?
+    //     render(body, { project, mapId, ed }) { … },
+    //   })
     renderProps(ed) {
       const st = ed.state;
       const m = st.project.maps[st.mapId];
       const body = this.propsSec.body;
       const props = m.props || {};
       const keys = Object.keys(props);
-      const encounters = ((st.project.packs && st.project.packs.mons && st.project.packs.mons.encounters) || {})[st.mapId];
-      this.propsSec.hidden = !keys.length && !encounters;
+      const sections = mapSections(st.project, st.mapId);
+      this.propsSec.hidden = !keys.length && !sections.length;
       if (this.propsSec.hidden) return;
       UI.clear(body);
-      if (encounters && Array.isArray(encounters.table)) {
-        body.appendChild(make('h4.ed-h4', { text: 'Wild encounters' }));
-        const table = make('div.ed-list');
-        encounters.table.forEach((row, i) => {
-          const item = make('div.ed-item');
-          item.appendChild(make('strong', { text: String(row.mon || row.id || '?') }));
-          const lvl = input('text', row.level == null ? '' : String(row.level), (v) => edit('Encounter level', (doc) => doc.set(['packs', 'mons', 'encounters', st.mapId, 'table', i, 'level'], v)));
-          lvl.className = 'ed-small-input';
-          item.appendChild(lvl);
-          const weight = input('number', row.weight == null ? 1 : row.weight, (v) => edit('Encounter weight', (doc) => doc.set(['packs', 'mons', 'encounters', st.mapId, 'table', i, 'weight'], Number(v) || 0)));
-          weight.className = 'ed-small-input';
-          item.appendChild(weight);
-          table.appendChild(item);
-        });
-        body.appendChild(table);
-        body.appendChild(make('p.ed-hint', { text: 'Level and how often it turns up, compared with the others.' }));
+      for (const def of sections) {
+        if (def.label) body.appendChild(make('h4.ed-h4', { text: KIT.labelOf(def, ed, def.id) }));
+        // One broken section must not take the whole panel with it: a module's
+        // renderer is somebody else's code running inside the kit's screen.
+        try { def.render(body, { project: st.project, mapId: st.mapId, ed }); }
+        catch (e) {
+          (KIT.log || console).error('[mapSections]', def.id, e);
+          body.appendChild(make('p.ed-hint', { text: `“${def.id}” could not be drawn. See the console.` }));
+        }
       }
       for (const k of keys) {
         const v = props[k];
@@ -29723,7 +29744,7 @@ PKMN.TILES.register([
       }
     },
 
-    // ---- connections -------------------------------------------------------------
+  // ---- connections -------------------------------------------------------------
     renderConnections(ed) {
       const st = ed.state;
       const body = this.connSec.body;
@@ -36785,12 +36806,70 @@ PKMN.TILES.register([
     });
   }
 
+  // ---- the legacy table, on the map panel ------------------------------------
+  // A v2 project's encounters were migrated to `packs.mons.encounters[mapId]`
+  // and the runtime still reads them (rules.js) as the fallback for a project
+  // that has not been re-authored. The KIT used to draw this editor itself,
+  // inside js/kit/editor/panels-map.js, reading this module's pack shape — the
+  // engine's editor knowing one module's content, which ADR-0005 records as a
+  // crack in its own decision. The kit offers a registry now and this is the
+  // module's own code sitting in it.
+  /**
+   * legacyEncounters(project, mapId) -> the old-format table, or null.
+   * On the module rather than inside the section, so it can be checked without
+   * a browser — the section itself is DOM and cannot be.
+   */
+  M.legacyEncounters = function (project, mapId) {
+    const p = project || {};
+    const t = ((p.packs && p.packs.mons && p.packs.mons.encounters) || {})[mapId];
+    return t && Array.isArray(t.table) && t.table.length ? t : null;
+  };
+  const legacyTable = (project, mapId) => M.legacyEncounters(project, mapId);
+  function registerMapSection() {
+    if (!KIT.registry.exists('mapSections')) return;
+    KIT.registry('mapSections').add({
+      id: 'mons-legacy-encounters', label: 'Wild encounters (from the old format)', order: 20, replace: true,
+      when(project, mapId) { return !!legacyTable(project, mapId); },
+      render(body, ctx) {
+        const t = legacyTable(ctx.project, ctx.mapId);
+        if (!t) return;
+        const list = make('div.ed-list');
+        t.table.forEach((row, i) => {
+          const item = make('div.ed-item');
+          item.appendChild(make('strong', { text: String(row.mon || row.id || '?') }));
+          item.appendChild(cell('text', row.level == null ? '' : String(row.level), 'Level',
+            (v) => set(ctx, i, 'level', v)));
+          item.appendChild(cell('number', row.weight == null ? 1 : row.weight, 'How often, next to the others',
+            (v) => set(ctx, i, 'weight', Number(v) || 0)));
+          list.appendChild(item);
+        });
+        body.appendChild(list);
+        body.appendChild(make('p.ed-hint', {
+          text: 'These came from an older project file and the game still reads them. The Encounters panel is where new ones go.',
+        }));
+      },
+    });
+  }
+  function cell(type, value, title, onChange) {
+    const el = make('input.ed-small-input');
+    el.type = type;
+    el.value = value == null ? '' : String(value);
+    el.title = title;
+    el.onchange = () => onChange(el.value);
+    return el;
+  }
+  function set(ctx, i, key, value) {
+    ctx.ed.commit(`Encounter ${key}`, (doc, O) => O.setField(doc, ['packs', 'mons', 'encounters', ctx.mapId, 'table', i, key], value, `Encounter ${key}`));
+    if (KIT.editor.afterEdit) KIT.editor.afterEdit();
+  }
+
   /** registerEditor() — the panel, the widget and the validator, when there is a page. */
   M.registerEditor = function () {
     registerFieldEditor();
     registerValidator();
     if (!hasDom()) return;
     registerPanel();
+    registerMapSection();
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

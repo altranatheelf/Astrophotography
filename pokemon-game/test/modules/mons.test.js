@@ -722,3 +722,20 @@ test('mons: a gap that is not a gap pays nothing', () => {
   assert.deepEqual(heard, [], 'a new game was never away');
   assert.equal(M.read(save).party[0].friendship, 100);
 });
+
+test('mons: the old format\'s encounter table belongs to the module, not to the editor', () => {
+  // The kit's map panel used to draw this table itself, reading
+  // `project.packs.mons.encounters` — the engine's editor knowing the shape of
+  // one module's content pack, which ADR-0005 records as a crack in its own
+  // decision. It is a `mapSections` entry in this module now. The DOM half
+  // cannot be checked headlessly; the question it asks can.
+  const withTable = { packs: { mons: { encounters: { meadow: { table: [{ mon: 'pikachu', level: '3-5', weight: 2 }] } } } } };
+  const t = KIT.mons.legacyEncounters(withTable, 'meadow');
+  assert.ok(t, 'a migrated project has one');
+  assert.equal(t.table[0].mon, 'pikachu');
+  assert.equal(KIT.mons.legacyEncounters(withTable, 'somewhere-else'), null, 'other maps do not');
+  assert.equal(KIT.mons.legacyEncounters({}, 'meadow'), null, 'a project with no pack does not');
+  assert.equal(KIT.mons.legacyEncounters({ packs: { mons: { encounters: { meadow: { table: [] } } } } }, 'meadow'), null,
+    'and an empty table is nothing to show, so the section stays out of the way');
+  assert.equal(KIT.mons.legacyEncounters(null, 'meadow'), null);
+});

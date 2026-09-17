@@ -133,6 +133,22 @@
   }
   ED.panelEdit = edit;      // the Map panel and the Tiles panel share it
 
+  /**
+   * The module sections that have something to say about THIS map, in order.
+   *
+   * The extension point that replaced the kit drawing one module's content on
+   * its own map panel. A section is `{ id, label, order, when(project, mapId),
+   * render(body, { project, mapId, ed }) }`; `when` keeps the section — and the
+   * whole Props box — out of the way when there is nothing to show.
+   */
+  function mapSections(project, mapId) {
+    if (!KIT.registry.exists('mapSections')) return [];
+    return KIT.registry('mapSections').list()
+      .filter(d => typeof d.render === 'function')
+      .filter(d => (typeof d.when !== 'function' || d.when(project, mapId)))
+      .sort((a, b) => (a.order || 50) - (b.order || 50));
+  }
+
   // =============================================================================
   // The Tiles panel
   // =============================================================================
@@ -773,33 +789,38 @@
       this.refresh(ED);
     },
 
-    // ---- props / encounters ----------------------------------------------------
+    // ---- props, and whatever a module wants to say about this map ---------------
+    // The kit used to render a "Wild encounters" table here, reading
+    // `project.packs.mons.encounters` — the editor of the engine knowing the
+    // shape of one module's content, which is the exact thing ADR-0005 says the
+    // manifest exists to avoid, and which that decision recorded as a crack in
+    // itself. It is a registry now: a module adds a section and gets a place on
+    // this panel, and the kit does not know what is in it.
+    //
+    //   KIT.registry('mapSections').add({
+    //     id: 'mons-legacy-encounters', label: 'Wild encounters', order: 20,
+    //     when(project, mapId) { … },        // is there anything to show?
+    //     render(body, { project, mapId, ed }) { … },
+    //   })
     renderProps(ed) {
       const st = ed.state;
       const m = st.project.maps[st.mapId];
       const body = this.propsSec.body;
       const props = m.props || {};
       const keys = Object.keys(props);
-      const encounters = ((st.project.packs && st.project.packs.mons && st.project.packs.mons.encounters) || {})[st.mapId];
-      this.propsSec.hidden = !keys.length && !encounters;
+      const sections = mapSections(st.project, st.mapId);
+      this.propsSec.hidden = !keys.length && !sections.length;
       if (this.propsSec.hidden) return;
       UI.clear(body);
-      if (encounters && Array.isArray(encounters.table)) {
-        body.appendChild(make('h4.ed-h4', { text: 'Wild encounters' }));
-        const table = make('div.ed-list');
-        encounters.table.forEach((row, i) => {
-          const item = make('div.ed-item');
-          item.appendChild(make('strong', { text: String(row.mon || row.id || '?') }));
-          const lvl = input('text', row.level == null ? '' : String(row.level), (v) => edit('Encounter level', (doc) => doc.set(['packs', 'mons', 'encounters', st.mapId, 'table', i, 'level'], v)));
-          lvl.className = 'ed-small-input';
-          item.appendChild(lvl);
-          const weight = input('number', row.weight == null ? 1 : row.weight, (v) => edit('Encounter weight', (doc) => doc.set(['packs', 'mons', 'encounters', st.mapId, 'table', i, 'weight'], Number(v) || 0)));
-          weight.className = 'ed-small-input';
-          item.appendChild(weight);
-          table.appendChild(item);
-        });
-        body.appendChild(table);
-        body.appendChild(make('p.ed-hint', { text: 'Level and how often it turns up, compared with the others.' }));
+      for (const def of sections) {
+        if (def.label) body.appendChild(make('h4.ed-h4', { text: KIT.labelOf(def, ed, def.id) }));
+        // One broken section must not take the whole panel with it: a module's
+        // renderer is somebody else's code running inside the kit's screen.
+        try { def.render(body, { project: st.project, mapId: st.mapId, ed }); }
+        catch (e) {
+          (KIT.log || console).error('[mapSections]', def.id, e);
+          body.appendChild(make('p.ed-hint', { text: `“${def.id}” could not be drawn. See the console.` }));
+        }
       }
       for (const k of keys) {
         const v = props[k];
@@ -821,7 +842,7 @@
       }
     },
 
-    // ---- connections -------------------------------------------------------------
+  // ---- connections -------------------------------------------------------------
     renderConnections(ed) {
       const st = ed.state;
       const body = this.connSec.body;

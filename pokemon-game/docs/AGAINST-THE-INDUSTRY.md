@@ -246,6 +246,18 @@ doing it this way.
     history announced themselves to nobody, and nothing said so, because emitting
     into an empty bus is legal and returns 0. A test now fails if that spelling
     comes back.
+19. **The purity test ADR-0005 named did not exist.** That decision said its own
+    guard was "`docs/ENGINE-HOOKS.md` plus a purity test", and reported the
+    purity test "blind to five sites where `js/kit` names the `mons` module".
+    There was no purity test. That is how the engine's map editor came to draw a
+    table out of one module's content pack. The map panel asks a `mapSections`
+    registry now and the module puts its own section in it; the only sites left
+    are the v2→v3 converter, which is the kit knowing its own past format, frozen
+    with it. Every excused file carries its line count, so a new naming inside
+    one fails. And the test's first version was too clever to work — it looked
+    for the three shapes "a dependency actually takes", and the negative check
+    slipped `(project.packs || {}).mons` past it, which is the same blindness in
+    the test written to catch it.
 18. **Control remapping has a screen.** The keymap was data and
     `KIT.input.bind()` worked and `settings.keys` was saved and restored at
     boot — for weeks, with no way for a player to reach any of it, carried in
