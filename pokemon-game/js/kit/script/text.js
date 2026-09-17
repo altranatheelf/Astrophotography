@@ -23,6 +23,9 @@
    * @property {string} text
    * @property {string} [color]   from {color:x}
    * @property {string} [size]    from {size:big}
+   * @property {string} [voice]   from {voice:x} — a voices id; the box reads font/colour/speed/blip off it
+   * @property {string} [fx]      from {fx:wave} — a textEffects id
+   * @property {number} [fxAmount] from {fx:wave,2}
    */
   /**
    * @typedef {{type:'pause', ms:number|null}|{type:'wait'}|{type:'speed', mode:'fast'|'instant'}|{type:'icon', id:string}|{type:'break'}|{type:'shake'}} CodeSpan
@@ -164,9 +167,19 @@
   /** tokenize(str) -> Span[]. Unknown codes stay literal text; {{ and }} become literal braces. */
   T.tokenize = function (str) {
     const spans = [];
-    const colors = [], sizes = [];
+    const colors = [], sizes = [], voices = [], fx = [];
     let buf = '';
-    const style = () => { const s = {}; if (colors.length) s.color = colors[colors.length - 1]; if (sizes.length) s.size = sizes[sizes.length - 1]; return s; };
+    const top = (a) => (a.length ? a[a.length - 1] : null);
+    const style = () => {
+      const s = {};
+      if (colors.length) s.color = top(colors);
+      if (sizes.length) s.size = top(sizes);
+      // {voice:sans} carries the whole bundle — font, colour, speed, blip — so a
+      // span only has to remember whose it is and the box looks the rest up.
+      if (voices.length) s.voice = top(voices);
+      if (fx.length) { const f = top(fx); s.fx = f.id; if (f.amount != null) s.fxAmount = f.amount; }
+      return s;
+    };
     const flush = () => { if (buf) { spans.push(Object.assign({ type: 'text', text: buf }, style())); buf = ''; } };
     const s = str === null || str === undefined ? '' : String(str);
     let last = 0, m;
@@ -188,6 +201,17 @@
         case '/color': flush(); colors.pop(); break;
         case 'size': flush(); sizes.push(arg || ''); break;
         case '/size': flush(); sizes.pop(); break;
+        case 'voice': flush(); voices.push(arg || ''); break;
+        case '/voice': flush(); voices.pop(); break;
+        // {fx:wave} or {fx:wave,2} — the amount is optional and the name is not.
+        case 'fx': {
+          flush();
+          const bits = String(arg || '').split(',');
+          const amount = bits.length > 1 && Number.isFinite(Number(bits[1])) ? Number(bits[1]) : null;
+          fx.push({ id: (bits[0] || '').trim(), amount });
+          break;
+        }
+        case '/fx': flush(); fx.pop(); break;
         default: buf += tok; // not a code: keep it literally
       }
     }
@@ -205,8 +229,16 @@
 
   // ---- wrapping --------------------------------------------------------------
 
-  const sameStyle = (a, b) => (a.color || '') === (b.color || '') && (a.size || '') === (b.size || '');
-  const styleOf = (sp) => { const s = {}; if (sp.color) s.color = sp.color; if (sp.size) s.size = sp.size; return s; };
+  const sameStyle = (a, b) => (a.color || '') === (b.color || '') && (a.size || '') === (b.size || '')
+    && (a.voice || '') === (b.voice || '') && (a.fx || '') === (b.fx || '') && (a.fxAmount || 0) === (b.fxAmount || 0);
+  const styleOf = (sp) => {
+    const s = {};
+    if (sp.color) s.color = sp.color;
+    if (sp.size) s.size = sp.size;
+    if (sp.voice) s.voice = sp.voice;
+    if (sp.fx) { s.fx = sp.fx; if (sp.fxAmount != null) s.fxAmount = sp.fxAmount; }
+    return s;
+  };
 
   /** wrap(spans, layout) -> lines (Span[][]). Breaks at spaces, splits words longer than the width, drops leading/trailing spaces per line. */
   T.wrap = function (spans, layout) {

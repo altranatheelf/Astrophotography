@@ -112,6 +112,29 @@ body { overflow: hidden; }
 .kit-text { font-size: clamp(15px, 3.6vw, 18px); line-height: 1.45; min-height: 3.2em; }
 .kit-line { min-height: 1.45em; white-space: pre-wrap; }
 .kit-text .is-big { font-size: 1.3em; }
+.kit-text .is-small { font-size: 0.82em; }
+
+/* Per-letter text effects.
+   Undertale drives all of this from one number whose meaning changes at 39;
+   these are named instead, and `--kit-fx` is how much. Each letter gets its own
+   animation-delay so a wave travels along the word rather than the whole run
+   twitching at once. Every one of them is off under prefers-reduced-motion. */
+.kit-char { display: inline-block; white-space: pre; }
+@keyframes kit-fx-wave   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(calc(-0.22em * var(--kit-fx, 1))); } }
+@keyframes kit-fx-shiver { 0% { transform: translate(calc(0.06em * var(--kit-fx, 1)), 0); }
+                           25% { transform: translate(0, calc(0.06em * var(--kit-fx, 1))); }
+                           50% { transform: translate(calc(-0.06em * var(--kit-fx, 1)), 0); }
+                           75% { transform: translate(0, calc(-0.06em * var(--kit-fx, 1))); }
+                           100% { transform: translate(calc(0.06em * var(--kit-fx, 1)), 0); } }
+@keyframes kit-fx-drift  { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(calc(-0.12em * var(--kit-fx, 1))); } }
+@keyframes kit-fx-throb  { 0%, 100% { opacity: 1; } 50% { opacity: calc(1 - 0.45 * var(--kit-fx, 1)); } }
+@keyframes kit-fx-rainbow { 0% { color: #ff6b6b; } 20% { color: #ffd93d; } 40% { color: #6bcB77; }
+                            60% { color: #4d96ff; } 80% { color: #b56bff; } 100% { color: #ff6b6b; } }
+.kit-fx-wave    { animation: kit-fx-wave 1.1s ease-in-out infinite; }
+.kit-fx-shiver  { animation: kit-fx-shiver 0.14s steps(1, end) infinite; }
+.kit-fx-drift   { display: inline-block; animation: kit-fx-drift 3.2s ease-in-out infinite; }
+.kit-fx-throb   { display: inline-block; animation: kit-fx-throb 1.6s ease-in-out infinite; }
+.kit-fx-rainbow { animation: kit-fx-rainbow 2.4s linear infinite; }
 .kit-icon { display: inline-block; vertical-align: -2px; line-height: 0; }
 .kit-next {
   position: absolute; right: 10px; bottom: 4px;
@@ -319,6 +342,7 @@ body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .kit-next.is-ready { animation: none; }
   .kit-box.is-shaking { animation: none; }
+  .kit-fx-wave, .kit-fx-shiver, .kit-fx-drift, .kit-fx-throb, .kit-fx-rainbow { animation: none; }
   #chapter.is-in .kit-card, #toast.is-in { animation: none; }
 }
 

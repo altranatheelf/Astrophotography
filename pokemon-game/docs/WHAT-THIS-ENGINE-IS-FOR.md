@@ -32,6 +32,12 @@ Maker: nothing.*
 line changes because of what someone learned three scenes ago, and you can see
 that graph while writing. *RPG Maker: switches, hand-counted.*
 
+**A voice, not a font.** How somebody sounds AND looks while their words
+arrive — font, colour, size, pace, blip — as one named thing you can switch in
+the middle of a sentence. *RPG Maker: a colour code.* — done: Undertale bundles
+exactly these into 114 numbered presets in a 310-line if-chain and switches them
+with `\TX`; here it is one asset and `{voice:sans}`.
+
 **Text that reads like it was written.** Register control: speed, pauses,
 silence, a line with no box, a name that is not a name yet, a font that changes
 when the voice does. *RPG Maker: a three-line box and a word-wrap plugin.*
@@ -85,6 +91,7 @@ does the round trip in two browsers that share nothing.
 | A game moved between a phone and a laptop | **done** — one file, both ways, no server |
 | A second language, without a second copy of the game | **done** — one text file, keyed on the lines themselves |
 | Music that answers what is happening, without restarting | **done** — named layers on one clock, `@layer rain on` |
+| A voice that changes mid-sentence — font, colour, pace, blip | **done** — `{voice:sans}`, and `{fx:wave}` for the letters |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
 

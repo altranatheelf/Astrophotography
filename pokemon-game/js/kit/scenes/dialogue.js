@@ -4,7 +4,8 @@
 //
 // Everything a message can contain comes from KIT.text: the wrap/paginate pass
 // uses the real font metrics of the box, and the typewriter walks the spans so
-// {pause}, {wait}, {fast}, {color:…}, {icon:…} and {shake} all work.
+// {pause}, {wait}, {fast}, {color:…}, {icon:…}, {shake}, {voice:…} and {fx:…}
+// all work.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const UI = KIT.ui;
@@ -31,6 +32,56 @@
     return (id && reg.get(id)) || reg.get('default') || null;
   }
   const SILENT = /[\s.,;:!?'"\-—–()\[\]]/;
+
+  /** effectFor(id) -> the textEffects definition, or null. */
+  function effectFor(id) {
+    const reg = KIT.registry.exists('textEffects') ? KIT.registry('textEffects') : null;
+    return (reg && id && reg.get(id)) || null;
+  }
+
+  /**
+   * dress(el, voice) — put a voice's LOOK on an element.
+   *
+   * Every field is nullable and null means "leave the box alone", so a voice
+   * that only changes the blip changes only the blip. This is the half of
+   * Undertale's typer preset that is not sound: the font and colour are what
+   * make Sans look like Sans before he has said anything.
+   */
+  function dress(el, voice) {
+    if (!el || !voice) return;
+    if (voice.font) el.style.fontFamily = voice.font;
+    if (voice.color) el.style.color = voice.color;
+    if (voice.size === 'big') el.classList.add('is-big');
+    else if (voice.size === 'small') el.classList.add('is-small');
+  }
+
+  /**
+   * effected(text, fxId, amount) -> an element holding `text`, animated.
+   *
+   * A per-letter effect needs one element per letter, each starting a little
+   * later than the last — that stagger is the whole difference between a wave
+   * and a twitch. The letters all exist from the first frame and are revealed
+   * by `visibility`, so the wave does not shift as the line types itself.
+   */
+  function effected(text, fxId, amount) {
+    const def = effectFor(fxId);
+    const host = UI.make('span');
+    if (!def || !def.css) { host.textContent = ''; return { el: host, chars: null }; }
+    host.style.setProperty('--kit-fx', amount == null ? 1 : amount);
+    if (def.perChar === false) { host.classList.add(def.css); return { el: host, chars: null }; }
+    const chars = [];
+    const stagger = def.stagger == null ? 60 : def.stagger;
+    Array.from(text).forEach((ch, i) => {
+      const c = UI.make('span.kit-char');
+      c.classList.add(def.css);
+      c.textContent = ch;
+      c.style.animationDelay = (i * stagger) + 'ms';
+      c.style.visibility = 'hidden';
+      host.appendChild(c);
+      chars.push(c);
+    });
+    return { el: host, chars };
+  }
 
   /** A measuring context that uses the element's real font, so wrapping matches what you see. */
   let measureCtx = null;
@@ -100,11 +151,20 @@
           const lineEl = UI.make('div.kit-line');
           for (const span of line) {
             if (span.type === 'text') {
-              const el = UI.make('span');
-              if (span.color) el.style.color = span.color;
+              // The span's own voice wins over the line's, so `{voice:sans}`
+              // inside a sentence changes font, colour, pace and blip at once —
+              // which is the whole trick behind a character having a voice.
+              const spanVoice = span.voice ? voiceFor(span.voice) : voice;
+              const fx = span.fx || (spanVoice && spanVoice.fx) || null;
+              const amount = span.fxAmount != null ? span.fxAmount : (spanVoice && spanVoice.fxAmount);
+              let el, chars = null;
+              if (fx) { const made = effected(span.text, fx, amount); el = made.el; chars = made.chars; }
+              else el = UI.make('span');
+              dress(el, spanVoice);
+              if (span.color) el.style.color = span.color;          // an explicit {color:} beats the voice
               if (span.size === 'big') el.classList.add('is-big');
               lineEl.appendChild(el);
-              units.push({ type: 'text', el, text: span.text });
+              units.push({ type: 'text', el, chars, text: span.text, voice: spanVoice });
             } else if (span.type === 'icon') {
               const art = faceArt(span.id);
               const el = UI.make('span.kit-icon');
@@ -128,7 +188,19 @@
        * that wanders a little so it is a person and not a printer. Punctuation
        * and spaces stay silent, which is what stops it sounding like Morse.
        */
-      function speak(chars) {
+      /**
+       * reveal(unit, n) — show the first n letters. A plain run grows its
+       * textContent; a run with a per-letter effect already holds every letter
+       * and just stops hiding them, so the animation does not jump as the line
+       * types itself.
+       */
+      function reveal(u, n) {
+        if (u.chars) { for (let i = 0; i < u.chars.length; i++) u.chars[i].style.visibility = i < n ? 'visible' : 'hidden'; }
+        else u.el.textContent = u.text.slice(0, n);
+      }
+
+      function speak(chars, v) {
+        const voice = v;
         if (!voice || !voice.sound || !chars) return;
         const every = Math.max(1, voice.everyChars || 2);
         for (const ch of chars) {
@@ -149,7 +221,7 @@
       function revealAll() {
         for (let i = unitIndex; i < units.length; i++) {
           const u = units[i];
-          if (u.type === 'text') u.el.textContent = u.text;
+          if (u.type === 'text') reveal(u, u.text.length);
           if (u.type === 'icon') u.el.style.visibility = 'visible';
           if (u.type === 'shake' && ui.box) shakeBox();
         }
@@ -179,6 +251,8 @@
           ui.host.setAttribute('data-bg', p.bg || 'window');
           ui.name.textContent = p.who || '';
           ui.name.hidden = !p.who;
+          ui.name.removeAttribute('style');
+          ui.name.classList.remove('is-big', 'is-small');
           ui.face.innerHTML = '';
           ui.face.hidden = !p.face;
           if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), 3));
@@ -186,6 +260,7 @@
           // are in the cast, else whatever this line asked for, else the game's.
           voice = voiceFor(p.voice);
           sinceBlip = 0;
+          if (p.voice) dress(ui.name, voice);      // so the name looks like the person saying it
           const rendered = KIT.text.render(p.text == null ? '' : p.text, p.ctx || {}, layoutFor(ui.text));
           pages = rendered[0].pages;
           pageIndex = 0;
@@ -202,7 +277,13 @@
         update(dt) {
           if (complete || waiting || !units.length) return;
           if (pauseLeft > 0) { pauseLeft -= dt * 1000; return; }
-          const cps = charsPerSecond() * speed;
+          // The run being typed sets the pace, if its voice asks to. A voice
+          // with no speed of its own follows the player's setting, which is the
+          // kind default — somebody who needs text slow should get it slow.
+          const here = units[unitIndex];
+          const own = here && here.voice && here.voice.speed;
+          const base = own ? Number(here.voice.speed) : charsPerSecond();
+          const cps = (instant() ? 0 : base) * speed;
           if (cps <= 0) { revealAll(); return; }
           acc += dt * cps;
           let budget = Math.floor(acc);
@@ -215,8 +296,8 @@
               const take = Math.min(left, budget);
               const from = charIndex;
               charIndex += take; budget -= take;
-              u.el.textContent = u.text.slice(0, charIndex);
-              speak(u.text.slice(from, charIndex));
+              reveal(u, charIndex);
+              speak(u.text.slice(from, charIndex), u.voice);
               if (charIndex >= u.text.length) { unitIndex++; charIndex = 0; }
             } else if (u.type === 'icon') { u.el.style.visibility = 'visible'; unitIndex++; }
             else if (u.type === 'pause') { pauseLeft = u.ms; unitIndex++; break; }

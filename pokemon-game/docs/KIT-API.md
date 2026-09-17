@@ -123,7 +123,7 @@ Registered systems, in order: `movement(10)` (interpolation, arrivals, NPC touch
 Add your own: `KIT.registry('systems').add({ id, order, update(world, dt), onMapEnter, onMapLeave })`.
 
 ## script/text — stable
-`KIT.text.substitute(str, ctx)` (`{p1} {p2} {p} {var:x} {self:k} {item:id} {hero} {arg:n}`, `KIT.text.tags` for module tags) · `tokenize(str) -> spans` (codes `{pause} {pause:ms} {wait} {fast} {instant} {color:x}…{/color} {icon:id} {size:big}…{/size} {shake}`, `\n`, `{{`/`}}` escapes) · `strip` · `plain(str,ctx)` · `wrap(spans, { width, measure })` · `paginate(lines, linesPerPage)` · `render(str, ctx, layout) -> pages` · `escape/unescape` · `contextFrom(ctx)`.
+`KIT.text.substitute(str, ctx)` (`{p1} {p2} {p} {var:x} {self:k} {item:id} {hero} {arg:n}`, `KIT.text.tags` for module tags) · `tokenize(str) -> spans` (codes `{pause} {pause:ms} {wait} {fast} {instant} {color:x}…{/color} {icon:id} {size:big}…{/size} {shake} {voice:id}…{/voice} {fx:name}…{/fx} {fx:name,amount}`, `\n`, `{{`/`}}` escapes) · `strip` · `plain(str,ctx)` · `wrap(spans, { width, measure })` · `paginate(lines, linesPerPage)` · `render(str, ctx, layout) -> pages` · `escape/unescape` · `contextFrom(ctx)`.
 `KIT.strings.get(project, key, vars)` — Terms table: registry defaults, overridden by `project.strings`.
 `KIT.script.values`: `format(v,{bare})` `parseBare` `scan(str,i,stops)` `tokenize(str,{separators})` `pairs` `BARE WORD NUMBER`.
 

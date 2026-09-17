@@ -388,7 +388,8 @@ Route steps (for `moveRoute` and `behaviour.route`): `up down left right`, `rand
 ### 9.4 Text
 Templating: `{p1} {p2} {p} {var:name} {self:key} {item:id} {hero}` + module tags.
 Codes: `{pause}` `{pause:800}` `{wait}` (wait for input mid-message) `{fast}` `{instant}`
-`{color:red}…{/color}` `{icon:berry}` `{size:big}…{/size}` `{shake}`. Word wrap to the
+`{color:red}…{/color}` `{icon:berry}` `{size:big}…{/size}` `{shake}`
+`{voice:sans}…{/voice}` `{fx:wave}…{/fx}` `{fx:shiver,3}…{/fx}`. Word wrap to the
 box width in the dialogue font metrics, auto-pagination into N boxes (3 lines
 each by default), `\n` forced break. `KIT.text.render(str, ctx) -> [{ pages:[[spans]] }]`, pure.
 

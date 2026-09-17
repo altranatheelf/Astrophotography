@@ -125,6 +125,29 @@ body { overflow: hidden; }
 .kit-text { font-size: clamp(15px, 3.6vw, 18px); line-height: 1.45; min-height: 3.2em; }
 .kit-line { min-height: 1.45em; white-space: pre-wrap; }
 .kit-text .is-big { font-size: 1.3em; }
+.kit-text .is-small { font-size: 0.82em; }
+
+/* Per-letter text effects.
+   Undertale drives all of this from one number whose meaning changes at 39;
+   these are named instead, and `--kit-fx` is how much. Each letter gets its own
+   animation-delay so a wave travels along the word rather than the whole run
+   twitching at once. Every one of them is off under prefers-reduced-motion. */
+.kit-char { display: inline-block; white-space: pre; }
+@keyframes kit-fx-wave   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(calc(-0.22em * var(--kit-fx, 1))); } }
+@keyframes kit-fx-shiver { 0% { transform: translate(calc(0.06em * var(--kit-fx, 1)), 0); }
+                           25% { transform: translate(0, calc(0.06em * var(--kit-fx, 1))); }
+                           50% { transform: translate(calc(-0.06em * var(--kit-fx, 1)), 0); }
+                           75% { transform: translate(0, calc(-0.06em * var(--kit-fx, 1))); }
+                           100% { transform: translate(calc(0.06em * var(--kit-fx, 1)), 0); } }
+@keyframes kit-fx-drift  { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(calc(-0.12em * var(--kit-fx, 1))); } }
+@keyframes kit-fx-throb  { 0%, 100% { opacity: 1; } 50% { opacity: calc(1 - 0.45 * var(--kit-fx, 1)); } }
+@keyframes kit-fx-rainbow { 0% { color: #ff6b6b; } 20% { color: #ffd93d; } 40% { color: #6bcB77; }
+                            60% { color: #4d96ff; } 80% { color: #b56bff; } 100% { color: #ff6b6b; } }
+.kit-fx-wave    { animation: kit-fx-wave 1.1s ease-in-out infinite; }
+.kit-fx-shiver  { animation: kit-fx-shiver 0.14s steps(1, end) infinite; }
+.kit-fx-drift   { display: inline-block; animation: kit-fx-drift 3.2s ease-in-out infinite; }
+.kit-fx-throb   { display: inline-block; animation: kit-fx-throb 1.6s ease-in-out infinite; }
+.kit-fx-rainbow { animation: kit-fx-rainbow 2.4s linear infinite; }
 .kit-icon { display: inline-block; vertical-align: -2px; line-height: 0; }
 .kit-next {
   position: absolute; right: 10px; bottom: 4px;
@@ -332,6 +355,7 @@ body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .kit-next.is-ready { animation: none; }
   .kit-box.is-shaking { animation: none; }
+  .kit-fx-wave, .kit-fx-shiver, .kit-fx-drift, .kit-fx-throb, .kit-fx-rainbow { animation: none; }
   #chapter.is-in .kit-card, #toast.is-in { animation: none; }
 }
 
@@ -1470,10 +1494,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   });
   KIT.defineRegistry('systems', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Per-tick systems: { id, order, update(world, dt), onMapEnter, onMapLeave }.' });
   KIT.defineRegistry('scenes', { fields: named, doc: 'Scene factories: { id, create(params) -> scene }.' });
-  // What somebody SOUNDS like while their words appear. Undertale, OMORI, Animal
-  // Crossing and Deltarune all do this and it is most of what gives a character a
-  // voice without recording one. A speaker's is `cast[who].voice`; the say
-  // command can override it; a project default covers everyone else.
+  // A VOICE: everything about how somebody's words arrive.
+  //
+  // Not just the blip. Undertale's "character voice" is a numbered preset that
+  // bundles font, colour, typing speed, letter shake and blip sound together —
+  // there are 114 of them hardcoded in a 310-line if-chain, and switching one
+  // mid-line (`\TX`) is what gives Sans and Papyrus their voices. The bundle is
+  // the right idea; 114 hardcoded presets is not. So it is one asset here, and
+  // `{voice:sans}` inside a line switches all of it at once.
+  //
+  // Every appearance field is nullable, and null means "the box decides". A
+  // voice that only sets a pitch stays a voice that only sets a pitch.
+  //
+  // A speaker's is `cast[who].voice`; the say command can override it; a project
+  // default covers everyone else.
   KIT.defineRegistry('voices', { fields: named.concat([
     { key: 'sound', type: 'ref:sound', nullable: true, default: 'blip', doc: 'The sound played as the letters appear. Empty is a silent speaker.' },
     { key: 'pitch', type: 'number', min: 0.2, max: 4, default: 1, doc: 'Lower is bigger and slower' },
@@ -1482,7 +1516,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { key: 'volume', type: 'number', min: 0, max: 1, default: 0.5 },
     { key: 'rate', type: 'number', min: 0.25, max: 4, default: 1, doc: 'How fast each blip plays' },
     { key: 'skipPunctuation', type: 'bool', default: true, doc: 'Spaces and commas stay silent' },
-  ]), doc: 'A speaking voice: { id, sound, pitch, jitter, everyChars, volume, rate }.' });
+    // ---- and what the words LOOK like while they arrive ----
+    { key: 'font', type: 'string', nullable: true, default: null, label: 'Font',
+      doc: 'A font family, the way CSS writes one. Empty keeps the box\'s own.' },
+    { key: 'color', type: 'color', nullable: true, default: null, label: 'Colour',
+      doc: 'Empty keeps the box\'s own.' },
+    { key: 'size', type: 'enum', options: ['normal', 'small', 'big'], default: 'normal' },
+    { key: 'speed', type: 'number', nullable: true, min: 1, max: 400, default: null, label: 'Letters a second',
+      doc: 'Empty follows the player\'s text-speed setting, which is the kind thing to do. Set it only when the pace IS the character.' },
+    { key: 'fx', type: 'ref:textEffect', nullable: true, default: null, label: 'Effect',
+      doc: 'An effect on every letter this voice speaks — wave, shiver, drift.' },
+    { key: 'fxAmount', type: 'number', min: 0, max: 8, default: 1, label: 'How much' },
+  ]), doc: 'How somebody sounds AND looks while speaking: { id, sound, pitch, …, font, color, speed, fx }.' });
   KIT.registry('voices').addAll([
     { id: 'default', name: 'Voice', sound: 'blip', pitch: 1, everyChars: 2 },
     { id: 'low', name: 'Low voice', sound: 'blip', pitch: 0.62, everyChars: 3, rate: 0.85 },
@@ -1490,6 +1535,27 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'soft', name: 'Soft voice', sound: 'blip', pitch: 1.15, everyChars: 3, volume: 0.3, jitter: 0.12 },
     { id: 'flat', name: 'Flat voice', sound: 'blip', pitch: 1, everyChars: 2, jitter: 0, volume: 0.4 },
     { id: 'none', name: 'Silent', sound: null, pitch: 1, everyChars: 12, volume: 0 },
+  ]);
+  // What a letter DOES while it sits there. Undertale drives all of this from a
+  // single numeric `shake` whose meaning changes at 39 — below that it is a
+  // jitter magnitude, at 39-43 it hijacks the writer's own velocity to make
+  // letters fly. A magic-number-overloaded scalar doing the job of an effects
+  // system is exactly the thing to replace with names.
+  //
+  // An effect is a CSS animation applied per letter, with a phase offset per
+  // letter so a wave is a wave and not a twitch. `perChar: false` means the run
+  // animates as one piece, which is cheaper and right for a slow drift.
+  KIT.defineRegistry('textEffects', { fields: named.concat([
+    { key: 'css', type: 'string', default: '', doc: 'The class put on each letter (or on the run).' },
+    { key: 'perChar', type: 'bool', default: true, doc: 'One element per letter, each a little later than the last.' },
+    { key: 'stagger', type: 'number', min: 0, max: 400, default: 60, doc: 'Milliseconds between one letter and the next.' },
+  ]), doc: 'A per-letter text effect: { id, css, perChar, stagger }.' });
+  KIT.registry('textEffects').addAll([
+    { id: 'wave', name: 'Wave', css: 'kit-fx-wave', perChar: true, stagger: 70 },
+    { id: 'shiver', name: 'Shiver', css: 'kit-fx-shiver', perChar: true, stagger: 37 },
+    { id: 'drift', name: 'Drift', css: 'kit-fx-drift', perChar: false, stagger: 0 },
+    { id: 'throb', name: 'Throb', css: 'kit-fx-throb', perChar: false, stagger: 0 },
+    { id: 'rainbow', name: 'Rainbow', css: 'kit-fx-rainbow', perChar: true, stagger: 55 },
   ]);
   KIT.defineRegistry('menus', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Pause-menu entries: { id, label, icon, order, open(game) }.' });
   KIT.defineRegistry('editorPanels', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Creator Mode side panels: { id, label, icon, order, mount(el, editor) }.' });
@@ -1507,6 +1573,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   S.registryRefKind('icon', 'icons');
   S.registryRefKind('sound', 'sounds');
   S.registryRefKind('voice', 'voices');
+  S.registryRefKind('textEffect', 'textEffects');
   S.registryRefKind('music', 'music');
   S.registryRefKind('preset', 'presets');
   S.projectRefKind('map', 'maps');
@@ -5939,6 +6006,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * @property {string} text
    * @property {string} [color]   from {color:x}
    * @property {string} [size]    from {size:big}
+   * @property {string} [voice]   from {voice:x} — a voices id; the box reads font/colour/speed/blip off it
+   * @property {string} [fx]      from {fx:wave} — a textEffects id
+   * @property {number} [fxAmount] from {fx:wave,2}
    */
   /**
    * @typedef {{type:'pause', ms:number|null}|{type:'wait'}|{type:'speed', mode:'fast'|'instant'}|{type:'icon', id:string}|{type:'break'}|{type:'shake'}} CodeSpan
@@ -6080,9 +6150,19 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /** tokenize(str) -> Span[]. Unknown codes stay literal text; {{ and }} become literal braces. */
   T.tokenize = function (str) {
     const spans = [];
-    const colors = [], sizes = [];
+    const colors = [], sizes = [], voices = [], fx = [];
     let buf = '';
-    const style = () => { const s = {}; if (colors.length) s.color = colors[colors.length - 1]; if (sizes.length) s.size = sizes[sizes.length - 1]; return s; };
+    const top = (a) => (a.length ? a[a.length - 1] : null);
+    const style = () => {
+      const s = {};
+      if (colors.length) s.color = top(colors);
+      if (sizes.length) s.size = top(sizes);
+      // {voice:sans} carries the whole bundle — font, colour, speed, blip — so a
+      // span only has to remember whose it is and the box looks the rest up.
+      if (voices.length) s.voice = top(voices);
+      if (fx.length) { const f = top(fx); s.fx = f.id; if (f.amount != null) s.fxAmount = f.amount; }
+      return s;
+    };
     const flush = () => { if (buf) { spans.push(Object.assign({ type: 'text', text: buf }, style())); buf = ''; } };
     const s = str === null || str === undefined ? '' : String(str);
     let last = 0, m;
@@ -6104,6 +6184,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         case '/color': flush(); colors.pop(); break;
         case 'size': flush(); sizes.push(arg || ''); break;
         case '/size': flush(); sizes.pop(); break;
+        case 'voice': flush(); voices.push(arg || ''); break;
+        case '/voice': flush(); voices.pop(); break;
+        // {fx:wave} or {fx:wave,2} — the amount is optional and the name is not.
+        case 'fx': {
+          flush();
+          const bits = String(arg || '').split(',');
+          const amount = bits.length > 1 && Number.isFinite(Number(bits[1])) ? Number(bits[1]) : null;
+          fx.push({ id: (bits[0] || '').trim(), amount });
+          break;
+        }
+        case '/fx': flush(); fx.pop(); break;
         default: buf += tok; // not a code: keep it literally
       }
     }
@@ -6121,8 +6212,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- wrapping --------------------------------------------------------------
 
-  const sameStyle = (a, b) => (a.color || '') === (b.color || '') && (a.size || '') === (b.size || '');
-  const styleOf = (sp) => { const s = {}; if (sp.color) s.color = sp.color; if (sp.size) s.size = sp.size; return s; };
+  const sameStyle = (a, b) => (a.color || '') === (b.color || '') && (a.size || '') === (b.size || '')
+    && (a.voice || '') === (b.voice || '') && (a.fx || '') === (b.fx || '') && (a.fxAmount || 0) === (b.fxAmount || 0);
+  const styleOf = (sp) => {
+    const s = {};
+    if (sp.color) s.color = sp.color;
+    if (sp.size) s.size = sp.size;
+    if (sp.voice) s.voice = sp.voice;
+    if (sp.fx) { s.fx = sp.fx; if (sp.fxAmount != null) s.fxAmount = sp.fxAmount; }
+    return s;
+  };
 
   /** wrap(spans, layout) -> lines (Span[][]). Breaks at spaces, splits words longer than the width, drops leading/trailing spaces per line. */
   T.wrap = function (spans, layout) {
@@ -15521,7 +15620,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //
 // Everything a message can contain comes from KIT.text: the wrap/paginate pass
 // uses the real font metrics of the box, and the typewriter walks the spans so
-// {pause}, {wait}, {fast}, {color:…}, {icon:…} and {shake} all work.
+// {pause}, {wait}, {fast}, {color:…}, {icon:…}, {shake}, {voice:…} and {fx:…}
+// all work.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const UI = KIT.ui;
@@ -15548,6 +15648,56 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return (id && reg.get(id)) || reg.get('default') || null;
   }
   const SILENT = /[\s.,;:!?'"\-—–()\[\]]/;
+
+  /** effectFor(id) -> the textEffects definition, or null. */
+  function effectFor(id) {
+    const reg = KIT.registry.exists('textEffects') ? KIT.registry('textEffects') : null;
+    return (reg && id && reg.get(id)) || null;
+  }
+
+  /**
+   * dress(el, voice) — put a voice's LOOK on an element.
+   *
+   * Every field is nullable and null means "leave the box alone", so a voice
+   * that only changes the blip changes only the blip. This is the half of
+   * Undertale's typer preset that is not sound: the font and colour are what
+   * make Sans look like Sans before he has said anything.
+   */
+  function dress(el, voice) {
+    if (!el || !voice) return;
+    if (voice.font) el.style.fontFamily = voice.font;
+    if (voice.color) el.style.color = voice.color;
+    if (voice.size === 'big') el.classList.add('is-big');
+    else if (voice.size === 'small') el.classList.add('is-small');
+  }
+
+  /**
+   * effected(text, fxId, amount) -> an element holding `text`, animated.
+   *
+   * A per-letter effect needs one element per letter, each starting a little
+   * later than the last — that stagger is the whole difference between a wave
+   * and a twitch. The letters all exist from the first frame and are revealed
+   * by `visibility`, so the wave does not shift as the line types itself.
+   */
+  function effected(text, fxId, amount) {
+    const def = effectFor(fxId);
+    const host = UI.make('span');
+    if (!def || !def.css) { host.textContent = ''; return { el: host, chars: null }; }
+    host.style.setProperty('--kit-fx', amount == null ? 1 : amount);
+    if (def.perChar === false) { host.classList.add(def.css); return { el: host, chars: null }; }
+    const chars = [];
+    const stagger = def.stagger == null ? 60 : def.stagger;
+    Array.from(text).forEach((ch, i) => {
+      const c = UI.make('span.kit-char');
+      c.classList.add(def.css);
+      c.textContent = ch;
+      c.style.animationDelay = (i * stagger) + 'ms';
+      c.style.visibility = 'hidden';
+      host.appendChild(c);
+      chars.push(c);
+    });
+    return { el: host, chars };
+  }
 
   /** A measuring context that uses the element's real font, so wrapping matches what you see. */
   let measureCtx = null;
@@ -15617,11 +15767,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const lineEl = UI.make('div.kit-line');
           for (const span of line) {
             if (span.type === 'text') {
-              const el = UI.make('span');
-              if (span.color) el.style.color = span.color;
+              // The span's own voice wins over the line's, so `{voice:sans}`
+              // inside a sentence changes font, colour, pace and blip at once —
+              // which is the whole trick behind a character having a voice.
+              const spanVoice = span.voice ? voiceFor(span.voice) : voice;
+              const fx = span.fx || (spanVoice && spanVoice.fx) || null;
+              const amount = span.fxAmount != null ? span.fxAmount : (spanVoice && spanVoice.fxAmount);
+              let el, chars = null;
+              if (fx) { const made = effected(span.text, fx, amount); el = made.el; chars = made.chars; }
+              else el = UI.make('span');
+              dress(el, spanVoice);
+              if (span.color) el.style.color = span.color;          // an explicit {color:} beats the voice
               if (span.size === 'big') el.classList.add('is-big');
               lineEl.appendChild(el);
-              units.push({ type: 'text', el, text: span.text });
+              units.push({ type: 'text', el, chars, text: span.text, voice: spanVoice });
             } else if (span.type === 'icon') {
               const art = faceArt(span.id);
               const el = UI.make('span.kit-icon');
@@ -15645,7 +15804,19 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
        * that wanders a little so it is a person and not a printer. Punctuation
        * and spaces stay silent, which is what stops it sounding like Morse.
        */
-      function speak(chars) {
+      /**
+       * reveal(unit, n) — show the first n letters. A plain run grows its
+       * textContent; a run with a per-letter effect already holds every letter
+       * and just stops hiding them, so the animation does not jump as the line
+       * types itself.
+       */
+      function reveal(u, n) {
+        if (u.chars) { for (let i = 0; i < u.chars.length; i++) u.chars[i].style.visibility = i < n ? 'visible' : 'hidden'; }
+        else u.el.textContent = u.text.slice(0, n);
+      }
+
+      function speak(chars, v) {
+        const voice = v;
         if (!voice || !voice.sound || !chars) return;
         const every = Math.max(1, voice.everyChars || 2);
         for (const ch of chars) {
@@ -15666,7 +15837,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       function revealAll() {
         for (let i = unitIndex; i < units.length; i++) {
           const u = units[i];
-          if (u.type === 'text') u.el.textContent = u.text;
+          if (u.type === 'text') reveal(u, u.text.length);
           if (u.type === 'icon') u.el.style.visibility = 'visible';
           if (u.type === 'shake' && ui.box) shakeBox();
         }
@@ -15696,6 +15867,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           ui.host.setAttribute('data-bg', p.bg || 'window');
           ui.name.textContent = p.who || '';
           ui.name.hidden = !p.who;
+          ui.name.removeAttribute('style');
+          ui.name.classList.remove('is-big', 'is-small');
           ui.face.innerHTML = '';
           ui.face.hidden = !p.face;
           if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), 3));
@@ -15703,6 +15876,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           // are in the cast, else whatever this line asked for, else the game's.
           voice = voiceFor(p.voice);
           sinceBlip = 0;
+          if (p.voice) dress(ui.name, voice);      // so the name looks like the person saying it
           const rendered = KIT.text.render(p.text == null ? '' : p.text, p.ctx || {}, layoutFor(ui.text));
           pages = rendered[0].pages;
           pageIndex = 0;
@@ -15719,7 +15893,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         update(dt) {
           if (complete || waiting || !units.length) return;
           if (pauseLeft > 0) { pauseLeft -= dt * 1000; return; }
-          const cps = charsPerSecond() * speed;
+          // The run being typed sets the pace, if its voice asks to. A voice
+          // with no speed of its own follows the player's setting, which is the
+          // kind default — somebody who needs text slow should get it slow.
+          const here = units[unitIndex];
+          const own = here && here.voice && here.voice.speed;
+          const base = own ? Number(here.voice.speed) : charsPerSecond();
+          const cps = (instant() ? 0 : base) * speed;
           if (cps <= 0) { revealAll(); return; }
           acc += dt * cps;
           let budget = Math.floor(acc);
@@ -15732,8 +15912,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
               const take = Math.min(left, budget);
               const from = charIndex;
               charIndex += take; budget -= take;
-              u.el.textContent = u.text.slice(0, charIndex);
-              speak(u.text.slice(from, charIndex));
+              reveal(u, charIndex);
+              speak(u.text.slice(from, charIndex), u.voice);
               if (charIndex >= u.text.length) { unitIndex++; charIndex = 0; }
             } else if (u.type === 'icon') { u.el.style.visibility = 'visible'; unitIndex++; }
             else if (u.type === 'pause') { pauseLeft = u.ms; unitIndex++; break; }

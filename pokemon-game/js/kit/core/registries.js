@@ -44,10 +44,20 @@
   });
   KIT.defineRegistry('systems', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Per-tick systems: { id, order, update(world, dt), onMapEnter, onMapLeave }.' });
   KIT.defineRegistry('scenes', { fields: named, doc: 'Scene factories: { id, create(params) -> scene }.' });
-  // What somebody SOUNDS like while their words appear. Undertale, OMORI, Animal
-  // Crossing and Deltarune all do this and it is most of what gives a character a
-  // voice without recording one. A speaker's is `cast[who].voice`; the say
-  // command can override it; a project default covers everyone else.
+  // A VOICE: everything about how somebody's words arrive.
+  //
+  // Not just the blip. Undertale's "character voice" is a numbered preset that
+  // bundles font, colour, typing speed, letter shake and blip sound together —
+  // there are 114 of them hardcoded in a 310-line if-chain, and switching one
+  // mid-line (`\TX`) is what gives Sans and Papyrus their voices. The bundle is
+  // the right idea; 114 hardcoded presets is not. So it is one asset here, and
+  // `{voice:sans}` inside a line switches all of it at once.
+  //
+  // Every appearance field is nullable, and null means "the box decides". A
+  // voice that only sets a pitch stays a voice that only sets a pitch.
+  //
+  // A speaker's is `cast[who].voice`; the say command can override it; a project
+  // default covers everyone else.
   KIT.defineRegistry('voices', { fields: named.concat([
     { key: 'sound', type: 'ref:sound', nullable: true, default: 'blip', doc: 'The sound played as the letters appear. Empty is a silent speaker.' },
     { key: 'pitch', type: 'number', min: 0.2, max: 4, default: 1, doc: 'Lower is bigger and slower' },
@@ -56,7 +66,18 @@
     { key: 'volume', type: 'number', min: 0, max: 1, default: 0.5 },
     { key: 'rate', type: 'number', min: 0.25, max: 4, default: 1, doc: 'How fast each blip plays' },
     { key: 'skipPunctuation', type: 'bool', default: true, doc: 'Spaces and commas stay silent' },
-  ]), doc: 'A speaking voice: { id, sound, pitch, jitter, everyChars, volume, rate }.' });
+    // ---- and what the words LOOK like while they arrive ----
+    { key: 'font', type: 'string', nullable: true, default: null, label: 'Font',
+      doc: 'A font family, the way CSS writes one. Empty keeps the box\'s own.' },
+    { key: 'color', type: 'color', nullable: true, default: null, label: 'Colour',
+      doc: 'Empty keeps the box\'s own.' },
+    { key: 'size', type: 'enum', options: ['normal', 'small', 'big'], default: 'normal' },
+    { key: 'speed', type: 'number', nullable: true, min: 1, max: 400, default: null, label: 'Letters a second',
+      doc: 'Empty follows the player\'s text-speed setting, which is the kind thing to do. Set it only when the pace IS the character.' },
+    { key: 'fx', type: 'ref:textEffect', nullable: true, default: null, label: 'Effect',
+      doc: 'An effect on every letter this voice speaks — wave, shiver, drift.' },
+    { key: 'fxAmount', type: 'number', min: 0, max: 8, default: 1, label: 'How much' },
+  ]), doc: 'How somebody sounds AND looks while speaking: { id, sound, pitch, …, font, color, speed, fx }.' });
   KIT.registry('voices').addAll([
     { id: 'default', name: 'Voice', sound: 'blip', pitch: 1, everyChars: 2 },
     { id: 'low', name: 'Low voice', sound: 'blip', pitch: 0.62, everyChars: 3, rate: 0.85 },
@@ -64,6 +85,27 @@
     { id: 'soft', name: 'Soft voice', sound: 'blip', pitch: 1.15, everyChars: 3, volume: 0.3, jitter: 0.12 },
     { id: 'flat', name: 'Flat voice', sound: 'blip', pitch: 1, everyChars: 2, jitter: 0, volume: 0.4 },
     { id: 'none', name: 'Silent', sound: null, pitch: 1, everyChars: 12, volume: 0 },
+  ]);
+  // What a letter DOES while it sits there. Undertale drives all of this from a
+  // single numeric `shake` whose meaning changes at 39 — below that it is a
+  // jitter magnitude, at 39-43 it hijacks the writer's own velocity to make
+  // letters fly. A magic-number-overloaded scalar doing the job of an effects
+  // system is exactly the thing to replace with names.
+  //
+  // An effect is a CSS animation applied per letter, with a phase offset per
+  // letter so a wave is a wave and not a twitch. `perChar: false` means the run
+  // animates as one piece, which is cheaper and right for a slow drift.
+  KIT.defineRegistry('textEffects', { fields: named.concat([
+    { key: 'css', type: 'string', default: '', doc: 'The class put on each letter (or on the run).' },
+    { key: 'perChar', type: 'bool', default: true, doc: 'One element per letter, each a little later than the last.' },
+    { key: 'stagger', type: 'number', min: 0, max: 400, default: 60, doc: 'Milliseconds between one letter and the next.' },
+  ]), doc: 'A per-letter text effect: { id, css, perChar, stagger }.' });
+  KIT.registry('textEffects').addAll([
+    { id: 'wave', name: 'Wave', css: 'kit-fx-wave', perChar: true, stagger: 70 },
+    { id: 'shiver', name: 'Shiver', css: 'kit-fx-shiver', perChar: true, stagger: 37 },
+    { id: 'drift', name: 'Drift', css: 'kit-fx-drift', perChar: false, stagger: 0 },
+    { id: 'throb', name: 'Throb', css: 'kit-fx-throb', perChar: false, stagger: 0 },
+    { id: 'rainbow', name: 'Rainbow', css: 'kit-fx-rainbow', perChar: true, stagger: 55 },
   ]);
   KIT.defineRegistry('menus', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Pause-menu entries: { id, label, icon, order, open(game) }.' });
   KIT.defineRegistry('editorPanels', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Creator Mode side panels: { id, label, icon, order, mount(el, editor) }.' });
@@ -81,6 +123,7 @@
   S.registryRefKind('icon', 'icons');
   S.registryRefKind('sound', 'sounds');
   S.registryRefKind('voice', 'voices');
+  S.registryRefKind('textEffect', 'textEffects');
   S.registryRefKind('music', 'music');
   S.registryRefKind('preset', 'presets');
   S.projectRefKind('map', 'maps');

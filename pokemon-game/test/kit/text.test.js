@@ -111,3 +111,98 @@ test('KIT.script.values: format/parse/tokenize round trips', () => {
   assert.equal(V.format('word', { bare: V.WORD }), 'word');
   assert.equal(V.format('obj:mom', { bare: V.WORD }), '"obj:mom"');
 });
+
+// ---- voices and effects: the Undertale bundle ------------------------------
+// Undertale's "character voice" is a numbered preset carrying font, colour,
+// speed, shake and blip together, and switching one mid-line is what gives Sans
+// and Papyrus their voices. There are 114 of them in a 310-line if-chain. Here
+// it is one asset and one code.
+
+test('text: {voice:x} marks a run without disturbing anything around it', () => {
+  const spans = KIT.text.tokenize('hi {voice:sans}there{/voice} you');
+  assert.deepEqual(spans, [
+    { type: 'text', text: 'hi ' },
+    { type: 'text', text: 'there', voice: 'sans' },
+    { type: 'text', text: ' you' },
+  ]);
+});
+
+test('text: voices nest and pop back to the one outside', () => {
+  const spans = KIT.text.tokenize('{voice:a}one{voice:b}two{/voice}three{/voice}');
+  assert.deepEqual(spans.map(s => [s.text, s.voice]), [['one', 'a'], ['two', 'b'], ['three', 'a']]);
+});
+
+test('text: {fx:name} and {fx:name,amount} both read', () => {
+  const plain = KIT.text.tokenize('{fx:wave}up{/fx}');
+  assert.deepEqual(plain, [{ type: 'text', text: 'up', fx: 'wave' }]);
+  const loud = KIT.text.tokenize('{fx:shiver,3}brr{/fx}');
+  assert.deepEqual(loud, [{ type: 'text', text: 'brr', fx: 'shiver', fxAmount: 3 }]);
+});
+
+test('text: an effect and a voice stack independently', () => {
+  const spans = KIT.text.tokenize('{voice:sans}a{fx:wave}b{/fx}c{/voice}');
+  assert.deepEqual(spans.map(s => [s.text, s.voice, s.fx]), [
+    ['a', 'sans', undefined], ['b', 'sans', 'wave'], ['c', 'sans', undefined],
+  ]);
+});
+
+test('text: a voice or an effect survives wrapping, and never merges with a run that lacks it', () => {
+  const spans = KIT.text.tokenize('aaa {voice:sans}bbb{/voice} ccc');
+  const lines = KIT.text.wrap(spans, { width: 100 });
+  const runs = lines[0].filter(s => s.type === 'text');
+  assert.equal(runs.length, 3, 'three runs, not one merged blob');
+  assert.equal(runs[1].voice, 'sans');
+  assert.equal(runs[0].voice, undefined);
+});
+
+test('text: wrapping a long effected run keeps the effect on every piece of it', () => {
+  const spans = KIT.text.tokenize('{fx:wave}one two three four five six{/fx}');
+  const lines = KIT.text.wrap(spans, { width: 12 });
+  assert.ok(lines.length > 1, 'it really did wrap');
+  for (const line of lines) for (const sp of line) if (sp.type === 'text') assert.equal(sp.fx, 'wave');
+});
+
+test('text: strip and plain ignore voices and effects, so a summary is still words', () => {
+  assert.equal(KIT.text.strip('{voice:sans}hello {fx:wave,2}there{/fx}{/voice}'), 'hello there');
+  assert.equal(KIT.text.plain('{voice:sans}hi {p1}{/voice}', { heroes: [{ id: 'p1', name: 'Ren' }] }), 'hi Ren');
+});
+
+test('text: an unknown code is still left alone, voices and all', () => {
+  assert.deepEqual(KIT.text.tokenize('{voiceover:x}hm'), [{ type: 'text', text: '{voiceover:x}hm' }]);
+});
+
+test('text: a stray {/voice} or {/fx} does not throw or corrupt the run', () => {
+  assert.deepEqual(KIT.text.tokenize('{/voice}{/fx}plain'), [{ type: 'text', text: 'plain' }]);
+});
+
+test('voices: a voice carries the whole bundle, and every look field may be empty', () => {
+  const reg = KIT.registry('voices');
+  const d = reg.get('default');
+  for (const k of ['sound', 'pitch', 'jitter', 'everyChars', 'volume', 'rate', 'skipPunctuation',
+                   'font', 'color', 'size', 'speed', 'fx', 'fxAmount']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(d, k), `a voice declares ${k}`);
+  }
+  assert.equal(d.font, null, 'and a plain voice leaves the box alone');
+  assert.equal(d.color, null);
+  assert.equal(d.speed, null, 'no speed means the player\'s own text-speed setting wins');
+});
+
+test('voices: a full speaker style validates', () => {
+  const reg = KIT.registry('voices');
+  reg.add({ id: 'test-sans', name: 'Sans', sound: 'blip', pitch: 0.55, everyChars: 2,
+            font: '"Comic Sans MS", cursive', color: '#dfe7f5', size: 'normal', speed: 18, fx: 'drift', fxAmount: 1 });
+  const v = reg.get('test-sans');
+  assert.equal(v.font, '"Comic Sans MS", cursive');
+  assert.equal(v.speed, 18);
+  assert.equal(v.fx, 'drift');
+});
+
+test('textEffects: the shipped effects are named, not magic numbers', () => {
+  const reg = KIT.registry('textEffects');
+  for (const id of ['wave', 'shiver', 'drift', 'throb', 'rainbow']) {
+    assert.ok(reg.has(id), `ships ${id}`);
+    assert.ok(reg.get(id).css, `${id} has a class`);
+  }
+  assert.equal(reg.get('wave').perChar, true, 'a wave travels along the word');
+  assert.equal(reg.get('drift').perChar, false, 'a drift moves the whole run as one');
+});
