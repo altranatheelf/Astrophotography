@@ -238,6 +238,40 @@ line, a French player saw the wrong sentence); and the battle's text band was
 computed from one font size while the writer drew at another, so a long line
 landed on top of the arena.
 
+## 5b. Measured against a plan instead of a product
+
+The other comparison worth making is against a *design document* rather than a
+shipped tool — a large, coherent, never-built plan for a 2D RPG engine with five
+primitives. A plan has one enormous advantage: nothing in it was shaped by what
+was easy to implement. Four things it does that this repo did not, all cheap,
+all now here:
+
+- **A thesis**, not a comparison. One sentence naming what the engine IS, so it
+  can say what to refuse. See the top of this document's sibling.
+- **An interaction matrix.** Every pair of primitives with a stated default. The
+  plan's is a table nobody can run; `test/kit/interactions.test.js` is 26 tests.
+- **Decisions as artifacts** with what they ruled out — `docs/decisions/`.
+- **De-risking before architecting**, with thresholds set first —
+  `npm run experiments`. Every other number in this document was measured after
+  the thing was built, which makes it a discovery rather than a decision.
+
+And one primitive taken outright: a run that remembers what you did (§ADR-0011).
+Its design diverges from the plan's on purpose — an unbounded log in a database
+is right for a database, and a save here is one JSON document, so it is a
+permanent tally plus a bounded window instead.
+
+**What the plan has that this still does not:** rules as first-class entities
+that events can rewrite, and time-tree saves where branches form a navigable
+DAG. Both are real ideas and neither is here. The plan's own review calls the
+time-tree its thesis and the rules system the most expensive thing to get right.
+
+**And what this has that the plan does not:** it exists. The plan is eighteen
+months old with zero lines of code and its own estimate of shipping engine,
+editor and a prologue together is 30–35%. That is not a small difference, and it
+is the one thing a document cannot fix about itself.
+
+---
+
 ## 6. What the audit found in its own work
 
 The audit was run twice: once on the engine, then again after a week of fixes.
