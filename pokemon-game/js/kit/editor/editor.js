@@ -105,6 +105,24 @@
     strokeDepth = 0;
     if (state.doc.end) state.doc.end();
   };
+  /**
+   * abortStroke() — end the stroke in progress and take back whatever it drew.
+   *
+   * A second finger landing means the person meant a gesture, not a mark. But
+   * fingers do not land at the same millisecond, so the first one has usually
+   * already painted something. This undoes exactly that and nothing else: the
+   * document only records a step if the stroke actually changed something, so
+   * an empty stroke costs nothing and a real one is reverted without touching
+   * the undo the gesture is about to ask for.
+   */
+  ED.abortStroke = function () {
+    if (strokeDepth === 0) return false;
+    const before = state.doc.history.length;
+    strokeDepth = 1;
+    ED.endStroke();
+    if (state.doc.history.length > before) { state.doc.undo(); afterDocument('undo'); return true; }
+    return false;
+  };
   ED.undo = function () { if (state.doc.undo()) afterDocument('undo'); };
   ED.redo = function () { if (state.doc.redo()) afterDocument('redo'); };
 
@@ -270,17 +288,65 @@
 
   // ---- pointer ------------------------------------------------------------------
   let drawing = false, panning = null, pinch = null;
+
+  // Finger count is the modifier key of touch, and the answer is already
+  // settled: Procreate and Nomad Sculpt arrived at two-finger-tap = undo,
+  // three-finger-tap = redo independently, and every tablet artist already knows
+  // it. Deviating would cost something and buy nothing — and unlike a toolbar
+  // button, this takes no screen space at all, which on a phone is the whole
+  // game. Godot's own Android editor documentation tells you to bring a
+  // Bluetooth keyboard and mouse instead.
+  const GESTURE_MS = 450;          // longer than this and it was a hold, not a tap
+  const GESTURE_SLOP = 26;         // moved further than this and it was a pan
+  const touches = new Map();       // pointerId -> { x, y }
+  let gesture = null;              // { fingers, start, moved }
+
+  function gestureDown(ev) {
+    touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (touches.size < 2) return false;
+    if (drawing) { drawing = false; ED.abortStroke(); }
+    if (!gesture) gesture = { fingers: 0, start: nowMs(), moved: false };
+    gesture.fingers = Math.max(gesture.fingers, touches.size);
+    return true;
+  }
+  function gestureMove(ev) {
+    const t = touches.get(ev.pointerId);
+    if (!t || !gesture) return;
+    if (Math.abs(ev.clientX - t.x) > GESTURE_SLOP || Math.abs(ev.clientY - t.y) > GESTURE_SLOP) gesture.moved = true;
+  }
+  function gestureUp(ev) {
+    if (!touches.has(ev.pointerId)) return false;
+    touches.delete(ev.pointerId);
+    if (!gesture) return false;
+    if (touches.size > 0) return true;              // still lifting fingers
+    const g = gesture;
+    gesture = null;
+    if (g.moved || nowMs() - g.start > GESTURE_MS) return true;
+    if (g.fingers === 2) { ED.undo(); ED.toast('Undo'); }
+    else if (g.fingers >= 3) { ED.redo(); ED.toast('Redo'); }
+    return true;
+  }
+  const nowMs = () => (root.performance && root.performance.now ? root.performance.now() : Date.now());
+  // Capturing a pointer throws if the browser has already forgotten it — which
+  // happens when a finger is lifted between the event firing and this running,
+  // and on any synthetic event. Unguarded, the throw aborts the handler and
+  // leaves `drawing` true with no stroke ever ended, so the next tap paints into
+  // a transaction that is never closed. Capture is an optimisation; losing it is
+  // survivable, and losing the stroke is not.
+  function capture(el, id) { try { el.setPointerCapture(id); } catch (e) { /* it is already gone */ } }
+
   function onPointerDown(ev) {
     if (state.mode !== 'edit') return;
     const el = ED.el.canvas;
     const pt = ED.pointFromEvent(ev);
+    if (ev.pointerType === 'touch' && gestureDown(ev)) { ev.preventDefault(); return; }
     if (ev.pointerType === 'touch' && pinchCandidate(ev)) return;
     // middle button, space, or a second finger pans
-    if (ev.button === 1 || ev.button === 2 || ED.spaceHeld) { panning = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, vx: state.view.x, vy: state.view.y }; el.setPointerCapture(ev.pointerId); ev.preventDefault(); return; }
+    if (ev.button === 1 || ev.button === 2 || ED.spaceHeld) { panning = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, vx: state.view.x, vy: state.view.y }; capture(el, ev.pointerId); ev.preventDefault(); return; }
     const tool = KIT.registry('editorTools').get(state.tool);
     if (!tool) return;
     drawing = true;
-    el.setPointerCapture(ev.pointerId);
+    capture(el, ev.pointerId);
     ED.beginStroke(KIT.labelOf(tool, ED, tool.id));
     try { if (tool.begin) tool.begin(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); }
     state.cursor = { x: pt.tx, y: pt.ty };
@@ -288,6 +354,7 @@
     ev.preventDefault();
   }
   function onPointerMove(ev) {
+    if (ev.pointerType === 'touch') gestureMove(ev);
     const pt = ED.pointFromEvent(ev);
     if (panning && panning.id === ev.pointerId) {
       const px = tilePixels();
@@ -303,6 +370,7 @@
     if (tool && tool.move) { try { tool.move(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); } }
   }
   function onPointerUp(ev) {
+    if (ev.pointerType === 'touch' && gestureUp(ev)) return;
     if (panning && panning.id === ev.pointerId) { panning = null; return; }
     if (!drawing) return;
     drawing = false;
