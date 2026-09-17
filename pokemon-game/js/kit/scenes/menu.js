@@ -136,13 +136,21 @@
 
       async function saveRows(g) {
         const list = await KIT.storage.listGames();
-        return list.map(s => ({
+        const rows = list.map(s => ({
           label: s.slot === 'autosave' ? 'Autosave' : 'Slot ' + s.slot,
           value: s.exists ? when(s.savedAt) : 'empty',
           note: s.exists && s.map ? s.map : '',
           action: 'slot:' + s.slot,
           disabled: s.slot === 'autosave',
-        })).concat([{ label: 'Back', action: 'back' }]);
+        }));
+        // Said out loud, on the screen where it matters, only when it is true.
+        // Safari throws away everything a page stored after seven days without a
+        // visit — silently, with no event to catch — so a player who takes a
+        // fortnight off loses the lot. If the browser has not promised to keep
+        // this game, they deserve to know before they rely on it.
+        const d = KIT.storage.durability ? KIT.storage.durability() : null;
+        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
+        return rows.concat([{ label: 'Back', action: 'back' }]);
       }
       function when(iso) {
         if (!iso) return '';

@@ -403,6 +403,10 @@
     KIT.input.mount(controls, { players: s.coop ? 2 : 1 });
     KIT.input.onPress((ev) => {
       KIT.audio.unlock();
+      // The same gesture that unlocks sound is the one a browser will accept a
+      // storage request on, and Safari throws away everything a script wrote
+      // after seven days away unless it has promised otherwise. Asked once.
+      if (!G._askedToPersist) { G._askedToPersist = true; try { KIT.storage.persist(); } catch (e) { /* ignore */ } }
       KIT.scenes.input(ev);
     });
     root.addEventListener('resize', () => G.resize());

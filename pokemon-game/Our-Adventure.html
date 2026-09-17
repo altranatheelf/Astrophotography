@@ -2774,6 +2774,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     try {
       const AC = root.AudioContext || root.webkitAudioContext;
       if (!AC) return null;
+      // An iPhone's hardware silent switch muted Web Audio — and ONLY Web Audio,
+      // while <audio> and <video> kept playing — from the day the API shipped
+      // until iOS 17. The fix is this one line, which most engines still do not
+      // set, so a large share of iPhone players hear a silent game and assume it
+      // has no sound. Declaring the session 'playback' says "this is the point
+      // of the page", which is true of a game.
+      try {
+        const nav = root.navigator;
+        if (nav && nav.audioSession) nav.audioSession.type = 'playback';
+      } catch (e) { /* not supported here, and that is fine */ }
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = volumes.master; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = volumes.sound; sfxBus.connect(master);
@@ -3650,6 +3660,57 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     await m.ready();
     return m;
   }
+
+  // ---- keeping the save ------------------------------------------------------
+  //
+  // Safari deletes EVERYTHING a script can write — IndexedDB, localStorage,
+  // sessionStorage, Service Worker caches — after seven days without a visit to
+  // the site. No warning, no error, no event. A player who takes a fortnight off
+  // comes back to a game that has forgotten them, and nothing in the page ever
+  // finds out it happened.
+  //
+  // The one thing that exempts a site from that clock is persistent storage. So
+  // we ask for it — after a gesture, because that is when a browser will say yes
+  // — and we record the answer, because a game that CANNOT be promised durable
+  // storage should say so plainly rather than let somebody lose thirty hours.
+  let persisted = null;         // null = not asked yet, then true/false
+
+  /**
+   * persist() -> Promise<bool> — ask the browser to stop evicting this game.
+   * Safari grants it to sites that are bookmarked or on the home screen; Chrome
+   * grants it on engagement. Both refuse silently, so the answer is the point.
+   */
+  S.persist = async function () {
+    if (persisted === true) return true;
+    try {
+      const st = root.navigator && root.navigator.storage;
+      if (!st) { persisted = false; return false; }
+      if (st.persisted) { persisted = await st.persisted(); if (persisted) return true; }
+      if (st.persist) persisted = await st.persist();
+      else persisted = false;
+    } catch (e) { persisted = false; }
+    return persisted;
+  };
+
+  /**
+   * durability() -> { adapter, persisted, safe, note }
+   * What to tell somebody honestly about whether their game will still be here
+   * next month. `safe` is false when the browser has NOT promised to keep it.
+   */
+  S.durability = function () {
+    const name = adapter ? adapter.name : 'unknown';
+    const safe = persisted === true;
+    return {
+      adapter: name,
+      persisted,
+      safe,
+      note: name === 'memory'
+        ? 'This browser blocked storage, so nothing is being saved at all. Save a copy of the game to a file.'
+        : safe
+          ? 'Your browser has promised to keep this game.'
+          : 'Your browser has not promised to keep this. Some browsers clear a site\'s data after a couple of weeks away — keep a copy of the game as a file.',
+    };
+  };
 
   /** ready() -> { adapter } — picks the adapter once and warms the settings/meta caches. */
   S.ready = function () {
@@ -16296,13 +16357,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
       async function saveRows(g) {
         const list = await KIT.storage.listGames();
-        return list.map(s => ({
+        const rows = list.map(s => ({
           label: s.slot === 'autosave' ? 'Autosave' : 'Slot ' + s.slot,
           value: s.exists ? when(s.savedAt) : 'empty',
           note: s.exists && s.map ? s.map : '',
           action: 'slot:' + s.slot,
           disabled: s.slot === 'autosave',
-        })).concat([{ label: 'Back', action: 'back' }]);
+        }));
+        // Said out loud, on the screen where it matters, only when it is true.
+        // Safari throws away everything a page stored after seven days without a
+        // visit — silently, with no event to catch — so a player who takes a
+        // fortnight off loses the lot. If the browser has not promised to keep
+        // this game, they deserve to know before they rely on it.
+        const d = KIT.storage.durability ? KIT.storage.durability() : null;
+        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
+        return rows.concat([{ label: 'Back', action: 'back' }]);
       }
       function when(iso) {
         if (!iso) return '';
@@ -17024,6 +17093,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     KIT.input.mount(controls, { players: s.coop ? 2 : 1 });
     KIT.input.onPress((ev) => {
       KIT.audio.unlock();
+      // The same gesture that unlocks sound is the one a browser will accept a
+      // storage request on, and Safari throws away everything a script wrote
+      // after seven days away unless it has promised otherwise. Asked once.
+      if (!G._askedToPersist) { G._askedToPersist = true; try { KIT.storage.persist(); } catch (e) { /* ignore */ } }
       KIT.scenes.input(ev);
     });
     root.addEventListener('resize', () => G.resize());

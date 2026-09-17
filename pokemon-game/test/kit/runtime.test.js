@@ -523,3 +523,19 @@ test('input: no gamepad API at all is not an error', () => {
   assert.deepEqual(KIT.input.gamepads(), []);
   assert.doesNotThrow(() => KIT.input.poll(null));
 });
+
+// ---- durability: the browser is allowed to throw your save away -------------
+
+test('storage: durability says honestly whether the game will still be here', () => {
+  const d = KIT.storage.durability();
+  assert.ok(typeof d.adapter === 'string', 'it names the adapter');
+  assert.equal(typeof d.safe, 'boolean');
+  assert.ok(d.note && d.note.length > 20, 'and says something a person can act on');
+  assert.equal(d.safe, d.persisted === true, 'safe means the browser actually promised');
+});
+
+test('storage: asking to persist never throws, even with no Storage API', async () => {
+  const got = await KIT.storage.persist();
+  assert.equal(typeof got, 'boolean', 'a plain answer, not an exception');
+  assert.equal(got, false, 'and in Node there is nothing to promise');
+});

@@ -58,6 +58,16 @@
     try {
       const AC = root.AudioContext || root.webkitAudioContext;
       if (!AC) return null;
+      // An iPhone's hardware silent switch muted Web Audio — and ONLY Web Audio,
+      // while <audio> and <video> kept playing — from the day the API shipped
+      // until iOS 17. The fix is this one line, which most engines still do not
+      // set, so a large share of iPhone players hear a silent game and assume it
+      // has no sound. Declaring the session 'playback' says "this is the point
+      // of the page", which is true of a game.
+      try {
+        const nav = root.navigator;
+        if (nav && nav.audioSession) nav.audioSession.type = 'playback';
+      } catch (e) { /* not supported here, and that is fine */ }
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = volumes.master; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = volumes.sound; sfxBus.connect(master);

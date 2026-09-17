@@ -120,6 +120,57 @@
     return m;
   }
 
+  // ---- keeping the save ------------------------------------------------------
+  //
+  // Safari deletes EVERYTHING a script can write — IndexedDB, localStorage,
+  // sessionStorage, Service Worker caches — after seven days without a visit to
+  // the site. No warning, no error, no event. A player who takes a fortnight off
+  // comes back to a game that has forgotten them, and nothing in the page ever
+  // finds out it happened.
+  //
+  // The one thing that exempts a site from that clock is persistent storage. So
+  // we ask for it — after a gesture, because that is when a browser will say yes
+  // — and we record the answer, because a game that CANNOT be promised durable
+  // storage should say so plainly rather than let somebody lose thirty hours.
+  let persisted = null;         // null = not asked yet, then true/false
+
+  /**
+   * persist() -> Promise<bool> — ask the browser to stop evicting this game.
+   * Safari grants it to sites that are bookmarked or on the home screen; Chrome
+   * grants it on engagement. Both refuse silently, so the answer is the point.
+   */
+  S.persist = async function () {
+    if (persisted === true) return true;
+    try {
+      const st = root.navigator && root.navigator.storage;
+      if (!st) { persisted = false; return false; }
+      if (st.persisted) { persisted = await st.persisted(); if (persisted) return true; }
+      if (st.persist) persisted = await st.persist();
+      else persisted = false;
+    } catch (e) { persisted = false; }
+    return persisted;
+  };
+
+  /**
+   * durability() -> { adapter, persisted, safe, note }
+   * What to tell somebody honestly about whether their game will still be here
+   * next month. `safe` is false when the browser has NOT promised to keep it.
+   */
+  S.durability = function () {
+    const name = adapter ? adapter.name : 'unknown';
+    const safe = persisted === true;
+    return {
+      adapter: name,
+      persisted,
+      safe,
+      note: name === 'memory'
+        ? 'This browser blocked storage, so nothing is being saved at all. Save a copy of the game to a file.'
+        : safe
+          ? 'Your browser has promised to keep this game.'
+          : 'Your browser has not promised to keep this. Some browsers clear a site\'s data after a couple of weeks away — keep a copy of the game as a file.',
+    };
+  };
+
   /** ready() -> { adapter } — picks the adapter once and warms the settings/meta caches. */
   S.ready = function () {
     if (readyPromise) return readyPromise;
