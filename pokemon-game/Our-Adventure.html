@@ -14883,6 +14883,259 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
 </script>
 <script>
+// ---- js/kit/render/text-canvas.js ----
+// Text, on the canvas.
+//
+// The dialogue box is DOM, and that is right for it — real text, selectable,
+// scalable, readable on a phone, and the browser does the hard parts. But a
+// scene that owns the screen has to draw its own words, and an Undertale battle
+// IS its words: `* Smells like a trash can.` sits inside the arena box, FIGHT /
+// ACT / ITEM / MERCY are four labels on the battle surface, damage numbers fly
+// off the enemy, the enemy's name and HP sit above it. None of that is a DOM
+// overlay; all of it is drawn.
+//
+// So this is the same text pipeline, pointed at a 2D context. Deliberately the
+// SAME: KIT.text.tokenize and KIT.text.wrap are already pure and already
+// understand {color:}, {size:}, {voice:} and {fx:}, so a line written for the
+// dialogue box renders in a battle without being rewritten, and an author learns
+// one set of codes rather than two.
+//
+// The effects are better here than in CSS, for one reason: they are a function
+// of a time you pass in, so the same frame draws the same way twice. A recording
+// or a screenshot test gets the same pixels.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const TC = KIT.textCanvas = KIT.textCanvas || {};
+
+  const DEFAULT_FONT = 'system-ui, sans-serif';
+
+  /** The CSS font string for a span, given the base options. */
+  function fontFor(opts, span) {
+    const voice = span && span.voice ? voiceOf(span.voice) : null;
+    const family = (voice && voice.font) || opts.font || DEFAULT_FONT;
+    const scale = sizeScale(span, voice);
+    const px = Math.max(1, Math.round((opts.size || 16) * scale));
+    const weight = opts.weight || 'normal';
+    return `${weight} ${px}px ${family}`;
+  }
+  function sizeScale(span, voice) {
+    const s = (span && span.size) || (voice && voice.size) || 'normal';
+    return s === 'big' ? 1.3 : s === 'small' ? 0.82 : 1;
+  }
+  function voiceOf(id) {
+    const reg = KIT.registry && KIT.registry.exists('voices') ? KIT.registry('voices') : null;
+    return (reg && id && reg.get(id)) || null;
+  }
+  function colorFor(opts, span) {
+    if (span && span.color) return span.color;
+    const voice = span && span.voice ? voiceOf(span.voice) : null;
+    if (voice && voice.color) return voice.color;
+    return opts.color || '#ffffff';
+  }
+
+  /**
+   * offsetFor(fx, amount, index, time) -> { dx, dy, alpha, color }
+   *
+   * The canvas half of the text effects. Same names as the CSS ones so a line
+   * looks the same in a battle as it does in the dialogue box, but computed from
+   * `time` rather than left to an animation clock — so it is deterministic, and
+   * a screenshot taken at t=1000 is the same screenshot every run.
+   */
+  TC.offsetFor = function (fx, amount, index, time) {
+    const a = amount == null ? 1 : amount;
+    const t = time || 0;
+    switch (fx) {
+      case 'wave':
+        return { dx: 0, dy: Math.sin(t / 175 + index * 0.55) * 2.2 * a };
+      case 'shiver': {
+        // Deterministic, not random: the same character at the same moment
+        // jitters the same way, twice.
+        const step = Math.floor(t / 45);
+        return { dx: ((KIT.hash(index, step) % 3) - 1) * a, dy: ((KIT.hash(index + 977, step) % 3) - 1) * a };
+      }
+      case 'drift':
+        return { dx: 0, dy: Math.sin(t / 900) * 1.6 * a };
+      case 'throb':
+        return { dx: 0, dy: 0, alpha: 1 - 0.45 * a * (0.5 - Math.cos(t / 800) * 0.5) };
+      case 'rainbow': {
+        const hue = ((t / 12) + index * 22) % 360;
+        return { dx: 0, dy: 0, color: `hsl(${hue.toFixed(0)}, 78%, 66%)` };
+      }
+      default:
+        return { dx: 0, dy: 0 };
+    }
+  };
+
+  /**
+   * measurer(ctx, opts) -> fn(str) -> width, for KIT.text.wrap.
+   * Measures in the base font, which is what wrapping needs: a {size:big} run is
+   * rare and slightly under-measured, which errs toward a shorter line rather
+   * than one that runs off the edge.
+   */
+  TC.measurer = function (ctx, opts) {
+    const font = fontFor(opts, null);
+    return (s) => { ctx.font = font; return ctx.measureText(s).width; };
+  };
+
+  /**
+   * layout(ctx, str, opts) -> { lines, width, height, chars }
+   *
+   * `lines` is the wrapped span structure; `chars` is the total number of
+   * drawable characters, which is what a typewriter counts against.
+   */
+  TC.layout = function (ctx, str, opts) {
+    opts = opts || {};
+    const spans = KIT.text.tokenize(str == null ? '' : str);
+    const lines = KIT.text.wrap(spans, {
+      width: opts.width == null ? Infinity : opts.width,
+      measure: TC.measurer(ctx, opts),
+    });
+    let chars = 0;
+    for (const line of lines) for (const sp of line) if (sp.type === 'text') chars += Array.from(sp.text).length;
+    const lineHeight = opts.lineHeight || Math.round((opts.size || 16) * 1.45);
+    let width = 0;
+    for (const line of lines) {
+      let w = 0;
+      for (const sp of line) {
+        if (sp.type !== 'text') continue;
+        ctx.font = fontFor(opts, sp);
+        w += ctx.measureText(sp.text).width;
+      }
+      width = Math.max(width, w);
+    }
+    return { lines, width, height: lines.length * lineHeight, chars, lineHeight };
+  };
+
+  /**
+   * draw(ctx, str, x, y, opts) -> the same measurements layout() returns.
+   *
+   * opts: { font, size, color, weight, width, lineHeight, align, time,
+   *         reveal, shadow, baseline }
+   *
+   * `reveal` is how many characters to show — the typewriter, without owning a
+   * clock. `time` drives the effects. A run with no effect is drawn whole in one
+   * fillText; only an effected run pays for per-character positioning.
+   */
+  TC.draw = function (ctx, str, x, y, opts) {
+    opts = opts || {};
+    const m = TC.layout(ctx, str, opts);
+    const time = opts.time || 0;
+    const align = opts.align || 'left';
+    const limit = opts.reveal == null ? Infinity : opts.reveal;
+    let shown = 0;
+
+    ctx.save();
+    ctx.textBaseline = opts.baseline || 'top';
+    ctx.textAlign = 'left';
+    m.lines.forEach((line, li) => {
+      let lineW = 0;
+      if (align !== 'left') {
+        for (const sp of line) {
+          if (sp.type !== 'text') continue;
+          ctx.font = fontFor(opts, sp);
+          lineW += ctx.measureText(sp.text).width;
+        }
+      }
+      let cx = x + (align === 'center' ? -lineW / 2 : align === 'right' ? -lineW : 0);
+      const cy = y + li * m.lineHeight;
+
+      for (const sp of line) {
+        if (sp.type !== 'text' || shown >= limit) continue;
+        const chars = Array.from(sp.text);
+        const take = Math.min(chars.length, limit - shown);
+        const text = chars.slice(0, take).join('');
+        ctx.font = fontFor(opts, sp);
+        const fill = colorFor(opts, sp);
+        const voice = sp.voice ? voiceOf(sp.voice) : null;
+        const fx = sp.fx || (voice && voice.fx) || null;
+        const amount = sp.fxAmount != null ? sp.fxAmount : (voice && voice.fxAmount);
+
+        if (!fx) {
+          if (opts.shadow) { ctx.fillStyle = opts.shadow; ctx.fillText(text, cx + 1, cy + 1); }
+          ctx.fillStyle = fill;
+          ctx.fillText(text, cx, cy);
+          cx += ctx.measureText(text).width;      // what was drawn, not what it would have been
+        } else {
+          // One character at a time, because each one is somewhere different.
+          for (let i = 0; i < take; i++) {
+            const ch = chars[i];
+            const o = TC.offsetFor(fx, amount, shown + i, time);
+            const prevAlpha = ctx.globalAlpha;
+            if (o.alpha != null) ctx.globalAlpha = prevAlpha * o.alpha;
+            if (opts.shadow) { ctx.fillStyle = opts.shadow; ctx.fillText(ch, cx + o.dx + 1, cy + o.dy + 1); }
+            ctx.fillStyle = o.color || fill;
+            ctx.fillText(ch, cx + o.dx, cy + o.dy);
+            ctx.globalAlpha = prevAlpha;
+            cx += ctx.measureText(ch).width;
+          }
+        }
+        shown += take;
+      }
+    });
+    ctx.restore();
+    return m;
+  };
+
+  /**
+   * writer(opts) -> a typewriter that owns its own progress but not its clock.
+   *
+   *   const w = KIT.textCanvas.writer({ width: 280, size: 16 });
+   *   w.say('* Smells like a trash can.');
+   *   // in the scene:  w.update(dt)      and   w.draw(ctx, x, y)
+   *
+   * `update` returns the characters revealed this tick, which is exactly what a
+   * caller needs to play a blip per letter without re-deriving it.
+   */
+  TC.writer = function (opts) {
+    const o = Object.assign({ speed: 30 }, opts || {});
+    let text = '', revealed = 0, total = 0, acc = 0, clock = 0, measured = null;
+    const api = {
+      say(str, over) {
+        text = str == null ? '' : String(str);
+        revealed = 0; acc = 0; measured = null;
+        if (over != null) o.speed = over;
+        return api;
+      },
+      /** update(dt) -> the substring revealed by THIS tick ('' when nothing new). */
+      update(dt) {
+        clock += (dt || 0) * 1000;
+        if (!text || revealed >= total) return '';
+        acc += (dt || 0) * (o.speed || 30);
+        const take = Math.floor(acc);
+        if (take <= 0) return '';
+        acc -= take;
+        const from = revealed;
+        revealed = Math.min(total, revealed + take);
+        return KIT.text.strip(text).slice(from, revealed);
+      },
+      draw(ctx, x, y) {
+        if (measured === null) { measured = TC.layout(ctx, text, o); total = measured.chars; }
+        return TC.draw(ctx, text, x, y, Object.assign({}, o, { reveal: revealed, time: clock }));
+      },
+      /** width(px) — set the wrap width once the frame is known. Re-lays out. */
+      width(px) { if (px && px !== o.width) { o.width = px; measured = null; } return api; },
+      /** size(px) — and the type size, for a scene that scales with the window. */
+      size(px) { if (px && px !== o.size) { o.size = px; o.lineHeight = null; measured = null; } return api; },
+      /** lineHeight() — what a line actually costs, so a caller can reserve room for N of them. */
+      lineHeight() { return o.lineHeight || Math.round((o.size || 16) * 1.45); },
+      skip() { revealed = total; return api; },
+      done() { return total > 0 ? revealed >= total : true; },
+      revealed() { return revealed; },
+      total() { return total; },
+      time() { return clock; },
+    };
+    return api;
+  };
+
+  // The short names a scene actually types.
+  KIT.drawText = TC.draw;
+  KIT.textWriter = TC.writer;
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/kit/render/renderer.js ----
 // KIT.renderer (§8.5): one canvas, drawn from the world every frame.
 //
@@ -36763,6 +37016,7 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const T = () => KIT.text;
 
   let registered = false;
   B.registerAll = function () {
@@ -36802,10 +37056,16 @@ PKMN.TILES.register([
         { key: 'pattern', type: 'enum', options: ['rain', 'sweep', 'hunt', 'ring'], default: 'rain' },
         { key: 'count', type: 'number', integer: true, min: 1, max: 200, default: 16 },
         { key: 'hp', type: 'number', integer: true, min: 1, default: 20 },
+        { key: 'who', type: 'string', default: '', shown: true, label: 'Who you are fighting' },
+        { key: 'says', type: 'text', default: '', label: 'What they say',
+          doc: 'Typed inside the arena while you dodge. Takes the same codes a message does — {color:}, {fx:wave}, {voice:}.' },
         { key: 'onLose', type: 'script', default: [] },
       ],
       async run(ctx, cmd) {
-        const r = await KIT.scenes.run('bullet-fight', { game: KIT.game, pattern: cmd.pattern, count: cmd.count, hp: cmd.hp });
+        const r = await KIT.scenes.run('bullet-fight', {
+          game: KIT.game, pattern: cmd.pattern, count: cmd.count, hp: cmd.hp,
+          who: T().substitute(cmd.who || '', ctx), says: T().substitute(cmd.says || '', ctx),
+        });
         if (r === 'lost' && cmd.onLose && cmd.onLose.length) await ctx.runList(cmd.onLose, ['onLose']);
         return r;
       },
@@ -36821,7 +37081,8 @@ PKMN.TILES.register([
   };
 
   function fightScene() {
-    let game = null, world = null, fight = null, pattern = null, hud = null, self = null;
+    let game = null, world = null, fight = null, pattern = null, self = null;
+    let writer = null, who = '', blipVoice = null;
     const held = { x: 0, y: 0 };
 
     return {
@@ -36841,11 +37102,15 @@ PKMN.TILES.register([
         const make = B.PATTERNS[params.pattern] || B.PATTERNS.rain;
         pattern = make(fight, num(params.count, 16));
         if (world) world.busy = true;
-        hud = buildHud();
+        // What they say, typed inside the arena while you dodge — the thing that
+        // makes this a conversation you are surviving rather than a minigame.
+        who = params.who || '';
+        writer = params.says ? KIT.textWriter({ size: 15, speed: 26, color: '#ffffff', shadow: '#000000', width: 320 }) : null;
+        if (writer) writer.say(params.says);
+        blipVoice = KIT.registry.exists('voices') ? (KIT.registry('voices').get(params.voice || 'default') || null) : null;
       },
       exit() {
         if (world) world.busy = false;
-        if (hud && hud.remove) hud.remove();
       },
       update(dt) {
         if (!fight || fight.over) return;
@@ -36861,7 +37126,14 @@ PKMN.TILES.register([
           if (KIT.fx && KIT.fx.shake) KIT.fx.shake({ power: 4, ms: 180 });
         }
         if (ev.grazed) KIT.audio.play('blip');
-        updateHud();
+        if (writer) {
+          const said = writer.update(dt);
+          if (said && blipVoice && blipVoice.sound) {
+            for (let i = 0; i < said.length; i += Math.max(1, blipVoice.everyChars || 2)) {
+              if (!/\s/.test(said[i])) KIT.audio.play(blipVoice.sound, { pitch: blipVoice.pitch || 1, volume: (blipVoice.volume == null ? 0.5 : blipVoice.volume) * 0.7 });
+            }
+          }
+        }
         if (fight.hp <= 0) { self.finish('lost'); return; }
         if (B.patternDone(fight, pattern)) self.finish('survived');
       },
@@ -36872,12 +37144,38 @@ PKMN.TILES.register([
        */
       draw(ctx, view) {
         if (!fight) return;
-        const px = view.tilePx || 32;
         const b = fight.box;
-        // centre the arena on the screen
+
+        // A battle screen is four bands, top to bottom: who is talking, what
+        // they are saying, the arena, and how much heart is left. Each is given
+        // its room BEFORE the arena is sized, so a long line never lands on top
+        // of the box the way it would if the box were simply centred.
+        const unit = Math.max(11, Math.round(view.H * 0.034));
+        // The writer is told the size FIRST, so the room reserved for it below
+        // and the room it actually takes are the same number. They were not,
+        // and the third line of a long sentence landed on top of the arena.
+        if (writer) writer.size(unit);
+        const lineH = writer ? writer.lineHeight() : Math.round(unit * 1.45);
+        const nameY = Math.round(view.H * 0.06);
+        const sayY = nameY + (who ? Math.round(unit * 1.5) : 0);
+        const SAY_LINES = 3;                                  // the band is fixed, so nothing below it moves
+        const bottom = Math.round(unit * 2.2);                // hearts
+        const top = sayY + (writer ? SAY_LINES * lineH : 0) + Math.round(unit * 0.6);
+        const room = Math.max(unit * 3, view.H - top - bottom - unit);
+        const px = Math.max(8, Math.floor(Math.min((view.W * 0.82) / b.w, room / b.h)));
         const ox = Math.round((view.W - b.w * px) / 2);
-        const oy = Math.round((view.H - b.h * px) / 2);
+        const oy = Math.round(top + (room - b.h * px) / 2);
         const at = (x, y) => [ox + x * px, oy + y * px];
+
+        // who is talking, in their own voice — font, colour and all
+        if (who) {
+          KIT.drawText(ctx, who, ox, nameY, { size: Math.round(unit * 1.05), color: '#ffffff', shadow: '#000000' });
+        }
+        // and what they are saying, typing itself while you dodge
+        if (writer) {
+          writer.width(b.w * px);
+          writer.draw(ctx, ox, sayY);
+        }
 
         // the box
         ctx.strokeStyle = '#ffffff';
@@ -36910,6 +37208,22 @@ PKMN.TILES.register([
           ctx.beginPath(); ctx.arc(sx, sy, s.r * px, 0, Math.PI * 2); ctx.fill();
         }
         ctx.globalAlpha = 1;
+
+        // How much heart is left. A row of them, at most ten wide however deep
+        // the pool is, because twelve is already more than anybody counts — and
+        // the number beside it for anybody who wants the truth.
+        const SLOTS = 10;
+        const heart = Math.max(6, Math.round(unit * 0.62));
+        const gap = Math.max(2, Math.round(heart * 0.35));
+        const hy = oy + b.h * px + Math.round(unit * 0.8);
+        const full = Math.round((fight.hp / Math.max(1, fight.maxHp)) * SLOTS);
+        for (let i = 0; i < SLOTS; i++) {
+          ctx.fillStyle = i < full ? '#ff2d55' : '#3a2030';
+          ctx.fillRect(ox + i * (heart + gap), hy, heart, heart);
+        }
+        KIT.drawText(ctx, `${fight.hp} / ${fight.maxHp}`, ox + SLOTS * (heart + gap) + unit * 0.6, hy - 1, {
+          size: Math.round(unit * 0.8), color: '#ffffff', shadow: '#000000',
+        });
       },
       input(ev) {
         if (!ev || !ev.key) return true;
@@ -36923,28 +37237,6 @@ PKMN.TILES.register([
     };
 
 
-    function buildHud() {
-      if (typeof document === 'undefined') return null;
-      const host = KIT.ui.el('pause-menu');
-      if (!host) return null;
-      KIT.ui.clear(host);
-      host.hidden = false;
-      const box = KIT.ui.make('div.kit-panel.bullet-hud');
-      box.appendChild(KIT.ui.make('div.bullet-hp-label', { text: 'HP' }));
-      const bar = KIT.ui.make('div.bullet-hp');
-      const fill = KIT.ui.make('div.bullet-hp-fill');
-      bar.appendChild(fill);
-      box.appendChild(bar);
-      const n = KIT.ui.make('div.bullet-hp-num', { text: '' });
-      box.appendChild(n);
-      host.appendChild(box);
-      return { fill, n, remove() { host.hidden = true; KIT.ui.clear(host); } };
-    }
-    function updateHud() {
-      if (!hud) return;
-      hud.fill.style.width = Math.max(0, (fight.hp / fight.maxHp) * 100) + '%';
-      hud.n.textContent = fight.hp + ' / ' + fight.maxHp;
-    }
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

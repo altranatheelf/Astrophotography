@@ -92,6 +92,7 @@ does the round trip in two browsers that share nothing.
 | A second language, without a second copy of the game | **done** — one text file, keyed on the lines themselves |
 | Music that answers what is happening, without restarting | **done** — named layers on one clock, `@layer rain on` |
 | A voice that changes mid-sentence — font, colour, pace, blip | **done** — `{voice:sans}`, and `{fx:wave}` for the letters |
+| Words drawn on a scene's own canvas, not only in a box | **done** — `KIT.drawText`, same codes, deterministic effects |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
 
