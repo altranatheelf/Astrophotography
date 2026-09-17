@@ -16,6 +16,18 @@ decision with no stated way to be wrong is a preference.
 **Changing one.** Do not edit a decision. Add a new one that supersedes it and
 mark the old one superseded, with the number. The trail is the point.
 
+**Correcting one.** Different thing, and the rule above was wrong not to say so.
+A decision's "what would make this wrong" is a claim about the world, and a claim
+can turn out to be false — ADR-0005 said its guard was "a purity test", which did
+not exist. The rule as written would have left that sentence standing forever,
+because changing it is not superseding anything: the decision (modules are
+manifests, not monkey-patches) was never in question.
+
+So: the CHOICE is never edited, and a false statement about the state of the code
+is corrected in place, saying what was wrong and what closed it. If the choice
+itself changes, that is a new number. If you cannot tell which you are doing, it
+is a new number.
+
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-no-build-step.md) | No build step; the engine is `<script>` tags | accepted |
