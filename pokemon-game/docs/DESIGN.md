@@ -1,8 +1,28 @@
 # Design: the Adventure Kit
 
-*A small, deliberate engine for a Pokémon-style story adventure with a built-in
-creator mode. This document is the "why and how" — read it before touching the
-code. `ARCHITECTURE.md` is the detailed contract that follows from it.*
+**An engine for places that remember, authored from anywhere, in a format that
+outlives the tool.**
+
+That is the thesis, and it is what this document exists to justify. Everything
+here follows from it: a world made of layers you step between rather than rooms
+you load; a game that remembers across runs and not just across saves; an editor
+that runs on the phone in your pocket and the laptop on your desk from the same
+file; and a project written as readable text that git can merge and a person can
+still open in ten years when this engine is gone.
+
+*This document is the "why". `ARCHITECTURE.md` is the contract that follows from
+it, and wins on any detail. `WHAT-THIS-ENGINE-IS-FOR.md` is the standing list of
+what the engine must be able to do, and wins on any question of scope.*
+
+> **This is not a Pokémon engine.** It was one, for about a week, and the first
+> version of this paragraph said so. Pokémon is a module — `js/modules/mons/` —
+> that happens to be loaded first because a gift was due. The engine underneath
+> it is for Elsewhenowhere, and for whatever comes after that.
+
+*Precedence, for anybody (or anything) reading these in the wrong order:
+`WHAT-THIS-ENGINE-IS-FOR` › `ARCHITECTURE` › `DESIGN` › everything else. A
+document that loses on precedence is not wrong to keep — it is wrong to trust
+on the point where it disagrees.*
 
 ---
 

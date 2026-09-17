@@ -1,5 +1,9 @@
 # Bringing things in from other tools
 
+*Written for the person making a game, not the person building the engine.
+`IMPORT-CONTRACT.md` is the shape importers must produce and wins on any
+detail of the format; this is how you actually use them.*
+
 You do not have to draw everything here. A map you built in **Tiled**, a whole
 **RPG Maker MV** project, a character you animated in **Aseprite** — one command
 brings each of them into your game, with the tiles, the images, the people and

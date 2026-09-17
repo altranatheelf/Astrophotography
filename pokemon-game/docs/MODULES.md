@@ -1,5 +1,9 @@
 # Writing a module
 
+*Written for whoever is adding a system to the engine. `ENGINE-HOOKS.md` is the
+list of every hook a module may use and wins on what is possible; this says how
+to put one together.*
+
 A module is a folder that adds a system to the engine without editing it. The
 Pokémon side of this game is a module; so is anything you add later. If you can
 describe a feature as "things, rules, screens and saved state", it is a module.

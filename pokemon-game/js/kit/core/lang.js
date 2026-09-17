@@ -202,6 +202,15 @@
     rowsOf(p && p.heroes, F.hero, 'hero');
     rowsOf(p && p.maps, F.map, 'map');
     rowsOf(p && p.cast, F.person, 'cast');
+    // A layer of reality has a NAME, and that name is authored prose a player
+    // can see. It lives inside each map rather than in a table of its own, so
+    // the generic walk above never reaches it — found by the interaction
+    // matrix, which is exactly the kind of thing a per-feature test cannot see.
+    for (const [mapId, m] of Object.entries((p && p.maps) || {})) {
+      for (const [dimId, d] of Object.entries((m && m.dimensions) || {})) {
+        if (d && d.name) note(d.name, `layer · ${mapId} · ${dimId}`);
+      }
+    }
     if (p && p.meta && F.meta) KIT.schema.walk(F.meta, p.meta, (f, v) => { if (L.shown(f)) note(v, 'the game itself'); });
 
     // 3. the Terms table: the words the engine itself says

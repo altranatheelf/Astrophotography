@@ -1,5 +1,20 @@
 # What this engine is for
 
+**An engine for places that remember, authored from anywhere, in a format that
+outlives the tool.**
+
+Three claims, and each one is a refusal as much as a promise. *Places that
+remember* means the world is layers and history, not rooms and flags — so a save
+is never the only thing that persists. *Authored from anywhere* means every panel
+is thumb-sized and the project is one file, so a feature that only works on a
+desktop is not finished. *A format that outlives the tool* means readable text,
+mergeable by git, openable by a person in ten years — so a faster binary format
+is not a trade this engine makes.
+
+This document is the standing list of what follows from that, and it wins on any
+question of scope.
+
+
 Not a Pokémon game. A world engine — the thing Elsewhenowhere needs and RPG
 Maker cannot give you. Pokémon is one module that happens to be loaded first
 because a gift was due.
@@ -95,6 +110,20 @@ does the round trip in two browsers that share nothing.
 | Words drawn on a scene's own canvas, not only in a box | **done** — `KIT.drawText`, same codes, deterministic effects |
 | The archive: documents, recordings, photographs | next |
 | Parallax layers | next |
+
+## How this is kept honest
+
+Four things in this repo exist to stop the documents and the code drifting apart,
+because they already did once and it cost a week.
+
+| | What it does |
+|---|---|
+| `docs/decisions/` | Every decision with what it ruled out and what would make it wrong. A decision that lives only in a commit message is a story, not a decision. |
+| `test/kit/interactions.test.js` | The interaction matrix. Each pair of primitives states a DEFAULT and verifies it — a table of defaults nobody runs is a wish. |
+| `test/kit/docs.test.js` | The documents have to be true too: the thesis, the precedence, the counts, the file paths, and no document left describing the engine by a
+genre it abandoned. |
+| `test/kit/reachable.test.js` | Done means a player can reach it. Written after the same defect shipped three times in one week. |
+| `npm run experiments` | Thresholds set BEFORE the measurement, with a verdict. Everything else here was measured after it was built, which makes a number a discovery rather than a decision. |
 
 ## The rule
 

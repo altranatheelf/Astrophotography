@@ -244,7 +244,7 @@ The audit was run twice: once on the engine, then again after a week of fixes.
 The second pass found three bugs in the first pass's own output, and one pattern
 underneath all of them.
 
-**The pattern.** The same defect had landed three times and 459 passing tests
+**The pattern.** The same defect had landed three times and the whole test suite
 would not have caught any of it:
 
 | The capability | Real and tested | Reachable |

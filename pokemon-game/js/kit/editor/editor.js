@@ -154,15 +154,29 @@
     updateStatus();
     saveTimer = setTimeout(async () => {
       saveTimer = null;
-      try { await KIT.storage.saveDraft(state.project); state.lastSaved = Date.now(); state.dirty = false; }
-      catch (e) { (KIT.log || console).warn('[editor] draft not saved', e); }
+      // saveDraft RETURNS false when the write failed; it does not throw. This
+      // used to be a bare try/catch, so a full or blocked store marked the work
+      // clean, stamped the time, and put "saved" on the status bar — the author
+      // told their work was safe at the exact moment it stopped being.
+      let ok = false;
+      try { ok = await KIT.storage.saveDraft(state.project) !== false; }
+      catch (e) { (KIT.log || console).warn('[editor] draft not saved', e); ok = false; }
+      if (ok) { state.lastSaved = Date.now(); state.dirty = false; state.saveFailed = null; }
+      else {
+        state.saveFailed = (KIT.storage && KIT.storage.warning) || 'Could not save.';
+        (KIT.log || console).error('[editor] ' + state.saveFailed);
+      }
       state.saving = false;
       updateStatus();
     }, 600);
   }
   ED.saveNow = async function () {
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-    if (KIT.storage && KIT.storage.saveDraft) { await KIT.storage.saveDraft(state.project); state.lastSaved = Date.now(); state.dirty = false; }
+    if (KIT.storage && KIT.storage.saveDraft) {
+      const ok = await KIT.storage.saveDraft(state.project) !== false;
+      if (ok) { state.lastSaved = Date.now(); state.dirty = false; state.saveFailed = null; }
+      else state.saveFailed = (KIT.storage && KIT.storage.warning) || 'Could not save.';
+    }
     updateStatus();
   };
 
@@ -553,12 +567,13 @@
     const bits = [
       `${state.cursor.x}, ${state.cursor.y}`,
       `${state.layer}`,
-      state.saving ? 'saving…' : (state.lastSaved ? 'saved' : ''),
+      state.saving ? 'saving…' : (state.saveFailed ? '⚠ NOT SAVED' : (state.lastSaved ? 'saved' : '')),
       errs ? `${errs} error${errs > 1 ? 's' : ''}` : '',
       warns ? `${warns} warning${warns > 1 ? 's' : ''}` : '',
     ].filter(Boolean);
     s.textContent = bits.join('   ·   ');
-    s.classList.toggle('has-errors', errs > 0);
+    s.classList.toggle('has-errors', errs > 0 || !!state.saveFailed);
+    s.title = state.saveFailed ? state.saveFailed + ' Use Project › “Save a copy” to get your work out.' : '';
     refreshToolbar();
   }
   ED.updateStatus = updateStatus;

@@ -8,6 +8,7 @@
     "build": "node tools/build.js",
     "sheet": "node tools/sprite-sheet.js /tmp/sheet.png 4",
     "import": "node tools/import.js",
-    "demo": "node tools/build-demo.js"
+    "demo": "node tools/build-demo.js",
+    "experiments": "NODE_PATH=$(npm root -g) node tools/experiments/storage.js"
   }
 }
