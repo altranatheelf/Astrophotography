@@ -92,11 +92,23 @@ washes out, caught by a threshold on the drift itself.)
 | running total vs the real one | 11 bytes of 1.98MB |
 | every moment left rebuildable | 1500 of 1500 |
 
-`elsewhere` is a **condition**: it runs inside a frame, on every event page the
-world evaluates. Three things here asked `children(id)`, which is a scan of every
-node, for every node in turn — a square that is invisible at 200 and tens of
-milliseconds at 1,500. There is one parent→child index now, built on demand and
-dropped whenever the tree changes.
+`elsewhere` and `everywhere` are **conditions**: they run inside a frame, on
+every event page the world evaluates. Both had a square in them, in different
+shapes, which is why it was worth looking twice.
+
+- Three things asked `children(id)`, a scan of every node, for every node in
+  turn. There is one parent→child index now, built on demand and dropped
+  whenever the tree changes.
+- `everywhere` asked `tallyAt` for every branch tip, and each of those walks its
+  whole line and builds the entire ledger to read one key out of it. Measured on
+  a 1,500-moment tree with 38 tips and 90 tally keys: **9.4ms that way, 0.60ms**
+  as a single pass that adds up as it goes, same answer. More than half a frame
+  for one question.
+
+The single pass works because nodes come in the order they were recorded and a
+child is always recorded after its parent, so a parent's running total is always
+ready — and because a tally only grows along a chain, the largest total anywhere
+in the tree is already the largest at some tip.
 
 ## The delta format is three ops
 ```

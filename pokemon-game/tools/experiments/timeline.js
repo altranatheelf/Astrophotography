@@ -164,6 +164,12 @@ function threshold(name, value, ok, unit) {
     const t5 = performance.now();
     for (let i = 0; i < 20; i++) T.elsewhere({ verb: 'walked', what: 'thing1' });
     const ceilElsewhere = (performance.now() - t5) / 20;
+    // `everywhere` is a condition too, and it was worth measuring separately:
+    // the same square hid in it in a different shape.
+    const t5b = performance.now();
+    let everyN = 0;
+    for (let i = 0; i < 20; i++) everyN = T.everywhere({ verb: 'walked', what: 'thing1' });
+    const ceilEverywhere = (performance.now() - t5b) / 20;
     const oldestBig = bigIds.find(id => T.now().nodes[id]);
     const t6 = performance.now();
     const ceilRebuiltOk = !!T.rebuild(oldestBig);
@@ -184,7 +190,7 @@ function threshold(name, value, ok, unit) {
     await KIT.storage.del(T.key());
     return {
       ceilNodes, ceilRecord, ceilElsewhere, ceilRebuild, ceilRebuiltOk, ceilMoments, ceilRows,
-      ceilBytes, ceilWrite, sizeDrift, whole, broken, ceilAsked: BIG,
+      ceilBytes, ceilWrite, sizeDrift, whole, broken, ceilAsked: BIG, ceilEverywhere, everyN,
       fullSaveBytes, treeBytes, nodes, anchors, deltaCount,
       avgDelta: deltaCount ? Math.round(deltaBytes / deltaCount) : 0,
       avgNode: Math.round(treeBytes / nodes),
@@ -221,6 +227,7 @@ function threshold(name, value, ok, unit) {
   log(`  the tree pruned itself to              ${(r.ceilBytes / 1024 / 1024).toFixed(2)} MB`);
   threshold('8. recording one is still under 16ms', r.ceilRecord.toFixed(1), r.ceilRecord < 16, 'ms');
   threshold('   elsewhere() is still under 2ms', r.ceilElsewhere.toFixed(2), r.ceilElsewhere < 2, 'ms');
+  threshold('   everywhere() is under 2ms too', r.ceilEverywhere.toFixed(2), r.ceilEverywhere < 2 && r.everyN > 0, 'ms');
   threshold('   rebuilding the oldest is still under 50ms', r.ceilRebuild.toFixed(1), r.ceilRebuild < 50 && r.ceilRebuiltOk, 'ms');
   threshold('   drawing the whole list is under 50ms', r.ceilMoments.toFixed(1), r.ceilMoments < 50, 'ms');
   threshold('   the tree stayed inside its budget', (r.ceilBytes / 1024 / 1024).toFixed(2) + ' MB', r.ceilBytes <= 3 * 1024 * 1024);
