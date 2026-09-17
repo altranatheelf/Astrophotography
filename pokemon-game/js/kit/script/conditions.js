@@ -174,6 +174,29 @@
       describe(c) { return `${c.name} ${SYM[c.op] || c.op || '='} ${c.var ? c.var : fmtValue(c.value)}`; },
     },
     {
+      id: 'did', label: 'Ever did', group: 'Progress',
+      doc: 'Did this ever happen in this run? Leave the count empty for "at all".',
+      fields: [
+        { key: 'verb', type: 'string', min: 1, default: 'did', label: 'What happened' },
+        { key: 'what', type: 'string', default: '', label: 'To what' },
+        opField('>='),
+        { key: 'times', type: 'number', integer: true, min: 0, default: 1, label: 'Times' },
+      ],
+      test(c, ctx) {
+        const save = ctx && ctx.world && ctx.world.save;
+        if (!save || !KIT.history) return false;
+        const q = { verb: c.verb };
+        if (c.what) q.what = c.what;
+        return C.compare(KIT.history.count(save, q), c.op || '>=', c.times == null ? 1 : c.times);
+      },
+      describe(c) {
+        const n = c.times == null ? 1 : c.times;
+        const thing = `${c.verb}${c.what ? ' ' + c.what : ''}`;
+        if ((c.op || '>=') === '>=' && n === 1) return `ever ${thing}`;
+        return `${thing} ${SYM[c.op] || c.op || '>='} ${n} times`;
+      },
+    },
+    {
       id: 'self', label: 'Self state', group: 'Progress', doc: "Compare one of this object's self state keys.",
       fields: [{ key: 'key', type: 'string', min: 1 }, opField('=='), { key: 'value', type: 'scalar', default: true }],
       test(c, ctx) { return C.compare(C.getSelf(ctx, c.key), c.op, c.value); },
@@ -420,6 +443,11 @@
     if (k === 'self' && word(c.key)) return `self.${c.key} ${c.op || '=='} ${valText(c.value)}`;
     if (k === 'item' && word(c.id)) return `item.${c.id} ${c.op || '>='} ${valText(c.count == null ? 1 : c.count)}`;
     if (k === 'meta' && word(c.key)) return `meta.${c.key} ${c.op || '=='} ${valText(c.value)}`;
+    // `did.ate >= 2`, or narrowed: `did.ate/bread >= 2`. The same prefix shape
+    // as item./self./meta., because an author should only learn one.
+    if (k === 'did' && word(c.verb) && (!c.what || word(c.what))) {
+      return `did.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
+    }
     if (k === 'all' || k === 'any') {
       const parts = (c.of || []);
       if (!parts.length) return `${k}()`;
@@ -514,6 +542,11 @@
       if (k.v.startsWith('self.')) { if (v.var !== undefined) throw new Error('condition: self cannot compare to a var'); return { kind: 'self', key: k.v.slice(5), op: opTok.v, value: v.value }; }
       if (k.v.startsWith('item.')) { if (typeof v.value !== 'number') throw new Error('condition: item count must be a number'); return { kind: 'item', id: k.v.slice(5), op: opTok.v, count: v.value }; }
       if (k.v.startsWith('meta.')) { if (v.var !== undefined) throw new Error('condition: meta cannot compare to a var'); return { kind: 'meta', key: k.v.slice(5), op: opTok.v, value: v.value }; }
+      if (k.v.startsWith('did.')) {
+        if (typeof v.value !== 'number') throw new Error('condition: did must compare to a number of times');
+        const [verb, what] = k.v.slice(4).split('/');
+        return { kind: 'did', verb, what: what || '', op: opTok.v, times: v.value };
+      }
       const out = { kind: 'var', name: k.v, op: opTok.v, value: v.var !== undefined ? 0 : v.value, var: v.var !== undefined ? v.var : null };
       return out;
     }

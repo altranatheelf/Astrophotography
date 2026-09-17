@@ -28,3 +28,4 @@ mark the old one superseded, with the number. The trail is the point.
 | [0008](0008-two-tier-persistence.md) | A save is per-run; `meta` is per-player and survives New Game | accepted |
 | [0009](0009-layers-are-sparse-overrides.md) | A layer of reality overrides cells, not whole maps | accepted |
 | [0010](0010-reachability-is-the-definition-of-done.md) | Done means a player or author can reach it | accepted |
+| [0011](0011-history-is-tally-plus-window.md) | History is a permanent tally plus a bounded window | accepted |

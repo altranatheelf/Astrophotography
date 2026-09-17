@@ -346,3 +346,57 @@ test('faults × layers: a script that throws mid-shift does not leave you betwee
   assert.equal(KIT.mapView(p, s, 'pier').tileAt('ground', 0, 0), 'stone',
     'so the world is coherent whether or not the author\'s script survived');
 });
+
+// ---- HISTORY × EVERYTHING --------------------------------------------------
+
+test('history × layers: an entry records which layer of reality you were in', () => {
+  const p = world();
+  const s = save(p, { dimension: 'hollow' });
+  KIT.history.add(s, 'saw', { what: 'the-light' });
+  assert.equal(KIT.history.last(s, 'saw').layer, 'hollow',
+    'so a line can be about the time you saw it in the OTHER version of the room');
+  assert.equal(KIT.history.count(s, { verb: 'saw', layer: null }), 0, 'and not confuse it with the ordinary one');
+});
+
+test('history × saves: the history is part of the run and travels with it', () => {
+  const p = world();
+  const s = save(p);
+  KIT.history.add(s, 'ate', { what: 'bread' });
+  const copy = JSON.parse(JSON.stringify(s));
+  assert.equal(KIT.history.count(copy, { verb: 'ate', what: 'bread' }), 1, 'it survives the round trip');
+  assert.equal(KIT.history.seq(copy), 1);
+});
+
+test('history × memory: a run is forgotten; what was promoted is not', async () => {
+  KIT.storage.forceAdapter = 'memory';
+  await KIT.storage.ready();
+  KIT.storage.projectId('mx');
+  const p = world();
+  const s = save(p);
+  KIT.history.add(s, 'left', { what: 'the-door-open' });
+  KIT.history.promote(s, 'left', 'the-door-open');
+  const nextRun = save(p);
+  assert.equal(KIT.history.has(nextRun, 'left'), false, 'the new run has no history');
+  assert.equal(KIT.history.everDid('left', 'the-door-open'), 1, 'and the player is still remembered');
+});
+
+test('history × the clock: an entry is stamped in in-game time, not wall-clock', () => {
+  const p = world();
+  const s = save(p, { clock: { day: 4, minutes: 90, lastSeenAt: null } });
+  const e = KIT.history.add(s, 'woke');
+  assert.equal(e.at, (4 - 1) * 1440 + 90);
+  assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(JSON.stringify(e)),
+    'wall-clock time is not the same number on two devices and says when somebody played');
+});
+
+test('history × language: a verb is an id and never translates', () => {
+  const p = world();
+  const s = save(p);
+  KIT.history.add(s, 'ate', { what: 'bread' });
+  KIT.lang.put(p, 'fr', { name: 'Français', lines: { ate: 'mangé', bread: 'pain' } });
+  KIT.lang.bind(p, 'fr');
+  try {
+    assert.equal(KIT.history.has(s, { verb: 'ate', what: 'bread' }), true,
+      'switching language must not lose your history — a verb is a key, not a line');
+  } finally { KIT.lang.bind(p, 'en'); }
+});

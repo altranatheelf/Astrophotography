@@ -87,6 +87,7 @@
       items: project.items || {},
       args: ctx.args || {},
       meta: (KIT.storage && KIT.storage.meta) ? KIT.storage.meta() : (save.meta || {}),
+      save,                         // {did:…} counts out of this run's history
       project,                      // the cast tags read project.cast
     };
   };
@@ -119,6 +120,20 @@
     meta: (ctx, arg) => {
       const v = ctx.meta && ctx.meta[arg];
       return Array.isArray(v) ? v.join(', ') : fmt(v);
+    },
+    // What happened. {did:ate} is how many times, {did:ate/bread} narrows it —
+    // so a line can say "the third time you asked" without a counter variable.
+    did: (ctx, arg) => {
+      if (!KIT.history || !ctx.save) return '0';
+      const [verb, what] = String(arg || '').split('/');
+      return String(KIT.history.count(ctx.save, what ? { verb, what } : { verb }));
+    },
+    // And across every run this player has had, for the lines that should not
+    // be surprised to see you again.
+    ever: (ctx, arg) => {
+      if (!KIT.history || !KIT.history.everDid) return '0';
+      const [verb, what] = String(arg || '').split('/');
+      return String(KIT.history.everDid(verb, what));
     },
     // The cast. {who:mira} is her name; {they:mira} / {them:mira} / {their:mira}
     // are her pronouns, so a line can be written once for anybody.

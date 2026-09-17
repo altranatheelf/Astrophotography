@@ -1089,6 +1089,43 @@
       },
     },
   });
+  // Write down that something happened. The engine logs what it already knows
+  // about (steps, maps, talking); this is for the things only the story knows:
+  // you ate the bread, you took the long way, you did not look back.
+  //
+  //   @did ate what=bread
+  //   @did chose what=the-long-way
+  defs.push({
+    id: 'did', label: 'Note That', group: 'Story', icon: 'label', blocking: false,
+    doc: 'Record something in this run\'s history, so a later line can ask about it.',
+    fields: [
+      { key: 'verb', type: 'string', min: 1, default: 'did', label: 'What happened' },
+      { key: 'what', type: 'string', default: '', label: 'To what' },
+      { key: 'who', type: 'string', default: '', label: 'By whom', doc: 'Empty means the player.' },
+    ],
+    async run(ctx, cmd) {
+      const save = ctx.world && ctx.world.save;
+      if (!save || !KIT.history) return undefined;
+      KIT.history.add(save, cmd.verb, {
+        what: cmd.what || null,
+        who: cmd.who || (ctx.hero && (ctx.hero.id || ctx.hero)) || 'player',
+      });
+      return undefined;
+    },
+    summary(cmd) { return `Note: ${cmd.verb}${cmd.what ? ' ' + cmd.what : ''}`; },
+    text: {
+      toLine(cmd) { return `@did ${V.format(cmd.verb)}${pairsOf(reg.get('did'), cmd, ['verb']) ? ' ' + pairsOf(reg.get('did'), cmd, ['verb']) : ''}`; },
+      fromLine(line) {
+        const t = line.trim();
+        if (!/^@did(\s|$)/.test(t)) return null;
+        const v = V.scan(t, 4, '');
+        if (!v || v.value === '' || String(v.raw).includes('=')) return null;
+        const cmd = { t: 'did', verb: String(v.value) };
+        for (const tk of V.tokenize(t.slice(v.end))) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
+        return cmd;
+      },
+    },
+  });
   defs.push({
     id: 'sound', label: 'Play SE', mv: 'Play SE', group: 'Audio', icon: 'sound', blocking: false, editor: { favourite: true },
     fields: [{ key: 'id', type: 'ref:sound', nullable: false, label: 'Sound' }, { key: 'volume', type: 'number', min: 0, max: 1, default: 1 }],
