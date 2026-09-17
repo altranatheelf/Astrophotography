@@ -90,7 +90,7 @@
           for (const p of errors.slice(0, 10)) (KIT.log || console).warn('  ', p.code, p.message, p.where);
           if (errors.length > 10) (KIT.log || console).warn(`   …and ${errors.length - 10} more (Creator Mode › Problems)`);
         }
-        if (KIT.events) KIT.events('kit').emit('problemsReady', { problems });
+        if (KIT.bus) KIT.bus.emit('problemsReady', { problems });
       } catch (e) { (KIT.log || console).error('[project] the check itself failed', e); }
     };
     if (typeof root.requestIdleCallback === 'function') root.requestIdleCallback(run, { timeout: 4000 });

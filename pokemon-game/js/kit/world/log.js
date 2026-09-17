@@ -100,7 +100,7 @@
 
     l.entries.push(entry);
     if (l.entries.length > L.WINDOW) l.entries.splice(0, l.entries.length - L.WINDOW);
-    if (KIT.events) KIT.events('kit').emit('logged', entry);
+    if (KIT.worldBus) KIT.worldBus(save).emit('logged', entry);
     return entry;
   };
 

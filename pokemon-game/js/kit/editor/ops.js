@@ -252,6 +252,17 @@
   O.declareVar = function (doc, o) {
     doc.set(['vars', o.name], P.fillVar({ type: o.type || 'number', default: o.default, label: o.label, group: o.group }, o.name), { label: `Declare ${o.name}` });
   };
+  /**
+   * A new rule of the world. Rules live in the project beside the variables and
+   * the items — they are content, not code — so making one is one document set
+   * and one undo step, like everything else.
+   */
+  O.newRule = function (doc, o) {
+    const id = o.id || KIT.slug(o.name || 'rule');
+    doc.set(['rules', id], P.fillRule({ name: o.name || '', when: o.when || 'step', do: o.do || [] }, id), { label: 'New rule' });
+    return id;
+  };
+  O.deleteRule = function (doc, o) { doc.del(['rules', o.id], { label: 'Delete rule' }); };
   O.newItem = function (doc, o) {
     const id = o.id || KIT.slug(o.name || 'item');
     doc.set(['items', id], P.fillItem({ kind: o.kind, name: o.name, icon: o.icon, desc: o.desc }, id), { label: 'New item' });

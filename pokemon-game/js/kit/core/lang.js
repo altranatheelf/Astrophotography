@@ -82,7 +82,7 @@
       table = null;
     }
     misses.clear();
-    if (KIT.events) KIT.events('kit').emit('languageChanged', { language: current });
+    if (KIT.bus) KIT.bus.emit('languageChanged', { language: current });
     return current;
   };
 

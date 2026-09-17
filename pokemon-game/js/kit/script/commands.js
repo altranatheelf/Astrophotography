@@ -1126,6 +1126,48 @@
       },
     },
   });
+  // Taking a rule out of the world, putting one back, and changing what one
+  // says — from inside the story.
+  //
+  //   @rule eat doors-need-keys
+  //   @rule off gravity
+  //   @rule on gravity
+  defs.push({
+    id: 'rule', label: 'Change a Rule', group: 'Story', icon: 'label', blocking: false,
+    doc: 'Take a rule of the world out, put it back, or switch it off for a while.',
+    fields: [
+      { key: 'act', type: 'enum', options: ['eat', 'on', 'off'], default: 'eat', label: 'What to do' },
+      { key: 'id', type: 'string', min: 1, default: '', label: 'Which rule' },
+    ],
+    async run(ctx, cmd) {
+      const save = ctx.world && ctx.world.save;
+      if (!save || !KIT.rules) return undefined;
+      const rule = KIT.rules.get(ctx.project, save, cmd.id);
+      if (!rule) { (KIT.log || console).warn(`[rule] there is no rule called '${cmd.id}'`); return undefined; }
+      if (cmd.act === 'eat') {
+        // A rule an author marked inedible is load-bearing on purpose; saying so
+        // out loud beats a story that silently does nothing.
+        if (rule.edible === false) { (KIT.log || console).warn(`[rule] '${cmd.id}' cannot be eaten`); return undefined; }
+        KIT.rules.eat(save, cmd.id);
+      } else if (cmd.act === 'on') KIT.rules.activate(save, cmd.id);
+      else KIT.rules.deactivate(save, cmd.id);
+      return undefined;
+    },
+    summary(cmd) { return `${cmd.act === 'eat' ? 'Eat' : cmd.act === 'on' ? 'Restore' : 'Suspend'} rule ${cmd.id}`; },
+    text: {
+      toLine(cmd) { return `@rule ${cmd.act || 'eat'} ${V.format(cmd.id)}`; },
+      fromLine(line) {
+        const m = /^@rule\s+(eat|on|off)\s+(.+)$/.exec(line.trim());
+        if (!m) return null;
+        const v = V.scan(m[2], 0, '');
+        // An empty id is kept rather than rejected: a half-written command in the
+        // editor is still that command, and `run` says out loud that there is no
+        // such rule. Refusing it here turned it into a `raw` line instead.
+        if (!v || v.error) return null;
+        return { t: 'rule', act: m[1], id: String(v.value == null ? '' : v.value) };
+      },
+    },
+  });
   defs.push({
     id: 'sound', label: 'Play SE', mv: 'Play SE', group: 'Audio', icon: 'sound', blocking: false, editor: { favourite: true },
     fields: [{ key: 'id', type: 'ref:sound', nullable: false, label: 'Sound' }, { key: 'volume', type: 'number', min: 0, max: 1, default: 1 }],

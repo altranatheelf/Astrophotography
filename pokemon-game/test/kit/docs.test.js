@@ -117,11 +117,29 @@ test('docs: the interaction matrix is real and every pair in it is tested', () =
   // whether the code agrees with it. The version here IS the tests, so the
   // table cannot drift from the behaviour; this only checks it is not empty and
   // that the names still read as pairs.
-  const src = fs.readFileSync(path.join(ROOT, 'test/kit/interactions.test.js'), 'utf8');
-  const pairs = Array.from(src.matchAll(/test\('([a-z ]+) × ([a-z ]+):/g));
+  //
+  // The matrix is a NAMING RULE, not one file: a test called `a × b:` states the
+  // default for that pair, and it lives beside whichever primitive it is about
+  // (interactions.test.js for the older ones, rules.test.js for the rules
+  // pairs). Pinning it to one path made the test lie the first time a primitive
+  // arrived with its own suite.
+  const pairs = [];
+  const walk = (dir) => {
+    for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, f.name);
+      if (f.isDirectory()) walk(p);
+      else if (f.name.endsWith('.test.js')) {
+        for (const m of fs.readFileSync(p, 'utf8').matchAll(/test\('([a-z ]+) × ([a-z ]+):/g)) pairs.push(m);
+      }
+    }
+  };
+  walk(path.join(ROOT, 'test'));
   assert.ok(pairs.length >= 12, `the matrix covers real pairs (${pairs.length})`);
   const kinds = new Set(pairs.flatMap((m) => [m[1], m[2]]));
   assert.ok(kinds.size >= 6, `across at least six primitives (${Array.from(kinds).sort().join(', ')})`);
+  // And the original table is still a table, not an empty file somebody moved on from.
+  const src = fs.readFileSync(path.join(ROOT, 'test/kit/interactions.test.js'), 'utf8');
+  assert.ok((src.match(/ × /g) || []).length >= 10, 'interactions.test.js still holds the bulk of it');
 });
 
 /** How many unit tests there actually are, counted the way `npm test` counts. */

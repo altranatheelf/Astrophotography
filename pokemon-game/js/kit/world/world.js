@@ -63,6 +63,12 @@
         return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: i === 0 || world.coop });
       });
     }
+    // The run a bare save belongs to. KIT.worldBus(save) uses this to tell a
+    // thing that happened in the live world from a thing that happened to some
+    // other save; KIT.game overwrites it with the same object when there is a
+    // game, and a headless world is its own answer.
+    W.live = world;
+
     makeHeroes();
     world.hero = (i) => world.heroes[i == null ? world.activeHero : i];
     world.heroById = (id) => world.heroes.find(h => h.id === id) || world.heroes[0];
@@ -253,6 +259,68 @@
       }
     }
     world.runSlotsForMap = runSlotsForMap;
+
+    // ---- rules -----------------------------------------------------------------
+    // Rules are things in the world (js/kit/world/rules.js): `when` an event
+    // happens, `if` a condition holds, `do` a script. They listen on '*' and not
+    // on a fixed list of events, because the events a rule may watch are simply
+    // the events that exist — including any a module invents, which is the whole
+    // reason a module can add one.
+    //
+    // Firings are QUEUED rather than run where they arrive. A rule's `do` is an
+    // ordinary command list, so it can say something, and saying something takes
+    // time; two footsteps in the same frame must not start two conversations. The
+    // queue drains in order, one at a time, and `world.rulesSettled()` is how a
+    // test waits for it.
+    const ruleQueue = [];
+    let draining = false;
+    let settled = Promise.resolve();
+    /** How many rule firings one drain may do before it calls itself a loop. */
+    const RULE_BUDGET = 512;
+
+    function drainRules() {
+      if (draining) return settled;
+      draining = true;
+      settled = (async () => {
+        try {
+          let n = 0;
+          while (ruleQueue.length) {
+            if (++n > RULE_BUDGET) {
+              // Rules that set off rules is the point; rules that set off rules
+              // forever is a frozen game with nothing in the console. R.fire caps
+              // the DEPTH of one chain; this caps a chain that goes round through
+              // the queue instead, which the depth counter cannot see.
+              // Written down BEFORE the queue is emptied, because writing it down
+              // is itself an event, and a rule listening for `logged` is exactly
+              // the kind of rule that got us here. Empty the queue afterwards and
+              // the loop-breaker cannot re-arm the loop.
+              const names = ruleQueue.map(j => j.event);
+              if (KIT.history) KIT.history.add(save, 'rule:loop', { what: names[0] || null, data: { dropped: names.length } });
+              ruleQueue.length = 0;
+              (KIT.log || console).warn(`[rules] ${RULE_BUDGET} firings in one drain — dropped ${names.length} more (${Array.from(new Set(names)).join(', ')})`);
+              break;
+            }
+            const job = ruleQueue.shift();
+            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload);
+          }
+        } finally { draining = false; }
+      })();
+      return settled;
+    }
+    /** rulesSettled() -> a promise for "every rule that had something to do has done it". */
+    world.rulesSettled = () => settled;
+    world.rulesPending = () => ruleQueue.length;
+
+    if (KIT.rules && opts.rules !== false) {
+      events.on('*', (event, payload) => {
+        // Asked before queueing, so that the common case — an event no rule
+        // watches — costs one lookup and no promise.
+        const where = { map: world.map ? world.map.id : null, layer: save.dimension || null };
+        if (!KIT.rules.matching(project, save, event, where).length) return;
+        ruleQueue.push({ event, payload });
+        void drainRules();
+      });
+    }
 
     /**
      * interactTargets(hero) -> [{ x, y, answer(hero) }] — things that are not map

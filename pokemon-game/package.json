@@ -4,7 +4,7 @@
   "description": "Kit: a top-down story-adventure engine with a built-in creator mode, plus the mons, home and dungeon modules.",
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
-    "e2e": "NODE_PATH=$(npm root -g) node e2e/walk.js && NODE_PATH=$(npm root -g) node e2e/import.js && NODE_PATH=$(npm root -g) node e2e/editor.js && NODE_PATH=$(npm root -g) node e2e/devices.js && NODE_PATH=$(npm root -g) node e2e/vision.js && NODE_PATH=$(npm root -g) node e2e/languages.js && NODE_PATH=$(npm root -g) node e2e/music.js && NODE_PATH=$(npm root -g) node e2e/voices.js && NODE_PATH=$(npm root -g) node e2e/touch.js && NODE_PATH=$(npm root -g) node e2e/battle.js",
+    "e2e": "NODE_PATH=$(npm root -g) node e2e/walk.js && NODE_PATH=$(npm root -g) node e2e/import.js && NODE_PATH=$(npm root -g) node e2e/editor.js && NODE_PATH=$(npm root -g) node e2e/devices.js && NODE_PATH=$(npm root -g) node e2e/vision.js && NODE_PATH=$(npm root -g) node e2e/languages.js && NODE_PATH=$(npm root -g) node e2e/music.js && NODE_PATH=$(npm root -g) node e2e/voices.js && NODE_PATH=$(npm root -g) node e2e/touch.js && NODE_PATH=$(npm root -g) node e2e/battle.js && NODE_PATH=$(npm root -g) node e2e/rules.js",
     "build": "node tools/build.js",
     "sheet": "node tools/sprite-sheet.js /tmp/sheet.png 4",
     "import": "node tools/import.js",

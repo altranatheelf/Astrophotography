@@ -63,7 +63,7 @@
     faults.push(entry);
     if (faults.length > 50) faults.shift();
     (KIT.log || console).error(`[${where}]`, err);
-    if (KIT.events) KIT.events('kit').emit('fault', entry);
+    if (KIT.bus) KIT.bus.emit('fault', entry);
     // The author sees the real thing; the player sees that something happened,
     // because a silent half-executed script is worse than an honest apology.
     if (o.tell !== false) {

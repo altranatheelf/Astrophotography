@@ -100,6 +100,28 @@
       { key: 'w', type: 'number', integer: true, min: 0, default: 0 }, { key: 'h', type: 'number', integer: true, min: 0, default: 0 },
       { key: 'from', type: 'string', optional: true, doc: 'The tool and file it came from' }, { key: 'note', type: 'note', optional: true },
     ],
+    // A rule of the world, as a thing rather than as engine code. `when` is an
+    // event, `if` is the same condition an event page uses, `do` is the same
+    // command list — so an author who can write a page can write a rule.
+    rule: [
+      idField('id'), { key: 'name', type: 'string', default: '', shown: true },
+      { key: 'when', type: 'string', min: 1, default: 'step', label: 'Happens on',
+        doc: 'An event: step, mapEnter, mapLeave, bump, interactMissed, dimensionChanged, logged, clockTick…' },
+      { key: 'if', type: 'condition', label: 'Only when' },
+      { key: 'do', type: 'script', default: [], label: 'Then' },
+      { key: 'on', type: 'bool', default: true, label: 'In force' },
+      { key: 'priority', type: 'number', integer: true, default: 0,
+        doc: 'Higher goes first when two rules answer the same event.' },
+      { key: 'edible', type: 'bool', default: true, label: 'Can be eaten',
+        doc: 'Whether the story is allowed to take this rule out of the world.' },
+      { key: 'carrier', type: 'string', default: '', label: 'Carried by',
+        doc: 'An object id. Destroying it takes the rule with it.' },
+      { key: 'scope', type: 'group', fields: [
+        { key: 'maps', type: 'list', of: { type: 'ref:map' }, default: [] },
+        { key: 'layers', type: 'list', of: { type: 'string' }, default: [] },
+      ] },
+      { key: 'note', type: 'note' },
+    ],
     item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string', shown: true }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
     script: [
       { key: 'label', type: 'string' }, { key: 'trigger', type: 'enum', options: ['call', 'auto', 'parallel'], default: 'call' }, { key: 'when', type: 'condition' },
@@ -287,7 +309,7 @@
         };
       })(),
       modules: [], settings: {}, strings: p.strings || {}, heroes: [], start: p.start || {}, vars: p.vars || {}, items: {}, scripts: {},
-      fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {},
+      fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {}, rules: {},
     };
     const s = p.settings || {};
     out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop }, encounterRate: s.encounterRate == null ? 12 : s.encounterRate };
@@ -434,6 +456,17 @@
     if (!sc.label) sc.label = titleCase(id || '');
     return sc;
   };
+  /**
+   * A rule of the world: `when` an event happens, `if` a condition holds, `do` a
+   * script. Filled here rather than inline so the editor's ＋ New makes exactly
+   * the same object a loaded file does.
+   */
+  P.fillRule = function (raw, id) {
+    const r = S.fill(F.rule, isObj(raw) ? raw : {});
+    r.id = id || r.id || '';
+    if (!r.name) r.name = titleCase(r.id);
+    return r;
+  };
   const VAR_DEFAULT = { number: 0, bool: false, string: '' };
   P.fillVar = function (raw, name) {
     if (!isObj(raw)) { const t = typeof raw === 'boolean' ? 'bool' : typeof raw === 'string' ? 'string' : 'number'; raw = { type: t, default: raw == null ? VAR_DEFAULT[t] : raw }; }
@@ -503,6 +536,7 @@
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});
     p.vars = {}; if (isObj(src.vars)) for (const k of Object.keys(src.vars)) p.vars[k] = P.fillVar(src.vars[k], k);
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
+    p.rules = {}; if (isObj(src.rules)) for (const k of Object.keys(src.rules)) p.rules[k] = P.fillRule(src.rules[k], k);
     p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
     p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
     // Languages are deliberately not schema-shaped: the keys ARE the authored

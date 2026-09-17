@@ -70,6 +70,54 @@ test('every player setting is reachable from the settings menu', () => {
     'Add a row to settingRows() in js/kit/scenes/menu.js, or add it to NOT_IN_MENU with a reason.');
 });
 
+/**
+ * Every table a project carries, and where an AUTHOR edits it. A panel id means
+ * that panel owns it; a sentence means it is deliberately edited somewhere else,
+ * and the sentence has to say where.
+ *
+ * This list exists because `rules` was added to the project format, filled by
+ * the normalizer, saved, validated, referenced by a command, a condition and a
+ * screenplay form — and for a while had no screen. Every one of those pieces had
+ * a passing test. The engine could do it and nobody could reach it, which is the
+ * exact failure the top of this file is about, one layer up.
+ */
+const AUTHORED_IN = {
+  strings: 'strings',
+  vars: 'vars',
+  items: 'items',
+  rules: 'rules',
+  cast: 'cast',
+  scripts: 'scripts',
+  facts: 'the Cast panel — a fact is something a person can know, and is edited beside them (panel-cast.js, the "What is known" tab)',
+  languages: 'the Project panel\'s Languages section: add, import, export, delete a translation',
+  maps: 'the map editor itself (panels-map.js) and the Objects panel — a map is not a table row',
+  assets: 'the Import panel: art comes in from Tiled/RPG Maker/Aseprite, it is not typed in',
+  autotiles: 'the Import panel, same as the rest of the art',
+};
+
+test('every table a project carries is editable by an author', () => {
+  const project = read('js/kit/world/project.js');
+  const tables = Array.from(project.matchAll(/^\s*p\.([a-zA-Z]+) = \{\};/gm)).map((m) => m[1]);
+  assert.ok(tables.length >= 8, `found the project's tables (${tables.length})`);
+
+  const panelSrc = ['js/kit/editor/panels-project.js', 'js/kit/editor/panels-writing.js',
+    'js/kit/editor/panels-objects.js', 'js/kit/editor/panels-map.js', 'js/kit/editor/panel-cast.js']
+    .map(read).join('\n');
+  const panels = new Set(Array.from(panelSrc.matchAll(/editorPanels'\)\.add\(\{\s*\n?\s*id: '([a-z-]+)'/g)).map((m) => m[1]));
+  assert.ok(panels.size >= 6, `found the panels (${Array.from(panels).sort().join(', ')})`);
+
+  const unreachable = [];
+  for (const t of tables) {
+    const where = AUTHORED_IN[t];
+    if (!where) { unreachable.push(`${t} (not in AUTHORED_IN at all)`); continue; }
+    // A one-word answer names a panel, and the panel has to be real.
+    if (/^[a-z-]+$/.test(where) && !panels.has(where)) unreachable.push(`${t} (says panel '${where}', which does not exist)`);
+  }
+  assert.deepEqual(unreachable, [],
+    `a project can hold these and no author can edit them: ${unreachable.join('; ')}.\n` +
+    'Add a panel to the editorPanels registry, or add the table to AUTHORED_IN with the place it IS edited.');
+});
+
 test('the settings menu does not offer settings that do not exist', () => {
   const storage = read('js/kit/core/storage.js');
   const menu = read('js/kit/scenes/menu.js');

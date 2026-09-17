@@ -87,6 +87,29 @@ Scripts: `@tell who fact [from who]` · `@tell who forgets fact` · `@spread a t
 Conditions: `knows` (optionally `from` somebody in particular) · `feels` (with `mutual`) · `met`.
 Lines: `{who:mira}` · `{they:mira}` `{them:mira}` `{their:mira}` — from their `pronouns`, so a line can be written once for anybody.
 
+## world/log — stable  (`KIT.history`, not `KIT.log`)
+What happened, in one run. A permanent **tally** answers "ever?" and "how many times?" exactly; a bounded **window** answers "when, where, in what order". ADR-0011.
+
+Save: `save.log = { n, entries:[{ n, verb, what, who, where, layer, at, data? }], tally:{ 'verb':n, 'verb/what':n } }`. `at` is in-game minutes since the first morning — deliberately not wall-clock.
+
+`add(save, verb, { what, who, where, layer, at, data }) -> entry` (`where`/`layer` default to wherever the world is) · `count(save, query) -> n` · `has(save, query) -> bool` · `exact(query) -> bool` (is this question answered from the tally, and so for all time?) · `last(save, query) -> entry|null` · `all` · `since(save, n, query)` · `seq(save)` · `WINDOW = 400`.
+Across runs: `promote(save, verb, what)` carries one fact to `meta`, deliberately · `everDid(verb, what)`.
+
+Scripts: `@did <verb> [what=… who=…]`. Conditions: `did.<verb>[/<what>] >= n`. Lines: `{did:ate/bread}` · `{ever:ate/bread}`.
+
+## world/rules — stable
+The rules of the world as **things in it**: `when` an event happens, `if` a condition holds, `do` a script. They can be switched off, rewritten and **eaten**. ADR-0012.
+
+Content: `project.rules[id] = { name, when, if, do, on, priority, edible, carrier, scope:{ maps, layers }, note }`.
+Save: `save.rules[id] = { on?, eaten?, patch?, rule?, at? }` — only what this run changed.
+
+`all(project, save)` · `get(project, save, id)` (with any rewrite applied) · `live(project, save, id) -> bool` (eaten beats on/off beats the rule's own `on`) · `matching(project, save, event, { map, layer }) -> [rule]` — **pure**, in firing order: priority → specificity → most recently defined → id ·
+`define(save, rule)` · `activate` · `deactivate` · `eat(save, id)` (permanent; writes `ate rule:<id>` to the history) · `rewrite(save, id, patch)` · `inScope(rule, where)` · `fire(ctx, event, payload) -> Promise<n>` · `MAX_DEPTH = 8` · `depthNow()`.
+
+The world listens on `'*'` and queues firings so two events in a frame cannot start two conversations: `world.rulesSettled()` · `world.rulesPending()`. A drain is capped at 512 firings and writes `rule:loop` rather than freezing.
+
+Scripts: `@rule eat|on|off <id>`. Conditions: `rule.<id>` (a bare word — `not rule.<id>` asks whether it was eaten).
+
 ## world/map — stable
 `KIT.mapView(project, save, mapId) -> view` — the authored map composed with `save.overlays[mapId]`.
 `view.id width height kind music index(x,y) inBounds tileAt(layer,x,y) terrainAt region collisionAt flagsAt(x,y)` (merged over ground/deco/above + collision override) ·

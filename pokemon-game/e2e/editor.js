@@ -31,7 +31,7 @@ const TEXT_TAB = '.ed-script-views button:nth-child(2)';
 // and home, which bring one each), so the check is "every kit panel is there",
 // not "there are exactly this many tabs".
 const PANELS = ['tiles', 'objects', 'script', 'scripts', 'fragments', 'dialogue', 'map',
-  'project', 'vars', 'items', 'strings', 'problems', 'data', 'import'];
+  'project', 'vars', 'rules', 'items', 'strings', 'problems', 'data', 'import'];
 
 let failures = 0;
 const log = (...a) => console.log(...a);

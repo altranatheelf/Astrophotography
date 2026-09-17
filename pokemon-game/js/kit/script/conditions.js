@@ -174,6 +174,16 @@
       describe(c) { return `${c.name} ${SYM[c.op] || c.op || '='} ${c.var ? c.var : fmtValue(c.value)}`; },
     },
     {
+      id: 'rule', label: 'Rule is in force', group: 'Progress',
+      doc: 'Is this rule of the world still standing? False once it has been eaten.',
+      fields: [{ key: 'id', type: 'string', min: 1, default: '', label: 'Which rule' }],
+      test(c, ctx) {
+        const save = ctx && ctx.world && ctx.world.save;
+        return !!(KIT.rules && save && KIT.rules.live(ctx.project, save, c.id));
+      },
+      describe(c) { return `rule ${c.id} stands`; },
+    },
+    {
       id: 'did', label: 'Ever did', group: 'Progress',
       doc: 'Did this ever happen in this run? Leave the count empty for "at all".',
       fields: [
@@ -445,6 +455,7 @@
     if (k === 'meta' && word(c.key)) return `meta.${c.key} ${c.op || '=='} ${valText(c.value)}`;
     // `did.ate >= 2`, or narrowed: `did.ate/bread >= 2`. The same prefix shape
     // as item./self./meta., because an author should only learn one.
+    if (k === 'rule' && word(c.id)) return `rule.${c.id}`;
     if (k === 'did' && word(c.verb) && (!c.what || word(c.what))) {
       return `did.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
     }
@@ -537,6 +548,11 @@
         expect(')');
         return C.normalize(c);
       }
+      // `rule.doors-need-keys` stands alone, with no operator, because "the rule
+      // is in force" is not a comparison against anything — and `not rule.x` is
+      // then the way to ask whether it has been eaten. This is the one bare word
+      // in the grammar, so it is checked before an operator is demanded.
+      if (k.v.startsWith('rule.')) return { kind: 'rule', id: k.v.slice(5) };
       const opTok = expect('op');
       const v = value();
       if (k.v.startsWith('self.')) { if (v.var !== undefined) throw new Error('condition: self cannot compare to a var'); return { kind: 'self', key: k.v.slice(5), op: opTok.v, value: v.value }; }

@@ -794,6 +794,95 @@
     return card;
   }
 
+  // ------------------------------------------------------------------ Rules ----------
+  // A rule of the world is content, so it is edited where content is edited, and
+  // it is made of two things the author already knows: a condition and a script.
+  // The panel adds nothing of its own except the one sentence that says what the
+  // rule DOES — `when` … `if` … `do` — because a list of rules you cannot read at
+  // a glance is a list you will not keep.
+  /** A rule in one line of English, for the list. */
+  PP.ruleLine = function (r) {
+    const when = `on ${r.when || 'step'}`;
+    const when2 = r.if && KIT.conditions ? `, if ${KIT.conditions.describe(r.if)}` : '';
+    const n = Array.isArray(r.do) ? r.do.length : 0;
+    const does = n ? `, do ${n} thing${n === 1 ? '' : 's'}` : ', do nothing yet';
+    const where = r.scope && ((r.scope.maps || []).length || (r.scope.layers || []).length)
+      ? ` · only in ${[].concat(r.scope.maps || [], r.scope.layers || []).join(', ')}` : '';
+    return when + when2 + does + where;
+  };
+  KIT.registry('editorPanels').add({
+    id: 'rules', label: 'Rules', icon: 'label', order: 56,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      const head = make('div.ed-row');
+      el.search = make('input.ed-obj-search');
+      el.search.type = 'search';
+      el.search.placeholder = 'Find a rule…';
+      el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
+      head.appendChild(el.search);
+      head.appendChild(btn('＋ New', 'Add a rule of the world', () => {
+        const id = commit('New rule', (doc, O) => O.newRule(doc, { name: 'New rule', when: 'step' }));
+        ED.select({ kind: 'rule', id });
+      }, 'primary'));
+      host.appendChild(head);
+      host.appendChild(make('div.ed-hint', { text: 'A rule is something that is true about the world until it stops being true. It can be switched off, rewritten, or eaten — “@rule eat doors-need-keys” — and after that the game plays differently.' }));
+      el.list = make('div.ed-list');
+      host.appendChild(el.list);
+      el.detail = make('div');
+      host.appendChild(el.detail);
+      this._form = null;
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const sel = ed.state.selection;
+      const selId = sel && sel.kind === 'rule' ? sel.id : null;
+      const q = (el.search.value || '').toLowerCase();
+      const ids = Object.keys(p.rules || {}).filter(id => !q || `${id} ${p.rules[id].name || ''}`.toLowerCase().indexOf(q) >= 0);
+      const sig = JSON.stringify([ids.map(id => [id, p.rules[id]]), selId]);
+      if (sig === this._sig) return;
+      this._sig = sig;
+      clear(el.list);
+      for (const id of ids) {
+        const r = p.rules[id];
+        const item = make('div.ed-item');
+        item.setAttribute('aria-selected', String(id === selId));
+        const text = make('div.ed-item-text');
+        text.appendChild(make('span.ed-slot-name', { text: r.name || id }));
+        text.appendChild(make('span.ed-hint', { text: PP.ruleLine(r) }));
+        item.appendChild(text);
+        if (r.on === false) item.appendChild(make('span.ed-badge.warn', { text: 'off' }));
+        if (r.edible === false) item.appendChild(make('span.ed-badge', { text: 'cannot be eaten' }));
+        item.appendChild(make('span.ed-badge', { text: id }));
+        item.onclick = () => ED.select({ kind: 'rule', id });
+        el.list.appendChild(item);
+      }
+      if (!ids.length) el.list.appendChild(ED.emptyState({ icon: '📜', text: 'No rules yet', hint: 'Try one: on bump, if the door is locked, say “it needs a key”. Then let the player eat it.' }));
+      if (this._form) { try { this._form.destroy(); } catch (e) { /* ignore */ } this._form = null; }
+      clear(el.detail);
+      if (!selId || !p.rules[selId]) return;
+      const r = p.rules[selId];
+      el.detail.appendChild(make('h3.ed-obj-title', { text: r.name || selId }));
+      el.detail.appendChild(make('div.ed-hint', { text: PP.ruleLine(r) }));
+      const form = make('div');
+      el.detail.appendChild(form);
+      this._form = INS().mount(form, {
+        fields: P.fields.rule || [],
+        value: r,
+        ctx: { project: p },
+        onChange(path, v) { setAt(['rules', selId].concat(path), v, 'Edit rule'); },
+      });
+      el.detail.appendChild(btn('✕ Delete this rule', 'Remove it from the project', async () => {
+        if (!(await ED.confirm(`Delete “${r.name || selId}”?`))) return;
+        commit('Delete rule', (doc, O) => O.deleteRule(doc, { id: selId }));
+        ED.select(null);
+      }, 'danger'));
+    },
+  });
+
   // ------------------------------------------------------------------ Items ----------
   KIT.registry('editorPanels').add({
     id: 'items', label: 'Items', icon: 'bag', order: 57,

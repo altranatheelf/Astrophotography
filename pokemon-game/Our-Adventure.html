@@ -979,7 +979,34 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return bus;
   };
 
+  /**
+   * The one global bus. NOTE THE DIFFERENCE, because it has bitten this repo:
+   * `KIT.events(name)` MAKES a bus — a fresh one, every call, with no listeners
+   * on it — and `KIT.bus` IS the shared one. Six call sites once read
+   * `KIT.events('kit').emit(...)`, which builds an empty bus, emits into it, and
+   * throws it away; every one of those events went nowhere and nothing said so.
+   * `test/kit/events.test.js` now fails if that spelling comes back.
+   */
   KIT.bus = KIT.bus || KIT.events('kit');
+
+  /**
+   * worldBus(save) -> the bus a thing that happened IN THE WORLD belongs on.
+   *
+   * A footstep, a line of history, a rule being eaten: those are events of one
+   * run, and a run has its own bus, so a second world — a test, the editor's
+   * preview, a save being inspected in a tool — does not hear the first one's.
+   *
+   * Pass the save it happened to and the answer is exact: the live world's bus
+   * only if it is the live world's save. Something that happened to a save
+   * nobody is playing goes to the global bus, where a tool can watch it and a
+   * world cannot mistake it for its own.
+   */
+  KIT.worldBus = function (save) {
+    const w = (KIT.game && KIT.game.world) || (KIT.world && KIT.world.live) || null;
+    if (!w || !w.events) return KIT.bus;
+    if (save !== undefined && w.save !== save) return KIT.bus;
+    return w.events;
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -3448,7 +3475,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       table = null;
     }
     misses.clear();
-    if (KIT.events) KIT.events('kit').emit('languageChanged', { language: current });
+    if (KIT.bus) KIT.bus.emit('languageChanged', { language: current });
     return current;
   };
 
@@ -4570,6 +4597,28 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       { key: 'w', type: 'number', integer: true, min: 0, default: 0 }, { key: 'h', type: 'number', integer: true, min: 0, default: 0 },
       { key: 'from', type: 'string', optional: true, doc: 'The tool and file it came from' }, { key: 'note', type: 'note', optional: true },
     ],
+    // A rule of the world, as a thing rather than as engine code. `when` is an
+    // event, `if` is the same condition an event page uses, `do` is the same
+    // command list — so an author who can write a page can write a rule.
+    rule: [
+      idField('id'), { key: 'name', type: 'string', default: '', shown: true },
+      { key: 'when', type: 'string', min: 1, default: 'step', label: 'Happens on',
+        doc: 'An event: step, mapEnter, mapLeave, bump, interactMissed, dimensionChanged, logged, clockTick…' },
+      { key: 'if', type: 'condition', label: 'Only when' },
+      { key: 'do', type: 'script', default: [], label: 'Then' },
+      { key: 'on', type: 'bool', default: true, label: 'In force' },
+      { key: 'priority', type: 'number', integer: true, default: 0,
+        doc: 'Higher goes first when two rules answer the same event.' },
+      { key: 'edible', type: 'bool', default: true, label: 'Can be eaten',
+        doc: 'Whether the story is allowed to take this rule out of the world.' },
+      { key: 'carrier', type: 'string', default: '', label: 'Carried by',
+        doc: 'An object id. Destroying it takes the rule with it.' },
+      { key: 'scope', type: 'group', fields: [
+        { key: 'maps', type: 'list', of: { type: 'ref:map' }, default: [] },
+        { key: 'layers', type: 'list', of: { type: 'string' }, default: [] },
+      ] },
+      { key: 'note', type: 'note' },
+    ],
     item: [{ key: 'kind', type: 'string', default: 'item' }, { key: 'name', type: 'string', shown: true }, { key: 'icon', type: 'ref:icon' }, { key: 'desc', type: 'text' }, { key: 'note', type: 'note' }],
     script: [
       { key: 'label', type: 'string' }, { key: 'trigger', type: 'enum', options: ['call', 'auto', 'parallel'], default: 'call' }, { key: 'when', type: 'condition' },
@@ -4757,7 +4806,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         };
       })(),
       modules: [], settings: {}, strings: p.strings || {}, heroes: [], start: p.start || {}, vars: p.vars || {}, items: {}, scripts: {},
-      fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {},
+      fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {}, rules: {},
     };
     const s = p.settings || {};
     out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop }, encounterRate: s.encounterRate == null ? 12 : s.encounterRate };
@@ -4904,6 +4953,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (!sc.label) sc.label = titleCase(id || '');
     return sc;
   };
+  /**
+   * A rule of the world: `when` an event happens, `if` a condition holds, `do` a
+   * script. Filled here rather than inline so the editor's ＋ New makes exactly
+   * the same object a loaded file does.
+   */
+  P.fillRule = function (raw, id) {
+    const r = S.fill(F.rule, isObj(raw) ? raw : {});
+    r.id = id || r.id || '';
+    if (!r.name) r.name = titleCase(r.id);
+    return r;
+  };
   const VAR_DEFAULT = { number: 0, bool: false, string: '' };
   P.fillVar = function (raw, name) {
     if (!isObj(raw)) { const t = typeof raw === 'boolean' ? 'bool' : typeof raw === 'string' ? 'string' : 'number'; raw = { type: t, default: raw == null ? VAR_DEFAULT[t] : raw }; }
@@ -4973,6 +5033,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     p.start = S.fill(F.start, isObj(src.start) ? src.start : {});
     p.vars = {}; if (isObj(src.vars)) for (const k of Object.keys(src.vars)) p.vars[k] = P.fillVar(src.vars[k], k);
     p.items = {}; if (isObj(src.items)) for (const k of Object.keys(src.items)) p.items[k] = P.fillItem(src.items[k], k);
+    p.rules = {}; if (isObj(src.rules)) for (const k of Object.keys(src.rules)) p.rules[k] = P.fillRule(src.rules[k], k);
     p.facts = {}; if (isObj(src.facts)) for (const k of Object.keys(src.facts)) { const f = S.fill(F.fact, isObj(src.facts[k]) ? src.facts[k] : {}); f.id = k; if (!f.label) f.label = titleCase(k); p.facts[k] = f; }
     p.cast = {}; if (isObj(src.cast)) for (const k of Object.keys(src.cast)) { const c = S.fill(F.person, isObj(src.cast[k]) ? src.cast[k] : {}); c.id = k; if (!c.name) c.name = titleCase(k); p.cast[k] = c; }
     // Languages are deliberately not schema-shaped: the keys ARE the authored
@@ -6351,7 +6412,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
     l.entries.push(entry);
     if (l.entries.length > L.WINDOW) l.entries.splice(0, l.entries.length - L.WINDOW);
-    if (KIT.events) KIT.events('kit').emit('logged', entry);
+    if (KIT.worldBus) KIT.worldBus(save).emit('logged', entry);
     return entry;
   };
 
@@ -6445,6 +6506,250 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const ever = KIT.storage.meta().everDid || {};
     return ever[tallyKey(verb, what)] || 0;
   };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/world/rules.js ----
+// Rules that are things.
+//
+// Most engines put the rules of a game in the engine, where a game cannot
+// reach them. Baba Is You put them on the floor as words you can push, and the
+// interesting part is not the puzzle — it is that "gravity is down" became an
+// object with a position, which means it can be moved, hidden, or eaten.
+//
+// A rule here is a thing in the world with three parts an author already knows:
+//
+//   when   an event that happens        ('step', 'mapEnter', 'logged', …)
+//   if     a condition                   (the same conditions an event page uses)
+//   do     a script                      (the same commands an event page runs)
+//
+// That is the whole design, and it is deliberately not a new language. An
+// engine that invents a rule DSL has to invent predicates, effects, an editor
+// widget for each, a validator, and a text form — all of which exist here
+// already for conditions and scripts. A rule is the two of them with a trigger.
+//
+// WHAT MAKES IT AN ENTITY RATHER THAN A CALLBACK
+//
+// A rule can be turned off, rewritten, and EATEN. It can have a carrier — a
+// scroll, a tablet, a tome somebody is holding — and destroying the carrier
+// takes the rule out of the world. `@eat doors-need-keys` is a verb a story can
+// use, and after it the doors do not need keys, because the rule that said so
+// is gone.
+//
+// CONFLICT
+//
+// Two rules that fire on the same event run in a defined order, so a game does
+// not depend on which was declared first: priority, then specificity (a rule
+// scoped to one place beats one scoped to a layer, which beats a global), then
+// most recently defined, then id. Stated, tested, and boring — which is what
+// you want when the rules of reality disagree.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const R = KIT.rules = KIT.rules || {};
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+  /**
+   * How deep a rule may set off another rule before the engine stops it.
+   * A cap rather than a ban: rules that trigger rules is the point, and rules
+   * that trigger themselves forever is a hang with no error message.
+   */
+  R.MAX_DEPTH = 8;
+
+  /** The save section: what has been switched off, eaten or rewritten this run. */
+  R.state = function (save) {
+    if (!isObj(save)) return {};
+    if (!isObj(save.rules)) save.rules = {};
+    return save.rules;
+  };
+
+  /** all(project) -> every rule the project declares, plus any defined at runtime. */
+  R.all = function (project, save) {
+    const out = [];
+    for (const [id, r] of Object.entries((project && project.rules) || {})) out.push(Object.assign({ id }, r));
+    const st = R.state(save);
+    for (const [id, s] of Object.entries(st)) {
+      if (s && s.rule && !out.some((r) => r.id === id)) out.push(Object.assign({ id }, s.rule));
+    }
+    return out;
+  };
+
+  /** get(project, save, id) -> the rule as it stands NOW, with any rewrite applied. */
+  R.get = function (project, save, id) {
+    const base = ((project && project.rules) || {})[id] || (R.state(save)[id] || {}).rule;
+    if (!base) return null;
+    const st = R.state(save)[id] || {};
+    return Object.assign({ id }, base, st.patch || {});
+  };
+
+  /**
+   * live(project, save, id) -> is this rule in force?
+   * Eaten beats everything. Otherwise an explicit on/off beats the rule's own
+   * `on` default.
+   */
+  R.live = function (project, save, id) {
+    const st = R.state(save)[id];
+    if (st && st.eaten) return false;
+    if (st && typeof st.on === 'boolean') return st.on;
+    const r = R.get(project, save, id);
+    return !!r && r.on !== false;
+  };
+
+  /** define(save, rule) — a rule that did not exist when the game shipped. */
+  R.define = function (save, rule) {
+    if (!isObj(rule) || !rule.id) return null;
+    const st = R.state(save);
+    st[rule.id] = Object.assign({}, st[rule.id], { rule: Object.assign({}, rule), on: rule.on !== false, at: nextAt(st) });
+    return st[rule.id].rule;
+  };
+
+  R.activate = function (save, id) { const st = R.state(save); st[id] = Object.assign({}, st[id], { on: true }); return true; };
+  R.deactivate = function (save, id) { const st = R.state(save); st[id] = Object.assign({}, st[id], { on: false }); return true; };
+
+  /**
+   * eat(save, id) — take the rule out of the world. Permanent within the run,
+   * and written into the history, because "the rule is gone" is a thing that
+   * happened and a later line will want to ask about it.
+   */
+  R.eat = function (save, id) {
+    const st = R.state(save);
+    if (st[id] && st[id].eaten) return false;
+    st[id] = Object.assign({}, st[id], { eaten: true, on: false });
+    if (KIT.history) KIT.history.add(save, 'ate', { what: 'rule:' + id });
+    if (KIT.worldBus) KIT.worldBus(save).emit('ruleEaten', { id });
+    return true;
+  };
+
+  /** rewrite(save, id, patch) — change what a rule says, from inside the game. */
+  R.rewrite = function (save, id, patch) {
+    if (!isObj(patch)) return false;
+    const st = R.state(save);
+    st[id] = Object.assign({}, st[id], { patch: Object.assign({}, (st[id] || {}).patch, patch) });
+    if (KIT.worldBus) KIT.worldBus(save).emit('ruleRewritten', { id, patch });
+    return true;
+  };
+
+  /**
+   * The next "defined at" stamp. Rules that shipped with the game have none and
+   * so count as 0, which is what makes a rule somebody made up during the run
+   * beat one that was always there — the tie-break after priority and scope.
+   * Derived from what is already in the save rather than kept in a counter, so
+   * it survives a save file without a field to migrate.
+   */
+  function nextAt(st) {
+    let max = 0;
+    for (const s of Object.values(st)) if (s && typeof s.at === 'number' && s.at > max) max = s.at;
+    return max + 1;
+  }
+
+  /**
+   * Does this rule apply where the player is standing?
+   * A scope with nothing in it is global, which is the common case and should
+   * not need saying.
+   */
+  R.inScope = function (rule, where) {
+    const s = rule.scope;
+    if (!isObj(s)) return true;
+    if (Array.isArray(s.maps) && s.maps.length && !s.maps.includes(where.map)) return false;
+    if (Array.isArray(s.layers) && s.layers.length && !s.layers.includes(where.layer)) return false;
+    return true;
+  };
+
+  /** How specific a scope is: a place beats a layer beats everywhere. */
+  function specificity(rule) {
+    const s = rule.scope;
+    if (!isObj(s)) return 0;
+    let n = 0;
+    if (Array.isArray(s.maps) && s.maps.length) n += 2;
+    if (Array.isArray(s.layers) && s.layers.length) n += 1;
+    return n;
+  }
+
+  /**
+   * matching(project, save, event, where) -> the rules that would fire, in the
+   * order they will fire. Pure, so the editor can show an author exactly what
+   * is about to happen and in what order.
+   */
+  R.matching = function (project, save, event, where) {
+    const at = where || {};
+    const out = [];
+    for (const r of R.all(project, save)) {
+      const rule = R.get(project, save, r.id);
+      if (!rule || rule.when !== event) continue;
+      if (!R.live(project, save, r.id)) continue;
+      if (!R.inScope(rule, at)) continue;
+      out.push(rule);
+    }
+    const stateOf = (id) => R.state(save)[id] || {};
+    out.sort((a, b) =>
+      (b.priority || 0) - (a.priority || 0) ||
+      specificity(b) - specificity(a) ||
+      (stateOf(b.id).at || 0) - (stateOf(a.id).at || 0) ||
+      String(a.id).localeCompare(String(b.id)));
+    return out;
+  };
+
+  let depth = 0;
+  /**
+   * fire(ctx, event, payload) -> Promise<number> — run every rule listening for
+   * this event, in order, and answer how many ran.
+   *
+   * `ctx` is an interpreter ctx: the rule's `do` is an ordinary command list and
+   * runs through the ordinary interpreter, which is what makes a rule able to do
+   * anything an event page can.
+   */
+  R.fire = async function (ctx, event, payload) {
+    if (!ctx || !ctx.project || !ctx.world) return 0;
+    const save = ctx.world.save;
+    const where = {
+      map: (ctx.world.map && ctx.world.map.id) || null,
+      layer: (save && save.dimension) || null,
+    };
+    const list = R.matching(ctx.project, save, event, where);
+    if (!list.length) return 0;
+    if (depth >= R.MAX_DEPTH) {
+      // Rejected rather than recursed. The originating verb is dropped and the
+      // loop is written down, because a game that hangs tells an author nothing
+      // and a game that says "rule:loop at doors-need-keys" tells them where.
+      if (KIT.history) KIT.history.add(save, 'rule:loop', { what: event });
+      (KIT.log || console).warn(`[rules] too deep on '${event}' — ${list.map((r) => r.id).join(', ')}`);
+      return 0;
+    }
+    depth++;
+    let ran = 0;
+    try {
+      for (const rule of list) {
+        const sub = Object.assign({}, ctx, { payload, rule: rule.id });
+        try {
+          if (rule.if && KIT.conditions && !KIT.conditions.test(rule.if, sub)) continue;
+          if (Array.isArray(rule.do) && rule.do.length && KIT.interpreter) {
+            // A rule that speaks locks input while it speaks, exactly as the
+            // event page of an object that speaks does. `busy` goes on HERE and
+            // not around the whole firing, because most events match no rule or
+            // fail the condition, and a world that goes busy on every footstep
+            // is a world you cannot walk across.
+            const w = ctx.world;
+            const was = w ? w.busy : false;
+            if (w) w.busy = true;
+            try {
+              await KIT.interpreter.run(rule.do, sub, { label: 'rule:' + rule.id });
+            } finally { if (w) w.busy = was; }
+          }
+          ran++;
+        } catch (e) {
+          // One broken rule must not stop the others, and must not be silent.
+          if (KIT.game && KIT.game.fault) KIT.game.fault('rule:' + rule.id, e);
+          else (KIT.log || console).error('[rule]', rule.id, e);
+        }
+      }
+    } finally { depth--; }
+    return ran;
+  };
+
+  /** depthNow() — for tests, and for a debug panel that wants to say why nothing fired. */
+  R.depthNow = () => depth;
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -7114,6 +7419,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       describe(c) { return `${c.name} ${SYM[c.op] || c.op || '='} ${c.var ? c.var : fmtValue(c.value)}`; },
     },
     {
+      id: 'rule', label: 'Rule is in force', group: 'Progress',
+      doc: 'Is this rule of the world still standing? False once it has been eaten.',
+      fields: [{ key: 'id', type: 'string', min: 1, default: '', label: 'Which rule' }],
+      test(c, ctx) {
+        const save = ctx && ctx.world && ctx.world.save;
+        return !!(KIT.rules && save && KIT.rules.live(ctx.project, save, c.id));
+      },
+      describe(c) { return `rule ${c.id} stands`; },
+    },
+    {
       id: 'did', label: 'Ever did', group: 'Progress',
       doc: 'Did this ever happen in this run? Leave the count empty for "at all".',
       fields: [
@@ -7385,6 +7700,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (k === 'meta' && word(c.key)) return `meta.${c.key} ${c.op || '=='} ${valText(c.value)}`;
     // `did.ate >= 2`, or narrowed: `did.ate/bread >= 2`. The same prefix shape
     // as item./self./meta., because an author should only learn one.
+    if (k === 'rule' && word(c.id)) return `rule.${c.id}`;
     if (k === 'did' && word(c.verb) && (!c.what || word(c.what))) {
       return `did.${c.verb}${c.what ? '/' + c.what : ''} ${c.op || '>='} ${valText(c.times == null ? 1 : c.times)}`;
     }
@@ -7477,6 +7793,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         expect(')');
         return C.normalize(c);
       }
+      // `rule.doors-need-keys` stands alone, with no operator, because "the rule
+      // is in force" is not a comparison against anything — and `not rule.x` is
+      // then the way to ask whether it has been eaten. This is the one bare word
+      // in the grammar, so it is checked before an operator is demanded.
+      if (k.v.startsWith('rule.')) return { kind: 'rule', id: k.v.slice(5) };
       const opTok = expect('op');
       const v = value();
       if (k.v.startsWith('self.')) { if (v.var !== undefined) throw new Error('condition: self cannot compare to a var'); return { kind: 'self', key: k.v.slice(5), op: opTok.v, value: v.value }; }
@@ -8632,6 +8953,48 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const cmd = { t: 'did', verb: String(v.value) };
         for (const tk of V.tokenize(t.slice(v.end))) { if (!tk.key) return null; cmd[tk.key] = tk.value; }
         return cmd;
+      },
+    },
+  });
+  // Taking a rule out of the world, putting one back, and changing what one
+  // says — from inside the story.
+  //
+  //   @rule eat doors-need-keys
+  //   @rule off gravity
+  //   @rule on gravity
+  defs.push({
+    id: 'rule', label: 'Change a Rule', group: 'Story', icon: 'label', blocking: false,
+    doc: 'Take a rule of the world out, put it back, or switch it off for a while.',
+    fields: [
+      { key: 'act', type: 'enum', options: ['eat', 'on', 'off'], default: 'eat', label: 'What to do' },
+      { key: 'id', type: 'string', min: 1, default: '', label: 'Which rule' },
+    ],
+    async run(ctx, cmd) {
+      const save = ctx.world && ctx.world.save;
+      if (!save || !KIT.rules) return undefined;
+      const rule = KIT.rules.get(ctx.project, save, cmd.id);
+      if (!rule) { (KIT.log || console).warn(`[rule] there is no rule called '${cmd.id}'`); return undefined; }
+      if (cmd.act === 'eat') {
+        // A rule an author marked inedible is load-bearing on purpose; saying so
+        // out loud beats a story that silently does nothing.
+        if (rule.edible === false) { (KIT.log || console).warn(`[rule] '${cmd.id}' cannot be eaten`); return undefined; }
+        KIT.rules.eat(save, cmd.id);
+      } else if (cmd.act === 'on') KIT.rules.activate(save, cmd.id);
+      else KIT.rules.deactivate(save, cmd.id);
+      return undefined;
+    },
+    summary(cmd) { return `${cmd.act === 'eat' ? 'Eat' : cmd.act === 'on' ? 'Restore' : 'Suspend'} rule ${cmd.id}`; },
+    text: {
+      toLine(cmd) { return `@rule ${cmd.act || 'eat'} ${V.format(cmd.id)}`; },
+      fromLine(line) {
+        const m = /^@rule\s+(eat|on|off)\s+(.+)$/.exec(line.trim());
+        if (!m) return null;
+        const v = V.scan(m[2], 0, '');
+        // An empty id is kept rather than rejected: a half-written command in the
+        // editor is still that command, and `run` says out loud that there is no
+        // such rule. Refusing it here turned it into a `raw` line instead.
+        if (!v || v.error) return null;
+        return { t: 'rule', act: m[1], id: String(v.value == null ? '' : v.value) };
       },
     },
   });
@@ -9894,6 +10257,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         return E.create({ id: h.id || `p${i + 1}`, kind: 'hero', x: st.x || 0, y: st.y || 0, dir: st.dir || 'down', sprite: h.sprite, speed: E.DEFAULT_SPEED, solid: i === 0 || world.coop });
       });
     }
+    // The run a bare save belongs to. KIT.worldBus(save) uses this to tell a
+    // thing that happened in the live world from a thing that happened to some
+    // other save; KIT.game overwrites it with the same object when there is a
+    // game, and a headless world is its own answer.
+    W.live = world;
+
     makeHeroes();
     world.hero = (i) => world.heroes[i == null ? world.activeHero : i];
     world.heroById = (id) => world.heroes.find(h => h.id === id) || world.heroes[0];
@@ -10084,6 +10453,68 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
     }
     world.runSlotsForMap = runSlotsForMap;
+
+    // ---- rules -----------------------------------------------------------------
+    // Rules are things in the world (js/kit/world/rules.js): `when` an event
+    // happens, `if` a condition holds, `do` a script. They listen on '*' and not
+    // on a fixed list of events, because the events a rule may watch are simply
+    // the events that exist — including any a module invents, which is the whole
+    // reason a module can add one.
+    //
+    // Firings are QUEUED rather than run where they arrive. A rule's `do` is an
+    // ordinary command list, so it can say something, and saying something takes
+    // time; two footsteps in the same frame must not start two conversations. The
+    // queue drains in order, one at a time, and `world.rulesSettled()` is how a
+    // test waits for it.
+    const ruleQueue = [];
+    let draining = false;
+    let settled = Promise.resolve();
+    /** How many rule firings one drain may do before it calls itself a loop. */
+    const RULE_BUDGET = 512;
+
+    function drainRules() {
+      if (draining) return settled;
+      draining = true;
+      settled = (async () => {
+        try {
+          let n = 0;
+          while (ruleQueue.length) {
+            if (++n > RULE_BUDGET) {
+              // Rules that set off rules is the point; rules that set off rules
+              // forever is a frozen game with nothing in the console. R.fire caps
+              // the DEPTH of one chain; this caps a chain that goes round through
+              // the queue instead, which the depth counter cannot see.
+              // Written down BEFORE the queue is emptied, because writing it down
+              // is itself an event, and a rule listening for `logged` is exactly
+              // the kind of rule that got us here. Empty the queue afterwards and
+              // the loop-breaker cannot re-arm the loop.
+              const names = ruleQueue.map(j => j.event);
+              if (KIT.history) KIT.history.add(save, 'rule:loop', { what: names[0] || null, data: { dropped: names.length } });
+              ruleQueue.length = 0;
+              (KIT.log || console).warn(`[rules] ${RULE_BUDGET} firings in one drain — dropped ${names.length} more (${Array.from(new Set(names)).join(', ')})`);
+              break;
+            }
+            const job = ruleQueue.shift();
+            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload);
+          }
+        } finally { draining = false; }
+      })();
+      return settled;
+    }
+    /** rulesSettled() -> a promise for "every rule that had something to do has done it". */
+    world.rulesSettled = () => settled;
+    world.rulesPending = () => ruleQueue.length;
+
+    if (KIT.rules && opts.rules !== false) {
+      events.on('*', (event, payload) => {
+        // Asked before queueing, so that the common case — an event no rule
+        // watches — costs one lookup and no promise.
+        const where = { map: world.map ? world.map.id : null, layer: save.dimension || null };
+        if (!KIT.rules.matching(project, save, event, where).length) return;
+        ruleQueue.push({ event, payload });
+        void drainRules();
+      });
+    }
 
     /**
      * interactTargets(hero) -> [{ x, y, answer(hero) }] — things that are not map
@@ -17647,7 +18078,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     faults.push(entry);
     if (faults.length > 50) faults.shift();
     (KIT.log || console).error(`[${where}]`, err);
-    if (KIT.events) KIT.events('kit').emit('fault', entry);
+    if (KIT.bus) KIT.bus.emit('fault', entry);
     // The author sees the real thing; the player sees that something happened,
     // because a silent half-executed script is worse than an honest apology.
     if (o.tell !== false) {
@@ -24618,6 +25049,17 @@ PKMN.TILES.register([
   O.declareVar = function (doc, o) {
     doc.set(['vars', o.name], P.fillVar({ type: o.type || 'number', default: o.default, label: o.label, group: o.group }, o.name), { label: `Declare ${o.name}` });
   };
+  /**
+   * A new rule of the world. Rules live in the project beside the variables and
+   * the items — they are content, not code — so making one is one document set
+   * and one undo step, like everything else.
+   */
+  O.newRule = function (doc, o) {
+    const id = o.id || KIT.slug(o.name || 'rule');
+    doc.set(['rules', id], P.fillRule({ name: o.name || '', when: o.when || 'step', do: o.do || [] }, id), { label: 'New rule' });
+    return id;
+  };
+  O.deleteRule = function (doc, o) { doc.del(['rules', o.id], { label: 'Delete rule' }); };
   O.newItem = function (doc, o) {
     const id = o.id || KIT.slug(o.name || 'item');
     doc.set(['items', id], P.fillItem({ kind: o.kind, name: o.name, icon: o.icon, desc: o.desc }, id), { label: 'New item' });
@@ -31334,6 +31776,95 @@ PKMN.TILES.register([
     return card;
   }
 
+  // ------------------------------------------------------------------ Rules ----------
+  // A rule of the world is content, so it is edited where content is edited, and
+  // it is made of two things the author already knows: a condition and a script.
+  // The panel adds nothing of its own except the one sentence that says what the
+  // rule DOES — `when` … `if` … `do` — because a list of rules you cannot read at
+  // a glance is a list you will not keep.
+  /** A rule in one line of English, for the list. */
+  PP.ruleLine = function (r) {
+    const when = `on ${r.when || 'step'}`;
+    const when2 = r.if && KIT.conditions ? `, if ${KIT.conditions.describe(r.if)}` : '';
+    const n = Array.isArray(r.do) ? r.do.length : 0;
+    const does = n ? `, do ${n} thing${n === 1 ? '' : 's'}` : ', do nothing yet';
+    const where = r.scope && ((r.scope.maps || []).length || (r.scope.layers || []).length)
+      ? ` · only in ${[].concat(r.scope.maps || [], r.scope.layers || []).join(', ')}` : '';
+    return when + when2 + does + where;
+  };
+  KIT.registry('editorPanels').add({
+    id: 'rules', label: 'Rules', icon: 'label', order: 56,
+    mount(host) {
+      clear(host);
+      const el = this._el = {};
+      const head = make('div.ed-row');
+      el.search = make('input.ed-obj-search');
+      el.search.type = 'search';
+      el.search.placeholder = 'Find a rule…';
+      el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
+      head.appendChild(el.search);
+      head.appendChild(btn('＋ New', 'Add a rule of the world', () => {
+        const id = commit('New rule', (doc, O) => O.newRule(doc, { name: 'New rule', when: 'step' }));
+        ED.select({ kind: 'rule', id });
+      }, 'primary'));
+      host.appendChild(head);
+      host.appendChild(make('div.ed-hint', { text: 'A rule is something that is true about the world until it stops being true. It can be switched off, rewritten, or eaten — “@rule eat doors-need-keys” — and after that the game plays differently.' }));
+      el.list = make('div.ed-list');
+      host.appendChild(el.list);
+      el.detail = make('div');
+      host.appendChild(el.detail);
+      this._form = null;
+      this.refresh(ED);
+    },
+    refresh(ed) {
+      const el = this._el;
+      if (!el) return;
+      const p = ed.state.project;
+      const sel = ed.state.selection;
+      const selId = sel && sel.kind === 'rule' ? sel.id : null;
+      const q = (el.search.value || '').toLowerCase();
+      const ids = Object.keys(p.rules || {}).filter(id => !q || `${id} ${p.rules[id].name || ''}`.toLowerCase().indexOf(q) >= 0);
+      const sig = JSON.stringify([ids.map(id => [id, p.rules[id]]), selId]);
+      if (sig === this._sig) return;
+      this._sig = sig;
+      clear(el.list);
+      for (const id of ids) {
+        const r = p.rules[id];
+        const item = make('div.ed-item');
+        item.setAttribute('aria-selected', String(id === selId));
+        const text = make('div.ed-item-text');
+        text.appendChild(make('span.ed-slot-name', { text: r.name || id }));
+        text.appendChild(make('span.ed-hint', { text: PP.ruleLine(r) }));
+        item.appendChild(text);
+        if (r.on === false) item.appendChild(make('span.ed-badge.warn', { text: 'off' }));
+        if (r.edible === false) item.appendChild(make('span.ed-badge', { text: 'cannot be eaten' }));
+        item.appendChild(make('span.ed-badge', { text: id }));
+        item.onclick = () => ED.select({ kind: 'rule', id });
+        el.list.appendChild(item);
+      }
+      if (!ids.length) el.list.appendChild(ED.emptyState({ icon: '📜', text: 'No rules yet', hint: 'Try one: on bump, if the door is locked, say “it needs a key”. Then let the player eat it.' }));
+      if (this._form) { try { this._form.destroy(); } catch (e) { /* ignore */ } this._form = null; }
+      clear(el.detail);
+      if (!selId || !p.rules[selId]) return;
+      const r = p.rules[selId];
+      el.detail.appendChild(make('h3.ed-obj-title', { text: r.name || selId }));
+      el.detail.appendChild(make('div.ed-hint', { text: PP.ruleLine(r) }));
+      const form = make('div');
+      el.detail.appendChild(form);
+      this._form = INS().mount(form, {
+        fields: P.fields.rule || [],
+        value: r,
+        ctx: { project: p },
+        onChange(path, v) { setAt(['rules', selId].concat(path), v, 'Edit rule'); },
+      });
+      el.detail.appendChild(btn('✕ Delete this rule', 'Remove it from the project', async () => {
+        if (!(await ED.confirm(`Delete “${r.name || selId}”?`))) return;
+        commit('Delete rule', (doc, O) => O.deleteRule(doc, { id: selId }));
+        ED.select(null);
+      }, 'danger'));
+    },
+  });
+
   // ------------------------------------------------------------------ Items ----------
   KIT.registry('editorPanels').add({
     id: 'items', label: 'Items', icon: 'bag', order: 57,
@@ -38044,7 +38575,7 @@ PKMN.TILES.register([
           for (const p of errors.slice(0, 10)) (KIT.log || console).warn('  ', p.code, p.message, p.where);
           if (errors.length > 10) (KIT.log || console).warn(`   …and ${errors.length - 10} more (Creator Mode › Problems)`);
         }
-        if (KIT.events) KIT.events('kit').emit('problemsReady', { problems });
+        if (KIT.bus) KIT.bus.emit('problemsReady', { problems });
       } catch (e) { (KIT.log || console).error('[project] the check itself failed', e); }
     };
     if (typeof root.requestIdleCallback === 'function') root.requestIdleCallback(run, { timeout: 4000 });
