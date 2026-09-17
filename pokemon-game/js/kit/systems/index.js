@@ -16,10 +16,33 @@
       if (e.route) E.updateRoute(e, dt, world.map, routePorts(world));   // routes started by the moveRoute command or a behaviour
       if (arrived && e.kind === 'npc') {
         const hit = world.heroes.find(h => h.x === e.x && h.y === e.y);
-        if (hit && e.page && e.page.on && e.page.on.touch && !world.busy) world.runSlot(e, 'touch', hit.id);
+        // Nine lines below, the `tick` slot is caught. This one was bare, so a
+        // content bug here rejected into nothing: `world.busy` is restored by
+        // the finally in runSlot, so the game kept running with a half-executed
+        // script and no signal to the player OR the author. Same slot machinery,
+        // same treatment.
+        if (hit && e.page && e.page.on && e.page.on.touch && !world.busy) slot(world, e, 'touch', hit.id);
       }
     }
   } });
+
+  /**
+   * slot(world, entity, name, hero) — run an authored slot, and never let a
+   * content bug escape as an unhandled rejection. The engine's own failures
+   * should be loud; a story's failures should be survivable.
+   */
+  function slot(world, e, name, hero) {
+    try {
+      return Promise.resolve(world.runSlot(e, name, hero)).catch((err) => {
+        if (KIT.game && KIT.game.fault) KIT.game.fault(`${name}:${e.id || '?'}`, err);
+        else (KIT.log || console).error(`[${name}]`, err);
+      });
+    } catch (err) {
+      if (KIT.game && KIT.game.fault) KIT.game.fault(`${name}:${e.id || '?'}`, err);
+      else (KIT.log || console).error(`[${name}]`, err);
+      return Promise.resolve();
+    }
+  }
 
   // --- 20 behaviours: autonomous movement ---------------------------------------
   const bhv = KIT.registry('behaviours');
@@ -73,9 +96,8 @@
       if (!e.page || !e.page.on || !Array.isArray(e.page.on.tick) || !e.page.on.tick.length) continue;
       if (e.data.tickRunning) continue;
       e.data.tickRunning = true;
-      Promise.resolve(world.runSlot(e, 'tick', world.hero() ? world.hero().id : 'p1'))
-        .catch(err => (KIT.log || console).error('[tick]', err))
-        .then(() => { e.data.tickRunning = false; });
+      Promise.resolve(slot(world, e, 'tick', world.hero() ? world.hero().id : 'p1'))
+        .then(() => { e.data.tickRunning = false; }, () => { e.data.tickRunning = false; });
     }
   } });
 

@@ -32,6 +32,68 @@
   const settings = () => KIT.storage.settings();
   const wait = (ms) => new Promise(res => setTimeout(res, KIT.fx.instant ? Math.min(16, ms) : ms));
 
+  // ---- when authored content throws -------------------------------------------
+  //
+  // A story is content, and content has bugs. A condition that reads a variable
+  // that was renamed, a transfer to a map that was deleted, a module slot that
+  // throws — all of them land in the same place: an `await` inside enterMap,
+  // which rejects continueGame, which is awaited by nothing, AFTER the title has
+  // already been torn down and the scene stack cleared. The player gets a blank
+  // screen and no reason for it.
+  //
+  // So there is a boundary. It does three things in order of who is standing
+  // there: keep the game running if it can, TELL the player something went
+  // wrong rather than leaving them looking at nothing, and put the real error
+  // somewhere the author will find it.
+  //
+  // Deliberately not a try/catch around one symptom. Guarding `project.maps[id]`
+  // fixes a rename and leaves every other content bug taking the same silent
+  // path — which is how a game ships something that "froze and I don't know why".
+  const faults = [];
+  G.faults = () => faults.slice();
+
+  /**
+   * fault(where, err, opts) — record it, say it, and decide whether to recover.
+   * Returns false, so a caller can `return G.fault(...)`.
+   */
+  G.fault = function (where, err, opts) {
+    const o = opts || {};
+    const message = (err && err.message) || String(err);
+    const entry = { where, message, at: playtimeMs, stack: err && err.stack };
+    faults.push(entry);
+    if (faults.length > 50) faults.shift();
+    (KIT.log || console).error(`[${where}]`, err);
+    if (KIT.events) KIT.events('kit').emit('fault', entry);
+    // The author sees the real thing; the player sees that something happened,
+    // because a silent half-executed script is worse than an honest apology.
+    if (o.tell !== false) {
+      const text = G.flags.debug ? `${where}: ${message}` : KIT.strings.get(G.project, 'went-wrong');
+      try { KIT.toast(text); } catch (e) { /* the toast itself must never throw */ }
+    }
+    return false;
+  };
+
+  /** guard(promise|fn, where) — run it, and turn a rejection into a fault. */
+  G.guard = function (work, where, opts) {
+    try {
+      const r = typeof work === 'function' ? work() : work;
+      if (r && typeof r.then === 'function') return r.then((v) => v, (e) => G.fault(where, e, opts));
+      return Promise.resolve(r);
+    } catch (e) { return Promise.resolve(G.fault(where, e, opts)); }
+  };
+
+  /** Anything that escaped everything else still reaches the author. */
+  function catchAll() {
+    if (typeof root.addEventListener !== 'function') return;
+    root.addEventListener('error', (ev) => {
+      if (!ev || !ev.error) return;
+      G.fault('page', ev.error, { tell: false });
+    });
+    root.addEventListener('unhandledrejection', (ev) => {
+      G.fault('unhandled', (ev && ev.reason) || new Error('unhandled rejection'), { tell: false });
+    });
+  }
+
   // ---- URL flags ------------------------------------------------------------------
   function readFlags() {
     let q = {};
@@ -376,6 +438,7 @@
   G.boot = async function (opts) {
     opts = opts || {};
     readFlags();
+    catchAll();
     await KIT.storage.ready();
 
     G.project = opts.project || KIT.project.blank();
@@ -523,7 +586,26 @@
     KIT.fx.reset();
     KIT.scenes.push('map', { game: G });
     const at = (save.heroes && save.heroes[0]) || {};
-    await world.enterMap(at.map || G.project.start.map, at.x || 0, at.y || 0, at.dir || 'down');
+    // The title is already gone and the scene stack already cleared by this
+    // point, so a throw here leaves the player looking at nothing. The most
+    // ordinary cause is a map that was renamed or deleted between the save and
+    // now — which is an ordinary week in year two of a long project — but any
+    // content bug in an `init` or `enter` slot arrives the same way.
+    const start = G.project.start || {};
+    const landed = await G.guard(
+      world.enterMap(at.map || start.map, at.x || 0, at.y || 0, at.dir || 'down'),
+      'continue', { tell: false },
+    );
+    if (landed === false) {
+      // Put them somewhere that exists rather than nowhere. The start of the
+      // game is the one place the project guarantees.
+      const ok = await G.guard(
+        world.enterMap(start.map, start.x || 0, start.y || 0, start.dir || 'down'),
+        'continue-fallback',
+      );
+      if (ok === false) { await G.toTitle(); return false; }
+      await KIT.toast(KIT.strings.get(G.project, 'save-moved'));
+    }
     if (save.music && save.music.current) KIT.audio.music(save.music.current, { fade: 300 });
     return true;
   };

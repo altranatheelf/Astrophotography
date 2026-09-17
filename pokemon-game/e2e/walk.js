@@ -383,6 +383,53 @@ async function run(browser, label, size, opts) {
     `both heroes walked (${JSON.stringify(plan.start)} → ${JSON.stringify(endPos)})`);
   await page.screenshot({ path: `${SHOTS}/${label}-8-coop.png` });
 
+  // --- a content bug does not end the game ---------------------------------------------
+  // Renaming or deleting a map is an ordinary week in year two of a long
+  // project, and every save made before it points at a place that is gone. That
+  // used to throw inside enterMap, reject continueGame, and be awaited by
+  // nothing — AFTER the title had been torn down and the scene stack cleared.
+  // The player got a black screen and no reason for it.
+  // This section causes failures ON PURPOSE, and the boundary's whole job is to
+  // log them — so the errors it produces are the pass condition, not noise.
+  // Counted out here rather than pattern-matched, so a DIFFERENT error appearing
+  // during the same window still fails the run.
+  const quietBefore = problems.length;
+  const fault = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const g = KIT.game;
+    const start = g.project.start.map;
+    const other = Object.keys(g.project.maps).find((id) => id !== start);
+    await g.world.enterMap(other, 2, 2, 'down'); await wait(150);
+    await g.save('2'); await wait(150);
+    delete g.project.maps[other];                       // exactly what a rename leaves behind
+    g.toTitle(); await wait(300);
+    const before = g.faults().length;
+    const ok = await g.continueGame('2');
+    await wait(400);
+    return { deleted: other, continued: ok, scene: g.scene(),
+             standingIn: g.world && g.world.map && g.world.map.id, start,
+             recorded: g.faults().length > before,
+             blank: g.scene() === 'map' && !g.world };
+  });
+  check(fault.continued === true, `a save pointing at a deleted map still continues (deleted '${fault.deleted}')`);
+  check(fault.standingIn === fault.start, `and lands somewhere that exists (${fault.standingIn})`);
+  check(!fault.blank, 'never a map scene with no world under it — that is the black screen');
+  check(fault.recorded, 'and the real error is recorded for the author rather than swallowed');
+
+  const boundary = await page.evaluate(() => ({
+    hasFault: typeof KIT.game.fault === 'function',
+    hasGuard: typeof KIT.game.guard === 'function',
+    guarded: KIT.game.guard(Promise.reject(new Error('boom')), 'test', { tell: false }),
+  }));
+  check(boundary.hasFault && boundary.hasGuard, 'there is a boundary to route content failures through');
+  check(await page.evaluate(() => KIT.game.guard(() => { throw new Error('sync'); }, 'test', { tell: false }).then((v) => v === false)),
+    'and it catches a synchronous throw as well as a rejection');
+  const expected = problems.slice(quietBefore);
+  const onlyOurs = expected.every((t) => /unknown map|\[continue|\[test|boom|sync/.test(t));
+  check(onlyOurs, `the boundary logged only the failures we caused (${expected.length})`);
+  problems.length = quietBefore;      // and they do not count against the quiet check below
+
+
   // --- the baked tile layers are bounded ----------------------------------------------
   // Each map bakes its tile layers to one canvas per layer, which is what makes
   // walking a big map free. The bill is that those canvases are huge — on a

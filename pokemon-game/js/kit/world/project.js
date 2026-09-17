@@ -161,6 +161,8 @@
     { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
     { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
     { id: 'save-failed', default: 'Could not save.' },
+    { id: 'went-wrong', default: 'Something went wrong there.' },
+    { id: 'save-moved', default: 'That place is gone. Starting you somewhere else.' },
   ]);
 
   // ---- basic object types (§5) ----------------------------------------------
