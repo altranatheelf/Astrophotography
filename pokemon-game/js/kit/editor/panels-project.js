@@ -394,6 +394,59 @@
         }));
         body.appendChild(out);
 
+        // The version-control way out.
+        //
+        // The project format is already mergeable by construction — one file per
+        // map, sorted keys, one short line per row, no minified blobs — which is
+        // the single clearest thing this engine has over RPG Maker, where a map
+        // is one line of JSON that git cannot merge even when two people edit
+        // different corners of it.
+        //
+        // And until now there was NO WAY TO PRODUCE IT from the editor.
+        // `KIT.project.exportFiles` had zero callers outside the build script,
+        // so the differentiator existed and nobody could reach it.
+        const gitRow = make('div.ed-row');
+        const canFolder = typeof root.showDirectoryPicker === 'function';
+        gitRow.appendChild(btn(canFolder ? '↓ Save as files (for git)' : '↓ Save as files',
+          'One file per map, the way version control wants it', async () => {
+            const files = KIT.project.exportFiles(p);
+            const names = Object.keys(files);
+            if (canFolder) {
+              try {
+                const dir = await root.showDirectoryPicker({ mode: 'readwrite' });
+                for (const name of names) {
+                  const parts = name.split('/');
+                  let here = dir;
+                  for (let i = 0; i < parts.length - 1; i++) here = await here.getDirectoryHandle(parts[i], { create: true });
+                  const fh = await here.getFileHandle(parts[parts.length - 1], { create: true });
+                  const w = await fh.createWritable();
+                  await w.write(files[name]);
+                  await w.close();
+                }
+                say(`Wrote ${names.length} file${names.length === 1 ? '' : 's'}. That folder is a git repository waiting to happen.`, true);
+              } catch (e) {
+                say(e && e.name === 'AbortError' ? 'Nothing written.' : 'That folder could not be written to.', e && e.name !== 'AbortError' ? false : undefined);
+              }
+              return;
+            }
+            // No directory picker (every browser on a phone, and Safari): one
+            // file at a time is unusable at 400 maps, so it says so rather than
+            // starting four hundred downloads.
+            if (names.length > 12) {
+              say(`This browser cannot save a folder, and this game is ${names.length} files. Open Creator Mode on a computer in Chrome or Edge to save it for git — or use “Save a copy” above, which is one file and works everywhere.`, false);
+              return;
+            }
+            let wrote = 0;
+            for (const name of names) if (await KIT.storage.download(name.replace(/\//g, '-'), files[name])) wrote++;
+            say(wrote ? `Saved ${wrote} file${wrote === 1 ? '' : 's'}.` : 'This browser would not save the files.', !!wrote);
+          }));
+        body.appendChild(gitRow);
+        body.appendChild(make('div.ed-sub', {
+          text: canFolder
+            ? 'One file per map, sorted and readable, so git can merge two people editing different rooms. RPG Maker writes each map as a single minified line, which it cannot.'
+            : 'Saving a folder needs Chrome or Edge on a computer. On a phone, “Save a copy” above is the one that works.',
+        }));
+
         const inRow = make('div.ed-row');
         const file = make('input');
         file.type = 'file';
