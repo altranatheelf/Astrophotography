@@ -238,6 +238,36 @@ line, a French player saw the wrong sentence); and the battle's text band was
 computed from one font size while the writer drew at another, so a long line
 landed on top of the arena.
 
+## 6. What the audit found in its own work
+
+The audit was run twice: once on the engine, then again after a week of fixes.
+The second pass found three bugs in the first pass's own output, and one pattern
+underneath all of them.
+
+**The pattern.** The same defect had landed three times and 459 passing tests
+would not have caught any of it:
+
+| The capability | Real and tested | Reachable |
+|---|---|---|
+| Localization | yes | **no player could select a language** |
+| Sound and music volume | yes | **no row in the menu** |
+| The git-mergeable format | yes | **no button in the editor** |
+
+Each time, "done" had quietly come to mean *the API exists and a unit test calls
+it*. The fix is not three fixes; it is `test/kit/reachable.test.js`, which
+asserts that a setting a player is meant to change appears as a **row** — and
+which failed to catch the bug in its first version, because it searched the whole
+file and the handler in `nudge()` still mentioned the setting. A setting you can
+only change if you can see it.
+
+**And the other two.** Every visible line was translated *twice* — with
+`'Yes.' → 'Non.'` and `'Non.'` also a source line, a French player saw a sentence
+from somewhere else. And the battle's text band was computed from one font size
+while the writer drew at another, so on a short window a long line landed on top
+of the arena.
+
+None of these were found by playing the game.
+
 ## 6. The honest summary
 
 An Undertale-scope game is well within reach today, and the bullet-hell module
