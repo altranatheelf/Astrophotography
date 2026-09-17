@@ -6944,7 +6944,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // The tree
   // =============================================================================
 
-  const blank = () => ({ v: 1, head: null, n: 0, nodes: {} });
+  const blank = () => ({ v: 1, head: null, n: 0, b: 0, nodes: {} });
   let tree = null;
 
   /** The storage key this lives under: one tree per project, beside the slots. */
@@ -6956,18 +6956,97 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     let stored = null;
     try { stored = await KIT.storage.get(T.key()); } catch (e) { stored = null; }
     tree = isObj(stored) && isObj(stored.nodes) ? stored : blank();
+    bump();
+    T.repair();
+    tree.b = T.bytes();          // the one exact measurement; kept running after
     return tree;
+  };
+
+  /**
+   * repair() -> how many moments were dropped as unreachable.
+   *
+   * A node's delta is written against its parent, so a node whose parent is not
+   * there cannot be rebuilt and nothing downstream of it can either. That should
+   * not happen — pruning only takes leaves — but a store is not a promise: it can
+   * be evicted part-way (Safari's seven-day sweep), truncated by a quota refusal
+   * mid-write, or edited by hand. Checked on the way in, because the alternative
+   * is a Moments list with rows that do nothing.
+   */
+  T.repair = function () {
+    const t = T.now();
+    let dropped = 0;
+    for (let pass = 0; pass < 64; pass++) {
+      const gone = Object.keys(t.nodes).filter((id) => {
+        const n = t.nodes[id];
+        if (!isObj(n)) return true;
+        if (!n.p) return !n.full;                       // a root with no whole save is no root
+        return !t.nodes[n.p];
+      });
+      if (!gone.length) break;
+      for (const id of gone) { delete t.nodes[id]; dropped++; }
+      bump();
+    }
+    if (dropped) {
+      (KIT.log || console).warn(`[timeline] dropped ${dropped} moment(s) that could no longer be rebuilt`);
+      delete t.b;
+    }
+    if (t.head && !t.nodes[t.head]) {
+      // Stand at the newest thing that is still there rather than nowhere.
+      const left = Object.keys(t.nodes).sort((a, b) => (t.nodes[b].at || 0) - (t.nodes[a].at || 0));
+      t.head = left[0] || null;
+    }
+    return dropped;
   };
   /** now() -> the tree as it stands, without waiting. Empty until load(). */
   T.now = () => tree || (tree = blank());
   T.flush = async function () { try { return await KIT.storage.set(T.key(), T.now()); } catch (e) { return false; } };
   /** forgetAll() — throw the whole tree away. Only the player asks for this. */
-  T.forgetAll = async function () { tree = blank(); built = null; return T.flush(); };
-  T._setTree = (t) => { tree = t || blank(); built = null; return tree; };
+  T.forgetAll = async function () { tree = blank(); built = null; bump(); return T.flush(); };
+  T._setTree = (t) => {
+    tree = t || blank();
+    built = null;
+    bump();
+    // Measured HERE and not lazily on the first write. Lazily was the first
+    // version and it was wrong by one node: the first `noteSize` after a reset
+    // found no running total, measured the tree — which by then already held the
+    // node being added — and then added that node's bytes on top. One anchor
+    // double-counted, which at a 34KB save is 34KB of drift that never washes
+    // out. The experiment's drift threshold is what caught it.
+    tree.b = T.bytes();
+    return tree;
+  };
 
   T.node = (id) => T.now().nodes[id] || null;
   T.head = () => T.now().head;
   T.count = () => Object.keys(T.now().nodes).length;
+
+  /**
+   * Who hangs off whom, built once and held until the tree changes.
+   *
+   * `children(id)` on its own is a scan of every node, and three things here ask
+   * it for every node in turn — pruning, drawing the list, and `elsewhere`. That
+   * is a square, and `elsewhere` is a CONDITION: it runs inside a frame, on every
+   * event page the world evaluates. At 200 moments the square was 0.9ms and
+   * invisible; at the 1,500 the storage budget allows it would have been tens of
+   * milliseconds of a 16.7ms frame. A cliff at exactly the point a long game
+   * arrives at it.
+   */
+  let index = null;
+  function bump() { index = null; }
+  function kids() {
+    if (index) return index;
+    const m = new Map();
+    const nodes = T.now().nodes;
+    for (const id of Object.keys(nodes)) {
+      const p = nodes[id].p;
+      if (!p) continue;
+      if (!m.has(p)) m.set(p, []);
+      m.get(p).push(id);
+    }
+    for (const list of m.values()) list.sort((a, b) => (nodes[a].at || 0) - (nodes[b].at || 0));
+    index = m;
+    return m;
+  }
 
   /** The chain of ids from the root down to this node. */
   T.path = function (id) {
@@ -6977,7 +7056,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     while (at && T.now().nodes[at] && !seen.has(at)) { seen.add(at); out.unshift(at); at = T.now().nodes[at].p; }
     return out;
   };
-  T.children = (id) => Object.keys(T.now().nodes).filter((k) => T.now().nodes[k].p === (id || null));
+  /** children(id) -> the moments that grow out of this one, oldest first. */
+  T.children = function (id) {
+    if (!id) return Object.keys(T.now().nodes).filter((k) => !T.now().nodes[k].p)
+      .sort((a, b) => (T.now().nodes[a].at || 0) - (T.now().nodes[b].at || 0));
+    return (kids().get(id) || []).slice();
+  };
 
   /**
    * rebuild(id) -> the save as it was at that moment.
@@ -7058,8 +7142,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
     }
     const id = 'm' + t.n;
+    T.size();                       // the total exists before the node does
     t.nodes[id] = node;
     t.head = id;
+    noteSize(costOf(id, node));
+    bump();
     built = { id, save: KIT.deepClone(save) };
     T.prune();
     return id;
@@ -7125,7 +7212,33 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return true;
   };
 
+  /** bytes() -> what the tree would really take, measured. For tools and tests. */
   T.bytes = () => sizeOf(T.now());
+
+  /**
+   * size() -> the same number, kept running.
+   *
+   * `bytes()` stringifies the whole tree, and `prune()` used to call it on every
+   * save to find out whether it had anything to do. At 200 moments that was
+   * nothing; at the 1,500 the budget allows it was **27.5ms of a 16.7ms frame**,
+   * every time the game saved — a cliff at exactly the size a long playthrough
+   * arrives at. So the total is carried instead: every node adds its own bytes
+   * when it is recorded and gives them back when it is pruned, and the exact
+   * measurement happens once, when the tree is read from the store.
+   */
+  T.size = function () {
+    const t = T.now();
+    if (typeof t.b !== 'number') t.b = T.bytes();
+    return t.b;
+  };
+  function noteSize(delta) {
+    const t = T.now();
+    // `size()` is what establishes the total when there is not one yet, and it
+    // is called BEFORE the change is applied by everything that calls this.
+    t.b = Math.max(0, (typeof t.b === 'number' ? t.b : 0) + delta);
+  }
+  /** What one node costs in the store: itself, plus its key in the map. */
+  const costOf = (id, node) => sizeOf(node) + String(id).length + 4;
 
   /**
    * prune() — the tree is not allowed to grow forever.
@@ -7138,17 +7251,27 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   T.prune = function (budget) {
     const cap = budget || T.BUDGET;
     const t = T.now();
-    let guard = 0;
-    while (T.bytes() > cap && guard++ < 4096) {
+    if (T.size() <= cap) return true;                   // the usual answer, for nothing
+    // Passes, not removals: taking a dead end can turn its parent into one, so
+    // the round is repeated — but the tree is walked once per round rather than
+    // once per node taken, and nothing is stringified at all.
+    for (let pass = 0; pass < 64; pass++) {
+      if (T.size() <= cap) return true;
+      const child = kids();
       const onPath = new Set(T.path(t.head));
       const leaves = Object.keys(t.nodes)
-        .filter((id) => !T.children(id).length && !onPath.has(id) && !t.nodes[id].keep && t.nodes[id].p)
+        .filter((id) => !child.has(id) && !onPath.has(id) && !t.nodes[id].keep && t.nodes[id].p)
         .sort((a, b) => (t.nodes[a].at || 0) - (t.nodes[b].at || 0));
       if (!leaves.length) return false;                 // everything left is load-bearing
-      if (built && built.id === leaves[0]) built = null;
-      delete t.nodes[leaves[0]];
+      for (const id of leaves) {
+        if (T.size() <= cap) break;
+        noteSize(-costOf(id, t.nodes[id]));
+        if (built && built.id === id) built = null;
+        delete t.nodes[id];
+      }
+      bump();
     }
-    return true;
+    return T.size() <= cap;
   };
 
   // =============================================================================
@@ -7173,7 +7296,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     let most = 0;
     for (const id of Object.keys(t.nodes)) {
       if (mine.has(id)) continue;
-      if (T.children(id).some((c) => !mine.has(c))) continue;      // only the tips of other branches
+      if ((kids().get(id) || []).some((c) => !mine.has(c))) continue;   // only the tips of other branches
       // Add up what happened between the fork and this tip. Nothing before the
       // fork counts: that is our own past, and it is not news from elsewhere.
       let sum = 0, at = id, guard = 0;
@@ -7192,7 +7315,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const t = T.now();
     let most = 0;
     for (const id of Object.keys(t.nodes)) {
-      if (T.children(id).length) continue;                         // tips only: a tip has the whole line behind it
+      if (kids().has(id)) continue;                                // tips only: a tip has the whole line behind it
       most = Math.max(most, T.tallyAt(id)[k] || 0);
     }
     return most;
@@ -7218,11 +7341,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       rows.push({
         id, depth, label: n.label || '', where: n.where, layer: n.layer, day: n.day, min: n.min,
         at: n.at, mine: mine.has(id), head: id === t.head, kept: !!n.keep,
-        branches: T.children(id).length,
+        branches: (kids().get(id) || []).length,
       });
-      for (const c of T.children(id).sort((a, b) => (t.nodes[a].at || 0) - (t.nodes[b].at || 0))) walk(c, depth + 1);
+      for (const c of (kids().get(id) || [])) walk(c, depth + 1);
     };
-    for (const r of T.children(null).sort((a, b) => (t.nodes[a].at || 0) - (t.nodes[b].at || 0))) walk(r, 0);
+    for (const r of T.children(null)) walk(r, 0);
     return rows;
   };
 

@@ -72,6 +72,32 @@ threshold passing with room:
 | writing the whole tree | 4.2 ms |
 | a rebuilt save vs the save | identical |
 
+And then again at the ceiling — 1,500 moments, which is what the 3MB budget
+allows and is where a long playthrough arrives. That run found a second cliff
+that 200 moments could never have shown: `prune()` asked "have I anything to do"
+by stringifying the whole tree, which at 1.89MB was **27.5ms of a 16.7ms frame,
+on every save**. The total is carried instead — each node adds its bytes when
+recorded and gives them back when pruned, measured exactly once when the tree is
+read in. (Carrying it was wrong by one node at first: the lazy first measurement
+counted the node being added, and then added it again. 34KB of drift that never
+washes out, caught by a threshold on the drift itself.)
+
+| at 1,500 moments | measured |
+|---|---|
+| recording one | 7.5 ms |
+| `elsewhere()` | 0.44 ms |
+| rebuilding the oldest | 0.4 ms |
+| drawing the whole list | 1.2 ms |
+| writing the tree | 24.2 ms |
+| running total vs the real one | 11 bytes of 1.98MB |
+| every moment left rebuildable | 1500 of 1500 |
+
+`elsewhere` is a **condition**: it runs inside a frame, on every event page the
+world evaluates. Three things here asked `children(id)`, which is a scan of every
+node, for every node in turn — a square that is invisible at 200 and tens of
+milliseconds at 1,500. There is one parent→child index now, built on demand and
+dropped whenever the tree changes.
+
 ## The delta format is three ops
 ```
 { p: path, v: value }            set
@@ -105,6 +131,15 @@ rebuilds.
 - A tree can still be pruned away under a full store. The player's own line and
   every named moment are the last things to go, which is the right order, but
   "every branch forever" is not a promise this can make.
+- The tree is one document, so saving writes all of it: 24ms at the 3MB ceiling.
+  Under the storage experiment's own 100ms rule, but it is the cost that scales
+  with the budget rather than with the change. One key per node would fix it and
+  would make `rebuild` asynchronous, which is a bigger change than the number
+  currently justifies.
+- A store is not a promise, so `repair()` runs on the way in and drops any moment
+  whose parent is gone, and everything below it — a delta is written against its
+  parent, so an orphan cannot be rebuilt and neither can its children. The
+  alternative is a Moments list with rows that do nothing.
 
 ## What would make this wrong
 If players never open the Moments list. That would mean branching is a thing

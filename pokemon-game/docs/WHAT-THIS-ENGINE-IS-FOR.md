@@ -43,6 +43,17 @@ queue of commands taking turns. *RPG Maker: Move Route with Wait, and prayer.*
 which ending you reached, what you were called. An NPC can open with it. *RPG
 Maker: nothing.*
 
+**Rules you can break.** The rules of a place are things in it: a trigger, a
+condition, a script — and a story can switch one off, rewrite it, or **eat** it.
+`@rule eat doors-need-keys` and the doors do not need keys, for good. *RPG
+Maker: the rules are in the engine, where a game cannot reach them.*
+
+**Going back without losing anything.** Saves are a tree. Going back to a moment
+and playing on makes a branch beside it, not on top of it, and a line of dialogue
+can ask what happened in the branch you left — `{elsewhere:killed/dog}`. The one
+question no variable can answer, because the variable was over there. *RPG Maker:
+twenty slots, and going back means overwriting the one you came from.*
+
 **People who know things.** A cast with relationships and knowledge, where a
 line changes because of what someone learned three scenes ago, and you can see
 that graph while writing. *RPG Maker: switches, hand-counted.*

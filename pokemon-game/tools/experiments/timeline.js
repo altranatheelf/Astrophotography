@@ -21,6 +21,9 @@
 //   5. `elsewhere()` must be under 2ms — it is a condition, it runs in a frame.
 //   6. A rebuilt save must be EXACTLY the save that was recorded. Not close.
 //   7. Writing the whole tree must be under 100ms.
+//   8. And none of 3, 4 or 5 may fall off a cliff at the size the storage budget
+//      actually allows — which is where a long game arrives, and is therefore
+//      the only size at which those numbers matter.
 'use strict';
 const path = require('path');
 const { chromium } = require('playwright');
@@ -138,14 +141,56 @@ function threshold(name, value, ok, unit) {
     // 200 full saves, for the comparison the whole design rests on.
     const naive = fullSaveBytes * N;
 
+    const momentRows = T.moments().length;
+
+    // ---- and again at the ceiling ------------------------------------------
+    // 200 moments is a session. The budget allows something like 1,500, which is
+    // a playthrough, and it is the size at which an O(n²) would show. `elsewhere`
+    // is a CONDITION — it runs inside a frame — so this is the number that
+    // decides whether the feature is usable at the end of a long game.
+    T._setTree(null);
+    let big = save;
+    let ceilRecord = 0;
+    const BIG = 1500;
+    const bigIds = [];
+    for (let i = 0; i < BIG; i++) {
+      big = played(big, i);
+      if (i > 0 && i % 40 === 0) T.now().head = bigIds[Math.max(0, bigIds.length - 21)];
+      const t0 = performance.now();
+      bigIds.push(T.record(big, {}));
+      ceilRecord = Math.max(ceilRecord, performance.now() - t0);
+    }
+    const ceilNodes = T.count();
+    const t5 = performance.now();
+    for (let i = 0; i < 20; i++) T.elsewhere({ verb: 'walked', what: 'thing1' });
+    const ceilElsewhere = (performance.now() - t5) / 20;
+    const oldestBig = bigIds.find(id => T.now().nodes[id]);
+    const t6 = performance.now();
+    const ceilRebuiltOk = !!T.rebuild(oldestBig);
+    const ceilRebuild = performance.now() - t6;
+    const t7 = performance.now();
+    const ceilRows = T.moments().length;
+    const ceilMoments = performance.now() - t7;
+    const ceilBytes = T.bytes();
+    const t8 = performance.now();
+    await T.flush();
+    const ceilWrite = performance.now() - t8;
+    const sizeDrift = Math.abs(T.size() - ceilBytes);
+    // Every moment left standing must still be rebuildable — the invariant that
+    // pruning could break and nothing else would notice.
+    let whole = 0, broken = 0;
+    for (const id of Object.keys(T.now().nodes)) { if (T.rebuild(id)) whole++; else broken++; }
+
     await KIT.storage.del(T.key());
     return {
+      ceilNodes, ceilRecord, ceilElsewhere, ceilRebuild, ceilRebuiltOk, ceilMoments, ceilRows,
+      ceilBytes, ceilWrite, sizeDrift, whole, broken, ceilAsked: BIG,
       fullSaveBytes, treeBytes, nodes, anchors, deltaCount,
       avgDelta: deltaCount ? Math.round(deltaBytes / deltaCount) : 0,
       avgNode: Math.round(treeBytes / nodes),
       naive, rebuildHead, rebuildOld, recordWorst, elsewhereMs, writeMs, wrote,
       readOk: !!(readBack && readBack.nodes && Object.keys(readBack.nodes).length === nodes),
-      exact, els, moments: T.moments().length,
+      exact, els, moments: momentRows,
       deepestOk: !!deepest,
     };
   });
@@ -172,6 +217,18 @@ function threshold(name, value, ok, unit) {
   threshold('   rebuilding the head works at all', r.deepestOk ? 'yes' : 'no', r.deepestOk);
   threshold('   the tree draws as rows', r.moments + ' rows', r.moments === r.nodes);
   threshold('   elsewhere() finds another branch', r.els, r.els > 0);
+  log('\n--- and at the ceiling: ' + r.ceilAsked + ' moments recorded, ' + r.ceilNodes + ' still standing ---');
+  log(`  the tree pruned itself to              ${(r.ceilBytes / 1024 / 1024).toFixed(2)} MB`);
+  threshold('8. recording one is still under 16ms', r.ceilRecord.toFixed(1), r.ceilRecord < 16, 'ms');
+  threshold('   elsewhere() is still under 2ms', r.ceilElsewhere.toFixed(2), r.ceilElsewhere < 2, 'ms');
+  threshold('   rebuilding the oldest is still under 50ms', r.ceilRebuild.toFixed(1), r.ceilRebuild < 50 && r.ceilRebuiltOk, 'ms');
+  threshold('   drawing the whole list is under 50ms', r.ceilMoments.toFixed(1), r.ceilMoments < 50, 'ms');
+  threshold('   the tree stayed inside its budget', (r.ceilBytes / 1024 / 1024).toFixed(2) + ' MB', r.ceilBytes <= 3 * 1024 * 1024);
+  threshold('   writing it is still under 100ms', r.ceilWrite.toFixed(1), r.ceilWrite < 100, 'ms');
+  threshold('   the running size has not drifted from the real one',
+    r.sizeDrift + ' B of ' + r.ceilBytes, r.sizeDrift < r.ceilBytes * 0.005);
+  threshold('   and every moment left can still be rebuilt',
+    `${r.whole} whole, ${r.broken} broken`, r.broken === 0 && r.whole === r.ceilNodes);
   threshold('   nothing threw', errs.length ? errs[0] : 'clean', errs.length === 0);
 
   await browser.close();

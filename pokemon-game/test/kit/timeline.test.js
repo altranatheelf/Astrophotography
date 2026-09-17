@@ -219,6 +219,77 @@ test('moments: the whole tree survives being written out as JSON', () => {
   assert.equal(JSON.stringify(T.rebuild(ids[19])), JSON.stringify(s), 'and they still rebuild');
 });
 
+test('moments: the running size stays honest, so pruning never has to measure', () => {
+  // `prune()` asked `bytes()` — a stringify of the whole tree — on every save,
+  // just to find out whether it had anything to do. At 1,500 moments that was
+  // 27.5ms of a 16.7ms frame, every time the game saved. So the total is carried,
+  // and this is the test that it is carried correctly: an estimate that drifts is
+  // worse than a measurement, because it is wrong quietly.
+  fresh();
+  let s = save0();
+  const ids = [];
+  for (let i = 0; i < 60; i++) { s = play(s, i); ids.push(T.record(s, {})); }
+  // The NODES are accounted for exactly. What drifts is the tree's own three
+  // header fields — `head` gaining a digit as ids get longer, `n` and `b` the
+  // same — and in particular the total is itself a field in the document it
+  // measures, so it can never include its own digits. A handful of bytes that
+  // never grows with the tree, against a three-megabyte budget. A per-NODE
+  // mistake is the thing that would matter, and it would show up here as sixty
+  // of them.
+  const near = (what) => assert.ok(Math.abs(T.size() - T.bytes()) < 64,
+    `${what}: running ${T.size()} vs real ${T.bytes()}`);
+  near('after sixty moments');
+  T.prune(1);
+  near('after a prune took things away');
+  const round = JSON.parse(JSON.stringify(T.now()));
+  delete round.b;                                  // an older save, from before the field existed
+  T._setTree(round);
+  near('and a tree that never had a total, measured once on the way in');
+});
+
+test('moments: a moment whose parent is gone is dropped on the way in', () => {
+  // This should not happen — pruning only takes leaves — but a store is not a
+  // promise. Safari sweeps everything a page kept after seven days; a quota
+  // refusal can truncate a write; somebody can edit the thing by hand. A node's
+  // delta is written against its parent, so an orphan cannot be rebuilt and
+  // nothing below it can either. The alternative to checking is a Moments list
+  // with rows that do nothing when you pick them.
+  fresh();
+  let s = save0();
+  const ids = [];
+  for (let i = 0; i < 8; i++) { s = play(s, i); ids.push(T.record(s, {})); }
+  const wounded = JSON.parse(JSON.stringify(T.now()));
+  delete wounded.nodes[ids[3]];                    // a node in the MIDDLE, which pruning would never do
+  T._setTree(wounded);
+  const quiet = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => quiet.push(a.join(' '));
+  try { assert.equal(T.repair(), 4, 'the four moments below the hole went with it'); }
+  finally { console.warn = realWarn; }
+  for (const id of Object.keys(T.now().nodes)) assert.ok(T.rebuild(id), `${id} is whole`);
+  assert.deepEqual(Object.keys(T.now().nodes).sort(), ids.slice(0, 3).sort(), 'and what is left is the part that still works');
+  assert.ok(T.now().nodes[T.head()], 'the player is standing on something that exists');
+  assert.ok(quiet.length && /timeline/.test(quiet[0]), `and it said so: ${quiet[0]}`);
+});
+
+test('moments: a root with no whole save is not a root', () => {
+  // The other way the chain can break: the anchor itself is gone, so there is
+  // nothing to start applying deltas to.
+  fresh();
+  let s = save0();
+  const a = T.record(s, {});
+  const b = T.record(play(s, 1), {});
+  const wounded = JSON.parse(JSON.stringify(T.now()));
+  delete wounded.nodes[a].full;
+  T._setTree(wounded);
+  const realWarn = console.warn;
+  console.warn = () => {};
+  try { T.repair(); } finally { console.warn = realWarn; }
+  assert.equal(T.count(), 0, 'the whole line went, because none of it could be rebuilt');
+  assert.equal(T.head(), null, 'and the player is nowhere rather than somewhere broken');
+  assert.ok(!T.rebuild(b));
+});
+
 // ---- what the game can ask ---------------------------------------------------
 
 test('moments × history: elsewhere() is what happened over there, after the fork', () => {

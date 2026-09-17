@@ -95,6 +95,8 @@ Measured on this machine, in Chromium, with a real requestAnimationFrame loop.
 | **Authoring on a phone** | Creator Mode, whole project as one file, no server, no account | a Windows desktop application |
 | **Runtime size** | an HTML file | 150–400MB of bundled Chromium before a single asset |
 | **Custom battles** | a scene draws, gets input, and saves — `js/modules/bullet/` is a working Undertale-style fight | plugins over plugins; OMORI "heavily overrides" the ones it uses |
+| **The rules of the world** | a row an author edits: a trigger, a condition, a script — and a story can **eat** one, after which the world plays differently | in the engine, where a game cannot reach them |
+| **Going back** | saves are a tree; going back **branches** instead of overwriting, and a line of dialogue can ask what happened in the branch you left | 20 slots, and going back means overwriting the one you came from |
 
 ### Where it is at parity
 
@@ -231,6 +233,33 @@ Every one of items 1, 2, 3, 9 and the double-translation bug below was found by
 research or by an audit, not by playing the game — which is the argument for
 doing it this way.
 
+**Things a story should be able to do to the world, and could not**
+
+13. **The rules of the world are rows now** — a trigger, a condition, a script
+    (ADR-0012). `@rule eat doors-need-keys` and the doors do not need keys, with
+    the project untouched and the change in the save. Conflict is stated
+    (priority → specificity → recency → id) rather than depending on file order,
+    and loops are capped twice because there are two ways round: depth 8 in one
+    chain, 512 firings in one drain for a chain that goes back through the event
+    queue.
+14. **Saves are a tree** (ADR-0013). Going back branches instead of overwriting,
+    there is a Moments row in the pause menu, and `elsewhere.killed/dog >= 1` is
+    a condition an author can write — the one question no variable can answer,
+    because the variable was in the other branch. 409KB for 200 moments against
+    6.65MB for a save each.
+15. **Six events that went nowhere.** `KIT.events(name)` MAKES a bus — a fresh
+    one, no listeners — and `KIT.bus` IS the shared one. Six call sites were
+    written `KIT.events('kit').emit(...)`, which builds an empty bus, emits into
+    it and drops it. Faults, language changes, editor problems and every line of
+    history announced themselves to nobody, and nothing said so, because emitting
+    into an empty bus is legal and returns 0. A test now fails if that spelling
+    comes back.
+16. **Reachability got its second half.** A setting a player can change had a
+    test; a table an author can edit did not — and `rules` was normalized, saved,
+    validated and referenced by a command, a condition and a screenplay form,
+    with a passing test for each, and no screen. Every table a project carries
+    must now name the panel that edits it or the place it is edited instead.
+
 **And three bugs in work from this same session**, found by auditing it:
 the language pipeline terminated one line short of the player; every visible
 line was translated *twice* (with `'Yes.' → 'Non.'` and `'Non.'` also a source
@@ -255,20 +284,49 @@ all now here:
   `npm run experiments`. Every other number in this document was measured after
   the thing was built, which makes it a discovery rather than a decision.
 
-And one primitive taken outright: a run that remembers what you did (§ADR-0011).
-Its design diverges from the plan's on purpose — an unbounded log in a database
-is right for a database, and a save here is one JSON document, so it is a
-permanent tally plus a bounded window instead.
+All three of the plan's primitives that this repo did not have are now here, and
+each one's design diverges from the plan's on purpose, in the same direction every
+time — because a save here is one JSON document in browser storage rather than a
+row in a database, and that one fact changes the right answer three times:
 
-**What the plan has that this still does not:** rules as first-class entities
-that events can rewrite, and time-tree saves where branches form a navigable
-DAG. Both are real ideas and neither is here. The plan's own review calls the
-time-tree its thesis and the rules system the most expensive thing to get right.
+| The plan's primitive | The plan's design | What was built here, and why |
+|---|---|---|
+| A run that remembers (ADR-0011) | unbounded log in IndexedDB; a Bloom filter in a worker for "ever?"; sqlite-wasm if it does not scale | a permanent tally plus a bounded window. "Ever?" is a map lookup, not a Bloom filter. Exact forever for the questions the tally covers, and it says which those are. |
+| Rules as entities (ADR-0012) | TypeScript listener objects — which the plan's own Editor document then contradicts, requiring JSON authoring; its §9 resolves it in favour of the editor | a trigger, an existing `condition` and an existing `script`. The editor widget, validator, text form, reference index and translation extraction were already there, so the resolved design turned out **cheaper**, not more expensive. |
+| Time-tree saves (ADR-0013) | branches as a navigable DAG; the plan's own review calls this its thesis | a tree of deltas, anchored on economics rather than a count, with `elsewhere.killed/dog >= 1` as an authorable condition. 409KB for 200 moments; a save per moment would be 6.65MB. |
 
-**And what this has that the plan does not:** it exists. The plan is eighteen
-months old with zero lines of code and its own estimate of shipping engine,
-editor and a prologue together is 30–35%. That is not a small difference, and it
-is the one thing a document cannot fix about itself.
+The third row is the one worth dwelling on, because it is the argument for
+building over planning made in a single number. The first design here — a delta
+per node with a whole save every twelve — was written, measured, and **failed two
+of its own thresholds**. The measurement said exactly why: the whole saves were
+592KB of a 1.1MB tree while every delta put together was 119KB. No amount of
+review finds that. The plan could not have known it, and neither could I until
+the number came back.
+
+### Could a game made in the plan be better than one made in this?
+
+Asked plainly, and worth answering plainly rather than defensively.
+
+**Where a WEFT game would win.** TypeScript across engine, editor and content
+means a renamed field breaks the build instead of a playthrough; this repo
+catches that with a validator and a test suite, which is later and weaker.
+Excalibur.js brings a maintained scene graph, tilemap and collision system with
+other people fixing it. A Tauri editor gets real windows, real file dialogs and
+a filesystem, where Creator Mode gets one browser tab. Those are genuine
+advantages and none of them are stylistic.
+
+**Where this one wins.** It exists. Not as a debating point — as the thing that
+decides the outcome. The plan is eighteen months old with zero lines of code, and
+its own estimate of shipping engine, editor and a prologue together is 30–35%.
+Every number in this document is measured; every number in the plan is estimated,
+and the two times a plan-derived design was measured here, it lost to what the
+measurement suggested instead.
+
+**So the honest answer:** a WEFT game would be built on firmer foundations and is
+much less likely to be built at all. A plan is worth reading for the primitives it
+names — three of them are in this repo now and the engine is better for all
+three. It is not worth waiting for. The plan's best ideas transferred in a week;
+its eighteen months of not shipping did not have to.
 
 ---
 

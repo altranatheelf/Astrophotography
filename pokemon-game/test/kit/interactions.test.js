@@ -15,6 +15,13 @@
 // The pairs are the ones that are load-bearing and plausible. Pairs that cannot
 // interact (language × collision) are not here; a matrix nobody reads because it
 // is exhaustive is worse than a short one that is true.
+//
+// The matrix is a NAMING RULE, not this one file: any test called `a × b:` is a
+// pair in it, and a primitive that arrives with its own suite states its pairs
+// there, beside the thing they are about — `rules ×` in rules.test.js,
+// `moments ×` in timeline.test.js. docs.test.js counts them across the whole
+// test tree, because the first version of that check pointed at this path and
+// went stale the moment a primitive stopped living here.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
