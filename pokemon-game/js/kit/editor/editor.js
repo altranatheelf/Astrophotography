@@ -508,21 +508,95 @@
       .filter(p => !p.visible || p.visible(ED))
       .sort((a, b) => (a.order || 50) - (b.order || 50));
   }
+
+  /**
+   * The panels, in four groups.
+   *
+   * Nineteen panels as one flat strip was the thing that made Creator Mode feel
+   * impossible: a four-row wall of equal-weight tabs on a laptop, and on a phone
+   * one endless row you scrolled blind through to find “Rules”. Nobody thinks
+   * “I want the Terms tab”; they think “I am working on this map”, “I am
+   * writing”, or “this is about the whole game”. So those are the tabs, and the
+   * panels of the one you are in are a short second row.
+   *
+   * A panel says which group it belongs to with `section` — not `group`, which
+   * the Tiles panel already uses for the tile group it is showing, and which put
+   * Tiles under Game on the first try. A module's panel that says nothing lands
+   * in Game, which is where a thing about the whole game belongs. Problems is
+   * its own group so the count is always on screen.
+   */
+  const GROUPS = [
+    { id: 'map', label: 'Map', hint: 'This map: paint it, place things on it, connect it' },
+    { id: 'story', label: 'Story', hint: 'What is said and what happens' },
+    { id: 'game', label: 'Game', hint: 'The whole game: settings, variables, items, words' },
+    { id: 'problems', label: 'Problems', hint: 'What the validator found' },
+  ];
+  // The kit's own panels only. A module's panel says `section` for itself —
+  // the first version of this table named two module panels here, and the
+  // purity test refused it (ADR-0005).
+  const DEFAULT_GROUP = {
+    tiles: 'map', objects: 'map', map: 'map',
+    script: 'story', scripts: 'story', fragments: 'story', dialogue: 'story', cast: 'story', rules: 'story',
+    project: 'game', vars: 'game', items: 'game', strings: 'game', data: 'game', import: 'game',
+    problems: 'problems',
+  };
+  function groupOf(def) {
+    const d = typeof def === 'string' ? KIT.registry('editorPanels').get(def) : def;
+    if (!d) return 'game';
+    const g = d.section || DEFAULT_GROUP[d.id] || 'game';
+    return GROUPS.some(x => x.id === g) ? g : 'game';
+  }
+  ED.groups = () => GROUPS.map(g => ({ id: g.id, label: g.label }));
+  ED.groupOf = groupOf;
+  ED.panelsOf = (group) => panelList().filter(p => groupOf(p) === group).map(p => p.id);
+
   function buildTabs() {
-    const bar = ED.el.tabs;
+    const groups = ED.el.groups, bar = ED.el.tabs;
+    if (!groups || !bar) return;
+    const active = groupOf(state.panel);
+    UI.clear(groups);
+    const errs = (state.problems || []).filter(p => p.severity === 'error').length;
+    const warns = (state.problems || []).filter(p => p.severity === 'warn').length;
+    for (const g of GROUPS) {
+      const b = UI.make('button.ed-group', { text: g.label });
+      b.type = 'button';
+      b.dataset.group = g.id;
+      b.title = g.hint;
+      b.setAttribute('aria-selected', String(g.id === active));
+      if (g.id === 'problems') {
+        const n = errs + warns;
+        if (n) {
+          const badge = UI.make('span.ed-group-badge' + (errs ? '.is-error' : ''), { text: String(n) });
+          b.appendChild(badge);
+        }
+      }
+      b.onclick = () => {
+        const first = ED.panelsOf(g.id)[0];
+        if (first) ED.set({ panel: groupOf(state.panel) === g.id ? state.panel : first });
+      };
+      groups.appendChild(b);
+    }
     UI.clear(bar);
-    for (const p of panelList()) {
+    const inGroup = panelList().filter(p => groupOf(p) === active);
+    bar.classList.toggle('is-single', inGroup.length < 2);   // one panel needs no chip under the group
+    for (const p of inGroup) {
       const b = UI.make('button.ed-tab', { text: KIT.labelOf(p, ED, p.id) });
+      b.type = 'button';
       b.dataset.panel = p.id;
       b.setAttribute('aria-selected', String(p.id === state.panel));
       b.onclick = () => ED.set({ panel: p.id });
       bar.appendChild(b);
     }
   }
+  ED.buildTabs = buildTabs;
   function showPanel(id) {
     const host = ED.el.panel;
     if (!host) return;
+    // The strip shows one group's panels; a panel from another group means a
+    // different strip, so it is rebuilt rather than merely re-highlighted.
+    if (!ED.el.tabs.querySelector(`.ed-tab[data-panel="${id}"]`)) buildTabs();
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
+    for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);
@@ -535,6 +609,12 @@
     }
     const rec = mounted.get(id);
     if (rec) { rec.el.hidden = false; refreshPanel(rec); }
+    // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
+    // for painting. Opening one hands the pointer to its tool unless the active
+    // tool is one the panel uses — otherwise a tap meant to select Mom paints
+    // grass under her. The toolbar is refreshed by the ED.set that got us here.
+    const want = rec && rec.def.tool;
+    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) state.tool = want;
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -567,7 +647,8 @@
     ED.el.redoBtn = mk('↷', 'Redo (Ctrl+Shift+Z)', () => ED.redo());
     mk('−', 'Zoom out', () => ED.zoom(-1));
     mk('+', 'Zoom in', () => ED.zoom(1));
-    ED.el.playBtn = mk('▶ Play here', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
+    ED.el.playBtn = mk('▶ Play', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
+    ED.el.playBtn.appendChild(UI.make('span.ed-play-more', { text: ' here' }));   // dropped on a phone, where the row is full
     mk('✕', 'Close Creator Mode', () => ED.close());
     refreshToolbar();
   }
@@ -591,7 +672,11 @@
       if (tools.children.length !== defs.length) {
         UI.clear(tools);
         for (const t of defs) {
-          const b = UI.make('button.ed-tool', { text: t.icon || KIT.labelOf(t, ED, t.id) });
+          // An icon on its own was nine emoji in a row — what is the sponge, the
+          // droplet, the leaf? — so every tool carries its word.
+          const b = UI.make('button.ed-tool');
+          b.appendChild(UI.make('span.ed-tool-icon', { text: t.icon || '·' }));
+          b.appendChild(UI.make('span.ed-tool-label', { text: t.short || KIT.labelOf(t, ED, t.id) }));
           b.dataset.tool = t.id;
           b.title = `${KIT.labelOf(t, ED, t.id)}${t.key ? ` (${t.key})` : ''}`;
           b.onclick = () => ED.set({ tool: t.id });
@@ -617,6 +702,18 @@
     ].filter(Boolean);
     s.textContent = bits.join('   ·   ');
     s.classList.toggle('has-errors', errs > 0 || !!state.saveFailed);
+    // The Problems group carries the count, so it is on screen whichever panel is open.
+    const pb = ED.el.groups && ED.el.groups.querySelector('.ed-group[data-group="problems"]');
+    if (pb) {
+      const n = errs + warns;
+      let badge = pb.querySelector('.ed-group-badge');
+      if (!n && badge) badge.remove();
+      else if (n) {
+        if (!badge) { badge = UI.make('span.ed-group-badge'); pb.appendChild(badge); }
+        badge.textContent = String(n);
+        badge.classList.toggle('is-error', errs > 0);
+      }
+    }
     s.title = state.saveFailed ? state.saveFailed + ' Use Project › “Save a copy” to get your work out.' : '';
     refreshToolbar();
   }
@@ -709,15 +806,16 @@
     const canvas = UI.make('canvas.ed-canvas');
     const overlay = UI.make('canvas.ed-overlay');
     const side = UI.make('div.ed-side');
+    const groups = UI.make('div.ed-groups');
     const tabs = UI.make('div.ed-tabs');
     const panel = UI.make('div.ed-panel');
     const status = UI.make('div.ed-status');
     stage.appendChild(canvas); stage.appendChild(overlay);
-    side.appendChild(tabs); side.appendChild(panel);
+    side.appendChild(groups); side.appendChild(tabs); side.appendChild(panel);
     main.appendChild(stage); main.appendChild(side);
     root.appendChild(toolbar); root.appendChild(main); root.appendChild(status);
     host.appendChild(root);
-    ED.el = { host, root, toolbar, main, stage, canvas, overlay, side, tabs, panel, status };
+    ED.el = { host, root, toolbar, main, stage, canvas, overlay, side, groups, tabs, panel, status };
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);

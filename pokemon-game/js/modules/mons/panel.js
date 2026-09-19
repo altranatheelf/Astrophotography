@@ -79,7 +79,7 @@
   function registerPanel() {
     if (!KIT.registry.exists('editorPanels')) return;
     KIT.registry('editorPanels').add({
-      id: 'mons-encounters', label: 'Encounters', icon: 'grass', order: 45, replace: true,
+      id: 'mons-encounters', label: 'Encounters', icon: 'grass', order: 45, section: 'map', replace: true,
       mount(el, ed) { this._el = el; this.refresh(ed); },
       refresh(ed) { paintPanel(this._el, ed); },
       onSelect(sel, ed) { paintPanel(this._el, ed); },

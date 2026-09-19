@@ -31,7 +31,9 @@
   P.GROUND_BY_KIND = { outdoor: 'grass', garden: 'grass', indoor: 'floor-wood', cave: 'cave-floor' };
   P.MAP_KINDS = ['outdoor', 'indoor', 'cave', 'garden'];
   const ID_PATTERN = '^[a-z0-9][a-z0-9-_.:]*$';
-  const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :' });
+  // `display: 'readonly'`: an id is the key a thing is stored under. Forms show
+  // it and do not offer it — see KIT.editor.inspector.field.
+  const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :', display: 'readonly' });
   const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   // ---- field schemas (§5) --------------------------------------------------
@@ -245,7 +247,7 @@
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
     { id: 'npc', name: 'NPC', kind: 'object', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
-      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'text', type: 'text', default: 'Hello!' }],
+      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
 
@@ -935,6 +937,8 @@
           if (!pg) return;
           errors('schema', S.validate(F.behaviour, pg.behaviour || {}), { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('behaviour') }, `${o.id} page ${pi + 1} behaviour`);
           if (t && t.fields) errors('schema', stripRefErrors(S.validate(t.fields, pg.props || {})), { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('props') }, `${o.id} page ${pi + 1}`);
+          // a character page with no sprite draws nothing: the player walks into thin air that talks
+          if (t && t.look && t.look.sprite && pg.visible !== false && !pg.sprite) prob('warn', 'invisible-object', `${o.id} page ${pi + 1} has no sprite, so nothing is drawn on the map (pick one, or untick Visible)`, { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('sprite') });
           const on = pg.on || {};
           for (const slot of Object.keys(on)) if (!P.SLOTS.includes(slot)) prob('warn', 'unknown-slot', `${o.id} page ${pi + 1}: unknown slot '${slot}'`, { map: mapId, object: o.id, page: pi, slot, path: pwhere.path.concat('on', slot) });
           if (Array.isArray(on.tick) && on.tick.length) ticks++;

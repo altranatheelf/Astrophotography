@@ -119,9 +119,27 @@ async function clearMessages(page, limit) {
   await page.waitForTimeout(150);
 }
 
+/** Open a panel the way a person does: its group first, then the chip. */
 const openPanel = async (page, id) => {
-  await page.click(`.ed-tab[data-panel="${id}"]`);
+  const group = await page.evaluate((pid) => KIT.editor.groupOf(pid), id);
+  await page.click(`.ed-group[data-group="${group}"]`);
+  await page.waitForTimeout(120);
+  // a one-panel group hides its chip row and opens the panel itself
+  const chip = await page.$(`.ed-tab[data-panel="${id}"]`);
+  if (chip && await chip.isVisible()) await chip.click();
   await page.waitForTimeout(250);
+};
+/** Every panel tab, across all four groups, in order. */
+const allTabs = async (page) => {
+  const out = [];
+  for (const g of await page.evaluate(() => KIT.editor.groups().map(x => x.id))) {
+    await page.click(`.ed-group[data-group="${g}"]`);
+    await page.waitForTimeout(80);
+    // a one-panel group hides its chip row; the panel is still there
+    const ids = await page.$$eval('.ed-tabs > .ed-tab', els => els.map(e => e.dataset.panel));
+    out.push(...(ids.length ? ids : await page.evaluate((gg) => KIT.editor.panelsOf(gg), g)));
+  }
+  return out;
 };
 const shot = (page, label, name) => page.screenshot({ path: `${SHOTS}/editor-${label}-${name}.png` });
 
@@ -157,8 +175,10 @@ async function run(browser, label, size, opts) {
   const st0 = await state(page);
   check(!!st0.mapId, `Creator Mode opened on “${st0.mapId}”`);
   check(await page.isVisible('.ed-toolbar'), 'the toolbar is there');
-  check(await page.isVisible('.ed-tabs'), 'the panel tabs are there');
-  const tabIds = await page.$$eval('.ed-tabs > .ed-tab', els => els.map(e => e.dataset.panel));
+  check(await page.isVisible('.ed-groups'), 'the four groups are there');
+  const groupIds = await page.$$eval('.ed-groups > .ed-group', els => els.map(e => e.dataset.group));
+  check(groupIds.join(',') === 'map,story,game,problems', `Map · Story · Game · Problems (${groupIds.join(', ')})`);
+  const tabIds = await allTabs(page);
   const missingTabs = PANELS.filter(id => !tabIds.includes(id));
   const extraTabs = tabIds.filter(id => !PANELS.includes(id));
   check(missingTabs.length === 0,
@@ -240,6 +260,7 @@ async function run(browser, label, size, opts) {
 
   // --- 5. place an NPC from a preset ------------------------------------------------
   await openPanel(page, 'objects');
+  check((await state(page)).tool === 'select', 'opening Events hands the pointer to Move, so a tap picks an event instead of painting');
   const eventsBefore = (await objects(page)).length;
   await page.click('.ed-obj-head .ed-btn.primary');            // ＋ Add
   await page.waitForTimeout(200);
@@ -331,7 +352,7 @@ async function run(browser, label, size, opts) {
   await shot(page, label, '12-back');
 
   // --- 9. every panel, for a human to look at ----------------------------------------
-  const everyPanel = await page.$$eval('.ed-tabs > .ed-tab', els => els.map(e => e.dataset.panel));
+  const everyPanel = await allTabs(page);
   for (const id of everyPanel) {
     await openPanel(page, id);
     const body = await page.$(`.ed-panel-body[data-panel="${id}"]`);

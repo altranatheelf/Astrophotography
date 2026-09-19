@@ -103,6 +103,7 @@ test('validate reports every documented code with a where', () => {
   s.maps.home.objects.push({ id: 'mom', type: 'npc', x: 1, y: 1 });                        // duplicate id
   s.maps.home.objects.push({ id: 'far', type: 'trigger', x: 99, y: 1 });                    // out of bounds
   s.maps.home.objects.push({ id: 'odd', type: 'ufo', x: 1, y: 1 });                         // unknown type
+  s.maps.home.objects.push({ id: 'ghost-npc', type: 'npc', x: 2, y: 2, pages: [{}] });         // a person with no sprite: invisible
   s.maps.home.layers = { ground: [null, 'lava'] };                                          // unknown tile (rest filled)
   for (let i = 0; i < 4; i++) s.maps.town.objects = (s.maps.town.objects || []).concat([{ id: 't' + i, type: 'trigger', x: i, y: 0, pages: [{ on: { tick: [{ t: 'say', text: 'hi' }] } }] }]);
   s.maps.town.objects.push({ id: 'lock', type: 'trigger', x: 5, y: 5, pages: [{ when: { kind: 'var', name: 'chapter', op: '==', value: 0 }, on: { enter: [{ t: 'say', text: '' }] } }] });
@@ -120,7 +121,7 @@ test('validate reports every documented code with a where', () => {
   KIT.registry('validators').remove('my-lint');
   const codes = new Set(problems.map(x => x.code));
   for (const c of ['no-pitch', 'unknown-sprite', 'duplicate-object', 'object-out-of-bounds', 'unknown-object-type', 'unknown-tile', 'too-many-ticks', 'soft-lock', 'empty-text',
-    'bad-target', 'target-out-of-bounds', 'target-solid', 'unknown-item', 'unknown-script', 'unknown-object', 'undeclared-var', 'blocking-in-background', 'unknown-command', 'connection-mismatch', 'my-lint']) {
+    'bad-target', 'target-out-of-bounds', 'target-solid', 'unknown-item', 'unknown-script', 'unknown-object', 'undeclared-var', 'blocking-in-background', 'unknown-command', 'connection-mismatch', 'invisible-object', 'my-lint']) {
     assert.ok(codes.has(c), `expected code ${c} in ${Array.from(codes).join(',')}`);
   }
   const tick = problems.find(x => x.code === 'blocking-in-background' && x.where.slot === 'tick');
@@ -131,6 +132,7 @@ test('validate reports every documented code with a where', () => {
   assert.deepEqual(problems.find(x => x.code === 'undeclared-var').where.path, ['scripts', 'bad', 'body', 4, 'name']);
   const dup = problems.find(x => x.code === 'duplicate-object'); assert.equal(dup.severity, 'error'); assert.equal(dup.where.object, 'mom');
   assert.equal(problems.find(x => x.code === 'too-many-ticks').severity, 'warn');
+  const ghost = problems.find(x => x.code === 'invisible-object' && x.where.object === 'ghost-npc'); assert.equal(ghost.severity, 'warn'); assert.deepEqual(ghost.where.path, ['maps', 'home', 'objects', 5, 'pages', 0, 'sprite']);
   // every problem has severity/code/message/where
   for (const x of problems) { assert.ok(['error', 'warn'].includes(x.severity)); assert.ok(x.code && x.message && x.where); }
 });

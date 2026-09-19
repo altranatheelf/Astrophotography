@@ -26,19 +26,27 @@ else, run `node tools/build.js` — one `.html` file with everything in it.
 ## The screen
 
 ```
-┌──────────────────────────────────────────────┬──────────────┐
-│ map ▾   ✏️ 🪣 ▭ 🧽 💧 🧱 🌿 ✥ ✋   ↶ ↷ − + ▶ Play here ✕ │ panel tabs  │
-├──────────────────────────────────────────────┤              │
-│                                              │  the panel   │
-│                 the map                      │  you picked  │
-│                                              │              │
-├──────────────────────────────────────────────┴──────────────┤
-│ 4, 7 · ground · saved · 2 warnings                          │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┬───────────────────────────┐
+│ map ▾   Pencil Fill Rect Erase Pick Stamp    │ Map · Story · Game · Problems │
+│         Terrain Move Hand  ↶ ↷ − + ▶ Play ✕  │ Tiles  Events  Map  …     │
+├──────────────────────────────────────────────┤                           │
+│                                              │  the panel you picked     │
+│                 the map                      │                           │
+│                                              │                           │
+├──────────────────────────────────────────────┴───────────────────────────┤
+│ 4, 7 · ground · saved · 2 warnings                                       │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-On a phone the panel is a sheet under the map and the tabs scroll sideways —
-everything is the same, just stacked.
+Every tool has its name under its icon, so nothing has to be guessed at. The
+side panel is four groups — **Map** (what is on this map), **Story** (what
+happens and who says it), **Game** (the whole project) and **Problems** — and
+under the group you picked, a chip for each of its panels. A group with one
+panel just opens it. The Problems group shows a count, red when any is an error.
+
+On a phone the panel is a sheet under the map: the tools sit in a row of their
+own above it, the groups and chips wrap, and everything is the same, just
+stacked.
 
 ## Painting
 
@@ -120,23 +128,29 @@ place in the editor.
 
 ## Where everything is
 
-| Panel | What it is for |
+| Group · Panel | What it is for |
 |---|---|
-| **Tiles** | The layer you are painting, the palette, stamps, terrains and autotiles, and what the map shows (grid, collision, regions, names) |
-| **Events** | Every Event on this map, and the inspector for the selected one |
-| **Script** | The script editor — cards or screenplay — for the slot or Common Event you opened |
-| **Common Events** | Scripts any Event can call: an intro, a shop, a cutscene |
-| **Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
-| **Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
-| **Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
-| **Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
-| **Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it |
-| **Variables** | Switches and Variables: declare them, see every read and every write |
-| **Items** | What Events give and conditions ask about |
-| **Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
-| **Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
-| **Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
-| **Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
+| **Map · Tiles** | The layer you are painting, the palette, stamps, terrains and autotiles, and what the map shows (grid, collision, regions, names) |
+| **Map · Events** | Every Event on this map, and the inspector for the selected one |
+| **Story · Script** | The script editor — cards or screenplay — for the slot or Common Event you opened |
+| **Story · Common Events** | Scripts any Event can call: an intro, a shop, a cutscene |
+| **Story · Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
+| **Story · Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
+| **Map · Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
+| **Game · Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
+| **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it |
+| **Game · Variables** | Switches and Variables: declare them, see every read and every write |
+| **Game · Items** | What Events give and conditions ask about |
+| **Game · Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
+| **Problems · Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
+| **Game · Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
+| **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
+
+Modules add their panels to the same groups: with the Pokémon-style module on,
+**Map · Encounters** and **Map · Home** are there too. An Event's **Id** is shown
+but not editable in the form — it is the name every script uses to find the
+Event, and renaming happens through the Events list, which rewrites every
+reference for you.
 
 ## Working on your phone and on your computer
 
@@ -176,7 +190,10 @@ game is a file you own, the way a document is.
 ## If something looks wrong
 
 * **The Problems panel** explains each one in a sentence and jumps you to the
-  thing it is about.
+  thing it is about. The count on the Problems group is the same list.
+* **A person you placed is not on the map** in play: an NPC page with no sprite
+  draws nothing. Problems says so (*has no sprite, so nothing is drawn*); the
+  NPC preset starts with one now, so this only happens to a page you cleared.
 * **Undo** goes back as far as you like, including inspector fields, deletes and
   imports.
 * Nothing you do in Creator Mode can break a save: saves hold your progress, the

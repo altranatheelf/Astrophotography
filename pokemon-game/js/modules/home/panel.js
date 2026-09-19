@@ -69,7 +69,7 @@
   }
 
   const panel = {
-    id: 'home', label: 'Home', icon: 'house', order: 46,
+    id: 'home', label: 'Home', icon: 'house', order: 46, section: 'map',
 
     mount(el, ed) {
       UI.clear(el);

@@ -457,6 +457,17 @@
   /** field(el, field, value, onChange, ctx) — one widget with no label, for compact rows. */
   INS.field = function (el, field, value, onChange, ctx) {
     const f = S.field(field);
+    // A read-only field is shown, not offered. The id of an item or a rule is
+    // the key it is stored under; the form used to put it first, in a text box,
+    // and typing in it changed the inner `id` while the table key stayed put —
+    // a value nothing read and a box that looked like it did something.
+    if (f.display === 'readonly') {
+      const box = make('div.ed-readonly');
+      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
+      show(value);
+      el.appendChild(box);
+      return { set: show };
+    }
     const def = INS.editorFor(f);
     if (!def || !def.mount) return null;
     return def.mount(el, f, value, onChange, ctx || {});

@@ -154,6 +154,7 @@
   // =============================================================================
   const tilesPanel = {
     id: 'tiles', label: 'Tiles', icon: 'grid', order: 10,
+    tool: 'pencil', tools: ['pencil', 'fill', 'rect', 'eraser', 'eyedropper', 'stamp', 'terrain', 'hand'],   // coming back from Events puts the brush back in hand
     group: null, search: '', armed: null, wizard: null,
 
     mount(host, ed) {

@@ -121,7 +121,7 @@ ref:item ref:object ref:script ref:var ref:sound ref:music ref:fragment ref:pres
 - `enum`: `options:[{ value, label }]` or `optionsFrom:'itemKinds'` (a registry).
 - `list`: `of:<field>`, `array:{ min, max }`. `group`: `fields:[...]`.
 - `ref:object`: `ref:{ scope:'sameMap'|'any', tag:'door', symmetrical:true }`.
-- `display` hints for the map: `point` (position), `path`|`loop` (list of positions), `radius` (number), `link` (ref:object → arrow), `hidden`.
+- `display` hints for the map: `point` (position), `path`|`loop` (list of positions), `radius` (number), `link` (ref:object → arrow), `hidden`; and for the form: `readonly` (shown, not editable — an entity's id, which other things point at).
 - `position` values are `{ x, y }` in tiles (plus optional `map` when `ref` across maps is allowed).
 - `route` is a list of route steps (§9.3 `moveRoute`). `condition` is a Condition (§9.2). `script` is a command list.
 API: `validate(fields, value, ctx) -> [{ path, message }]`, `defaults(fields) -> value`,

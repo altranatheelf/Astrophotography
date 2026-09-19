@@ -24,8 +24,31 @@
 /* Fourteen panels: on a laptop the strip wraps so every tab is visible; the phone rule
    below turns it into one swipeable row. `flex: 0 0 auto` keeps a tall panel body from
    squeezing it to a sliver. */
-.ed-tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 6px; overflow-x: auto; border-bottom: 1px solid #263044; scrollbar-width: thin; }
-.ed-tabs .ed-tab { white-space: nowrap; flex: 0 0 auto; min-height: 40px; padding: 5px 10px; font-size: 12.5px; }
+/* Four groups, then the panels of the one you are in. The groups are a
+   segmented control filling the width; the panels are quiet chips underneath. */
+.ed-groups { display: flex; flex: 0 0 auto; gap: 0; padding: 8px 8px 0; }
+.ed-group { flex: 1 1 0; min-height: 40px; padding: 6px 4px; background: #161c28; color: #b7c3d8; border: 1px solid #2f3a4f;
+  border-right-width: 0; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; position: relative; white-space: nowrap; }
+.ed-group:first-child { border-radius: 8px 0 0 8px; }
+.ed-group:last-child { border-radius: 0 8px 8px 0; border-right-width: 1px; }
+.ed-group:hover { background: #1f2836; color: #e8ecf4; }
+.ed-group[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; z-index: 1; }
+.ed-group-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #3a4660; color: #fff; font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.ed-group-badge.is-error { background: #d84a4a; }
+.ed-tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; overflow-x: auto; border-bottom: 1px solid #263044; scrollbar-width: thin; }
+.ed-tabs.is-single { display: none; }
+.ed-tabs .ed-tab { white-space: nowrap; flex: 0 0 auto; min-height: 34px; padding: 4px 11px; font-size: 12.5px; border-radius: 999px; background: transparent; border-color: transparent; color: #b7c3d8; }
+.ed-tabs .ed-tab:hover { background: #1f2836; color: #e8ecf4; }
+.ed-tabs .ed-tab[aria-selected="true"] { background: #1f2f4d; border-color: #35507f; color: #fff; }
+
+/* A tool is a picture and a word. The word is what makes nine of them tellable apart. */
+.ed-tool { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 46px; padding: 3px 4px 2px; line-height: 1; }
+.ed-tool-icon { font-size: 16px; line-height: 18px; }
+.ed-tool-label { font-size: 9.5px; letter-spacing: .02em; color: #b7c3d8; }
+.ed-tool[aria-selected="true"] .ed-tool-label { color: #fff; }
+
+/* A read-only value: shown where a field would be, offered nowhere. */
+.ed-readonly { padding: 7px 9px; min-height: 34px; border: 1px dashed #2f3a4f; border-radius: 6px; color: #9fb0c8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
 .ed-panel { flex: 1 1 auto; overflow: auto; padding: 10px; min-height: 0; }
 .ed-panel-body[hidden] { display: none; }
 
@@ -229,7 +252,7 @@ textarea.is-bad { border-color: #b03434; }
 
 .ed-chips .ed-chip { min-height: 44px; }
 .ed-chip[aria-pressed="true"], .ed-chip[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
-.ed-subtabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; }
+.ed-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .ed-subtabs .ed-tab { white-space: nowrap; text-transform: capitalize; }
 .ed-searchwrap { margin-bottom: 6px; }
 .ed-searchwrap input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
@@ -415,9 +438,22 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 /* ---- integration: the tab strip, play mode, empty states (js/kit/editor/integration.js) ---- */
 /* On a phone the strip is one swipeable row, with a fade at the edge saying there is more. */
 @media (max-width: 760px) {
-  .ed-tabs { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
-             mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%); }
-  .ed-tabs .ed-tab { scroll-snap-align: start; min-height: 44px; }
+  /* At most seven chips in a group: two short rows beat one row you scroll
+     blind through and see “…mon Events” at the edge of. */
+  .ed-tabs { flex-wrap: wrap; overflow: visible; }
+  .ed-tabs .ed-tab { min-height: 40px; }
+  .ed-group { min-height: 44px; }
+  /* The tools get the first row to themselves, nine across, so Hand — how you
+     pan on a phone — is never the one that fell off the end. The map picker
+     joins undo, zoom and Play on the second. */
+  .ed-toolbar { gap: 4px 3px; }
+  .ed-tools { order: -1; flex: 0 0 100%; flex-wrap: nowrap; gap: 2px; justify-content: space-between; }
+  .ed-tool { min-width: 38px; flex: 1 1 0; padding: 3px 1px 2px; }
+  .ed-tool-icon { font-size: 15px; line-height: 17px; }
+  .ed-tool-label { font-size: 9px; }
+  .ed-maps { max-width: 96px; min-height: 38px; }
+  .ed-toolbar > .ed-btn { min-width: 36px; min-height: 38px; padding: 4px 8px; }
+  .ed-play-more { display: none; }
 }
 
 /* Play here: the editor gets out of the way and one button brings it back. */

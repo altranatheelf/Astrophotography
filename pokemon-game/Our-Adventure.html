@@ -398,8 +398,31 @@ body { overflow: hidden; }
 /* Fourteen panels: on a laptop the strip wraps so every tab is visible; the phone rule
    below turns it into one swipeable row. `flex: 0 0 auto` keeps a tall panel body from
    squeezing it to a sliver. */
-.ed-tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 6px; overflow-x: auto; border-bottom: 1px solid #263044; scrollbar-width: thin; }
-.ed-tabs .ed-tab { white-space: nowrap; flex: 0 0 auto; min-height: 40px; padding: 5px 10px; font-size: 12.5px; }
+/* Four groups, then the panels of the one you are in. The groups are a
+   segmented control filling the width; the panels are quiet chips underneath. */
+.ed-groups { display: flex; flex: 0 0 auto; gap: 0; padding: 8px 8px 0; }
+.ed-group { flex: 1 1 0; min-height: 40px; padding: 6px 4px; background: #161c28; color: #b7c3d8; border: 1px solid #2f3a4f;
+  border-right-width: 0; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; position: relative; white-space: nowrap; }
+.ed-group:first-child { border-radius: 8px 0 0 8px; }
+.ed-group:last-child { border-radius: 0 8px 8px 0; border-right-width: 1px; }
+.ed-group:hover { background: #1f2836; color: #e8ecf4; }
+.ed-group[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; z-index: 1; }
+.ed-group-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #3a4660; color: #fff; font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.ed-group-badge.is-error { background: #d84a4a; }
+.ed-tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; overflow-x: auto; border-bottom: 1px solid #263044; scrollbar-width: thin; }
+.ed-tabs.is-single { display: none; }
+.ed-tabs .ed-tab { white-space: nowrap; flex: 0 0 auto; min-height: 34px; padding: 4px 11px; font-size: 12.5px; border-radius: 999px; background: transparent; border-color: transparent; color: #b7c3d8; }
+.ed-tabs .ed-tab:hover { background: #1f2836; color: #e8ecf4; }
+.ed-tabs .ed-tab[aria-selected="true"] { background: #1f2f4d; border-color: #35507f; color: #fff; }
+
+/* A tool is a picture and a word. The word is what makes nine of them tellable apart. */
+.ed-tool { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 46px; padding: 3px 4px 2px; line-height: 1; }
+.ed-tool-icon { font-size: 16px; line-height: 18px; }
+.ed-tool-label { font-size: 9.5px; letter-spacing: .02em; color: #b7c3d8; }
+.ed-tool[aria-selected="true"] .ed-tool-label { color: #fff; }
+
+/* A read-only value: shown where a field would be, offered nowhere. */
+.ed-readonly { padding: 7px 9px; min-height: 34px; border: 1px dashed #2f3a4f; border-radius: 6px; color: #9fb0c8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
 .ed-panel { flex: 1 1 auto; overflow: auto; padding: 10px; min-height: 0; }
 .ed-panel-body[hidden] { display: none; }
 
@@ -603,7 +626,7 @@ textarea.is-bad { border-color: #b03434; }
 
 .ed-chips .ed-chip { min-height: 44px; }
 .ed-chip[aria-pressed="true"], .ed-chip[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
-.ed-subtabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; }
+.ed-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .ed-subtabs .ed-tab { white-space: nowrap; text-transform: capitalize; }
 .ed-searchwrap { margin-bottom: 6px; }
 .ed-searchwrap input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
@@ -789,9 +812,22 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 /* ---- integration: the tab strip, play mode, empty states (js/kit/editor/integration.js) ---- */
 /* On a phone the strip is one swipeable row, with a fade at the edge saying there is more. */
 @media (max-width: 760px) {
-  .ed-tabs { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
-             mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%); }
-  .ed-tabs .ed-tab { scroll-snap-align: start; min-height: 44px; }
+  /* At most seven chips in a group: two short rows beat one row you scroll
+     blind through and see “…mon Events” at the edge of. */
+  .ed-tabs { flex-wrap: wrap; overflow: visible; }
+  .ed-tabs .ed-tab { min-height: 40px; }
+  .ed-group { min-height: 44px; }
+  /* The tools get the first row to themselves, nine across, so Hand — how you
+     pan on a phone — is never the one that fell off the end. The map picker
+     joins undo, zoom and Play on the second. */
+  .ed-toolbar { gap: 4px 3px; }
+  .ed-tools { order: -1; flex: 0 0 100%; flex-wrap: nowrap; gap: 2px; justify-content: space-between; }
+  .ed-tool { min-width: 38px; flex: 1 1 0; padding: 3px 1px 2px; }
+  .ed-tool-icon { font-size: 15px; line-height: 17px; }
+  .ed-tool-label { font-size: 9px; }
+  .ed-maps { max-width: 96px; min-height: 38px; }
+  .ed-toolbar > .ed-btn { min-width: 36px; min-height: 38px; padding: 4px 8px; }
+  .ed-play-more { display: none; }
 }
 
 /* Play here: the editor gets out of the way and one button brings it back. */
@@ -4623,7 +4659,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   P.GROUND_BY_KIND = { outdoor: 'grass', garden: 'grass', indoor: 'floor-wood', cave: 'cave-floor' };
   P.MAP_KINDS = ['outdoor', 'indoor', 'cave', 'garden'];
   const ID_PATTERN = '^[a-z0-9][a-z0-9-_.:]*$';
-  const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :' });
+  // `display: 'readonly'`: an id is the key a thing is stored under. Forms show
+  // it and do not offer it — see KIT.editor.inspector.field.
+  const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :', display: 'readonly' });
   const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   // ---- field schemas (§5) --------------------------------------------------
@@ -4837,7 +4875,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
     { id: 'npc', name: 'NPC', kind: 'object', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
-      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite' }, { key: 'text', type: 'text', default: 'Hello!' }],
+      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
 
@@ -5527,6 +5565,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (!pg) return;
           errors('schema', S.validate(F.behaviour, pg.behaviour || {}), { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('behaviour') }, `${o.id} page ${pi + 1} behaviour`);
           if (t && t.fields) errors('schema', stripRefErrors(S.validate(t.fields, pg.props || {})), { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('props') }, `${o.id} page ${pi + 1}`);
+          // a character page with no sprite draws nothing: the player walks into thin air that talks
+          if (t && t.look && t.look.sprite && pg.visible !== false && !pg.sprite) prob('warn', 'invisible-object', `${o.id} page ${pi + 1} has no sprite, so nothing is drawn on the map (pick one, or untick Visible)`, { map: mapId, object: o.id, page: pi, path: pwhere.path.concat('sprite') });
           const on = pg.on || {};
           for (const slot of Object.keys(on)) if (!P.SLOTS.includes(slot)) prob('warn', 'unknown-slot', `${o.id} page ${pi + 1}: unknown slot '${slot}'`, { map: mapId, object: o.id, page: pi, slot, path: pwhere.path.concat('on', slot) });
           if (Array.isArray(on.tick) && on.tick.length) ticks++;
@@ -26885,21 +26925,95 @@ PKMN.TILES.register([
       .filter(p => !p.visible || p.visible(ED))
       .sort((a, b) => (a.order || 50) - (b.order || 50));
   }
+
+  /**
+   * The panels, in four groups.
+   *
+   * Nineteen panels as one flat strip was the thing that made Creator Mode feel
+   * impossible: a four-row wall of equal-weight tabs on a laptop, and on a phone
+   * one endless row you scrolled blind through to find “Rules”. Nobody thinks
+   * “I want the Terms tab”; they think “I am working on this map”, “I am
+   * writing”, or “this is about the whole game”. So those are the tabs, and the
+   * panels of the one you are in are a short second row.
+   *
+   * A panel says which group it belongs to with `section` — not `group`, which
+   * the Tiles panel already uses for the tile group it is showing, and which put
+   * Tiles under Game on the first try. A module's panel that says nothing lands
+   * in Game, which is where a thing about the whole game belongs. Problems is
+   * its own group so the count is always on screen.
+   */
+  const GROUPS = [
+    { id: 'map', label: 'Map', hint: 'This map: paint it, place things on it, connect it' },
+    { id: 'story', label: 'Story', hint: 'What is said and what happens' },
+    { id: 'game', label: 'Game', hint: 'The whole game: settings, variables, items, words' },
+    { id: 'problems', label: 'Problems', hint: 'What the validator found' },
+  ];
+  // The kit's own panels only. A module's panel says `section` for itself —
+  // the first version of this table named two module panels here, and the
+  // purity test refused it (ADR-0005).
+  const DEFAULT_GROUP = {
+    tiles: 'map', objects: 'map', map: 'map',
+    script: 'story', scripts: 'story', fragments: 'story', dialogue: 'story', cast: 'story', rules: 'story',
+    project: 'game', vars: 'game', items: 'game', strings: 'game', data: 'game', import: 'game',
+    problems: 'problems',
+  };
+  function groupOf(def) {
+    const d = typeof def === 'string' ? KIT.registry('editorPanels').get(def) : def;
+    if (!d) return 'game';
+    const g = d.section || DEFAULT_GROUP[d.id] || 'game';
+    return GROUPS.some(x => x.id === g) ? g : 'game';
+  }
+  ED.groups = () => GROUPS.map(g => ({ id: g.id, label: g.label }));
+  ED.groupOf = groupOf;
+  ED.panelsOf = (group) => panelList().filter(p => groupOf(p) === group).map(p => p.id);
+
   function buildTabs() {
-    const bar = ED.el.tabs;
+    const groups = ED.el.groups, bar = ED.el.tabs;
+    if (!groups || !bar) return;
+    const active = groupOf(state.panel);
+    UI.clear(groups);
+    const errs = (state.problems || []).filter(p => p.severity === 'error').length;
+    const warns = (state.problems || []).filter(p => p.severity === 'warn').length;
+    for (const g of GROUPS) {
+      const b = UI.make('button.ed-group', { text: g.label });
+      b.type = 'button';
+      b.dataset.group = g.id;
+      b.title = g.hint;
+      b.setAttribute('aria-selected', String(g.id === active));
+      if (g.id === 'problems') {
+        const n = errs + warns;
+        if (n) {
+          const badge = UI.make('span.ed-group-badge' + (errs ? '.is-error' : ''), { text: String(n) });
+          b.appendChild(badge);
+        }
+      }
+      b.onclick = () => {
+        const first = ED.panelsOf(g.id)[0];
+        if (first) ED.set({ panel: groupOf(state.panel) === g.id ? state.panel : first });
+      };
+      groups.appendChild(b);
+    }
     UI.clear(bar);
-    for (const p of panelList()) {
+    const inGroup = panelList().filter(p => groupOf(p) === active);
+    bar.classList.toggle('is-single', inGroup.length < 2);   // one panel needs no chip under the group
+    for (const p of inGroup) {
       const b = UI.make('button.ed-tab', { text: KIT.labelOf(p, ED, p.id) });
+      b.type = 'button';
       b.dataset.panel = p.id;
       b.setAttribute('aria-selected', String(p.id === state.panel));
       b.onclick = () => ED.set({ panel: p.id });
       bar.appendChild(b);
     }
   }
+  ED.buildTabs = buildTabs;
   function showPanel(id) {
     const host = ED.el.panel;
     if (!host) return;
+    // The strip shows one group's panels; a panel from another group means a
+    // different strip, so it is rebuilt rather than merely re-highlighted.
+    if (!ED.el.tabs.querySelector(`.ed-tab[data-panel="${id}"]`)) buildTabs();
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
+    for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);
@@ -26912,6 +27026,12 @@ PKMN.TILES.register([
     }
     const rec = mounted.get(id);
     if (rec) { rec.el.hidden = false; refreshPanel(rec); }
+    // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
+    // for painting. Opening one hands the pointer to its tool unless the active
+    // tool is one the panel uses — otherwise a tap meant to select Mom paints
+    // grass under her. The toolbar is refreshed by the ED.set that got us here.
+    const want = rec && rec.def.tool;
+    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) state.tool = want;
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -26944,7 +27064,8 @@ PKMN.TILES.register([
     ED.el.redoBtn = mk('↷', 'Redo (Ctrl+Shift+Z)', () => ED.redo());
     mk('−', 'Zoom out', () => ED.zoom(-1));
     mk('+', 'Zoom in', () => ED.zoom(1));
-    ED.el.playBtn = mk('▶ Play here', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
+    ED.el.playBtn = mk('▶ Play', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
+    ED.el.playBtn.appendChild(UI.make('span.ed-play-more', { text: ' here' }));   // dropped on a phone, where the row is full
     mk('✕', 'Close Creator Mode', () => ED.close());
     refreshToolbar();
   }
@@ -26968,7 +27089,11 @@ PKMN.TILES.register([
       if (tools.children.length !== defs.length) {
         UI.clear(tools);
         for (const t of defs) {
-          const b = UI.make('button.ed-tool', { text: t.icon || KIT.labelOf(t, ED, t.id) });
+          // An icon on its own was nine emoji in a row — what is the sponge, the
+          // droplet, the leaf? — so every tool carries its word.
+          const b = UI.make('button.ed-tool');
+          b.appendChild(UI.make('span.ed-tool-icon', { text: t.icon || '·' }));
+          b.appendChild(UI.make('span.ed-tool-label', { text: t.short || KIT.labelOf(t, ED, t.id) }));
           b.dataset.tool = t.id;
           b.title = `${KIT.labelOf(t, ED, t.id)}${t.key ? ` (${t.key})` : ''}`;
           b.onclick = () => ED.set({ tool: t.id });
@@ -26994,6 +27119,18 @@ PKMN.TILES.register([
     ].filter(Boolean);
     s.textContent = bits.join('   ·   ');
     s.classList.toggle('has-errors', errs > 0 || !!state.saveFailed);
+    // The Problems group carries the count, so it is on screen whichever panel is open.
+    const pb = ED.el.groups && ED.el.groups.querySelector('.ed-group[data-group="problems"]');
+    if (pb) {
+      const n = errs + warns;
+      let badge = pb.querySelector('.ed-group-badge');
+      if (!n && badge) badge.remove();
+      else if (n) {
+        if (!badge) { badge = UI.make('span.ed-group-badge'); pb.appendChild(badge); }
+        badge.textContent = String(n);
+        badge.classList.toggle('is-error', errs > 0);
+      }
+    }
     s.title = state.saveFailed ? state.saveFailed + ' Use Project › “Save a copy” to get your work out.' : '';
     refreshToolbar();
   }
@@ -27086,15 +27223,16 @@ PKMN.TILES.register([
     const canvas = UI.make('canvas.ed-canvas');
     const overlay = UI.make('canvas.ed-overlay');
     const side = UI.make('div.ed-side');
+    const groups = UI.make('div.ed-groups');
     const tabs = UI.make('div.ed-tabs');
     const panel = UI.make('div.ed-panel');
     const status = UI.make('div.ed-status');
     stage.appendChild(canvas); stage.appendChild(overlay);
-    side.appendChild(tabs); side.appendChild(panel);
+    side.appendChild(groups); side.appendChild(tabs); side.appendChild(panel);
     main.appendChild(stage); main.appendChild(side);
     root.appendChild(toolbar); root.appendChild(main); root.appendChild(status);
     host.appendChild(root);
-    ED.el = { host, root, toolbar, main, stage, canvas, overlay, side, tabs, panel, status };
+    ED.el = { host, root, toolbar, main, stage, canvas, overlay, side, groups, tabs, panel, status };
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
@@ -27548,7 +27686,7 @@ PKMN.TILES.register([
 
   // 3 — Rectangle ----------------------------------------------------------------
   const rect = {
-    id: 'rect', label: 'Rectangle', icon: '▭', key: '3', order: 30, cursor: 'crosshair',
+    id: 'rect', label: 'Rectangle', short: 'Rect', icon: '▭', key: '3', order: 30, cursor: 'crosshair',
     anchor: null, to: null, dragging: false, outlineOnly: false,
     begin(pt, ed) {
       if (pt.alt) { eyedropper.begin(pt, ed); return; }
@@ -27608,7 +27746,7 @@ PKMN.TILES.register([
 
   // 4 — Eraser --------------------------------------------------------------------
   const eraser = {
-    id: 'eraser', label: 'Eraser', icon: '🧽', key: '4', order: 40, cursor: 'crosshair',
+    id: 'eraser', label: 'Eraser', short: 'Erase', icon: '🧽', key: '4', order: 40, cursor: 'crosshair',
     cells: [], last: null, drawing: false,
     begin(pt, ed) { this.drawing = true; this.cells = []; this.add([{ x: pt.tx, y: pt.ty }], ed); this.last = { x: pt.tx, y: pt.ty }; ed.repaint(); },
     move(pt, ed) { if (!this.drawing) return; this.add(trail(this.last, pt), ed); this.last = { x: pt.tx, y: pt.ty }; ed.repaint(); },
@@ -27716,7 +27854,7 @@ PKMN.TILES.register([
 
   // 7 — Terrain brush -----------------------------------------------------------------
   const terrain = {
-    id: 'terrain', label: 'Terrain brush', icon: '🌿', key: '7', order: 70, cursor: 'crosshair',
+    id: 'terrain', label: 'Terrain brush', short: 'Terrain', icon: '🌿', key: '7', order: 70, cursor: 'crosshair',
     cells: [], last: null, drawing: false, size: 1,
     begin(pt, ed) {
       if (ed.state.layer !== 'terrain') ed.set({ layer: 'terrain', tile: T.brushFor('terrain') });
@@ -27761,7 +27899,7 @@ PKMN.TILES.register([
 
   // 8 — Select / Move -------------------------------------------------------------------
   const select = {
-    id: 'select', label: 'Select / Move', icon: '✥', key: '8', order: 80, cursor: 'pointer',
+    id: 'select', label: 'Select / Move', short: 'Move', icon: '✥', key: '8', order: 80, cursor: 'pointer',
     from: null, to: null, moving: null, moved: false,
     objectsAt(ed, x, y) {
       const m = ed.state.map;
@@ -27848,7 +27986,7 @@ PKMN.TILES.register([
 
   // 9 — Hand -----------------------------------------------------------------------------
   const hand = {
-    id: 'hand', label: 'Hand — drag the map', icon: '✋', key: '9', order: 90, cursor: 'grab',
+    id: 'hand', label: 'Hand — drag the map', short: 'Hand', icon: '✋', key: '9', order: 90, cursor: 'grab',
     from: null,
     // pt.x/pt.y are map coordinates, so they move with the camera: remember where
     // the finger is on SCREEN (pt.x - view.x, in tiles) and keep that point still.
@@ -28367,6 +28505,17 @@ PKMN.TILES.register([
   /** field(el, field, value, onChange, ctx) — one widget with no label, for compact rows. */
   INS.field = function (el, field, value, onChange, ctx) {
     const f = S.field(field);
+    // A read-only field is shown, not offered. The id of an item or a rule is
+    // the key it is stored under; the form used to put it first, in a text box,
+    // and typing in it changed the inner `id` while the table key stayed put —
+    // a value nothing read and a box that looked like it did something.
+    if (f.display === 'readonly') {
+      const box = make('div.ed-readonly');
+      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
+      show(value);
+      el.appendChild(box);
+      return { set: show };
+    }
     const def = INS.editorFor(f);
     if (!def || !def.mount) return null;
     return def.mount(el, f, value, onChange, ctx || {});
@@ -29311,6 +29460,7 @@ PKMN.TILES.register([
   // =============================================================================
   const tilesPanel = {
     id: 'tiles', label: 'Tiles', icon: 'grid', order: 10,
+    tool: 'pencil', tools: ['pencil', 'fill', 'rect', 'eraser', 'eyedropper', 'stamp', 'terrain', 'hand'],   // coming back from Events puts the brush back in hand
     group: null, search: '', armed: null, wizard: null,
 
     mount(host, ed) {
@@ -30359,6 +30509,7 @@ PKMN.TILES.register([
 
   KIT.registry('editorPanels').add({
     id: 'objects', label: 'Events', icon: 'npc', order: 20,
+    tool: 'select', tools: ['select', 'hand'],     // a tap on the map picks an Event here, it never paints
     mount(host) {
       clear(host);
       el = {};
@@ -36918,7 +37069,7 @@ PKMN.TILES.register([
   function registerPanel() {
     if (!KIT.registry.exists('editorPanels')) return;
     KIT.registry('editorPanels').add({
-      id: 'mons-encounters', label: 'Encounters', icon: 'grass', order: 45, replace: true,
+      id: 'mons-encounters', label: 'Encounters', icon: 'grass', order: 45, section: 'map', replace: true,
       mount(el, ed) { this._el = el; this.refresh(ed); },
       refresh(ed) { paintPanel(this._el, ed); },
       onSelect(sel, ed) { paintPanel(this._el, ed); },
@@ -39178,7 +39329,7 @@ PKMN.TILES.register([
   }
 
   const panel = {
-    id: 'home', label: 'Home', icon: 'house', order: 46,
+    id: 'home', label: 'Home', icon: 'house', order: 46, section: 'map',
 
     mount(el, ed) {
       UI.clear(el);

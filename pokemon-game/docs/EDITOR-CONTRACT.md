@@ -63,14 +63,23 @@ KIT.editor.previewWorld()          // a world-shaped object the renderer can dra
 ```js
 KIT.registry('editorPanels').add({
   id: 'tiles', label: 'Tiles', icon: 'grid', order: 10,
+  section: 'map',          // which group it sits under: map | story | game | problems (default game)
+  tool: 'pencil',          // optional: the tool this panel is for; opening the panel picks it up
+  tools: ['pencil', 'fill'],   // unless the active tool is one of these (default: just `tool`)
   mount(el, ed) {},        // build the DOM once, inside `el`
   refresh(ed) {},          // called on change/selection/document events while visible
   onSelect(sel, ed) {},    // optional: the selection changed
   visible(ed) { return true },   // optional
 })
 ```
-Panels are tabs in the side panel (a bottom sheet on phones). They must work at
-390px wide, use `KIT.ui` helpers for consistency, and never write to the project
+Panels are chips under one of four groups across the top of the side panel (a
+bottom sheet on phones): **Map** for what is on the open map, **Story** for
+scripts and the people in them, **Game** for the project as a whole, and
+**Problems**. `section` picks the group; a panel that names none lands in Game,
+and a group with a single panel hides its chip row and opens that panel when
+tapped. `KIT.editor.groups()`, `groupOf(id)` and `panelsOf(group)` read the same
+arrangement, and `KIT.editor.el.groups` is the row. Panels must work at 390px
+wide, use `KIT.ui` helpers for consistency, and never write to the project
 except through `KIT.editor.ops` or `KIT.editor.commit`.
 
 ## Tools (`editorTools` registry)

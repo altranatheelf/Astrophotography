@@ -165,6 +165,7 @@
 
   KIT.registry('editorPanels').add({
     id: 'objects', label: 'Events', icon: 'npc', order: 20,
+    tool: 'select', tools: ['select', 'hand'],     // a tap on the map picks an Event here, it never paints
     mount(host) {
       clear(host);
       el = {};

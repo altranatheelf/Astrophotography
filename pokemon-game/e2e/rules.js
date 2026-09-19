@@ -153,8 +153,10 @@ async function run(browser) {
   await ed.goto(PAGE + '?edit=1&fast=1');
   await ed.waitForFunction(() => window.KIT && KIT.editor && KIT.editor.isOpen && KIT.editor.isOpen(), undefined, { timeout: 30000 });
   await ed.waitForTimeout(500);
+  await ed.click('.ed-group[data-group="story"]');          // Rules lives under Story
+  await ed.waitForTimeout(150);
   const hasTab = await ed.isVisible('.ed-tab[data-panel="rules"]');
-  check(hasTab, 'there is a Rules tab in Creator Mode');
+  check(hasTab, 'there is a Rules tab under Story in Creator Mode');
   if (hasTab) {
     const before2 = await ed.evaluate(() => Object.keys(KIT.editor.state.project.rules || {}).length);
     await ed.click('.ed-tab[data-panel="rules"]');

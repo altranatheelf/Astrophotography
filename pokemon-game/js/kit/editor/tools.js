@@ -430,7 +430,7 @@
 
   // 3 — Rectangle ----------------------------------------------------------------
   const rect = {
-    id: 'rect', label: 'Rectangle', icon: '▭', key: '3', order: 30, cursor: 'crosshair',
+    id: 'rect', label: 'Rectangle', short: 'Rect', icon: '▭', key: '3', order: 30, cursor: 'crosshair',
     anchor: null, to: null, dragging: false, outlineOnly: false,
     begin(pt, ed) {
       if (pt.alt) { eyedropper.begin(pt, ed); return; }
@@ -490,7 +490,7 @@
 
   // 4 — Eraser --------------------------------------------------------------------
   const eraser = {
-    id: 'eraser', label: 'Eraser', icon: '🧽', key: '4', order: 40, cursor: 'crosshair',
+    id: 'eraser', label: 'Eraser', short: 'Erase', icon: '🧽', key: '4', order: 40, cursor: 'crosshair',
     cells: [], last: null, drawing: false,
     begin(pt, ed) { this.drawing = true; this.cells = []; this.add([{ x: pt.tx, y: pt.ty }], ed); this.last = { x: pt.tx, y: pt.ty }; ed.repaint(); },
     move(pt, ed) { if (!this.drawing) return; this.add(trail(this.last, pt), ed); this.last = { x: pt.tx, y: pt.ty }; ed.repaint(); },
@@ -598,7 +598,7 @@
 
   // 7 — Terrain brush -----------------------------------------------------------------
   const terrain = {
-    id: 'terrain', label: 'Terrain brush', icon: '🌿', key: '7', order: 70, cursor: 'crosshair',
+    id: 'terrain', label: 'Terrain brush', short: 'Terrain', icon: '🌿', key: '7', order: 70, cursor: 'crosshair',
     cells: [], last: null, drawing: false, size: 1,
     begin(pt, ed) {
       if (ed.state.layer !== 'terrain') ed.set({ layer: 'terrain', tile: T.brushFor('terrain') });
@@ -643,7 +643,7 @@
 
   // 8 — Select / Move -------------------------------------------------------------------
   const select = {
-    id: 'select', label: 'Select / Move', icon: '✥', key: '8', order: 80, cursor: 'pointer',
+    id: 'select', label: 'Select / Move', short: 'Move', icon: '✥', key: '8', order: 80, cursor: 'pointer',
     from: null, to: null, moving: null, moved: false,
     objectsAt(ed, x, y) {
       const m = ed.state.map;
@@ -730,7 +730,7 @@
 
   // 9 — Hand -----------------------------------------------------------------------------
   const hand = {
-    id: 'hand', label: 'Hand — drag the map', icon: '✋', key: '9', order: 90, cursor: 'grab',
+    id: 'hand', label: 'Hand — drag the map', short: 'Hand', icon: '✋', key: '9', order: 90, cursor: 'grab',
     from: null,
     // pt.x/pt.y are map coordinates, so they move with the camera: remember where
     // the finger is on SCREEN (pt.x - view.x, in tiles) and keep that point still.
