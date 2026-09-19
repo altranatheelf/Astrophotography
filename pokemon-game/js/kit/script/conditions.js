@@ -7,8 +7,6 @@
   const V = KIT.script.values;
   const C = KIT.conditions = KIT.conditions || {};
   const reg = KIT.registry('conditions');
-  // Workaround (core issue): registries.js validates ids lowercase-only; §11 names module kinds in camelCase (dexCount).
-  for (const f of reg.opts.fields || []) if (f.key === 'id' && f.pattern) f.pattern = '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$';
 
   /**
    * @typedef {Object} ConditionCtx  The minimal world view a condition reads. Tests use plain objects.

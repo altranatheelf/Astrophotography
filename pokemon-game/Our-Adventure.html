@@ -1175,18 +1175,42 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const err = (errors, path, message, code) => { errors.push({ path: path.slice(), message, code: code || 'invalid' }); };
 
-  /** Normalise a field declaration (fills label, nullable default, etc.). */
+  /**
+   * Normalise a field declaration (fills label, nullable default, etc.).
+   *
+   * Memoised on the declaration object. A field list is static — it is the
+   * schema — but every validate, fill, refs and walk normalised it again, per
+   * command, per page, per object: two regexes and three copies to rebuild a
+   * label that had not changed. Profiled at 100 maps and 1,500 events, this one
+   * function was 48% of validating the project, and validation runs at boot and
+   * 250ms after every edit in Creator Mode. The normalised form is treated as
+   * read-only by every caller (none mutates it), which is what makes sharing it
+   * safe; a declaration that is REPLACED gets a new key for free, and one that
+   * is edited in place after first use would keep its old label — nothing does
+   * that, and it would be the wrong way to change a schema anyway.
+   */
+  const normalised = new WeakMap();      // declaration -> its normalised form
+  const normalisedLists = new WeakMap(); // declaration list -> the normalised list
   S.field = function (f) {
     if (!f || typeof f.key !== 'string') throw new Error('schema field needs a key');
     if (!f.type) throw new Error(`schema field '${f.key}' needs a type`);
+    const hit = normalised.get(f);
+    if (hit) return hit;
     const out = Object.assign({}, f);
     if (out.label == null) out.label = f.key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ').replace(/^\w/, c => c.toUpperCase());
     if (out.nullable == null) out.nullable = out.type.startsWith('ref:') || out.type === 'condition' || out.type === 'face' ? true : false;
     if (out.of) out.of = S.field(Object.assign({ key: 'item' }, out.of));
-    if (out.fields) out.fields = out.fields.map(S.field);
-    return out;
+    if (out.fields) out.fields = S.fields(out.fields);
+    normalised.set(f, out);
+    normalised.set(out, out);        // normalising twice is a lookup, not a copy: the
+    return out;                      // single-field entry points are handed `f.of` and friends
   };
-  S.fields = (fields) => (fields || []).map(S.field);
+  S.fields = (fields) => {
+    if (!fields) return [];
+    let list = normalisedLists.get(fields);
+    if (!list) { list = fields.map(S.field); normalisedLists.set(fields, list); }
+    return list;
+  };
 
   /** Is a field visible/active given its sibling values? (`when: { field, eq|neq|in }`) */
   S.visible = function (field, siblings) {
@@ -1481,7 +1505,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const KIT = root.KIT = root.KIT || {};
   const S = KIT.schema;
   const base = [
-    { key: 'id', type: 'string', min: 1, pattern: '^[a-z0-9][a-z0-9-_.:]*$', patternMessage: 'ids are lowercase letters, digits, - _ . :' },
+    // Letters of either case: the kit's own commands are `inputNumber` and
+    // `setVar`, and modules name condition kinds `dexCount`. This used to say
+    // lowercase only, and commands.js and conditions.js each rewrote the
+    // pattern IN PLACE at load to get past it — which worked until field
+    // declarations were memoised, and the copy they edited was no longer the
+    // copy in use. The rule lives here now and nobody patches it.
+    { key: 'id', type: 'string', min: 1, pattern: '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$', patternMessage: 'ids are letters, digits, - _ . :' },
   ];
   // `label` is type 'label', not 'string': a registry entry may compute its own
   // name from the Terms table — `(game) => KIT.strings.get(game.project, 'x')` —
@@ -5233,8 +5263,27 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
   P.conditionRefs = function (cond, path) { const out = []; conditionRefs(cond, path || [], out); return out; };
 
-  /** A field list without its script-typed fields at any depth (nested command lists are walked by walkScripts, never by the schema). */
+  /**
+   * A field list without its script-typed fields at any depth (nested command
+   * lists are walked by walkScripts, never by the schema).
+   *
+   * Memoised on the input list. This copies every field object it keeps, and
+   * it was called per command per validation — so every command validated
+   * against a fresh copy of its schema, which no cache downstream could ever
+   * recognise. With field normalisation memoised, that made validation SLOWER
+   * (the copies were garbage with a WeakMap entry each). Now there is one
+   * stripped list per declared list, forever.
+   */
+  const stripped = new WeakMap();
   function withoutScripts(fields) {
+    if (!fields) return [];
+    const hit = stripped.get(fields);
+    if (hit) return hit;
+    const out = withoutScriptsNow(fields);
+    stripped.set(fields, out);
+    return out;
+  }
+  function withoutScriptsNow(fields) {
     const out = [];
     for (const f of fields || []) {
       if (f.type === 'script') continue;
@@ -7985,8 +8034,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const V = KIT.script.values;
   const C = KIT.conditions = KIT.conditions || {};
   const reg = KIT.registry('conditions');
-  // Workaround (core issue): registries.js validates ids lowercase-only; §11 names module kinds in camelCase (dexCount).
-  for (const f of reg.opts.fields || []) if (f.key === 'id' && f.pattern) f.pattern = '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$';
 
   /**
    * @typedef {Object} ConditionCtx  The minimal world view a condition reads. Tests use plain objects.
@@ -8643,9 +8690,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const C = KIT.conditions;
   const CMD = KIT.commands = KIT.commands || {};
   const reg = KIT.registry('commands');
-  // Workaround (core issue): registries.js validates every id against a lowercase-only pattern, but §9.2 names
-  // commands in camelCase (setVar, inputNumber, moveRoute…). Widen the pattern on this registry's definition schema.
-  for (const f of reg.opts.fields || []) if (f.key === 'id' && f.pattern) f.pattern = '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$';
 
   // ---- the ctx port contract -------------------------------------------------
   /**

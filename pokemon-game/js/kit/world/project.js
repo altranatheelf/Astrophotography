@@ -671,8 +671,27 @@
   }
   P.conditionRefs = function (cond, path) { const out = []; conditionRefs(cond, path || [], out); return out; };
 
-  /** A field list without its script-typed fields at any depth (nested command lists are walked by walkScripts, never by the schema). */
+  /**
+   * A field list without its script-typed fields at any depth (nested command
+   * lists are walked by walkScripts, never by the schema).
+   *
+   * Memoised on the input list. This copies every field object it keeps, and
+   * it was called per command per validation — so every command validated
+   * against a fresh copy of its schema, which no cache downstream could ever
+   * recognise. With field normalisation memoised, that made validation SLOWER
+   * (the copies were garbage with a WeakMap entry each). Now there is one
+   * stripped list per declared list, forever.
+   */
+  const stripped = new WeakMap();
   function withoutScripts(fields) {
+    if (!fields) return [];
+    const hit = stripped.get(fields);
+    if (hit) return hit;
+    const out = withoutScriptsNow(fields);
+    stripped.set(fields, out);
+    return out;
+  }
+  function withoutScriptsNow(fields) {
     const out = [];
     for (const f of fields || []) {
       if (f.type === 'script') continue;

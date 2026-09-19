@@ -49,7 +49,7 @@ Standard registries: `tiles sprites faces icons sounds music objectTypes behavio
 One field declaration drives the form, the validator, defaults, and the usage index.
 `{ key, type, label, doc, default, nullable, optional, min, max, integer, pattern, options|optionsFrom, of, fields, array:{min,max}, when:{field,eq|neq|in|truthy}, display, access:'read'|'write', ref:{scope,tag,symmetrical} }`
 Types: `string text note number bool enum color position direction region route script condition strings scalar list group tile face` and `ref:<kind>`.
-API: `KIT.schema.field(f)` · `fields(list)` · `validate(fields, value, ctx) -> [{path,message,code}]` · `validateValue(field, v, ctx)` · `defaults(fields, ctx)` · `defaultFor(field)` · `fill(fields, value, ctx)` · `refs(fields, value, ctx) -> [{kind,id,path,access}]` · `walk(fields, value, fn)` · `visible(field, siblings)` · `defineType(name, handler)` · `refKind(kind, resolver)` · `registryRefKind(kind, registryName)` · `projectRefKind(kind, table)`.
+API: `KIT.schema.field(f)` · `fields(list)` (both memoised on the declaration — a schema is static, and normalising it per value was half of validating a project; treat the result as read-only) · `validate(fields, value, ctx) -> [{path,message,code}]` · `validateValue(field, v, ctx)` · `defaults(fields, ctx)` · `defaultFor(field)` · `fill(fields, value, ctx)` · `refs(fields, value, ctx) -> [{kind,id,path,access}]` · `walk(fields, value, fn)` · `visible(field, siblings)` · `defineType(name, handler)` · `refKind(kind, resolver)` · `registryRefKind(kind, registryName)` · `projectRefKind(kind, table)`.
 Ref kinds wired: tile sprite face icon sound music preset map item script var fragment object (+ modules add their own).
 
 ## core/input — stable

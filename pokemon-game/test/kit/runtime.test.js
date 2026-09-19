@@ -539,3 +539,20 @@ test('storage: asking to persist never throws, even with no Storage API', async 
   assert.equal(typeof got, 'boolean', 'a plain answer, not an exception');
   assert.equal(got, false, 'and in Node there is nothing to promise');
 });
+
+test('registries: a camelCase id is accepted by the rule itself, not by a patch', () => {
+  // commands.js and conditions.js each used to rewrite the shared id field's
+  // pattern IN PLACE at load, to get `inputNumber` and `dexCount` past a
+  // lowercase-only rule. That worked until schema field declarations were
+  // memoised, and the copy they edited was no longer the copy in use — every
+  // test file failed at load. The rule allows both cases now, at its source.
+  const reg = KIT.registry('conditions');
+  const id = 'camelCaseProbe' + Date.now().toString(36);
+  reg.add({ id, label: 'Probe', group: 'Test', fields: [], test() { return true; }, describe() { return 'probe'; } });
+  assert.ok(reg.has(id), 'registered without anybody touching the pattern');
+  reg.remove(id);
+  const idField = KIT.registry('commands').opts.fields.find((f) => f.key === 'id');
+  assert.ok(/a-zA-Z/.test(idField.pattern), 'because the shared declaration says so');
+  assert.throws(() => KIT.registry('commands').add({ id: 'no spaces here', label: 'x', fields: [], async run() {} }),
+    /ids are letters/, 'while an id that is not an id is still refused');
+});

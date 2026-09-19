@@ -142,5 +142,5 @@ test('standard registries exist with ref kinds wired', () => {
   assert.equal(KIT.schema.refKinds.tile.has('nope'), false);
   assert.equal(KIT.schema.refKinds.map.has('town', { project: { maps: { town: {} } } }), true);
   assert.equal(KIT.schema.refKinds.var.has('x', { project: { vars: {} } }), null);
-  assert.throws(() => KIT.registry('tiles').add({ id: 'Bad Id' }), /ids are lowercase/);
+  assert.throws(() => KIT.registry('tiles').add({ id: 'Bad Id' }), /ids are letters/);
 });

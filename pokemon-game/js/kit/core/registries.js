@@ -4,7 +4,13 @@
   const KIT = root.KIT = root.KIT || {};
   const S = KIT.schema;
   const base = [
-    { key: 'id', type: 'string', min: 1, pattern: '^[a-z0-9][a-z0-9-_.:]*$', patternMessage: 'ids are lowercase letters, digits, - _ . :' },
+    // Letters of either case: the kit's own commands are `inputNumber` and
+    // `setVar`, and modules name condition kinds `dexCount`. This used to say
+    // lowercase only, and commands.js and conditions.js each rewrote the
+    // pattern IN PLACE at load to get past it — which worked until field
+    // declarations were memoised, and the copy they edited was no longer the
+    // copy in use. The rule lives here now and nobody patches it.
+    { key: 'id', type: 'string', min: 1, pattern: '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$', patternMessage: 'ids are letters, digits, - _ . :' },
   ];
   // `label` is type 'label', not 'string': a registry entry may compute its own
   // name from the Terms table — `(game) => KIT.strings.get(game.project, 'x')` —

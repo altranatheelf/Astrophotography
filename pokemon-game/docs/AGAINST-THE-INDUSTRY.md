@@ -133,14 +133,23 @@ was ever skipped; they are bucketed once and culled, as are characters.
 Undertale's densest patterns run to a couple of hundred bullets. This engine
 simulates **334 live bullets in 0.5ms of a 16.7ms frame budget**.
 
-Project scale, at OMORI's size (400 maps, 6,000 events, 48,000 dialogue lines):
+Project scale. The first version of this table was measured on a project made
+by cloning one light demo map, which is why it said 0.34s at 400 maps: it had
+almost no events in it. Measured again with the event count OMORI actually has —
+15 scripted NPCs per map, 6,000 in all — headless, in `tools/experiments/validate.js`:
 
-| | boot |
-|---|---|
-| a chapter (30 maps) | 0.05s |
-| a small game (100 maps) | 0.11s |
-| **OMORI-ish (400 maps)** | **0.34s** *(was 2.9s)* |
-| bigger than OMORI (1000 maps) | 0.92s *(was 7.4s)* |
+| | normalize (boot) | validate (after every edit in Creator Mode) |
+|---|---|---|
+| a chapter (30 maps, 450 events) | 0.25s → **0.10s** | 0.20s → **0.06s** |
+| a small game (100 maps, 1,500 events) | 0.67s → **0.20s** | 0.56s → **0.15s** |
+| **OMORI-ish (400 maps, 6,000 events)** | 2.49s → **0.67s** | 2.20s → **0.58s** |
+
+Validation was the cost, and one function was half of it: the schema layer
+normalised every field declaration — two regexes and three copies to rebuild a
+label — for every command, every time, because the validator handed it a fresh
+copy of the field list per command. The declarations are memoised now and the
+copies are made once. Validation is what Creator Mode runs 250ms after every
+edit, so at 400 maps that was a two-second stall after each pause in typing.
 
 Heap at OMORI scale: +224MB.
 

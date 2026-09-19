@@ -11,9 +11,6 @@
   const C = KIT.conditions;
   const CMD = KIT.commands = KIT.commands || {};
   const reg = KIT.registry('commands');
-  // Workaround (core issue): registries.js validates every id against a lowercase-only pattern, but §9.2 names
-  // commands in camelCase (setVar, inputNumber, moveRoute…). Widen the pattern on this registry's definition schema.
-  for (const f of reg.opts.fields || []) if (f.key === 'id' && f.pattern) f.pattern = '^[a-zA-Z0-9][a-zA-Z0-9-_.:]*$';
 
   // ---- the ctx port contract -------------------------------------------------
   /**
