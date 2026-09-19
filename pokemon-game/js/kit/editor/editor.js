@@ -76,10 +76,54 @@
     refreshPanels();
     return true;
   };
-  ED.refresh = function () {
+  /**
+   * What the last document changes did to the baked map layers, gathered by
+   * the document watcher and spent by refresh().
+   *
+   * refresh() used to drop the renderer's whole tile cache on every commit —
+   * renaming an NPC re-baked every layer of the map, and a paint stroke on a
+   * 100×80 map re-drew 24,000 cells to change one. The document already says
+   * exactly which paths changed, and the renderer already knows how to repaint
+   * one cell, so the two are joined here: a cell op invalidates a cell, a
+   * whole-layer or whole-map op drops that map, anything that changes what
+   * tiles LOOK like drops everything, and an edit to a variable touches nothing.
+   */
+  const pending = { drop: false, maps: new Set(), cells: [] };
+  function noteChange(change) {
+    for (const path of change.paths || []) {
+      if (!path.length) { pending.drop = true; return; }
+      const head = path[0];
+      if (head === 'assets' || head === 'autotiles' || head === 'terrains') { pending.drop = true; return; }
+      if (head !== 'maps') continue;
+      if (path.length < 2) { pending.drop = true; return; }
+      const id = path[1];
+      if (path.length === 2 || path[2] === 'layers' && path.length <= 4) { pending.maps.add(id); continue; }
+      if (path[2] === 'layers' && path.length >= 5) { pending.cells.push({ id, i: path[4] }); continue; }
+      // objects, name, kind, music, props, collision: none of it is baked.
+    }
+  }
+  function spendChanges() {
+    if (!renderer) { pending.drop = false; pending.maps.clear(); pending.cells.length = 0; return; }
+    if (pending.drop) renderer.clearCaches();
+    else {
+      for (const id of pending.maps) renderer.invalidate(id);
+      for (const c of pending.cells) {
+        if (pending.maps.has(c.id)) continue;
+        const m = state.project && state.project.maps[c.id];
+        const w = m && m.width > 0 ? m.width : 0;
+        if (!w || typeof c.i !== 'number') { renderer.invalidate(c.id); continue; }
+        renderer.invalidate(c.id, c.i % w, Math.floor(c.i / w));
+      }
+    }
+    pending.drop = false; pending.maps.clear(); pending.cells.length = 0;
+  }
+
+  /** refresh({ drop }) — `drop` throws the whole tile cache away, for a project that was replaced. */
+  ED.refresh = function (opts) {
     if (state.project && state.mapId && state.project.maps[state.mapId]) state.map = KIT.mapView(state.project, null, state.mapId);
     else if (state.project) { const first = Object.keys(state.project.maps)[0]; if (first) { state.mapId = first; state.map = KIT.mapView(state.project, null, first); } }
-    if (renderer) renderer.clearCaches();
+    if (opts && opts.drop) pending.drop = true;
+    spendChanges();
     ED.repaint();
     refreshPanels();
   };
@@ -612,7 +656,7 @@
     state.mode = 'edit';
     emit('mode', 'edit');
     ED.el.root.classList.remove('playing');
-    ED.refresh();
+    ED.refresh({ drop: true });                    // the game may have baked other maps into the same renderer
   };
 
   // ---- open / close ----------------------------------------------------------------
@@ -631,13 +675,13 @@
     if (!state.tile) { const t = KIT.registry('tiles').list()[0]; state.tile = t ? t.id : null; }
     buildDom();
     open = true;
-    unwatch = state.doc.watch([], () => { state.project = state.doc.value; state.dirty = true; });
+    unwatch = state.doc.watch([], (change) => { state.project = state.doc.value; state.dirty = true; noteChange(change); });
     document.addEventListener('keydown', onKey);
     document.addEventListener('keyup', onKeyUp);
     buildToolbar();
     buildTabs();
     showPanel(state.panel);
-    ED.refresh();
+    ED.refresh({ drop: true });
     scheduleValidate();
     emit('change', { open: true });
     return ED;

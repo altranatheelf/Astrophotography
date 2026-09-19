@@ -68,6 +68,23 @@ const screenOf = (page, tx, ty) => page.evaluate(([x, y]) => {
   return { x: r.left + (x - ed.state.view.x + 0.5) * px, y: r.top + (y - ed.state.view.y + 0.5) * px };
 }, [tx, ty]);
 
+/**
+ * The colour drawn at the centre of a map square, off the editor's own canvas.
+ * The editor used to throw away every baked tile layer on every commit, so
+ * anything it drew was fresh by accident. Now a commit repaints exactly the
+ * cells the document says changed — which is only right if the cell index
+ * turns back into the right x,y. A pixel is the only witness to that.
+ */
+const tilePixel = (page, tx, ty) => page.evaluate(([x, y]) => {
+  const ed = KIT.editor;
+  const cv = ed.el.canvas;
+  const px = ed.tilePixels() * (window.devicePixelRatio || 1);
+  const cx = Math.floor((x - ed.state.view.x + 0.5) * px), cy = Math.floor((y - ed.state.view.y + 0.5) * px);
+  const d = cv.getContext('2d').getImageData(cx, cy, 1, 1).data;
+  return [d[0], d[1], d[2]];
+}, [tx, ty]);
+const differs = (a, b) => !!a && !!b && (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2])) > 24;
+
 /** Tap one square on the map, the way a finger does. */
 async function tapTile(page, tx, ty) {
   const p = await screenOf(page, tx, ty);
@@ -166,12 +183,34 @@ async function run(browser, label, size, opts) {
   await page.waitForTimeout(120);
   const spot = await freeSpot(page);
   check(!!spot, `found somewhere to paint (${spot && spot.x},${spot && spot.y})`);
-  const cells = [[1, 1], [2, 1], [3, 1]];
+  // Three squares in a row with nothing drawn over them, so a change to the
+  // ground is a change to the picture. The first version painted row 1, which in
+  // this house is furniture on floor: the document changed, the pixels could
+  // not, and the witness said the repaint was broken when the stroke was merely
+  // hidden. Rows 0–2 are avoided so the Fill step below starts where it always did.
+  const { cells, control } = await page.evaluate(() => {
+    const v = KIT.editor.state.map;
+    const open = (x, y) => v.tileAt('deco', x, y) == null && v.tileAt('above', x, y) == null;
+    for (let y = 3; y < v.height; y++) for (let x = 1; x + 4 < v.width; x++) {
+      if (open(x, y) && open(x + 1, y) && open(x + 2, y) && open(x + 4, y)) return { cells: [[x, y], [x + 1, y], [x + 2, y]], control: [x + 4, y] };
+    }
+    return { cells: [[1, 1], [2, 1], [3, 1]], control: [6, 1] };
+  });
+  const pixelsBefore = { cells: [], control: await tilePixel(page, control[0], control[1]) };
+  for (const [x, y] of cells) pixelsBefore.cells.push(await tilePixel(page, x, y));
   await strokeTiles(page, cells);
+  await page.waitForTimeout(120);                            // the repaint is a frame away
   const afterPaint = await ground(page);
   const w = await page.evaluate(() => KIT.editor.state.map.width);
   const painted = cells.filter(([x, y]) => afterPaint[y * w + x] === picked).length;
   check(painted === cells.length, `the Pencil painted ${painted}/${cells.length} squares with “${picked}”`);
+  // The document changed AND the picture changed, in the right places: the
+  // baked layer was repainted for the cells the stroke touched and left alone
+  // for the one it did not.
+  let repainted = 0;
+  for (let i = 0; i < cells.length; i++) if (differs(pixelsBefore.cells[i], await tilePixel(page, cells[i][0], cells[i][1]))) repainted++;
+  check(repainted === cells.length, `the canvas shows the stroke (${repainted}/${cells.length} squares look different)`);
+  check(!differs(pixelsBefore.control, await tilePixel(page, control[0], control[1])), 'and a square the stroke never touched looks the same');
   check(await page.evaluate(() => KIT.editor.state.doc.canUndo()), 'the stroke can be undone');
   await shot(page, label, '02-painted');
 

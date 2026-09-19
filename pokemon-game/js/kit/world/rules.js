@@ -160,13 +160,28 @@
   R.matching = function (project, save, event, where) {
     const at = where || {};
     const out = [];
-    for (const r of R.all(project, save)) {
-      const rule = R.get(project, save, r.id);
-      if (!rule || rule.when !== event) continue;
-      if (!R.live(project, save, r.id)) continue;
-      if (!R.inScope(rule, at)) continue;
+    // The world asks this for EVERY event — each footstep, each clock tick —
+    // and the common answer is "nobody is listening". So the `when` of each
+    // rule is read off the declaration and its patch before anything is
+    // cloned; only a rule that actually names this event pays for R.get.
+    const declared = (project && project.rules) || {};
+    const st = R.state(save);
+    const listens = (id, base) => {
+      const patch = st[id] && st[id].patch;
+      const when = patch && patch.when !== undefined ? patch.when : base.when;
+      return when === event;
+    };
+    const consider = (id, base) => {
+      if (!listens(id, base)) return;
+      const rule = R.get(project, save, id);
+      if (!rule) return;
+      if (!R.live(project, save, id)) return;
+      if (!R.inScope(rule, at)) return;
       out.push(rule);
-    }
+    };
+    for (const id of Object.keys(declared)) consider(id, declared[id]);
+    for (const id of Object.keys(st)) if (st[id] && st[id].rule && !declared[id]) consider(id, st[id].rule);
+    if (!out.length) return out;
     const stateOf = (id) => R.state(save)[id] || {};
     out.sort((a, b) =>
       (b.priority || 0) - (a.priority || 0) ||

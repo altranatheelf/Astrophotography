@@ -200,11 +200,23 @@
     return out;
   }
 
+  // A recolor table is the same object for the whole session (the renderer
+  // rebuilds it only when the palette setting changes), so its key is worked out
+  // once per object rather than JSON.stringified for every sprite on every frame.
+  const recolorKeys = new WeakMap();
+  function recolorKey(rc) {
+    if (!rc) return '';
+    if (typeof rc !== 'object') return String(rc);
+    let k = recolorKeys.get(rc);
+    if (k === undefined) {
+      try { k = JSON.stringify(rc); } catch (e) { k = String(rc); }
+      recolorKeys.set(rc, k);
+    }
+    return k;
+  }
   function optionKey(opts) {
     const o = opts || {};
-    let rc = '';
-    if (o.recolor) { try { rc = JSON.stringify(o.recolor); } catch (e) { rc = String(o.recolor); } }
-    return [o.scale || 1, o.mirror ? 1 : 0, o.frame | 0, rc].join('|');
+    return (o.scale || 1) + '|' + (o.mirror ? 1 : 0) + '|' + (o.frame | 0) + '|' + recolorKey(o.recolor);
   }
 
   // Paint art onto a fresh canvas (no caching). Used by canvas().

@@ -81,6 +81,27 @@
       return map.collision ? (map.collision[index(x, y)] == null ? null : map.collision[index(x, y)]) : null;
     }
 
+    /**
+     * bushAt(x, y) -> is any layer of this cell a bush?
+     *
+     * The narrow question the renderer asks for every character on every frame.
+     * It used to ask `flagsAt`, which builds the whole merged answer — an object,
+     * a passage object, a tiles array, and three `T.flags` calls that each do
+     * two Object.assigns — to read one boolean out of it. At 1,600 characters
+     * that was on the order of twenty thousand allocations a frame for nothing.
+     * This walks the layers and reads the flag off the definition.
+     */
+    function bushAt(x, y) {
+      if (!inBounds(x, y)) return false;
+      for (const layer of LAYERS) {
+        const id = tileAt(layer, x, y);
+        if (id == null) continue;
+        const d = T.def(id);
+        if (d && d.bush) return true;
+      }
+      return false;
+    }
+
     /** Merged tile flags for a cell: any solid layer makes it solid; passage closes if any layer closes it; bush/counter/encounter/ledge from any layer. */
     function flagsAt(x, y) {
       const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, warpLook: false, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
@@ -237,7 +258,7 @@
       dimensions: map.dimensions ? Object.keys(map.dimensions) : [],
       get music() { const d = dimNow(); return (d && d.music) || map.music; },
       get atmosphere() { const d = dimNow(); return (d && d.atmosphere) || (map.props && map.props.atmosphere) || null; },
-      index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, passable, hopTarget, connectionAt, interactTarget,
+      index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, bushAt, passable, hopTarget, connectionAt, interactTarget,
       get objects() { return objectsNow(); },
       objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
       setBlockers(list) { blockers = list || []; },

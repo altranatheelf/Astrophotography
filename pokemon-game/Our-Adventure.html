@@ -2077,11 +2077,23 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return out;
   }
 
+  // A recolor table is the same object for the whole session (the renderer
+  // rebuilds it only when the palette setting changes), so its key is worked out
+  // once per object rather than JSON.stringified for every sprite on every frame.
+  const recolorKeys = new WeakMap();
+  function recolorKey(rc) {
+    if (!rc) return '';
+    if (typeof rc !== 'object') return String(rc);
+    let k = recolorKeys.get(rc);
+    if (k === undefined) {
+      try { k = JSON.stringify(rc); } catch (e) { k = String(rc); }
+      recolorKeys.set(rc, k);
+    }
+    return k;
+  }
   function optionKey(opts) {
     const o = opts || {};
-    let rc = '';
-    if (o.recolor) { try { rc = JSON.stringify(o.recolor); } catch (e) { rc = String(o.recolor); } }
-    return [o.scale || 1, o.mirror ? 1 : 0, o.frame | 0, rc].join('|');
+    return (o.scale || 1) + '|' + (o.mirror ? 1 : 0) + '|' + (o.frame | 0) + '|' + recolorKey(o.recolor);
   }
 
   // Paint art onto a fresh canvas (no caching). Used by canvas().
@@ -4423,6 +4435,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       get(path) { return P.get(value, path || []); },
       has(path) { return P.has(value, path); },
       get dirty() { return dirty; },
+      /**
+       * seq: how many changes this document has had, undo and redo included.
+       * A panel that would otherwise rebuild an index over the whole project to
+       * find out whether anything changed can compare this number instead.
+       */
+      get seq() { return seq; },
       markClean() { dirty = false; },
       get history() { return undoStack.map(e => e.label); },
       get redoHistory() { return redoStack.map(e => e.label); },
@@ -6745,13 +6763,28 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   R.matching = function (project, save, event, where) {
     const at = where || {};
     const out = [];
-    for (const r of R.all(project, save)) {
-      const rule = R.get(project, save, r.id);
-      if (!rule || rule.when !== event) continue;
-      if (!R.live(project, save, r.id)) continue;
-      if (!R.inScope(rule, at)) continue;
+    // The world asks this for EVERY event — each footstep, each clock tick —
+    // and the common answer is "nobody is listening". So the `when` of each
+    // rule is read off the declaration and its patch before anything is
+    // cloned; only a rule that actually names this event pays for R.get.
+    const declared = (project && project.rules) || {};
+    const st = R.state(save);
+    const listens = (id, base) => {
+      const patch = st[id] && st[id].patch;
+      const when = patch && patch.when !== undefined ? patch.when : base.when;
+      return when === event;
+    };
+    const consider = (id, base) => {
+      if (!listens(id, base)) return;
+      const rule = R.get(project, save, id);
+      if (!rule) return;
+      if (!R.live(project, save, id)) return;
+      if (!R.inScope(rule, at)) return;
       out.push(rule);
-    }
+    };
+    for (const id of Object.keys(declared)) consider(id, declared[id]);
+    for (const id of Object.keys(st)) if (st[id] && st[id].rule && !declared[id]) consider(id, st[id].rule);
+    if (!out.length) return out;
     const stateOf = (id) => R.state(save)[id] || {};
     out.sort((a, b) =>
       (b.priority || 0) - (a.priority || 0) ||
@@ -10618,6 +10651,27 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       return map.collision ? (map.collision[index(x, y)] == null ? null : map.collision[index(x, y)]) : null;
     }
 
+    /**
+     * bushAt(x, y) -> is any layer of this cell a bush?
+     *
+     * The narrow question the renderer asks for every character on every frame.
+     * It used to ask `flagsAt`, which builds the whole merged answer — an object,
+     * a passage object, a tiles array, and three `T.flags` calls that each do
+     * two Object.assigns — to read one boolean out of it. At 1,600 characters
+     * that was on the order of twenty thousand allocations a frame for nothing.
+     * This walks the layers and reads the flag off the definition.
+     */
+    function bushAt(x, y) {
+      if (!inBounds(x, y)) return false;
+      for (const layer of LAYERS) {
+        const id = tileAt(layer, x, y);
+        if (id == null) continue;
+        const d = T.def(id);
+        if (d && d.bush) return true;
+      }
+      return false;
+    }
+
     /** Merged tile flags for a cell: any solid layer makes it solid; passage closes if any layer closes it; bush/counter/encounter/ledge from any layer. */
     function flagsAt(x, y) {
       const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, warpLook: false, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
@@ -10774,7 +10828,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       dimensions: map.dimensions ? Object.keys(map.dimensions) : [],
       get music() { const d = dimNow(); return (d && d.music) || map.music; },
       get atmosphere() { const d = dimNow(); return (d && d.atmosphere) || (map.props && map.props.atmosphere) || null; },
-      index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, passable, hopTarget, connectionAt, interactTarget,
+      index, inBounds, tileAt, terrainAt, region, collisionAt, flagsAt, bushAt, passable, hopTarget, connectionAt, interactTarget,
       get objects() { return objectsNow(); },
       objectsAt, objectKey: key, objectState: stateOf, isHidden, activePage, positionOf,
       setBlockers(list) { blockers = list || []; },
@@ -10874,28 +10928,42 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
 
   /** The sprite frame to draw: { rows, mirror } via the sprites registry, or null when there is no art. */
-  const frameCache = new Map();          // 'sprite|dir|seq' -> the SAME object every time, so canvas caches keyed by identity hit
+  // def -> dir -> [frame by walk step]: the SAME object every time for a given
+  // (sprite, direction, step), so canvas caches keyed by identity hit.
+  //
+  // Keyed on the definition object rather than on a string. The string version
+  // built `sprite|dir|i|m` for every character on every frame — one allocation
+  // each, 1,600 characters, 60 times a second — and then compared `cached.def`
+  // to notice a re-registered sprite. A WeakMap on the definition does both for
+  // free: no string, and a new definition is simply a new key.
+  let frameCache = new WeakMap();
+  const WALK = [0, 1, 0, 2];
+  let sprites = null;
   E.frame = function (e) {
-    const reg = KIT.registry.exists('sprites') ? KIT.registry('sprites') : null;
-    const def = reg && e.sprite ? reg.get(e.sprite) : null;
+    if (!e.sprite) return null;
+    if (!sprites) sprites = KIT.registry.exists('sprites') ? KIT.registry('sprites') : null;
+    const def = sprites ? sprites.get(e.sprite) : null;
     if (!def || !def.frames) return null;
-    const seq = [0, 1, 0, 2][e.walkFrame % 4];
+    const seq = WALK[e.walkFrame % 4];
     // A sheet may carry a real `right` row (RPG Maker sheets do); otherwise the
     // left row is mirrored, which is how hand-drawn Kit art is made.
-    const drawn = (e.dir === 'right' && !def.frames.right) ? 'left' : e.dir;
     const mirror = e.dir === 'right' && !def.frames.right;
+    const drawn = mirror ? 'left' : e.dir;
     const frames = def.frames[drawn] || def.frames.down;
     if (!frames) return null;
     const i = Math.min(seq, frames.length - 1);
-    const key = `${e.sprite}|${drawn}|${i}|${mirror ? 'm' : ''}`;
-    let cached = frameCache.get(key);
-    if (!cached || cached.def !== def) {
+    let byDir = frameCache.get(def);
+    if (!byDir) { byDir = Object.create(null); frameCache.set(def, byDir); }
+    let list = byDir[drawn];
+    if (!list) list = byDir[drawn] = [];
+    let cached = list[i];
+    if (!cached || cached.rows !== frames[i]) {
       cached = { def, rows: frames[i], palette: def.palette, mirror, w: def.w || 16, h: def.h || 24, art: def.art || (typeof def.image === 'string' ? def : null), frameIndex: i, dir: drawn };
-      frameCache.set(key, cached);
+      list[i] = cached;
     }
     return cached;
   };
-  E.clearFrameCache = () => frameCache.clear();
+  E.clearFrameCache = () => { frameCache = new WeakMap(); sprites = null; };
 
   // ---- move routes (§9.2) -----------------------------------------------------
   /**
@@ -16842,6 +16910,26 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    */
   R.cacheBudget = 192 * 1024 * 1024;
 
+  /**
+   * Where the frame went. Off by default.
+   *
+   * Every frame-rate figure this engine has quoted was measured once by hand
+   * with a harness that was then thrown away, and each one is a single number
+   * you cannot act on: "1600 characters at 60fps" does not say whether the cost
+   * is tiles, characters, markers or light. Set `KIT.renderer.profile = {}` and
+   * the renderer adds milliseconds into it by phase;
+   * `tools/experiments/frame.js` reads it and asserts thresholds per phase.
+   *
+   * It costs one property read per PHASE — seven per frame, not seven per
+   * entity — so it is not worth a build flag to remove.
+   */
+  R.profile = null;
+  function at() { return R.profile ? performance.now() : 0; }
+  function phase(name, t0) {
+    const p = R.profile;
+    if (p) p[name] = (p[name] || 0) + (performance.now() - t0);
+  }
+
   const spriteArts = new WeakMap();            // frame.rows -> art object (stable identity = cached canvases)
   const missingArts = new Map();               // id -> silhouette art
 
@@ -17060,41 +17148,58 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       return a;
     }
 
-    /**
-     * What to draw for an entity: its sprite frame, else the `look` tile a sign
-     * or a door carries, else a silhouette when a named sprite has no art —
-     * and nothing at all for an event with no look of its own (a trigger).
-     */
-    function lookOf(e) {
-      const frame = KIT.entities.frame(e);
-      if (frame) return { art: artForFrame(frame), mirror: frame.mirror, tile: false };
-      if (e.look) {
-        const def = tileDef(e.look);
-        return { art: def ? tileArt(def) : missingArt(e.look, TILE(), TILE(), true), mirror: false, tile: true };
-      }
-      if (e.sprite) return { art: missingArt(e.sprite, TILE(), TILE() + 8, false), mirror: false, tile: false };
-      return null;
+    // The draw order, rebuilt each frame into the same three arrays. The old
+    // code did entities.concat(heroes.filter(...)) and then made three more
+    // arrays — five allocations of up to 1,600 slots, 60 times a second.
+    const below = [], same = [], above = [];
+    const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
+    const CULL_MARGIN = 3;                      // tiles: a tall sprite plus its balloon
+    const cull = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    function bucket1(e) {
+      if (e.visible === false) return;
+      if (e.px < cull.x0 || e.px > cull.x1 || e.py < cull.y0 || e.py > cull.y1) return;
+      (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
     }
+    function bucket(list) { for (let i = 0; i < list.length; i++) bucket1(list[i]); }
+
+    // One options object for every sprite drawn, refilled per call. Nothing
+    // downstream keeps it — KIT.pixels reads it synchronously to build a cache
+    // key — so allocating a fresh one per character per frame bought nothing.
+    const spriteOpts = { scale: 1, mirror: false, recolor: null };
 
     function drawEntity(e, view, camX, camY) {
       if (e.visible === false || e.opacity === 0) return;
-      const look = lookOf(e);
-      if (!look) return;
-      const art = look.art;
+      // What to draw: the sprite frame, else the `look` tile a sign or a door
+      // carries, else a silhouette for a named sprite with no art — and nothing
+      // at all for an event with no look of its own (a trigger). Inlined from
+      // what used to be lookOf(), which returned a fresh {art, mirror, tile}
+      // for every character on every frame.
+      let art, mirror = false, isTile = false;
+      const frame = KIT.entities.frame(e);
+      if (frame) { art = artForFrame(frame); mirror = !!frame.mirror; }
+      else if (e.look) { const def = tileDef(e.look); art = def ? tileArt(def) : missingArt(e.look, TILE(), TILE(), true); isTile = true; }
+      else if (e.sprite) art = missingArt(e.sprite, TILE(), TILE() + 8, false);
+      else return;
       const dims = KIT.pixels.dims(art);
       const sx = Math.round((e.px - camX) * tilePx + (tilePx - dims.w * scale) / 2);
-      const sy = Math.round((e.py - camY) * tilePx + (look.tile ? 0 : tilePx - dims.h * scale));
-      const bush = view.flagsAt(Math.round(e.px), Math.round(e.py)).bush;
+      const sy = Math.round((e.py - camY) * tilePx + (isTile ? 0 : tilePx - dims.h * scale));
+      const bush = view.bushAt(Math.round(e.px), Math.round(e.py));
       const alpha = e.opacity == null ? 1 : e.opacity;
-      ctx.save();
-      if (alpha < 1) ctx.globalAlpha = alpha;
-      if (bush) {
-        ctx.beginPath();
-        ctx.rect(sx - scale, sy, dims.w * scale + scale * 2, Math.max(1, dims.h * scale - 5 * scale));
-        ctx.clip();
+      // save/restore snapshots the whole canvas state; for the common character
+      // — fully opaque, not in a bush — there is nothing to restore.
+      const needsState = alpha < 1 || bush;
+      if (needsState) {
+        ctx.save();
+        if (alpha < 1) ctx.globalAlpha = alpha;
+        if (bush) {
+          ctx.beginPath();
+          ctx.rect(sx - scale, sy, dims.w * scale + scale * 2, Math.max(1, dims.h * scale - 5 * scale));
+          ctx.clip();
+        }
       }
-      KIT.pixels.draw(ctx, art, sx, sy, { scale, mirror: look.mirror, recolor });
-      ctx.restore();
+      spriteOpts.scale = scale; spriteOpts.mirror = mirror; spriteOpts.recolor = recolor;
+      KIT.pixels.draw(ctx, art, sx, sy, spriteOpts);
+      if (needsState) ctx.restore();
       if (e.data && e.data.balloon) drawBalloon(e, sx + dims.w * scale / 2, sy);
     }
 
@@ -17118,12 +17223,27 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
      *   tint      a colour washed over it
      *   outline   a colour drawn round the tile's square
      */
-    function drawMarkers(world, layer, view, camX, camY, time) {
+    // The markers on screen this frame, by layer. Filled once per frame by
+    // bucketMarkers and drawn three times; the old drawMarkers scanned the whole
+    // list once PER LAYER, which at 3,000 markers was 9,000 tests a frame to draw
+    // the ones in view.
+    const markerBuckets = { below: [], same: [], above: [] };
+    function bucketMarkers(world, cull) {
+      markerBuckets.below.length = 0; markerBuckets.same.length = 0; markerBuckets.above.length = 0;
       const list = world.markers;
       if (!Array.isArray(list) || !list.length) return;
       for (const m of list) {
         if (!m) continue;
-        if ((m.layer || 'same') !== layer) continue;
+        const x = Number.isFinite(m.x) ? m.x : 0, y = Number.isFinite(m.y) ? m.y : 0;
+        if (x < cull.x0 || x > cull.x1 || y < cull.y0 || y > cull.y1) continue;
+        (markerBuckets[m.layer] || markerBuckets.same).push(m);
+      }
+    }
+    const markerOpts = { scale: 1, recolor: null };
+    function drawMarkers(layer, camX, camY, time) {
+      const list = markerBuckets[layer];
+      if (!list.length) return;
+      for (const m of list) {
         const def = m.tile ? tileDef(m.tile) : null;
         const art = m.art || (m.tile ? (def ? tileArt(def) : missingArt(m.tile, TILE(), TILE(), true)) : null);
         const sx = Math.round(((Number.isFinite(m.x) ? m.x : 0) - camX) * tilePx);
@@ -17131,12 +17251,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         let alpha = m.opacity == null ? 0.75 : m.opacity;
         if (m.pulse) alpha *= 0.65 + 0.35 * (0.5 + 0.5 * Math.sin((time / m.pulse) * Math.PI * 2));
         if (alpha <= 0) continue;
-        ctx.save();
+        // Everything this touches is put back by hand below, which is cheaper
+        // than save/restore snapshotting the whole state per marker.
         ctx.globalAlpha = Math.min(1, alpha);
         if (art) {
           const dims = KIT.pixels.dims(art);
+          markerOpts.scale = scale; markerOpts.recolor = recolor;
           KIT.pixels.draw(ctx, art, sx + Math.round((tilePx - dims.w * scale) / 2),
-            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), { scale, recolor });
+            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), markerOpts);
         }
         if (m.tint) {
           ctx.globalCompositeOperation = art ? 'source-atop' : 'source-over';
@@ -17150,8 +17272,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           ctx.lineWidth = Math.max(1, scale);
           ctx.strokeRect(sx + scale / 2, sy + scale / 2, tilePx - scale, tilePx - scale);
         }
-        ctx.restore();
       }
+      ctx.globalAlpha = 1;
     }
 
     const BALLOON_MS = 1200;
@@ -17313,44 +17435,73 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const time = world.time != null ? world.time * 1000 : (root.performance ? performance.now() : 0);
 
       // tile layers (cached) — ground and deco under the characters
+      const tTiles = at();
       blit(c, view, 'ground', ox, oy);
       blit(c, view, 'deco', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['ground', 'deco']);
+      phase('tiles', tTiles);
+
+      // What is on screen, in tiles, with room for a sprite that stands taller
+      // than its cell and a balloon over its head. Anything outside is not
+      // sorted and not drawn: a map with 1,600 characters on it shows a few
+      // dozen, and the rest cost nothing now.
+      cull.x0 = camX - CULL_MARGIN; cull.y0 = camY - CULL_MARGIN;
+      cull.x1 = camX + W / (tilePx * zoom) + CULL_MARGIN; cull.y1 = camY + H / (tilePx * zoom) + CULL_MARGIN;
 
       // characters
-      const all = world.entities.concat(world.heroes.filter(h => h.visible !== false));
-      if (world.companion) all.push(world.companion);
-      const below = [], same = [], above = [];
-      for (const e of all) (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
-      const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
+      const tSort = at();
+      below.length = 0; same.length = 0; above.length = 0;
+      bucket(world.entities);
+      bucket(world.heroes);
+      if (world.companion) bucket1(world.companion);
       below.sort(byY); same.sort(byY); above.sort(byY);
-      drawMarkers(world, 'below', view, camX, camY, time);
+      bucketMarkers(world, cull);
+      phase('sort', tSort);
+      let tM = at();
+      drawMarkers('below', camX, camY, time);
+      phase('markers', tM);
+      const tEnt = at();
       for (const e of below) drawEntity(e, view, camX, camY);
       for (const e of same) drawEntity(e, view, camX, camY);
-      drawMarkers(world, 'same', view, camX, camY, time);
+      phase('entities', tEnt);
+      tM = at();
+      drawMarkers('same', camX, camY, time);
+      phase('markers', tM);
 
       // the `above` tile layer covers characters (treetops, roofs, bridges)
+      const tAbove = at();
       blit(c, view, 'above', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['above']);
+      phase('tiles', tAbove);
+      const tEnt2 = at();
       for (const e of above) drawEntity(e, view, camX, camY);
-      drawMarkers(world, 'above', view, camX, camY, time);
+      phase('entities', tEnt2);
+      tM = at();
+      drawMarkers('above', camX, camY, time);
+      phase('markers', tM);
 
       // atmosphere sits over the world but under the pictures and the UI overlays
+      const tAtmos = at();
       if (KIT.atmosphere && KIT.atmosphere.draw) {
         try {
           if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
           KIT.atmosphere.draw(ctx, world, { W, H, tilePx: tilePx * zoom, camX, camY, time });
         } catch (e) { (KIT.log || console).error('[atmosphere]', e); }
       }
+      phase('atmosphere', tAtmos);
       // A scene's own canvas: over the world and the atmosphere, under the
       // pictures and the DOM. This is where a minigame, an overlay HUD or a
       // battle arena draws itself.
+      const tScenes = at();
       if (KIT.scenes && KIT.scenes.draw) {
         if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
         KIT.scenes.draw(ctx, { W, H, tilePx: tilePx * zoom, camX, camY, time, world, scale, owned: false });
       }
+      phase('scenes', tScenes);
+      const tOver = at();
       drawPictures();
       drawOverlays(world);
+      phase('overlays', tOver);
       ctx.restore();
     }
 
@@ -17956,8 +18107,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
        * types itself.
        */
       function reveal(u, n) {
-        if (u.chars) { for (let i = 0; i < u.chars.length; i++) u.chars[i].style.visibility = i < n ? 'visible' : 'hidden'; }
-        else u.el.textContent = u.text.slice(0, n);
+        if (u.chars) {
+          // Only the letters whose state changed. A run with an effect holds a
+          // span per letter, every one of them built hidden (see effected()),
+          // and this runs every frame while the line types — so touching all
+          // two hundred of them to show two more was two hundred style writes a
+          // frame for nothing. `shown` is how many are visible right now.
+          const was = u.shown || 0;
+          const end = Math.min(n, u.chars.length);
+          if (end > was) for (let i = was; i < end; i++) u.chars[i].style.visibility = 'visible';
+          else if (end < was) for (let i = end; i < was; i++) u.chars[i].style.visibility = 'hidden';
+          u.shown = end;
+        } else u.el.textContent = u.text.slice(0, n);
       }
 
       function speak(chars, v) {
@@ -17998,7 +18159,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
-        ui.next.textContent = (pageIndex < pages.length - 1 || waiting) ? '▼' : '▼';   // more to read / ready to close
+        ui.next.textContent = '▼';
       }
 
       return {
@@ -26248,10 +26409,54 @@ PKMN.TILES.register([
     refreshPanels();
     return true;
   };
-  ED.refresh = function () {
+  /**
+   * What the last document changes did to the baked map layers, gathered by
+   * the document watcher and spent by refresh().
+   *
+   * refresh() used to drop the renderer's whole tile cache on every commit —
+   * renaming an NPC re-baked every layer of the map, and a paint stroke on a
+   * 100×80 map re-drew 24,000 cells to change one. The document already says
+   * exactly which paths changed, and the renderer already knows how to repaint
+   * one cell, so the two are joined here: a cell op invalidates a cell, a
+   * whole-layer or whole-map op drops that map, anything that changes what
+   * tiles LOOK like drops everything, and an edit to a variable touches nothing.
+   */
+  const pending = { drop: false, maps: new Set(), cells: [] };
+  function noteChange(change) {
+    for (const path of change.paths || []) {
+      if (!path.length) { pending.drop = true; return; }
+      const head = path[0];
+      if (head === 'assets' || head === 'autotiles' || head === 'terrains') { pending.drop = true; return; }
+      if (head !== 'maps') continue;
+      if (path.length < 2) { pending.drop = true; return; }
+      const id = path[1];
+      if (path.length === 2 || path[2] === 'layers' && path.length <= 4) { pending.maps.add(id); continue; }
+      if (path[2] === 'layers' && path.length >= 5) { pending.cells.push({ id, i: path[4] }); continue; }
+      // objects, name, kind, music, props, collision: none of it is baked.
+    }
+  }
+  function spendChanges() {
+    if (!renderer) { pending.drop = false; pending.maps.clear(); pending.cells.length = 0; return; }
+    if (pending.drop) renderer.clearCaches();
+    else {
+      for (const id of pending.maps) renderer.invalidate(id);
+      for (const c of pending.cells) {
+        if (pending.maps.has(c.id)) continue;
+        const m = state.project && state.project.maps[c.id];
+        const w = m && m.width > 0 ? m.width : 0;
+        if (!w || typeof c.i !== 'number') { renderer.invalidate(c.id); continue; }
+        renderer.invalidate(c.id, c.i % w, Math.floor(c.i / w));
+      }
+    }
+    pending.drop = false; pending.maps.clear(); pending.cells.length = 0;
+  }
+
+  /** refresh({ drop }) — `drop` throws the whole tile cache away, for a project that was replaced. */
+  ED.refresh = function (opts) {
     if (state.project && state.mapId && state.project.maps[state.mapId]) state.map = KIT.mapView(state.project, null, state.mapId);
     else if (state.project) { const first = Object.keys(state.project.maps)[0]; if (first) { state.mapId = first; state.map = KIT.mapView(state.project, null, first); } }
-    if (renderer) renderer.clearCaches();
+    if (opts && opts.drop) pending.drop = true;
+    spendChanges();
     ED.repaint();
     refreshPanels();
   };
@@ -26784,7 +26989,7 @@ PKMN.TILES.register([
     state.mode = 'edit';
     emit('mode', 'edit');
     ED.el.root.classList.remove('playing');
-    ED.refresh();
+    ED.refresh({ drop: true });                    // the game may have baked other maps into the same renderer
   };
 
   // ---- open / close ----------------------------------------------------------------
@@ -26803,13 +27008,13 @@ PKMN.TILES.register([
     if (!state.tile) { const t = KIT.registry('tiles').list()[0]; state.tile = t ? t.id : null; }
     buildDom();
     open = true;
-    unwatch = state.doc.watch([], () => { state.project = state.doc.value; state.dirty = true; });
+    unwatch = state.doc.watch([], (change) => { state.project = state.doc.value; state.dirty = true; noteChange(change); });
     document.addEventListener('keydown', onKey);
     document.addEventListener('keyup', onKeyUp);
     buildToolbar();
     buildTabs();
     showPanel(state.panel);
-    ED.refresh();
+    ED.refresh({ drop: true });
     scheduleValidate();
     emit('change', { open: true });
     return ED;
@@ -31949,6 +32154,14 @@ PKMN.TILES.register([
     refresh(ed) {
       const el = this._el;
       if (!el) return;
+      // Typing in a row must never redraw the rows out from under the cursor —
+      // checked FIRST, before any work. And textIndex() visits every piece of
+      // text in the game (48,000 lines at OMORI scale) while this refresh runs
+      // after every commit anywhere in the editor; the document's change counter
+      // says whether anything could have changed for a fraction of that.
+      if (typingIn(el.list)) return;
+      const version = (ed.state.doc ? ed.state.doc.seq : -1) + '|' + JSON.stringify(dlgState);
+      if (version === this._version && this._sig) return;
       const rows = W.textIndex(ed.state.project);
       const q = dlgState.query.trim().toLowerCase();
       const shown = rows.filter(r => {
@@ -31958,7 +32171,8 @@ PKMN.TILES.register([
         return `${r.text} ${r.label} ${r.speaker}`.toLowerCase().indexOf(q) >= 0;
       });
       const sig = JSON.stringify([shown.map(r => [r.id, r.text, r.label]), dlgState]);
-      if (sig === this._sig || typingIn(el.list)) return;
+      this._version = version;
+      if (sig === this._sig) return;
       this._sig = sig;
       for (const b of el.filters.querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.only === dlgState.only));
       const words = rows.reduce((n, r) => n + (String(r.text).trim() ? String(r.text).trim().split(/\s+/).length : 0), 0);
@@ -32736,13 +32950,13 @@ PKMN.TILES.register([
       el.search.type = 'search';
       el.search.placeholder = 'Find a Switch/Variable…';
       el.search.value = varState.query;
-      el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this.refresh(ED); };
+      el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Declare a new variable', () => {
         const name = `var${Object.keys(project().vars || {}).length + 1}`;
         commit('Declare variable', (doc, O) => O.declareVar(doc, { name, type: 'number', default: 0, label: titleCase(name) }));
         varState.open[name] = true;
-        this._sig = '';
+        this._sig = ''; this._version = '';
         this.refresh(ED);
       }, 'primary'));
       host.appendChild(head);
@@ -32754,14 +32968,22 @@ PKMN.TILES.register([
     refresh(ed) {
       const el = this._el;
       if (!el) return;
+      const active = document.activeElement;
+      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+      // Cheap gate first. varIndex() walks every command in the project
+      // (P.collect), and this refresh runs after EVERY commit anywhere in the
+      // editor — so a keystroke in a dialogue line used to re-index the whole
+      // game before this panel discovered it had nothing to redraw. The
+      // document's change counter says so without the walk.
+      const version = (ed.state.doc ? ed.state.doc.seq : -1) + '|' + JSON.stringify(varState);
+      if (version === this._version && this._sig) return;
       const p = ed.state.project;
       const index = PP.varIndex(p);
       const q = varState.query.trim().toLowerCase();
       const shown = index.filter(v => !q || v.name.toLowerCase().indexOf(q) >= 0 || String((v.decl && v.decl.label) || '').toLowerCase().indexOf(q) >= 0);
       const sig = JSON.stringify([shown.map(v => [v.name, v.declared, v.decl, v.reads.length, v.writes.length]), varState]);
+      this._version = version;
       if (sig === this._sig) return;
-      const active = document.activeElement;
-      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
       this._sig = sig;
       clear(el.list);
       const declared = shown.filter(v => v.declared);
@@ -32787,7 +33009,7 @@ PKMN.TILES.register([
     const head = make('div.ed-row.ed-var-head');
     const name = make('button.ed-var-name', { text: v.name });
     name.type = 'button';
-    name.onclick = () => { varState.open[v.name] = !varState.open[v.name]; panel._sig = ''; panel.refresh(ED); };
+    name.onclick = () => { varState.open[v.name] = !varState.open[v.name]; panel._sig = ''; panel._version = ''; panel.refresh(ED); };
     head.appendChild(name);
     if (v.decl && v.decl.label && v.decl.label !== titleCase(v.name)) head.appendChild(make('span.ed-sub', { text: v.decl.label }));
     if (v.decl) head.appendChild(make('span.ed-badge.ed-vartype', { text: `${v.decl.type === 'bool' ? 'Switch' : v.decl.type} = ${String(v.decl.default)}` }));
@@ -32799,7 +33021,7 @@ PKMN.TILES.register([
         const type = PP.guessType(v.name);
         commit(`Declare ${v.name}`, (doc, O) => O.declareVar(doc, { name: v.name, type, default: PP.defaultFor(type), label: titleCase(v.name) }));
         varState.open[v.name] = true;
-        panel._sig = '';
+        panel._sig = ''; panel._version = '';
         panel.refresh(ED);
       }, 'primary'));
     }

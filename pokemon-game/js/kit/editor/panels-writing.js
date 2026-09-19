@@ -524,6 +524,14 @@
     refresh(ed) {
       const el = this._el;
       if (!el) return;
+      // Typing in a row must never redraw the rows out from under the cursor —
+      // checked FIRST, before any work. And textIndex() visits every piece of
+      // text in the game (48,000 lines at OMORI scale) while this refresh runs
+      // after every commit anywhere in the editor; the document's change counter
+      // says whether anything could have changed for a fraction of that.
+      if (typingIn(el.list)) return;
+      const version = (ed.state.doc ? ed.state.doc.seq : -1) + '|' + JSON.stringify(dlgState);
+      if (version === this._version && this._sig) return;
       const rows = W.textIndex(ed.state.project);
       const q = dlgState.query.trim().toLowerCase();
       const shown = rows.filter(r => {
@@ -533,7 +541,8 @@
         return `${r.text} ${r.label} ${r.speaker}`.toLowerCase().indexOf(q) >= 0;
       });
       const sig = JSON.stringify([shown.map(r => [r.id, r.text, r.label]), dlgState]);
-      if (sig === this._sig || typingIn(el.list)) return;
+      this._version = version;
+      if (sig === this._sig) return;
       this._sig = sig;
       for (const b of el.filters.querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.only === dlgState.only));
       const words = rows.reduce((n, r) => n + (String(r.text).trim() ? String(r.text).trim().split(/\s+/).length : 0), 0);

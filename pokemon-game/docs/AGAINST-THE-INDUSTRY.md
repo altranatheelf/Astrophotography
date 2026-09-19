@@ -105,15 +105,30 @@ native engine at raw compute. That is a real ceiling, and it is the same ceiling
 
 ### Measured ceilings
 
-| what | fps |
-|---|---|
-| 1600 moving, drawn characters | 60 |
-| 3000 markers (the bullet-hell substrate) | 60 |
-| walking a 64×48 map | 60 |
-| 400 characters on a phone viewport | 58.5 |
-| darkness + 32 dynamic lights | 60 *(was 56.5)* |
-| darkness + 64 lights | 57 *(was 22)* |
-| darkness + 128 lights | 32.5 *(was 11)* |
+Every number in the first version of this table was measured once by hand and
+the harness thrown away — so each was a claim about a version of the engine that
+no longer existed, and a regression in any of them was invisible. The harness is
+kept now: `npm run experiments` runs `tools/experiments/frame.js`, which drives
+the fixed-step loop by hand (no requestAnimationFrame jitter), breaks the frame
+down by system and by draw phase (`KIT.renderer.profile`), and fails thresholds.
+Milliseconds per frame, 960×720 at dpr 1, 16.7ms being the whole budget at 60fps:
+
+| load | before this pass | now | where it goes |
+|---|---|---|---|
+| an empty room | 0.14 | 0.14 | — |
+| 200 moving, drawn characters | 3.0 | 2.1 | drawing them |
+| 800 characters | 5.7 | 4.1 | drawing them |
+| 1600 characters, all on screen | 11.5 | 7.5 | drawing them (6.97); sorting them 0.27 |
+| 3000 markers (the bullet-hell substrate) | 4.5 | 0.15 | the ones in view |
+| darkness + 128 lights | 19.8 | 17.2 | the light itself (13.1) |
+
+What changed: the per-character path built a merged flags object, a passage
+object, a tiles array and three `T.flags` copies to read one boolean (is it in a
+bush); a fresh look object; a fresh options object; a string key for the frame
+cache; and a canvas `save/restore` for every character whether or not anything
+needed restoring. None of that is per character any more. Markers were scanned
+once per layer — 9,000 tests a frame for 3,000 markers — and nothing off screen
+was ever skipped; they are bucketed once and culled, as are characters.
 
 Undertale's densest patterns run to a couple of hundred bullets. This engine
 simulates **334 live bullets in 0.5ms of a 16.7ms frame budget**.

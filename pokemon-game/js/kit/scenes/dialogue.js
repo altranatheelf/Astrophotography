@@ -195,8 +195,18 @@
        * types itself.
        */
       function reveal(u, n) {
-        if (u.chars) { for (let i = 0; i < u.chars.length; i++) u.chars[i].style.visibility = i < n ? 'visible' : 'hidden'; }
-        else u.el.textContent = u.text.slice(0, n);
+        if (u.chars) {
+          // Only the letters whose state changed. A run with an effect holds a
+          // span per letter, every one of them built hidden (see effected()),
+          // and this runs every frame while the line types — so touching all
+          // two hundred of them to show two more was two hundred style writes a
+          // frame for nothing. `shown` is how many are visible right now.
+          const was = u.shown || 0;
+          const end = Math.min(n, u.chars.length);
+          if (end > was) for (let i = was; i < end; i++) u.chars[i].style.visibility = 'visible';
+          else if (end < was) for (let i = end; i < was; i++) u.chars[i].style.visibility = 'hidden';
+          u.shown = end;
+        } else u.el.textContent = u.text.slice(0, n);
       }
 
       function speak(chars, v) {
@@ -237,7 +247,7 @@
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
-        ui.next.textContent = (pageIndex < pages.length - 1 || waiting) ? '▼' : '▼';   // more to read / ready to close
+        ui.next.textContent = '▼';
       }
 
       return {

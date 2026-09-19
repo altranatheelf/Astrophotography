@@ -653,13 +653,13 @@
       el.search.type = 'search';
       el.search.placeholder = 'Find a Switch/Variable…';
       el.search.value = varState.query;
-      el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this.refresh(ED); };
+      el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Declare a new variable', () => {
         const name = `var${Object.keys(project().vars || {}).length + 1}`;
         commit('Declare variable', (doc, O) => O.declareVar(doc, { name, type: 'number', default: 0, label: titleCase(name) }));
         varState.open[name] = true;
-        this._sig = '';
+        this._sig = ''; this._version = '';
         this.refresh(ED);
       }, 'primary'));
       host.appendChild(head);
@@ -671,14 +671,22 @@
     refresh(ed) {
       const el = this._el;
       if (!el) return;
+      const active = document.activeElement;
+      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+      // Cheap gate first. varIndex() walks every command in the project
+      // (P.collect), and this refresh runs after EVERY commit anywhere in the
+      // editor — so a keystroke in a dialogue line used to re-index the whole
+      // game before this panel discovered it had nothing to redraw. The
+      // document's change counter says so without the walk.
+      const version = (ed.state.doc ? ed.state.doc.seq : -1) + '|' + JSON.stringify(varState);
+      if (version === this._version && this._sig) return;
       const p = ed.state.project;
       const index = PP.varIndex(p);
       const q = varState.query.trim().toLowerCase();
       const shown = index.filter(v => !q || v.name.toLowerCase().indexOf(q) >= 0 || String((v.decl && v.decl.label) || '').toLowerCase().indexOf(q) >= 0);
       const sig = JSON.stringify([shown.map(v => [v.name, v.declared, v.decl, v.reads.length, v.writes.length]), varState]);
+      this._version = version;
       if (sig === this._sig) return;
-      const active = document.activeElement;
-      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
       this._sig = sig;
       clear(el.list);
       const declared = shown.filter(v => v.declared);
@@ -704,7 +712,7 @@
     const head = make('div.ed-row.ed-var-head');
     const name = make('button.ed-var-name', { text: v.name });
     name.type = 'button';
-    name.onclick = () => { varState.open[v.name] = !varState.open[v.name]; panel._sig = ''; panel.refresh(ED); };
+    name.onclick = () => { varState.open[v.name] = !varState.open[v.name]; panel._sig = ''; panel._version = ''; panel.refresh(ED); };
     head.appendChild(name);
     if (v.decl && v.decl.label && v.decl.label !== titleCase(v.name)) head.appendChild(make('span.ed-sub', { text: v.decl.label }));
     if (v.decl) head.appendChild(make('span.ed-badge.ed-vartype', { text: `${v.decl.type === 'bool' ? 'Switch' : v.decl.type} = ${String(v.decl.default)}` }));
@@ -716,7 +724,7 @@
         const type = PP.guessType(v.name);
         commit(`Declare ${v.name}`, (doc, O) => O.declareVar(doc, { name: v.name, type, default: PP.defaultFor(type), label: titleCase(v.name) }));
         varState.open[v.name] = true;
-        panel._sig = '';
+        panel._sig = ''; panel._version = '';
         panel.refresh(ED);
       }, 'primary'));
     }

@@ -82,28 +82,42 @@
   };
 
   /** The sprite frame to draw: { rows, mirror } via the sprites registry, or null when there is no art. */
-  const frameCache = new Map();          // 'sprite|dir|seq' -> the SAME object every time, so canvas caches keyed by identity hit
+  // def -> dir -> [frame by walk step]: the SAME object every time for a given
+  // (sprite, direction, step), so canvas caches keyed by identity hit.
+  //
+  // Keyed on the definition object rather than on a string. The string version
+  // built `sprite|dir|i|m` for every character on every frame — one allocation
+  // each, 1,600 characters, 60 times a second — and then compared `cached.def`
+  // to notice a re-registered sprite. A WeakMap on the definition does both for
+  // free: no string, and a new definition is simply a new key.
+  let frameCache = new WeakMap();
+  const WALK = [0, 1, 0, 2];
+  let sprites = null;
   E.frame = function (e) {
-    const reg = KIT.registry.exists('sprites') ? KIT.registry('sprites') : null;
-    const def = reg && e.sprite ? reg.get(e.sprite) : null;
+    if (!e.sprite) return null;
+    if (!sprites) sprites = KIT.registry.exists('sprites') ? KIT.registry('sprites') : null;
+    const def = sprites ? sprites.get(e.sprite) : null;
     if (!def || !def.frames) return null;
-    const seq = [0, 1, 0, 2][e.walkFrame % 4];
+    const seq = WALK[e.walkFrame % 4];
     // A sheet may carry a real `right` row (RPG Maker sheets do); otherwise the
     // left row is mirrored, which is how hand-drawn Kit art is made.
-    const drawn = (e.dir === 'right' && !def.frames.right) ? 'left' : e.dir;
     const mirror = e.dir === 'right' && !def.frames.right;
+    const drawn = mirror ? 'left' : e.dir;
     const frames = def.frames[drawn] || def.frames.down;
     if (!frames) return null;
     const i = Math.min(seq, frames.length - 1);
-    const key = `${e.sprite}|${drawn}|${i}|${mirror ? 'm' : ''}`;
-    let cached = frameCache.get(key);
-    if (!cached || cached.def !== def) {
+    let byDir = frameCache.get(def);
+    if (!byDir) { byDir = Object.create(null); frameCache.set(def, byDir); }
+    let list = byDir[drawn];
+    if (!list) list = byDir[drawn] = [];
+    let cached = list[i];
+    if (!cached || cached.rows !== frames[i]) {
       cached = { def, rows: frames[i], palette: def.palette, mirror, w: def.w || 16, h: def.h || 24, art: def.art || (typeof def.image === 'string' ? def : null), frameIndex: i, dir: drawn };
-      frameCache.set(key, cached);
+      list[i] = cached;
     }
     return cached;
   };
-  E.clearFrameCache = () => frameCache.clear();
+  E.clearFrameCache = () => { frameCache = new WeakMap(); sprites = null; };
 
   // ---- move routes (§9.2) -----------------------------------------------------
   /**

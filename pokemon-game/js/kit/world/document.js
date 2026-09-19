@@ -100,6 +100,12 @@
       get(path) { return P.get(value, path || []); },
       has(path) { return P.has(value, path); },
       get dirty() { return dirty; },
+      /**
+       * seq: how many changes this document has had, undo and redo included.
+       * A panel that would otherwise rebuild an index over the whole project to
+       * find out whether anything changed can compare this number instead.
+       */
+      get seq() { return seq; },
       markClean() { dirty = false; },
       get history() { return undoStack.map(e => e.label); },
       get redoHistory() { return redoStack.map(e => e.label); },

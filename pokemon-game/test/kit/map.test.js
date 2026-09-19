@@ -50,6 +50,11 @@ test('mapView: tiles, flags, regions, overlays', () => {
   assert.equal(v.tileAt('deco', 0, 0), 'plant');            // overlay wins
   assert.ok(v.flagsAt(0, 0).solid);                          // the overlay plant is solid
   assert.ok(v.flagsAt(3, 1).encounter && v.flagsAt(3, 1).bush);
+  // bushAt is the renderer's per-character, per-frame question, answered
+  // without building the merged flags. It must never disagree with them.
+  for (let y = -1; y <= v.height; y++) for (let x = -1; x <= v.width; x++) {
+    assert.equal(v.bushAt(x, y), v.flagsAt(x, y).bush, `bushAt agrees with flagsAt at ${x},${y}`);
+  }
   assert.equal(v.region(3, 1), 7);
   assert.equal(v.region(0, 0), 0);
   assert.ok(v.flagsAt(-1, 0).solid);

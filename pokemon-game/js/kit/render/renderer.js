@@ -28,6 +28,26 @@
    */
   R.cacheBudget = 192 * 1024 * 1024;
 
+  /**
+   * Where the frame went. Off by default.
+   *
+   * Every frame-rate figure this engine has quoted was measured once by hand
+   * with a harness that was then thrown away, and each one is a single number
+   * you cannot act on: "1600 characters at 60fps" does not say whether the cost
+   * is tiles, characters, markers or light. Set `KIT.renderer.profile = {}` and
+   * the renderer adds milliseconds into it by phase;
+   * `tools/experiments/frame.js` reads it and asserts thresholds per phase.
+   *
+   * It costs one property read per PHASE — seven per frame, not seven per
+   * entity — so it is not worth a build flag to remove.
+   */
+  R.profile = null;
+  function at() { return R.profile ? performance.now() : 0; }
+  function phase(name, t0) {
+    const p = R.profile;
+    if (p) p[name] = (p[name] || 0) + (performance.now() - t0);
+  }
+
   const spriteArts = new WeakMap();            // frame.rows -> art object (stable identity = cached canvases)
   const missingArts = new Map();               // id -> silhouette art
 
@@ -246,41 +266,58 @@
       return a;
     }
 
-    /**
-     * What to draw for an entity: its sprite frame, else the `look` tile a sign
-     * or a door carries, else a silhouette when a named sprite has no art —
-     * and nothing at all for an event with no look of its own (a trigger).
-     */
-    function lookOf(e) {
-      const frame = KIT.entities.frame(e);
-      if (frame) return { art: artForFrame(frame), mirror: frame.mirror, tile: false };
-      if (e.look) {
-        const def = tileDef(e.look);
-        return { art: def ? tileArt(def) : missingArt(e.look, TILE(), TILE(), true), mirror: false, tile: true };
-      }
-      if (e.sprite) return { art: missingArt(e.sprite, TILE(), TILE() + 8, false), mirror: false, tile: false };
-      return null;
+    // The draw order, rebuilt each frame into the same three arrays. The old
+    // code did entities.concat(heroes.filter(...)) and then made three more
+    // arrays — five allocations of up to 1,600 slots, 60 times a second.
+    const below = [], same = [], above = [];
+    const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
+    const CULL_MARGIN = 3;                      // tiles: a tall sprite plus its balloon
+    const cull = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    function bucket1(e) {
+      if (e.visible === false) return;
+      if (e.px < cull.x0 || e.px > cull.x1 || e.py < cull.y0 || e.py > cull.y1) return;
+      (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
     }
+    function bucket(list) { for (let i = 0; i < list.length; i++) bucket1(list[i]); }
+
+    // One options object for every sprite drawn, refilled per call. Nothing
+    // downstream keeps it — KIT.pixels reads it synchronously to build a cache
+    // key — so allocating a fresh one per character per frame bought nothing.
+    const spriteOpts = { scale: 1, mirror: false, recolor: null };
 
     function drawEntity(e, view, camX, camY) {
       if (e.visible === false || e.opacity === 0) return;
-      const look = lookOf(e);
-      if (!look) return;
-      const art = look.art;
+      // What to draw: the sprite frame, else the `look` tile a sign or a door
+      // carries, else a silhouette for a named sprite with no art — and nothing
+      // at all for an event with no look of its own (a trigger). Inlined from
+      // what used to be lookOf(), which returned a fresh {art, mirror, tile}
+      // for every character on every frame.
+      let art, mirror = false, isTile = false;
+      const frame = KIT.entities.frame(e);
+      if (frame) { art = artForFrame(frame); mirror = !!frame.mirror; }
+      else if (e.look) { const def = tileDef(e.look); art = def ? tileArt(def) : missingArt(e.look, TILE(), TILE(), true); isTile = true; }
+      else if (e.sprite) art = missingArt(e.sprite, TILE(), TILE() + 8, false);
+      else return;
       const dims = KIT.pixels.dims(art);
       const sx = Math.round((e.px - camX) * tilePx + (tilePx - dims.w * scale) / 2);
-      const sy = Math.round((e.py - camY) * tilePx + (look.tile ? 0 : tilePx - dims.h * scale));
-      const bush = view.flagsAt(Math.round(e.px), Math.round(e.py)).bush;
+      const sy = Math.round((e.py - camY) * tilePx + (isTile ? 0 : tilePx - dims.h * scale));
+      const bush = view.bushAt(Math.round(e.px), Math.round(e.py));
       const alpha = e.opacity == null ? 1 : e.opacity;
-      ctx.save();
-      if (alpha < 1) ctx.globalAlpha = alpha;
-      if (bush) {
-        ctx.beginPath();
-        ctx.rect(sx - scale, sy, dims.w * scale + scale * 2, Math.max(1, dims.h * scale - 5 * scale));
-        ctx.clip();
+      // save/restore snapshots the whole canvas state; for the common character
+      // — fully opaque, not in a bush — there is nothing to restore.
+      const needsState = alpha < 1 || bush;
+      if (needsState) {
+        ctx.save();
+        if (alpha < 1) ctx.globalAlpha = alpha;
+        if (bush) {
+          ctx.beginPath();
+          ctx.rect(sx - scale, sy, dims.w * scale + scale * 2, Math.max(1, dims.h * scale - 5 * scale));
+          ctx.clip();
+        }
       }
-      KIT.pixels.draw(ctx, art, sx, sy, { scale, mirror: look.mirror, recolor });
-      ctx.restore();
+      spriteOpts.scale = scale; spriteOpts.mirror = mirror; spriteOpts.recolor = recolor;
+      KIT.pixels.draw(ctx, art, sx, sy, spriteOpts);
+      if (needsState) ctx.restore();
       if (e.data && e.data.balloon) drawBalloon(e, sx + dims.w * scale / 2, sy);
     }
 
@@ -304,12 +341,27 @@
      *   tint      a colour washed over it
      *   outline   a colour drawn round the tile's square
      */
-    function drawMarkers(world, layer, view, camX, camY, time) {
+    // The markers on screen this frame, by layer. Filled once per frame by
+    // bucketMarkers and drawn three times; the old drawMarkers scanned the whole
+    // list once PER LAYER, which at 3,000 markers was 9,000 tests a frame to draw
+    // the ones in view.
+    const markerBuckets = { below: [], same: [], above: [] };
+    function bucketMarkers(world, cull) {
+      markerBuckets.below.length = 0; markerBuckets.same.length = 0; markerBuckets.above.length = 0;
       const list = world.markers;
       if (!Array.isArray(list) || !list.length) return;
       for (const m of list) {
         if (!m) continue;
-        if ((m.layer || 'same') !== layer) continue;
+        const x = Number.isFinite(m.x) ? m.x : 0, y = Number.isFinite(m.y) ? m.y : 0;
+        if (x < cull.x0 || x > cull.x1 || y < cull.y0 || y > cull.y1) continue;
+        (markerBuckets[m.layer] || markerBuckets.same).push(m);
+      }
+    }
+    const markerOpts = { scale: 1, recolor: null };
+    function drawMarkers(layer, camX, camY, time) {
+      const list = markerBuckets[layer];
+      if (!list.length) return;
+      for (const m of list) {
         const def = m.tile ? tileDef(m.tile) : null;
         const art = m.art || (m.tile ? (def ? tileArt(def) : missingArt(m.tile, TILE(), TILE(), true)) : null);
         const sx = Math.round(((Number.isFinite(m.x) ? m.x : 0) - camX) * tilePx);
@@ -317,12 +369,14 @@
         let alpha = m.opacity == null ? 0.75 : m.opacity;
         if (m.pulse) alpha *= 0.65 + 0.35 * (0.5 + 0.5 * Math.sin((time / m.pulse) * Math.PI * 2));
         if (alpha <= 0) continue;
-        ctx.save();
+        // Everything this touches is put back by hand below, which is cheaper
+        // than save/restore snapshotting the whole state per marker.
         ctx.globalAlpha = Math.min(1, alpha);
         if (art) {
           const dims = KIT.pixels.dims(art);
+          markerOpts.scale = scale; markerOpts.recolor = recolor;
           KIT.pixels.draw(ctx, art, sx + Math.round((tilePx - dims.w * scale) / 2),
-            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), { scale, recolor });
+            sy + Math.round(m.tile ? 0 : tilePx - dims.h * scale), markerOpts);
         }
         if (m.tint) {
           ctx.globalCompositeOperation = art ? 'source-atop' : 'source-over';
@@ -336,8 +390,8 @@
           ctx.lineWidth = Math.max(1, scale);
           ctx.strokeRect(sx + scale / 2, sy + scale / 2, tilePx - scale, tilePx - scale);
         }
-        ctx.restore();
       }
+      ctx.globalAlpha = 1;
     }
 
     const BALLOON_MS = 1200;
@@ -499,44 +553,73 @@
       const time = world.time != null ? world.time * 1000 : (root.performance ? performance.now() : 0);
 
       // tile layers (cached) — ground and deco under the characters
+      const tTiles = at();
       blit(c, view, 'ground', ox, oy);
       blit(c, view, 'deco', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['ground', 'deco']);
+      phase('tiles', tTiles);
+
+      // What is on screen, in tiles, with room for a sprite that stands taller
+      // than its cell and a balloon over its head. Anything outside is not
+      // sorted and not drawn: a map with 1,600 characters on it shows a few
+      // dozen, and the rest cost nothing now.
+      cull.x0 = camX - CULL_MARGIN; cull.y0 = camY - CULL_MARGIN;
+      cull.x1 = camX + W / (tilePx * zoom) + CULL_MARGIN; cull.y1 = camY + H / (tilePx * zoom) + CULL_MARGIN;
 
       // characters
-      const all = world.entities.concat(world.heroes.filter(h => h.visible !== false));
-      if (world.companion) all.push(world.companion);
-      const below = [], same = [], above = [];
-      for (const e of all) (e.layer === 'below' ? below : e.layer === 'above' ? above : same).push(e);
-      const byY = (a, b) => (a.py - b.py) || (a.y - b.y);
+      const tSort = at();
+      below.length = 0; same.length = 0; above.length = 0;
+      bucket(world.entities);
+      bucket(world.heroes);
+      if (world.companion) bucket1(world.companion);
       below.sort(byY); same.sort(byY); above.sort(byY);
-      drawMarkers(world, 'below', view, camX, camY, time);
+      bucketMarkers(world, cull);
+      phase('sort', tSort);
+      let tM = at();
+      drawMarkers('below', camX, camY, time);
+      phase('markers', tM);
+      const tEnt = at();
       for (const e of below) drawEntity(e, view, camX, camY);
       for (const e of same) drawEntity(e, view, camX, camY);
-      drawMarkers(world, 'same', view, camX, camY, time);
+      phase('entities', tEnt);
+      tM = at();
+      drawMarkers('same', camX, camY, time);
+      phase('markers', tM);
 
       // the `above` tile layer covers characters (treetops, roofs, bridges)
+      const tAbove = at();
       blit(c, view, 'above', ox, oy);
       drawAnimated(c, view, ox, oy, time, ['above']);
+      phase('tiles', tAbove);
+      const tEnt2 = at();
       for (const e of above) drawEntity(e, view, camX, camY);
-      drawMarkers(world, 'above', view, camX, camY, time);
+      phase('entities', tEnt2);
+      tM = at();
+      drawMarkers('above', camX, camY, time);
+      phase('markers', tM);
 
       // atmosphere sits over the world but under the pictures and the UI overlays
+      const tAtmos = at();
       if (KIT.atmosphere && KIT.atmosphere.draw) {
         try {
           if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
           KIT.atmosphere.draw(ctx, world, { W, H, tilePx: tilePx * zoom, camX, camY, time });
         } catch (e) { (KIT.log || console).error('[atmosphere]', e); }
       }
+      phase('atmosphere', tAtmos);
       // A scene's own canvas: over the world and the atmosphere, under the
       // pictures and the DOM. This is where a minigame, an overlay HUD or a
       // battle arena draws itself.
+      const tScenes = at();
       if (KIT.scenes && KIT.scenes.draw) {
         if (zoom !== 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; }
         KIT.scenes.draw(ctx, { W, H, tilePx: tilePx * zoom, camX, camY, time, world, scale, owned: false });
       }
+      phase('scenes', tScenes);
+      const tOver = at();
       drawPictures();
       drawOverlays(world);
+      phase('overlays', tOver);
       ctx.restore();
     }
 

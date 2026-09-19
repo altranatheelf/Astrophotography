@@ -66,7 +66,7 @@ Art is `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows,...]`, or im
 `KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint })` (cached; browser only) · `draw(ctx, art, x, y, opts)` · `downscale(art, size)` · `silhouette(w, h, color)` (**the placeholder for missing art — never crash**) · `validate(art)` · `dims(art)` · `rowsOf(art, frame)` · `frameCount(art)` · `paletteWith(art, map)` · `invalidate(art)` · `artOf(def)`.
 
 ## world/document — stable
-`KIT.document(project, { maxSnapshots }) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `snapshot(label) -> id`, `snapshots()`, `restore(id)`, `deleteSnapshot(id)`, `dirty`, `markClean()`, `clearHistory()`.
+`KIT.document(project, { maxSnapshots }) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `seq` (how many changes so far, undo and redo included — a panel compares this instead of re-indexing the project to learn nothing changed), `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `snapshot(label) -> id`, `snapshots()`, `restore(id)`, `deleteSnapshot(id)`, `dirty`, `markClean()`, `clearHistory()`.
 Ops: `{op:'set',path,value}` `{op:'del',path}` `{op:'splice',path,index,remove,insert}`. `set` creates missing intermediates as objects.
 `KIT.path.get/has/join/parse/isPrefix/related`.
 
@@ -134,7 +134,7 @@ Scripts: `@moment <label>` (a named point, never pruned). Conditions: `elsewhere
 
 ## world/map — stable
 `KIT.mapView(project, save, mapId) -> view` — the authored map composed with `save.overlays[mapId]`.
-`view.id width height kind music index(x,y) inBounds tileAt(layer,x,y) terrainAt region collisionAt flagsAt(x,y)` (merged over ground/deco/above + collision override) ·
+`view.id width height kind music index(x,y) inBounds tileAt(layer,x,y) terrainAt region collisionAt flagsAt(x,y)` (merged over ground/deco/above + collision override) · `bushAt(x,y)` (the one flag the renderer asks for per character per frame, without building the merged answer) ·
 `passable(x, y, dir, who) -> { ok, reason, to, hop, connection }` — reasons: `step hop through connection turn | tile edge edge-in edge-out ledge ledge-blocked entity direction` ·
 `hopTarget(x,y,dir)` · `connectionAt(x,y,dir) -> {map,x,y,dir}` · `interactTarget(x,y,dir) -> { first, second, across }` (counter reach) ·
 `objects objectsAt(x,y) objectKey(obj) -> 'map:id'` · `objectState(obj)` · `isHidden(obj)` · `positionOf(obj)` · `activePage(obj, ctx) -> { page, index }` (**the LAST page whose `when` passes**) · `setBlockers(list)` · `overlayCells()`.
@@ -228,6 +228,13 @@ Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewri
 `KIT.storage.loadProject({ draft, projectId, before })` — `before(rawProject)` runs once the project is found and **before** it is registered from or validated against, so whatever it registers counts. `js/main.js` passes `KIT.modules.activate`: a module's object types, commands and item kinds must exist before the content that uses them is checked, or a game that works is reported as broken.
 
 The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
+
+## render/renderer — stable
+`KIT.renderer.create({ canvas, project, editor }) -> r`: `render(world)` · `resize()` · `invalidate(mapId, x, y)` (one baked cell; `invalidate(mapId)` drops that map, `invalidate()` drops all) · `clearCaches()` · `cacheStats() -> { maps, bytes, budget }` · `screenToTile` / `tileToScreen` / `viewTiles` · `setScale` · `setProject`. Baked tile layers per map, byte-accounted and evicted LRU under `KIT.renderer.cacheBudget` (192MB).
+
+Per frame it draws only what is on screen (characters and markers outside the camera plus a three-tile margin are neither sorted nor drawn), and allocates nothing per character.
+
+`KIT.renderer.profile` — `null` by default; set it to `{}` and every frame adds milliseconds into it by phase (`tiles sort entities markers atmosphere scenes overlays`). One property read per phase, so it stays in. `tools/experiments/frame.js` (`npm run experiments`) reads it and fails thresholds — the kept form of every frame-rate figure this engine quotes.
 
 ## scenes/stack — stable
 `KIT.scenes.push(scene|id, params)` · `run(...) -> Promise<result>` · `pop(result)` · `finish(scene, result)` · `replace` · `clear()` · `top()` · `ids()` · `stack` · `update(dt)` · `input(ev)` · `opaqueTop()` · `draw(ctx, view)`.
