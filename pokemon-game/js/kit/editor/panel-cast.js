@@ -65,7 +65,11 @@
 
   KIT.registry('editorPanels').add({
     id: 'cast', label: 'Cast', icon: 'npc', order: 56,
-    mount(host) { this._host = host; this.refresh(ED); },
+    mount(host) {
+      this._host = host;
+      host.addEventListener('focusout', () => { if (this._stale) setTimeout(() => { if (this._stale && !host.contains(document.activeElement)) this.refresh(ED); }, 0); });
+      this.refresh(ED);
+    },
     refresh(ed) {
       const host = this._host;
       if (!host || !KIT.cast) return;
@@ -75,11 +79,21 @@
 
       // Redrawing on every keystroke elsewhere would fight the search box.
       const sig = JSON.stringify([state.view, state.query, state.adding, live, graph, project.cast, project.facts]);
-      if (sig === this._sig && document.activeElement && host.contains(document.activeElement)) return;
+      if (sig === this._sig) return;
+      // The caret comes first. A form's own commit changes the cast, which changes
+      // the signature, which used to rebuild the panel under the person typing;
+      // and the search box rebuilt itself on every letter. A form with the caret
+      // waits for the blur; the search box is rebuilt and given the caret back.
+      const active = document.activeElement;
+      const inSearch = !!(active && host.contains(active) && active.classList.contains('ed-obj-search'));
+      if (!inSearch && active && host.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { this._stale = true; return; }
+      const caret = inSearch ? active.selectionStart : 0;
       this._sig = sig;
+      this._stale = false;
       for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
       this._forms = [];
       clear(host);
+      if (inSearch) setTimeout(() => { const box = host.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
 
       host.appendChild(make('div.ed-hint', {
         text: live
@@ -142,13 +156,14 @@
         state.open['fact:' + id] = true;
       }
       state.adding = false; state.draft = '';
+      input.blur();                              // the caret guard would otherwise keep the old panel until the blur
       panel._sig = ''; panel.refresh(ED);
     };
-    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; panel._sig = ''; panel.refresh(ED); } };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; input.blur(); panel._sig = ''; panel.refresh(ED); } };
     box.appendChild(input);
     const row = make('div.ed-row');
     row.appendChild(btn(people ? '＋ Add them' : '＋ Write it down', null, done, 'primary'));
-    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; panel._sig = ''; panel.refresh(ED); }));
+    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; input.blur(); panel._sig = ''; panel.refresh(ED); }));
     box.appendChild(row);
     setTimeout(() => input.focus(), 0);
     return box;

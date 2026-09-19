@@ -585,8 +585,8 @@
 
       const tools = make('div.ed-cmd-tools');
       tools.hidden = !selected;                   // a calm list: the controls belong to the card you tapped
-      tools.appendChild(btn('▲', 'Move up', () => { commit('Move command', (doc) => SE.move(doc, listPath, i, i - 1)); selectedKey = keyOf(listPath.concat(Math.max(0, i - 1))); render(true); }));
-      tools.appendChild(btn('▼', 'Move down', () => { commit('Move command', (doc) => SE.move(doc, listPath, i, i + 1)); selectedKey = keyOf(listPath.concat(i + 1)); render(true); }));
+      tools.appendChild(btn('▲', 'Move up', () => { if (commit('Move command', (doc) => SE.move(doc, listPath, i, i - 1))) selectedKey = keyOf(listPath.concat(i - 1)); render(true); }));
+      tools.appendChild(btn('▼', 'Move down', () => { if (commit('Move command', (doc) => SE.move(doc, listPath, i, i + 1))) selectedKey = keyOf(listPath.concat(i + 1)); render(true); }));
       tools.appendChild(btn('⧉', 'Duplicate', () => { commit('Duplicate command', (doc) => SE.duplicate(doc, listPath, i)); render(true); }));
       tools.appendChild(btn(cmd && cmd.disabled ? '◉' : '◌', cmd && cmd.disabled ? 'Turn this back on' : 'Keep it, but skip it when the game runs', () => { commit('Toggle command', (doc) => SE.setDisabled(doc, listPath, i, !(cmd && cmd.disabled))); render(true); }));
       tools.appendChild(btn('＋', 'Add a command after this one', () => {
@@ -696,15 +696,20 @@
       });
       handle.addEventListener('pointermove', (ev) => {
         if (!drag || drag.id !== ev.pointerId) return;
-        let to = index;
+        // Count the OTHER cards the pointer has passed: that is the slot SE.move wants
+        // (it takes the dragged card out first). Above the first card counts zero, so
+        // "drag it to the top" is a real destination.
+        let to = 0;
         for (let i = 0; i < drag.cards.length; i++) {
+          if (i === index) continue;
           const r = drag.cards[i].getBoundingClientRect();
-          if (ev.clientY > r.top + r.height / 2) to = i;
+          if (ev.clientY > r.top + r.height / 2) to++;
         }
         if (to !== drag.to) {
           drag.to = to;
           for (const c of drag.cards) c.classList.remove('is-drop');
-          if (drag.cards[to] && to !== index) drag.cards[to].classList.add('is-drop');
+          const mark = drag.cards[to < index ? to : to + 1];   // the card the dropped one will sit above
+          if (mark && to !== index) mark.classList.add('is-drop');
         }
       });
       const end = (ev) => {

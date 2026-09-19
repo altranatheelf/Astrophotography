@@ -1359,6 +1359,14 @@
   CMD.fromLine = function (line) {
     const s = String(line == null ? '' : line);
     if (!s.trim() || CMD.reservedLines.includes(s.trim())) return null;
+    // A switched-off command is always written in the generic form, and a sugar with
+    // a free-text tail (`@if <condition>`, `@meet <who>`) would happily read
+    // `disabled=true` as that text and lose the switch. The generic form wins when
+    // it carries the switch — that is the one thing the generic form is for.
+    if (/\bdisabled=/.test(s)) {
+      const g = CMD.genericFromLine(s);
+      if (g && g.disabled !== undefined) return CMD.normalize(g);
+    }
     for (const def of reg.list()) {
       if (!def.text || typeof def.text.fromLine !== 'function') continue;
       let cmd = null;

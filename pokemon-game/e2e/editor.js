@@ -402,6 +402,34 @@ async function run(browser, label, size, opts) {
   await page.keyboard.press('1');                                  // Pencil again
   await page.waitForTimeout(100);
 
+  // --- 8c. a card dragged to the top of the list lands there ----------------------------
+  await openPanel(page, 'scripts');
+  await page.evaluate(() => KIT.editor.select({ kind: 'script', path: ['scripts', 'intro'] }));
+  await page.waitForTimeout(300);
+  const openBtn = await page.$('button:has-text("Open in the script editor")');
+  if (openBtn) { await openBtn.click(); await page.waitForTimeout(400); }
+  await page.click(CARDS_TAB);
+  await page.waitForTimeout(200);
+  const order0 = await page.evaluate(() => KIT.editor.state.project.scripts.intro.body.map(c => c.t + ':' + (c.text || c.who || '').slice(0, 12)));
+  const handles = await page.$$('.ed-cmd-list > .ed-cmd .ed-cmd-drag');
+  check(handles.length === order0.length && handles.length >= 3, `the intro has ${order0.length} cards with drag handles`);
+  if (handles.length >= 3) {
+    const last = handles[handles.length - 1];
+    const firstBox = await (await page.$('.ed-cmd-list > .ed-cmd')).boundingBox();
+    const hb = await last.boundingBox();
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hb.x + hb.width / 2, firstBox.y + 2, { steps: 8 });
+    await page.waitForTimeout(100);
+    await page.mouse.move(firstBox.x + 10, firstBox.y + 2, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const order1 = await page.evaluate(() => KIT.editor.state.project.scripts.intro.body.map(c => c.t + ':' + (c.text || c.who || '').slice(0, 12)));
+    check(order1[0] === order0[order0.length - 1] && order1.length === order0.length, `dragging the last card above the first puts it first (${order1[0]})`);
+    await page.click('[title^="Undo"]');
+    await page.waitForTimeout(200);
+  }
+
   // --- 9a. typing into a page condition keeps the keyboard and every keystroke ----------
   await openPanel(page, 'objects');
   await page.evaluate(() => KIT.editor.select({ kind: 'object', map: KIT.editor.state.mapId, id: 'mom' }));
@@ -436,6 +464,14 @@ async function run(browser, label, size, opts) {
   check(!!tomas && tomas.name === 'Old Tomas', `＋ New person put “Old Tomas” in the cast (${castBefore} → ${castBefore + 1})`);
   check(await page.isVisible('.ed-cast-form'), 'and opened their form to fill in');
   await shot(page, label, '09b-cast');
+  // the search box keeps the caret while the panel redraws under it
+  await page.click('.ed-panel-body[data-panel="cast"] .ed-obj-search');
+  await page.keyboard.type('old', { delay: 60 });
+  await page.waitForTimeout(300);
+  const castSearch = await page.evaluate(() => ({ tag: document.activeElement && document.activeElement.tagName, cls: document.activeElement && document.activeElement.className, value: document.activeElement && document.activeElement.value }));
+  check(castSearch.tag === 'INPUT' && castSearch.value === 'old', `typing in the Cast search keeps the box and every letter (“${castSearch.value}”)`);
+  await page.fill('.ed-panel-body[data-panel="cast"] .ed-obj-search', '');
+  await page.waitForTimeout(200);
   // Nothing may be wider than the panel: a phone must not scroll sideways.
   const overflow = await page.evaluate(() => {
     const host = KIT.editor.el.panel;

@@ -688,7 +688,10 @@
       el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Declare a new variable', () => {
-        const name = `var${Object.keys(project().vars || {}).length + 1}`;
+        const vars = project().vars || {};
+        let n = 1;
+        while (vars[`var${n}`]) n++;             // the first free name, so a deleted var2 does not get declared over
+        const name = `var${n}`;
         commit('Declare variable', (doc, O) => O.declareVar(doc, { name, type: 'number', default: 0, label: titleCase(name) }));
         varState.open[name] = true;
         this._sig = ''; this._version = '';

@@ -313,6 +313,10 @@
     const sc = id ? (p.scripts || {})[id] : null;
     const sig = JSON.stringify([id, sc && sc.label, sc && sc.trigger, sc && sc.when, sc && (sc.params || []), sc && (sc.body || []).length]);
     if (sig === panel._detailSig) return;
+    // The label field's own commit changes this signature; rebuilding then would
+    // take the box away mid-word. A form with the caret keeps it until the blur.
+    const active = document.activeElement;
+    if (active && el.detail.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
     panel._detailSig = sig;
     if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
     clear(el.detail);

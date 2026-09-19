@@ -142,3 +142,17 @@ test('document: begin/end keep a stroke as one undo step', () => {
   assert.equal(m().layers.ground[4], 'grass');
   assert.equal(m().layers.ground[0], 'grass');
 });
+
+test('editor ops: ＋ New twice makes two items and two rules, never one over the other', () => {
+  const project = KIT.project.blank();
+  const doc = KIT.document(project);
+  const a = O.newItem(doc, { name: 'New item' });
+  doc.set(['items', a, 'name'], 'Potion');
+  const b = O.newItem(doc, { name: 'New item' });
+  assert.notEqual(a, b);
+  assert.equal(doc.get(['items', a, 'name']), 'Potion', 'the first one is still there');
+  assert.equal(Object.keys(doc.get(['items'])).length, 2);
+  const r1 = O.newRule(doc, { name: 'New rule' }), r2 = O.newRule(doc, { name: 'New rule' });
+  assert.notEqual(r1, r2);
+  assert.equal(Object.keys(doc.get(['rules'])).length, 2);
+});

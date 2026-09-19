@@ -484,3 +484,21 @@ test('voices: pitch and rate are what make one blip into a cast', () => {
     if (d.sound) assert.ok(KIT.registry('sounds').has(d.sound), id + ' -> ' + d.sound);
   }
 });
+
+test('commands: a switched-off command survives the Text view, whatever its sugar', () => {
+  // `@if disabled=true` used to come back as "if the variable `disabled` is true".
+  const CMD = KIT.commands, reg = KIT.registry('commands');
+  let checked = 0;
+  for (const def of reg.list()) {
+    if (!def.text || typeof def.text.toLine !== 'function') continue;
+    const cmd = Object.assign({ t: def.id }, (def.fields || []).reduce((o, f) => { if (f.default !== undefined) o[f.key] = f.default; return o; }, {}), { disabled: true });
+    const line = CMD.toLine(cmd);
+    const back = CMD.fromLine(line);
+    assert.ok(back && back.t === def.id && back.disabled === true, `${def.id}: ${JSON.stringify(line)} -> ${JSON.stringify(back)}`);
+    checked++;
+  }
+  assert.ok(checked > 10, `checked ${checked} sugars`);
+  assert.deepEqual(CMD.fromLine('@if disabled=true').when, null);
+  assert.equal(CMD.fromLine('@if when: chapter >= 2').when.kind, 'var', 'a real condition still reads as one');
+  assert.equal(CMD.fromLine('@meet mira').who, 'mira');
+});

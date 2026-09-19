@@ -10110,6 +10110,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   CMD.fromLine = function (line) {
     const s = String(line == null ? '' : line);
     if (!s.trim() || CMD.reservedLines.includes(s.trim())) return null;
+    // A switched-off command is always written in the generic form, and a sugar with
+    // a free-text tail (`@if <condition>`, `@meet <who>`) would happily read
+    // `disabled=true` as that text and lose the switch. The generic form wins when
+    // it carries the switch — that is the one thing the generic form is for.
+    if (/\bdisabled=/.test(s)) {
+      const g = CMD.genericFromLine(s);
+      if (g && g.disabled !== undefined) return CMD.normalize(g);
+    }
     for (const def of reg.list()) {
       if (!def.text || typeof def.text.fromLine !== 'function') continue;
       let cmd = null;
@@ -26446,14 +26454,17 @@ PKMN.TILES.register([
    * the items — they are content, not code — so making one is one document set
    * and one undo step, like everything else.
    */
+  /** The first free key: id, id-2, id-3 … so ＋ New twice makes two things, not one twice. */
+  const uniqueKey = (table, id) => { let u = id, n = 2; while (table && table[u]) u = `${id}-${n++}`; return u; };
+  O.uniqueKey = uniqueKey;
   O.newRule = function (doc, o) {
-    const id = o.id || KIT.slug(o.name || 'rule');
+    const id = uniqueKey(doc.get(['rules']), o.id || KIT.slug(o.name || 'rule'));
     doc.set(['rules', id], P.fillRule({ name: o.name || '', when: o.when || 'step', do: o.do || [] }, id), { label: 'New rule' });
     return id;
   };
   O.deleteRule = function (doc, o) { doc.del(['rules', o.id], { label: 'Delete rule' }); };
   O.newItem = function (doc, o) {
-    const id = o.id || KIT.slug(o.name || 'item');
+    const id = uniqueKey(doc.get(['items']), o.id || KIT.slug(o.name || 'item'));
     doc.set(['items', id], P.fillItem({ kind: o.kind, name: o.name, icon: o.icon, desc: o.desc }, id), { label: 'New item' });
     return id;
   };
@@ -31881,8 +31892,8 @@ PKMN.TILES.register([
 
       const tools = make('div.ed-cmd-tools');
       tools.hidden = !selected;                   // a calm list: the controls belong to the card you tapped
-      tools.appendChild(btn('▲', 'Move up', () => { commit('Move command', (doc) => SE.move(doc, listPath, i, i - 1)); selectedKey = keyOf(listPath.concat(Math.max(0, i - 1))); render(true); }));
-      tools.appendChild(btn('▼', 'Move down', () => { commit('Move command', (doc) => SE.move(doc, listPath, i, i + 1)); selectedKey = keyOf(listPath.concat(i + 1)); render(true); }));
+      tools.appendChild(btn('▲', 'Move up', () => { if (commit('Move command', (doc) => SE.move(doc, listPath, i, i - 1))) selectedKey = keyOf(listPath.concat(i - 1)); render(true); }));
+      tools.appendChild(btn('▼', 'Move down', () => { if (commit('Move command', (doc) => SE.move(doc, listPath, i, i + 1))) selectedKey = keyOf(listPath.concat(i + 1)); render(true); }));
       tools.appendChild(btn('⧉', 'Duplicate', () => { commit('Duplicate command', (doc) => SE.duplicate(doc, listPath, i)); render(true); }));
       tools.appendChild(btn(cmd && cmd.disabled ? '◉' : '◌', cmd && cmd.disabled ? 'Turn this back on' : 'Keep it, but skip it when the game runs', () => { commit('Toggle command', (doc) => SE.setDisabled(doc, listPath, i, !(cmd && cmd.disabled))); render(true); }));
       tools.appendChild(btn('＋', 'Add a command after this one', () => {
@@ -31992,15 +32003,20 @@ PKMN.TILES.register([
       });
       handle.addEventListener('pointermove', (ev) => {
         if (!drag || drag.id !== ev.pointerId) return;
-        let to = index;
+        // Count the OTHER cards the pointer has passed: that is the slot SE.move wants
+        // (it takes the dragged card out first). Above the first card counts zero, so
+        // "drag it to the top" is a real destination.
+        let to = 0;
         for (let i = 0; i < drag.cards.length; i++) {
+          if (i === index) continue;
           const r = drag.cards[i].getBoundingClientRect();
-          if (ev.clientY > r.top + r.height / 2) to = i;
+          if (ev.clientY > r.top + r.height / 2) to++;
         }
         if (to !== drag.to) {
           drag.to = to;
           for (const c of drag.cards) c.classList.remove('is-drop');
-          if (drag.cards[to] && to !== index) drag.cards[to].classList.add('is-drop');
+          const mark = drag.cards[to < index ? to : to + 1];   // the card the dropped one will sit above
+          if (mark && to !== index) mark.classList.add('is-drop');
         }
       });
       const end = (ev) => {
@@ -32357,6 +32373,10 @@ PKMN.TILES.register([
     const sc = id ? (p.scripts || {})[id] : null;
     const sig = JSON.stringify([id, sc && sc.label, sc && sc.trigger, sc && sc.when, sc && (sc.params || []), sc && (sc.body || []).length]);
     if (sig === panel._detailSig) return;
+    // The label field's own commit changes this signature; rebuilding then would
+    // take the box away mid-word. A form with the caret keeps it until the blur.
+    const active = document.activeElement;
+    if (active && el.detail.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
     panel._detailSig = sig;
     if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
     clear(el.detail);
@@ -33399,7 +33419,10 @@ PKMN.TILES.register([
       el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Declare a new variable', () => {
-        const name = `var${Object.keys(project().vars || {}).length + 1}`;
+        const vars = project().vars || {};
+        let n = 1;
+        while (vars[`var${n}`]) n++;             // the first free name, so a deleted var2 does not get declared over
+        const name = `var${n}`;
         commit('Declare variable', (doc, O) => O.declareVar(doc, { name, type: 'number', default: 0, label: titleCase(name) }));
         varState.open[name] = true;
         this._sig = ''; this._version = '';
@@ -34141,7 +34164,11 @@ PKMN.TILES.register([
 
   KIT.registry('editorPanels').add({
     id: 'cast', label: 'Cast', icon: 'npc', order: 56,
-    mount(host) { this._host = host; this.refresh(ED); },
+    mount(host) {
+      this._host = host;
+      host.addEventListener('focusout', () => { if (this._stale) setTimeout(() => { if (this._stale && !host.contains(document.activeElement)) this.refresh(ED); }, 0); });
+      this.refresh(ED);
+    },
     refresh(ed) {
       const host = this._host;
       if (!host || !KIT.cast) return;
@@ -34151,11 +34178,21 @@ PKMN.TILES.register([
 
       // Redrawing on every keystroke elsewhere would fight the search box.
       const sig = JSON.stringify([state.view, state.query, state.adding, live, graph, project.cast, project.facts]);
-      if (sig === this._sig && document.activeElement && host.contains(document.activeElement)) return;
+      if (sig === this._sig) return;
+      // The caret comes first. A form's own commit changes the cast, which changes
+      // the signature, which used to rebuild the panel under the person typing;
+      // and the search box rebuilt itself on every letter. A form with the caret
+      // waits for the blur; the search box is rebuilt and given the caret back.
+      const active = document.activeElement;
+      const inSearch = !!(active && host.contains(active) && active.classList.contains('ed-obj-search'));
+      if (!inSearch && active && host.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { this._stale = true; return; }
+      const caret = inSearch ? active.selectionStart : 0;
       this._sig = sig;
+      this._stale = false;
       for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
       this._forms = [];
       clear(host);
+      if (inSearch) setTimeout(() => { const box = host.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
 
       host.appendChild(make('div.ed-hint', {
         text: live
@@ -34218,13 +34255,14 @@ PKMN.TILES.register([
         state.open['fact:' + id] = true;
       }
       state.adding = false; state.draft = '';
+      input.blur();                              // the caret guard would otherwise keep the old panel until the blur
       panel._sig = ''; panel.refresh(ED);
     };
-    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; panel._sig = ''; panel.refresh(ED); } };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; input.blur(); panel._sig = ''; panel.refresh(ED); } };
     box.appendChild(input);
     const row = make('div.ed-row');
     row.appendChild(btn(people ? '＋ Add them' : '＋ Write it down', null, done, 'primary'));
-    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; panel._sig = ''; panel.refresh(ED); }));
+    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; input.blur(); panel._sig = ''; panel.refresh(ED); }));
     box.appendChild(row);
     setTimeout(() => input.focus(), 0);
     return box;

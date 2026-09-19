@@ -12,7 +12,7 @@ are standing in.
 
 ```
 open index.html                 # the game (any modern browser, also from a file)
-open index.html?edit=1          # straight into Creator Mode
+open index.html?edit=1          # straight into Creator Mode (or pick it on the title screen)
 npm test                        # 373 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
 node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
@@ -109,10 +109,10 @@ and the importers — a Tiled map, an RPG Maker MV/MZ project or Aseprite art
 becomes playable content with one command (`docs/IMPORTING.md`).
 
 Also done: the browser layer (renderer, scenes, input, audio, storage, game
-boot) and Creator Mode — fourteen panels and nine map tools around one document,
-with `?edit=1` and the pause menu both opening it on the map you are standing on
+boot) and Creator Mode — fifteen panels in four groups and nine named map tools
+around one document, opened from the title screen, `?edit=1` or the pause menu
 (`docs/CREATOR-MODE.md`). `e2e/editor.js` plays the whole loop through a real
-browser at phone and laptop size.
+browser at phone and laptop size, and photographs every panel at both.
 
 Also done: **three modules**, none of which touches `js/kit/`.
 `mons` is the Pokémon half — befriending instead of fighting, the Pokédex, the

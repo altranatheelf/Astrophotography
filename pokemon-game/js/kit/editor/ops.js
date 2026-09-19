@@ -257,14 +257,17 @@
    * the items — they are content, not code — so making one is one document set
    * and one undo step, like everything else.
    */
+  /** The first free key: id, id-2, id-3 … so ＋ New twice makes two things, not one twice. */
+  const uniqueKey = (table, id) => { let u = id, n = 2; while (table && table[u]) u = `${id}-${n++}`; return u; };
+  O.uniqueKey = uniqueKey;
   O.newRule = function (doc, o) {
-    const id = o.id || KIT.slug(o.name || 'rule');
+    const id = uniqueKey(doc.get(['rules']), o.id || KIT.slug(o.name || 'rule'));
     doc.set(['rules', id], P.fillRule({ name: o.name || '', when: o.when || 'step', do: o.do || [] }, id), { label: 'New rule' });
     return id;
   };
   O.deleteRule = function (doc, o) { doc.del(['rules', o.id], { label: 'Delete rule' }); };
   O.newItem = function (doc, o) {
-    const id = o.id || KIT.slug(o.name || 'item');
+    const id = uniqueKey(doc.get(['items']), o.id || KIT.slug(o.name || 'item'));
     doc.set(['items', id], P.fillItem({ kind: o.kind, name: o.name, icon: o.icon, desc: o.desc }, id), { label: 'New item' });
     return id;
   };
