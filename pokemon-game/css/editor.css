@@ -48,7 +48,8 @@
 .ed-tool[aria-selected="true"] .ed-tool-label { color: #fff; }
 
 /* A read-only value: shown where a field would be, offered nowhere. */
-.ed-readonly { padding: 7px 9px; min-height: 34px; border: 1px dashed #2f3a4f; border-radius: 6px; color: #9fb0c8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+.ed-readonly { padding: 4px 0; color: #8494ab; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }   /* plain text, not a box: nothing to tap */
+.ed-sec-body .ed-panel-title { margin-top: 12px; }
 .ed-panel { flex: 1 1 auto; overflow: auto; padding: 10px; min-height: 0; }
 .ed-panel-body[hidden] { display: none; }
 
@@ -77,9 +78,15 @@
 .ed-confirm { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0d1017cc; z-index: 5; text-align: center; padding: 20px; }
 .ed-confirm-row { display: flex; gap: 8px; }
 
+.ed-sheet-grip { display: none; }
 @media (max-width: 760px) {
   .ed-main { flex-direction: column; }
   .ed-side { width: auto; flex: 0 0 46vh; border-left: 0; border-top: 1px solid #263044; }
+  /* Off the Map group the sheet is what you are reading, so it gets most of the screen. */
+  .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
+  .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
+  .ed-group { padding: 6px 2px; font-size: 15px; }
+  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
   .ed-toolbar { gap: 4px; padding: 4px 6px; }
   .ed-maps { max-width: 30vw; flex: 0 0 auto; }
@@ -317,6 +324,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-cond-cell .ed-chips { margin: 4px 0 0; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
+.ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-cast-form { margin: 6px 0 8px; }
 .ed-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; flex: 1 1 120px; min-width: 110px; }
 .ed-picker { border: 1px solid #3d4a63; border-radius: 8px; background: #101728; padding: 8px; margin-bottom: 8px; }
 .ed-picker input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; margin-bottom: 6px; }

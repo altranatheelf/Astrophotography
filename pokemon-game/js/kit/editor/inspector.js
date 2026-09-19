@@ -438,7 +438,11 @@
         if (widget && widget.set) { try { widget.set(v); } catch (e) { /* a widget must never break the form */ } }
         const known = INS.hasDefault(f, ctx);
         const isDef = known && INS.isDefault(f, v, ctx);
-        row.classList.toggle('is-inherited', isDef);
+        // Dimmed means "still the type's / an optional field's default, nothing of
+        // yours here yet". A plain schema default (the title "Our Adventure") is a
+        // real value, and dimming it made the first field of a form look disabled.
+        const inherited = !!(ctx && ctx.inherited && has(ctx.inherited, f.key));
+        row.classList.toggle('is-inherited', isDef && (inherited || !!f.nullable || !!f.optional));
         reset.hidden = isDef || !known;
         const errs = (io.problems ? io.problems() : []) || [];
         clear(errBox);

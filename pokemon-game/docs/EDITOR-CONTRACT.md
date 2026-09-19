@@ -29,6 +29,7 @@ const ed = KIT.editor.state               // the live editor state (read it, cha
   view: { x, y, scale },   // camera in tiles + zoom (integer 1..8)
   show: { grid, collision, regions, terrain, objects, labels },
   panel: 'tiles',      // the open side panel id
+  sheet: 'auto',       // phone: the panel sheet is short under Map, tall elsewhere; the grip sets short | tall
   problems: [],        // KIT.project.validate output, refreshed on commit
   dirty, saving, lastSaved,
 }

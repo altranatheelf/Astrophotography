@@ -394,10 +394,14 @@
     if (pageIndex >= (obj.pages || []).length) pageIndex = 0;
     const sig = JSON.stringify([mapId(), obj.id, obj.type, pageIndex, (obj.pages || []).length]);
     if (sig === detailSig) { refreshForms(); renderPageBar(obj); return; }
+    // A different event: start at its header, not wherever the list had scrolled to
+    // (placing from a preset scrolls the list to the preset form, which then cut the header off).
+    const other = !detailSig || JSON.parse(detailSig)[1] !== obj.id;
     detailSig = sig;
     destroyForms();
     clear(el.detail);
     buildDetail(obj);
+    if (other && ED.el && ED.el.panel) ED.el.panel.scrollTop = 0;
   }
   function destroyForms() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } forms = []; }
   function refreshForms() {

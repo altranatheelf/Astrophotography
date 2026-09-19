@@ -46,7 +46,22 @@
     return { save: KIT.cast.start(project, { vars: {} }), live: false };
   }
 
-  const state = { view: 'people', query: '', open: {} };
+  const state = { view: 'people', query: '', open: {}, adding: false, draft: '' };
+  const P = () => KIT.project;
+  const INS = () => ED.inspector;
+  function commit(label, fn) {
+    const r = ED.commit(label, fn);
+    if (INS() && INS().afterEdit) INS().afterEdit();
+    return r;
+  }
+  const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
+  /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
+  function freshId(table, name, fallback) {
+    const base = KIT.slug(name || '') || fallback;
+    let id = base, n = 2;
+    while (table[id]) id = `${base}-${n++}`;
+    return id;
+  }
 
   KIT.registry('editorPanels').add({
     id: 'cast', label: 'Cast', icon: 'npc', order: 56,
@@ -59,9 +74,11 @@
       const graph = KIT.cast.graph(project, save);
 
       // Redrawing on every keystroke elsewhere would fight the search box.
-      const sig = JSON.stringify([state.view, state.query, live, graph]);
+      const sig = JSON.stringify([state.view, state.query, state.adding, live, graph, project.cast, project.facts]);
       if (sig === this._sig && document.activeElement && host.contains(document.activeElement)) return;
       this._sig = sig;
+      for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      this._forms = [];
       clear(host);
 
       host.appendChild(make('div.ed-hint', {
@@ -78,34 +95,95 @@
       }
       host.appendChild(tabs);
 
+      const head = make('div.ed-row.ed-obj-head');
       const search = make('input.ed-obj-search');
       search.type = 'search';
       search.placeholder = state.view === 'people' ? 'Find somebody' : 'Find something known';
       search.value = state.query;
       search.oninput = () => { state.query = search.value; this._sig = ''; this.refresh(ED); };
-      host.appendChild(search);
+      head.appendChild(search);
+      const people = state.view === 'people';
+      // The cast is written here, not in the Data panel: a name is enough to start.
+      if (!live) head.appendChild(btn(people ? '＋ New person' : '＋ New fact', people ? 'Add somebody to the cast' : 'Write down something a person can know', () => { state.adding = true; state.draft = ''; this._sig = ''; this.refresh(ED); }, 'primary'));
+      host.appendChild(head);
+      if (state.adding && !live) host.appendChild(addBox(this, project, people));
 
       const q = state.query.trim().toLowerCase();
-      if (state.view === 'people') drawPeople(host, project, graph, q, live);
-      else drawFacts(host, project, graph, q);
+      if (people) drawPeople(host, project, graph, q, live, this);
+      else drawFacts(host, project, graph, q, live, this);
 
-      if (!graph.people.length) {
-        host.appendChild(make('div.ed-empty', {
-          text: 'Nobody yet. A person is an entry in project.cast — a name, and what they know when the story starts. Add one in the Data panel, or write @tell in a script and come back.',
-        }));
+      if (people && !graph.people.length && !state.adding) {
+        host.appendChild(ED.emptyState({ icon: '👥', text: 'Nobody in the cast yet', hint: 'A person is a name and what they know when the story starts. Add one with ＋ New person, or write @tell in a script and they appear here.' }));
+      }
+      if (!people && !graph.facts.length && !state.adding) {
+        host.appendChild(ED.emptyState({ icon: '💡', text: 'Nothing to know yet', hint: 'A fact is something a person can know — “the gate is open”. Write one down with ＋ New fact, or @tell it to somebody in a script.' }));
       }
     },
   });
 
-  function drawPeople(host, project, graph, q, live) {
+  /** The one-line form under ＋ New: a name (or a fact's label), Add, Cancel. */
+  function addBox(panel, project, people) {
+    const box = make('div.ed-preset-form.ed-cast-add');
+    const input = make('input');
+    input.type = 'text';
+    input.placeholder = people ? 'Their name — Mira, Old Tomas, the Baker' : 'What is known — The gate is open';
+    input.value = state.draft;
+    input.oninput = () => { state.draft = input.value; };
+    const done = () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      if (people) {
+        const id = freshId(project.cast || {}, name, 'person');
+        commit('New person', (doc) => doc.set(['cast', id], Object.assign(KIT.schema.fill(P().fields.person, { name }), { id })));
+        state.open[id] = true;
+      } else {
+        const id = freshId(project.facts || {}, name, 'fact');
+        commit('New fact', (doc) => doc.set(['facts', id], Object.assign(KIT.schema.fill(P().fields.fact, { label: name }), { id })));
+        state.open['fact:' + id] = true;
+      }
+      state.adding = false; state.draft = '';
+      panel._sig = ''; panel.refresh(ED);
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; panel._sig = ''; panel.refresh(ED); } };
+    box.appendChild(input);
+    const row = make('div.ed-row');
+    row.appendChild(btn(people ? '＋ Add them' : '＋ Write it down', null, done, 'primary'));
+    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; panel._sig = ''; panel.refresh(ED); }));
+    box.appendChild(row);
+    setTimeout(() => input.focus(), 0);
+    return box;
+  }
+
+  /** The editable side of a person or a fact: the same form the rest of the editor uses. */
+  function editForm(panel, body, fields, value, path, label, onDelete) {
+    const form = make('div.ed-cast-form');
+    body.appendChild(form);
+    panel._forms.push(INS().mount(form, {
+      fields, value, ctx: { project: ED.state.project },
+      onChange(p, v) { setAt(path.concat(p), v, label); },
+    }));
+    body.appendChild(btn('✕ Delete', 'Remove from the project', onDelete, 'danger'));
+  }
+
+  function drawPeople(host, project, graph, q, live, panel) {
     const people = graph.people.filter(p => !q || p.name.toLowerCase().includes(q) || p.id.includes(q));
     for (const person of people) {
-      const def = (project.cast || {})[person.id] || {};
+      const def = (project.cast || {})[person.id] || null;
       const title = `${person.name}${person.met ? '' : ' · not met'}`;
       const box = section(host, title, state.open[person.id] === true, (body) => {
-        if (def.pronouns) body.appendChild(make('div.ed-sub', { text: def.pronouns }));
-        if (def.group) body.appendChild(make('div.ed-sub', { text: def.group }));
-        if (def.note) body.appendChild(make('div.ed-note-text', { text: def.note }));
+        if (def && live) {
+          if (def.pronouns) body.appendChild(make('div.ed-sub', { text: def.pronouns }));
+          if (def.group) body.appendChild(make('div.ed-sub', { text: def.group }));
+          if (def.note) body.appendChild(make('div.ed-note-text', { text: def.note }));
+        }
+        if (!def && !live) {
+          // Somebody a script @tells but the cast does not list: one tap writes them down.
+          const b = btn('＋ Write them down', 'Add them to the cast so they have a name of their own', () => {
+            commit('New person', (doc) => doc.set(['cast', person.id], Object.assign(KIT.schema.fill(P().fields.person, { name: person.name }), { id: person.id })));
+            state.open[person.id] = true; panel._sig = ''; panel.refresh(ED);
+          });
+          body.appendChild(b);
+        }
 
         body.appendChild(make('div.ed-panel-title', { text: 'Knows' }));
         if (!person.knows.length) body.appendChild(make('div.ed-sub', { text: 'Nothing yet.' }));
@@ -132,30 +210,44 @@
           row.appendChild(make('span.ed-item-value', { text: `${f.band.label} ${f.value > 0 ? '+' : ''}${f.value}` }));
           body.appendChild(row);
         }
+        if (def && !live) {
+          body.appendChild(make('div.ed-panel-title', { text: 'As written' }));
+          editForm(panel, body, P().fields.person, def, ['cast', person.id], 'Edit person', async () => {
+            if (!(await ED.confirm(`Remove “${person.name}” from the cast?`))) return;
+            commit('Delete person', (doc) => doc.del(['cast', person.id]));
+            delete state.open[person.id]; panel._sig = ''; panel.refresh(ED);
+          });
+        }
       });
       box.addEventListener('toggle', () => { state.open[person.id] = box.open; });
     }
     if (q && !people.length) host.appendChild(make('div.ed-sub', { text: 'Nobody by that name.' }));
   }
 
-  function drawFacts(host, project, graph, q) {
+  function drawFacts(host, project, graph, q, live, panel) {
     const facts = graph.facts.filter(f => !q || f.label.toLowerCase().includes(q) || f.id.includes(q));
     for (const fact of facts) {
-      const row = make('div.ed-item');
-      const name = make('span.ed-item-name', { text: fact.label });
-      if (fact.secret) name.appendChild(make('span.ed-badge', { text: 'secret' }));
-      if (!fact.declared) {
-        const b = make('span.ed-badge.ed-chip-warn', { text: 'not written down' });
-        b.title = 'Somebody knows this, but project.facts has no entry for it, so it has no label of its own.';
-        name.appendChild(b);
-      }
-      row.appendChild(name);
-      row.appendChild(make('span.ed-item-value', {
-        text: fact.knownBy.length
-          ? fact.knownBy.map(id => KIT.cast.nameOf(project, id)).join(', ')
-          : 'nobody knows',
-      }));
-      host.appendChild(row);
+      const key = 'fact:' + fact.id;
+      const who = fact.knownBy.length ? fact.knownBy.map(id => KIT.cast.nameOf(project, id)).join(', ') : 'nobody knows';
+      const box = section(host, `${fact.label}${fact.secret ? ' · secret' : ''} — ${who}`, state.open[key] === true, (body) => {
+        const def = (project.facts || {})[fact.id];
+        if (!fact.declared) {
+          const b = make('div.ed-sub', { text: 'Somebody knows this, but it is not written down, so it has no label of its own.' });
+          body.appendChild(b);
+          if (!live) body.appendChild(btn('＋ Write it down', 'Give it a label and a note', () => {
+            commit('New fact', (doc) => doc.set(['facts', fact.id], Object.assign(KIT.schema.fill(P().fields.fact, { label: titleCase(fact.id) }), { id: fact.id })));
+            state.open[key] = true; panel._sig = ''; panel.refresh(ED);
+          }));
+          return;
+        }
+        body.appendChild(make('div.ed-sub', { text: fact.knownBy.length ? `Known by ${who}.` : 'Nobody knows this yet.' }));
+        if (def && !live) editForm(panel, body, P().fields.fact, def, ['facts', fact.id], 'Edit fact', async () => {
+          if (!(await ED.confirm(`Forget “${fact.label}” everywhere?`))) return;
+          commit('Delete fact', (doc) => doc.del(['facts', fact.id]));
+          delete state.open[key]; panel._sig = ''; panel.refresh(ED);
+        });
+      });
+      box.addEventListener('toggle', () => { state.open[key] = box.open; });
     }
     if (q && !facts.length) host.appendChild(make('div.ed-sub', { text: 'Nothing by that name.' }));
   }

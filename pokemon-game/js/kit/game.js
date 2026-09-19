@@ -588,6 +588,12 @@
         await KIT.toast('No save to continue from yet.');
         continue;
       }
+      if (action === 'creator') {
+        // Creator Mode from the title: no world yet, so it opens on the start map,
+        // and closing it comes back here (resumeFromEditor has nowhere else to go).
+        if (G.openEditor()) return;
+        continue;
+      }
       await G.newGame({});
       return;
     }

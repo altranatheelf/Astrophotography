@@ -290,6 +290,15 @@ async function run(browser, label, size, opts) {
   await slot.click();
   await page.waitForTimeout(400);
   check((await state(page)).panel === 'script', 'Open ✎ switched to the Script panel');
+  // the Add row opens ONE picker (the last card's "＋ after this one" shares its index)
+  await page.click(CARDS_TAB);
+  await page.waitForTimeout(200);
+  await page.click('.ed-cmd-add .ed-btn');
+  await page.waitForTimeout(250);
+  const pickers = await page.$$eval('.ed-cmd-picker', els => els.length);
+  check(pickers === 1, `＋ Add command opens one command picker (${pickers})`);
+  await page.click('.ed-cmd-add .ed-btn');                     // ✕ Close
+  await page.waitForTimeout(200);
   await page.click(TEXT_TAB);
   await page.waitForTimeout(250);
   await page.fill('.ed-screenplay', `Rosie: ${LINE}`);
@@ -361,6 +370,19 @@ async function run(browser, label, size, opts) {
     await shot(page, label, 'panel-' + id);
   }
   check(true, `all ${everyPanel.length} panels opened and were photographed`);
+
+  // --- 9b. the cast is written in the Cast panel, not in raw JSON -------------------
+  await openPanel(page, 'cast');
+  const castBefore = await page.evaluate(() => Object.keys(KIT.editor.state.project.cast || {}).length);
+  await page.click('.ed-panel-body[data-panel="cast"] .ed-btn.primary');   // ＋ New person
+  await page.waitForTimeout(200);
+  await page.fill('.ed-cast-add input', 'Old Tomas');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  const tomas = await page.evaluate(() => (KIT.editor.state.project.cast || {})['old-tomas']);
+  check(!!tomas && tomas.name === 'Old Tomas', `＋ New person put “Old Tomas” in the cast (${castBefore} → ${castBefore + 1})`);
+  check(await page.isVisible('.ed-cast-form'), 'and opened their form to fill in');
+  await shot(page, label, '09b-cast');
   // Nothing may be wider than the panel: a phone must not scroll sideways.
   const overflow = await page.evaluate(() => {
     const host = KIT.editor.el.panel;

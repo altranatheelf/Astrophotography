@@ -478,9 +478,11 @@
 
     function addRow(listPath, index, depth) {
       const row = make('div.ed-cmd-add');
-      const open = picker && picker.key === `${keyOf(listPath)}@${index}`;
+      // The last card's "＋ after this one" lands on the same index as this row;
+      // whichever button opened the picker is the one that shows it, never both.
+      const open = picker && picker.at !== 'card' && picker.key === `${keyOf(listPath)}@${index}`;
       row.appendChild(btn(open ? '✕ Close' : '＋ Add command', 'Add an Event Command here', () => {
-        picker = open ? null : { key: `${keyOf(listPath)}@${index}`, listPath, index };
+        picker = open ? null : { key: `${keyOf(listPath)}@${index}`, listPath, index, at: 'row' };
         pickerQuery = '';
         render(true);
       }, open ? '' : (depth ? '' : 'wide')));
@@ -588,7 +590,7 @@
       tools.appendChild(btn('⧉', 'Duplicate', () => { commit('Duplicate command', (doc) => SE.duplicate(doc, listPath, i)); render(true); }));
       tools.appendChild(btn(cmd && cmd.disabled ? '◉' : '◌', cmd && cmd.disabled ? 'Turn this back on' : 'Keep it, but skip it when the game runs', () => { commit('Toggle command', (doc) => SE.setDisabled(doc, listPath, i, !(cmd && cmd.disabled))); render(true); }));
       tools.appendChild(btn('＋', 'Add a command after this one', () => {
-        picker = { key: `${keyOf(listPath)}@${i + 1}`, listPath, index: i + 1 };
+        picker = { key: `${keyOf(listPath)}@${i + 1}`, listPath, index: i + 1, at: 'card' };
         pickerQuery = '';
         render(true);
       }));
@@ -601,7 +603,7 @@
       card.appendChild(tools);
 
       if (selected) card.appendChild(renderFields(cmd, path, def));
-      if (picker && picker.key === `${keyOf(listPath)}@${i + 1}`) card.appendChild(renderPicker(listPath, i + 1));
+      if (picker && picker.at === 'card' && picker.key === `${keyOf(listPath)}@${i + 1}`) card.appendChild(renderPicker(listPath, i + 1));
 
       if (branches.length && !isCollapsed) {
         const kids = make('div.ed-cmd-kids');

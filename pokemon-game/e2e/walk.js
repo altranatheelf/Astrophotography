@@ -237,6 +237,14 @@ async function run(browser, label, size, opts) {
   check(await page.isVisible('[data-action="new-game"]'), 'New Game button is there');
   await page.screenshot({ path: `${SHOTS}/${label}-1-title.png` });
 
+  // Creator Mode is on the front page: it opens on the start map with no game running, and closing it comes back here.
+  check(await page.isVisible('[data-action="creator"]'), 'Creator Mode is on the title screen');
+  await page.click('[data-action="creator"]');
+  await expect(page, () => KIT.editor && KIT.editor.isOpen() && KIT.editor.state.mapId === KIT.game.project.start.map, 'Creator Mode opened on the start map, with no game running');
+  await page.evaluate(() => KIT.editor.close());
+  await expect(page, () => KIT.game.scene() === 'title' && !(KIT.editor && KIT.editor.isOpen()), 'closing it comes back to the title');
+  await page.waitForTimeout(300);
+
   await page.click('[data-action="new-game"]');
 
   // --- the intro plays on entering the house --------------------------------

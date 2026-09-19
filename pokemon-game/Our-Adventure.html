@@ -187,6 +187,9 @@ body { overflow: hidden; }
 .kit-panel-title { font-family: var(--font-ui); font-size: 11px; color: #3b4b8a; padding: 4px 6px 10px; }
 .kit-prompt { font-size: 16px; padding: 4px 6px 10px; }
 .kit-list, .kit-menu-list { display: flex; flex-direction: column; gap: 4px; }
+/* The pause menu has eleven rows with the modules on; on a phone it must not cut the last one in half. */
+.kit-panel.kit-pause { max-height: 92%; }
+.kit-pause .kit-menu-list { gap: 2px; }
 
 .kit-uibtn, .kit-option {
   font: inherit;
@@ -422,7 +425,8 @@ body { overflow: hidden; }
 .ed-tool[aria-selected="true"] .ed-tool-label { color: #fff; }
 
 /* A read-only value: shown where a field would be, offered nowhere. */
-.ed-readonly { padding: 7px 9px; min-height: 34px; border: 1px dashed #2f3a4f; border-radius: 6px; color: #9fb0c8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+.ed-readonly { padding: 4px 0; color: #8494ab; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }   /* plain text, not a box: nothing to tap */
+.ed-sec-body .ed-panel-title { margin-top: 12px; }
 .ed-panel { flex: 1 1 auto; overflow: auto; padding: 10px; min-height: 0; }
 .ed-panel-body[hidden] { display: none; }
 
@@ -451,9 +455,15 @@ body { overflow: hidden; }
 .ed-confirm { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0d1017cc; z-index: 5; text-align: center; padding: 20px; }
 .ed-confirm-row { display: flex; gap: 8px; }
 
+.ed-sheet-grip { display: none; }
 @media (max-width: 760px) {
   .ed-main { flex-direction: column; }
   .ed-side { width: auto; flex: 0 0 46vh; border-left: 0; border-top: 1px solid #263044; }
+  /* Off the Map group the sheet is what you are reading, so it gets most of the screen. */
+  .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
+  .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
+  .ed-group { padding: 6px 2px; font-size: 15px; }
+  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
   .ed-toolbar { gap: 4px; padding: 4px 6px; }
   .ed-maps { max-width: 30vw; flex: 0 0 auto; }
@@ -691,6 +701,8 @@ textarea.is-bad { border-color: #b03434; }
 .ed-cond-cell .ed-chips { margin: 4px 0 0; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
+.ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-cast-form { margin: 6px 0 8px; }
 .ed-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; flex: 1 1 120px; min-width: 110px; }
 .ed-picker { border: 1px solid #3d4a63; border-radius: 8px; background: #101728; padding: 8px; margin-bottom: 8px; }
 .ed-picker input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; margin-bottom: 6px; }
@@ -19145,6 +19157,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
             { action: 'settings', label: KIT.strings.get(project, 'settings') },
           ];
+          // The author's door is on the front page, not behind a game and a pause menu.
+          if (KIT.editor && typeof KIT.editor.open === 'function') items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
           items.forEach((it, i) => {
             const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
             b.type = 'button';
@@ -19887,6 +19901,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const ok = await G.continueGame();
         if (ok || titleRun !== mine) return;
         await KIT.toast('No save to continue from yet.');
+        continue;
+      }
+      if (action === 'creator') {
+        // Creator Mode from the title: no world yet, so it opens on the start map,
+        // and closing it comes back here (resumeFromEditor has nowhere else to go).
+        if (G.openEditor()) return;
         continue;
       }
       await G.newGame({});
@@ -26441,6 +26461,7 @@ PKMN.TILES.register([
     selection: null, cursor: { x: 0, y: 0 }, view: { x: 0, y: 0, scale: 2 },
     show: { grid: true, collision: false, regions: false, terrain: false, objects: true, labels: true },
     panel: 'tiles', problems: [], dirty: false, saving: false, lastSaved: null,
+    sheet: 'auto',        // phone only: how tall the panel sheet is — auto (tall off the Map group) | short | tall
   };
 
   // ---- events -------------------------------------------------------------------
@@ -26993,6 +27014,13 @@ PKMN.TILES.register([
       };
       groups.appendChild(b);
     }
+    // On a phone the sheet is short under Map (the map is what you tap) and tall
+    // everywhere else (a script or a form is what you read); the grip flips it.
+    const grip = UI.make('button.ed-sheet-grip');
+    grip.type = 'button';
+    grip.onclick = () => { state.sheet = sheetTall() ? 'short' : 'tall'; syncSheet(); };
+    groups.appendChild(grip);
+    syncSheet();
     UI.clear(bar);
     const inGroup = panelList().filter(p => groupOf(p) === active);
     bar.classList.toggle('is-single', inGroup.length < 2);   // one panel needs no chip under the group
@@ -27006,6 +27034,17 @@ PKMN.TILES.register([
     }
   }
   ED.buildTabs = buildTabs;
+  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map'); }
+  function syncSheet() {
+    if (!ED.el || !ED.el.root) return;
+    const tall = sheetTall();
+    const was = ED.el.root.classList.contains('is-sheet-tall');
+    ED.el.root.classList.toggle('is-sheet-tall', tall);
+    const grip = ED.el.groups && ED.el.groups.querySelector('.ed-sheet-grip');
+    if (grip) { grip.textContent = tall ? '▾' : '▴'; grip.title = tall ? 'More map' : 'More panel'; grip.setAttribute('aria-label', grip.title); }
+    if (was !== tall) requestAnimationFrame(() => { if (renderer && renderer.resize) renderer.resize(); ED.repaint(); });
+  }
+  ED.sheetTall = sheetTall;
   function showPanel(id) {
     const host = ED.el.panel;
     if (!host) return;
@@ -27014,6 +27053,7 @@ PKMN.TILES.register([
     if (!ED.el.tabs.querySelector(`.ed-tab[data-panel="${id}"]`)) buildTabs();
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
     for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
+    syncSheet();
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);
@@ -28486,7 +28526,11 @@ PKMN.TILES.register([
         if (widget && widget.set) { try { widget.set(v); } catch (e) { /* a widget must never break the form */ } }
         const known = INS.hasDefault(f, ctx);
         const isDef = known && INS.isDefault(f, v, ctx);
-        row.classList.toggle('is-inherited', isDef);
+        // Dimmed means "still the type's / an optional field's default, nothing of
+        // yours here yet". A plain schema default (the title "Our Adventure") is a
+        // real value, and dimming it made the first field of a form look disabled.
+        const inherited = !!(ctx && ctx.inherited && has(ctx.inherited, f.key));
+        row.classList.toggle('is-inherited', isDef && (inherited || !!f.nullable || !!f.optional));
         reset.hidden = isDef || !known;
         const errs = (io.problems ? io.problems() : []) || [];
         clear(errBox);
@@ -30738,10 +30782,14 @@ PKMN.TILES.register([
     if (pageIndex >= (obj.pages || []).length) pageIndex = 0;
     const sig = JSON.stringify([mapId(), obj.id, obj.type, pageIndex, (obj.pages || []).length]);
     if (sig === detailSig) { refreshForms(); renderPageBar(obj); return; }
+    // A different event: start at its header, not wherever the list had scrolled to
+    // (placing from a preset scrolls the list to the preset form, which then cut the header off).
+    const other = !detailSig || JSON.parse(detailSig)[1] !== obj.id;
     detailSig = sig;
     destroyForms();
     clear(el.detail);
     buildDetail(obj);
+    if (other && ED.el && ED.el.panel) ED.el.panel.scrollTop = 0;
   }
   function destroyForms() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } forms = []; }
   function refreshForms() {
@@ -31557,9 +31605,11 @@ PKMN.TILES.register([
 
     function addRow(listPath, index, depth) {
       const row = make('div.ed-cmd-add');
-      const open = picker && picker.key === `${keyOf(listPath)}@${index}`;
+      // The last card's "＋ after this one" lands on the same index as this row;
+      // whichever button opened the picker is the one that shows it, never both.
+      const open = picker && picker.at !== 'card' && picker.key === `${keyOf(listPath)}@${index}`;
       row.appendChild(btn(open ? '✕ Close' : '＋ Add command', 'Add an Event Command here', () => {
-        picker = open ? null : { key: `${keyOf(listPath)}@${index}`, listPath, index };
+        picker = open ? null : { key: `${keyOf(listPath)}@${index}`, listPath, index, at: 'row' };
         pickerQuery = '';
         render(true);
       }, open ? '' : (depth ? '' : 'wide')));
@@ -31667,7 +31717,7 @@ PKMN.TILES.register([
       tools.appendChild(btn('⧉', 'Duplicate', () => { commit('Duplicate command', (doc) => SE.duplicate(doc, listPath, i)); render(true); }));
       tools.appendChild(btn(cmd && cmd.disabled ? '◉' : '◌', cmd && cmd.disabled ? 'Turn this back on' : 'Keep it, but skip it when the game runs', () => { commit('Toggle command', (doc) => SE.setDisabled(doc, listPath, i, !(cmd && cmd.disabled))); render(true); }));
       tools.appendChild(btn('＋', 'Add a command after this one', () => {
-        picker = { key: `${keyOf(listPath)}@${i + 1}`, listPath, index: i + 1 };
+        picker = { key: `${keyOf(listPath)}@${i + 1}`, listPath, index: i + 1, at: 'card' };
         pickerQuery = '';
         render(true);
       }));
@@ -31680,7 +31730,7 @@ PKMN.TILES.register([
       card.appendChild(tools);
 
       if (selected) card.appendChild(renderFields(cmd, path, def));
-      if (picker && picker.key === `${keyOf(listPath)}@${i + 1}`) card.appendChild(renderPicker(listPath, i + 1));
+      if (picker && picker.at === 'card' && picker.key === `${keyOf(listPath)}@${i + 1}`) card.appendChild(renderPicker(listPath, i + 1));
 
       if (branches.length && !isCollapsed) {
         const kids = make('div.ed-cmd-kids');
@@ -33866,7 +33916,22 @@ PKMN.TILES.register([
     return { save: KIT.cast.start(project, { vars: {} }), live: false };
   }
 
-  const state = { view: 'people', query: '', open: {} };
+  const state = { view: 'people', query: '', open: {}, adding: false, draft: '' };
+  const P = () => KIT.project;
+  const INS = () => ED.inspector;
+  function commit(label, fn) {
+    const r = ED.commit(label, fn);
+    if (INS() && INS().afterEdit) INS().afterEdit();
+    return r;
+  }
+  const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
+  /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
+  function freshId(table, name, fallback) {
+    const base = KIT.slug(name || '') || fallback;
+    let id = base, n = 2;
+    while (table[id]) id = `${base}-${n++}`;
+    return id;
+  }
 
   KIT.registry('editorPanels').add({
     id: 'cast', label: 'Cast', icon: 'npc', order: 56,
@@ -33879,9 +33944,11 @@ PKMN.TILES.register([
       const graph = KIT.cast.graph(project, save);
 
       // Redrawing on every keystroke elsewhere would fight the search box.
-      const sig = JSON.stringify([state.view, state.query, live, graph]);
+      const sig = JSON.stringify([state.view, state.query, state.adding, live, graph, project.cast, project.facts]);
       if (sig === this._sig && document.activeElement && host.contains(document.activeElement)) return;
       this._sig = sig;
+      for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      this._forms = [];
       clear(host);
 
       host.appendChild(make('div.ed-hint', {
@@ -33898,34 +33965,95 @@ PKMN.TILES.register([
       }
       host.appendChild(tabs);
 
+      const head = make('div.ed-row.ed-obj-head');
       const search = make('input.ed-obj-search');
       search.type = 'search';
       search.placeholder = state.view === 'people' ? 'Find somebody' : 'Find something known';
       search.value = state.query;
       search.oninput = () => { state.query = search.value; this._sig = ''; this.refresh(ED); };
-      host.appendChild(search);
+      head.appendChild(search);
+      const people = state.view === 'people';
+      // The cast is written here, not in the Data panel: a name is enough to start.
+      if (!live) head.appendChild(btn(people ? '＋ New person' : '＋ New fact', people ? 'Add somebody to the cast' : 'Write down something a person can know', () => { state.adding = true; state.draft = ''; this._sig = ''; this.refresh(ED); }, 'primary'));
+      host.appendChild(head);
+      if (state.adding && !live) host.appendChild(addBox(this, project, people));
 
       const q = state.query.trim().toLowerCase();
-      if (state.view === 'people') drawPeople(host, project, graph, q, live);
-      else drawFacts(host, project, graph, q);
+      if (people) drawPeople(host, project, graph, q, live, this);
+      else drawFacts(host, project, graph, q, live, this);
 
-      if (!graph.people.length) {
-        host.appendChild(make('div.ed-empty', {
-          text: 'Nobody yet. A person is an entry in project.cast — a name, and what they know when the story starts. Add one in the Data panel, or write @tell in a script and come back.',
-        }));
+      if (people && !graph.people.length && !state.adding) {
+        host.appendChild(ED.emptyState({ icon: '👥', text: 'Nobody in the cast yet', hint: 'A person is a name and what they know when the story starts. Add one with ＋ New person, or write @tell in a script and they appear here.' }));
+      }
+      if (!people && !graph.facts.length && !state.adding) {
+        host.appendChild(ED.emptyState({ icon: '💡', text: 'Nothing to know yet', hint: 'A fact is something a person can know — “the gate is open”. Write one down with ＋ New fact, or @tell it to somebody in a script.' }));
       }
     },
   });
 
-  function drawPeople(host, project, graph, q, live) {
+  /** The one-line form under ＋ New: a name (or a fact's label), Add, Cancel. */
+  function addBox(panel, project, people) {
+    const box = make('div.ed-preset-form.ed-cast-add');
+    const input = make('input');
+    input.type = 'text';
+    input.placeholder = people ? 'Their name — Mira, Old Tomas, the Baker' : 'What is known — The gate is open';
+    input.value = state.draft;
+    input.oninput = () => { state.draft = input.value; };
+    const done = () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      if (people) {
+        const id = freshId(project.cast || {}, name, 'person');
+        commit('New person', (doc) => doc.set(['cast', id], Object.assign(KIT.schema.fill(P().fields.person, { name }), { id })));
+        state.open[id] = true;
+      } else {
+        const id = freshId(project.facts || {}, name, 'fact');
+        commit('New fact', (doc) => doc.set(['facts', id], Object.assign(KIT.schema.fill(P().fields.fact, { label: name }), { id })));
+        state.open['fact:' + id] = true;
+      }
+      state.adding = false; state.draft = '';
+      panel._sig = ''; panel.refresh(ED);
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { state.adding = false; panel._sig = ''; panel.refresh(ED); } };
+    box.appendChild(input);
+    const row = make('div.ed-row');
+    row.appendChild(btn(people ? '＋ Add them' : '＋ Write it down', null, done, 'primary'));
+    row.appendChild(btn('Cancel', null, () => { state.adding = false; state.draft = ''; panel._sig = ''; panel.refresh(ED); }));
+    box.appendChild(row);
+    setTimeout(() => input.focus(), 0);
+    return box;
+  }
+
+  /** The editable side of a person or a fact: the same form the rest of the editor uses. */
+  function editForm(panel, body, fields, value, path, label, onDelete) {
+    const form = make('div.ed-cast-form');
+    body.appendChild(form);
+    panel._forms.push(INS().mount(form, {
+      fields, value, ctx: { project: ED.state.project },
+      onChange(p, v) { setAt(path.concat(p), v, label); },
+    }));
+    body.appendChild(btn('✕ Delete', 'Remove from the project', onDelete, 'danger'));
+  }
+
+  function drawPeople(host, project, graph, q, live, panel) {
     const people = graph.people.filter(p => !q || p.name.toLowerCase().includes(q) || p.id.includes(q));
     for (const person of people) {
-      const def = (project.cast || {})[person.id] || {};
+      const def = (project.cast || {})[person.id] || null;
       const title = `${person.name}${person.met ? '' : ' · not met'}`;
       const box = section(host, title, state.open[person.id] === true, (body) => {
-        if (def.pronouns) body.appendChild(make('div.ed-sub', { text: def.pronouns }));
-        if (def.group) body.appendChild(make('div.ed-sub', { text: def.group }));
-        if (def.note) body.appendChild(make('div.ed-note-text', { text: def.note }));
+        if (def && live) {
+          if (def.pronouns) body.appendChild(make('div.ed-sub', { text: def.pronouns }));
+          if (def.group) body.appendChild(make('div.ed-sub', { text: def.group }));
+          if (def.note) body.appendChild(make('div.ed-note-text', { text: def.note }));
+        }
+        if (!def && !live) {
+          // Somebody a script @tells but the cast does not list: one tap writes them down.
+          const b = btn('＋ Write them down', 'Add them to the cast so they have a name of their own', () => {
+            commit('New person', (doc) => doc.set(['cast', person.id], Object.assign(KIT.schema.fill(P().fields.person, { name: person.name }), { id: person.id })));
+            state.open[person.id] = true; panel._sig = ''; panel.refresh(ED);
+          });
+          body.appendChild(b);
+        }
 
         body.appendChild(make('div.ed-panel-title', { text: 'Knows' }));
         if (!person.knows.length) body.appendChild(make('div.ed-sub', { text: 'Nothing yet.' }));
@@ -33952,30 +34080,44 @@ PKMN.TILES.register([
           row.appendChild(make('span.ed-item-value', { text: `${f.band.label} ${f.value > 0 ? '+' : ''}${f.value}` }));
           body.appendChild(row);
         }
+        if (def && !live) {
+          body.appendChild(make('div.ed-panel-title', { text: 'As written' }));
+          editForm(panel, body, P().fields.person, def, ['cast', person.id], 'Edit person', async () => {
+            if (!(await ED.confirm(`Remove “${person.name}” from the cast?`))) return;
+            commit('Delete person', (doc) => doc.del(['cast', person.id]));
+            delete state.open[person.id]; panel._sig = ''; panel.refresh(ED);
+          });
+        }
       });
       box.addEventListener('toggle', () => { state.open[person.id] = box.open; });
     }
     if (q && !people.length) host.appendChild(make('div.ed-sub', { text: 'Nobody by that name.' }));
   }
 
-  function drawFacts(host, project, graph, q) {
+  function drawFacts(host, project, graph, q, live, panel) {
     const facts = graph.facts.filter(f => !q || f.label.toLowerCase().includes(q) || f.id.includes(q));
     for (const fact of facts) {
-      const row = make('div.ed-item');
-      const name = make('span.ed-item-name', { text: fact.label });
-      if (fact.secret) name.appendChild(make('span.ed-badge', { text: 'secret' }));
-      if (!fact.declared) {
-        const b = make('span.ed-badge.ed-chip-warn', { text: 'not written down' });
-        b.title = 'Somebody knows this, but project.facts has no entry for it, so it has no label of its own.';
-        name.appendChild(b);
-      }
-      row.appendChild(name);
-      row.appendChild(make('span.ed-item-value', {
-        text: fact.knownBy.length
-          ? fact.knownBy.map(id => KIT.cast.nameOf(project, id)).join(', ')
-          : 'nobody knows',
-      }));
-      host.appendChild(row);
+      const key = 'fact:' + fact.id;
+      const who = fact.knownBy.length ? fact.knownBy.map(id => KIT.cast.nameOf(project, id)).join(', ') : 'nobody knows';
+      const box = section(host, `${fact.label}${fact.secret ? ' · secret' : ''} — ${who}`, state.open[key] === true, (body) => {
+        const def = (project.facts || {})[fact.id];
+        if (!fact.declared) {
+          const b = make('div.ed-sub', { text: 'Somebody knows this, but it is not written down, so it has no label of its own.' });
+          body.appendChild(b);
+          if (!live) body.appendChild(btn('＋ Write it down', 'Give it a label and a note', () => {
+            commit('New fact', (doc) => doc.set(['facts', fact.id], Object.assign(KIT.schema.fill(P().fields.fact, { label: titleCase(fact.id) }), { id: fact.id })));
+            state.open[key] = true; panel._sig = ''; panel.refresh(ED);
+          }));
+          return;
+        }
+        body.appendChild(make('div.ed-sub', { text: fact.knownBy.length ? `Known by ${who}.` : 'Nobody knows this yet.' }));
+        if (def && !live) editForm(panel, body, P().fields.fact, def, ['facts', fact.id], 'Edit fact', async () => {
+          if (!(await ED.confirm(`Forget “${fact.label}” everywhere?`))) return;
+          commit('Delete fact', (doc) => doc.del(['facts', fact.id]));
+          delete state.open[key]; panel._sig = ''; panel.refresh(ED);
+        });
+      });
+      box.addEventListener('toggle', () => { state.open[key] = box.open; });
     }
     if (q && !facts.length) host.appendChild(make('div.ed-sub', { text: 'Nothing by that name.' }));
   }
@@ -39329,7 +39471,7 @@ PKMN.TILES.register([
   }
 
   const panel = {
-    id: 'home', label: 'Home', icon: 'house', order: 46, section: 'map',
+    id: 'home', label: 'Home & jobs', icon: 'house', order: 46, section: 'game',   // dials for the whole game, not one map — and not to be confused with a map called Home
 
     mount(el, ed) {
       UI.clear(el);

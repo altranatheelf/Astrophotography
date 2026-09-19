@@ -24,6 +24,7 @@
     selection: null, cursor: { x: 0, y: 0 }, view: { x: 0, y: 0, scale: 2 },
     show: { grid: true, collision: false, regions: false, terrain: false, objects: true, labels: true },
     panel: 'tiles', problems: [], dirty: false, saving: false, lastSaved: null,
+    sheet: 'auto',        // phone only: how tall the panel sheet is — auto (tall off the Map group) | short | tall
   };
 
   // ---- events -------------------------------------------------------------------
@@ -576,6 +577,13 @@
       };
       groups.appendChild(b);
     }
+    // On a phone the sheet is short under Map (the map is what you tap) and tall
+    // everywhere else (a script or a form is what you read); the grip flips it.
+    const grip = UI.make('button.ed-sheet-grip');
+    grip.type = 'button';
+    grip.onclick = () => { state.sheet = sheetTall() ? 'short' : 'tall'; syncSheet(); };
+    groups.appendChild(grip);
+    syncSheet();
     UI.clear(bar);
     const inGroup = panelList().filter(p => groupOf(p) === active);
     bar.classList.toggle('is-single', inGroup.length < 2);   // one panel needs no chip under the group
@@ -589,6 +597,17 @@
     }
   }
   ED.buildTabs = buildTabs;
+  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map'); }
+  function syncSheet() {
+    if (!ED.el || !ED.el.root) return;
+    const tall = sheetTall();
+    const was = ED.el.root.classList.contains('is-sheet-tall');
+    ED.el.root.classList.toggle('is-sheet-tall', tall);
+    const grip = ED.el.groups && ED.el.groups.querySelector('.ed-sheet-grip');
+    if (grip) { grip.textContent = tall ? '▾' : '▴'; grip.title = tall ? 'More map' : 'More panel'; grip.setAttribute('aria-label', grip.title); }
+    if (was !== tall) requestAnimationFrame(() => { if (renderer && renderer.resize) renderer.resize(); ED.repaint(); });
+  }
+  ED.sheetTall = sheetTall;
   function showPanel(id) {
     const host = ED.el.panel;
     if (!host) return;
@@ -597,6 +616,7 @@
     if (!ED.el.tabs.querySelector(`.ed-tab[data-panel="${id}"]`)) buildTabs();
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
     for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
+    syncSheet();
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);

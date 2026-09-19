@@ -11,6 +11,8 @@ nothing is modal, and it all works with a thumb on a phone.
 
 ## Opening and closing it
 
+* **Creator Mode** on the title screen — the map the game starts on, before any
+  game is running. Closing it comes back to the title.
 * `index.html?edit=1` — straight into Creator Mode, on the map the game starts on.
 * In the game: **Escape → Creator Mode** in the pause menu, and it opens on the
   map you are standing on.
@@ -46,7 +48,9 @@ panel just opens it. The Problems group shows a count, red when any is an error.
 
 On a phone the panel is a sheet under the map: the tools sit in a row of their
 own above it, the groups and chips wrap, and everything is the same, just
-stacked.
+stacked. Under **Map** the sheet is short, because the map is what you tap;
+under the other groups it takes most of the screen, because a script or a form
+is what you read. The **▴ / ▾** grip beside the groups flips it either way.
 
 ## Painting
 
@@ -138,7 +142,7 @@ place in the editor.
 | **Story · Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
 | **Map · Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
 | **Game · Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
-| **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it |
+| **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it. **＋ New person** and **＋ New fact** add to it; each one opens as a form |
 | **Game · Variables** | Switches and Variables: declare them, see every read and every write |
 | **Game · Items** | What Events give and conditions ask about |
 | **Game · Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
@@ -147,7 +151,8 @@ place in the editor.
 | **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
 
 Modules add their panels to the same groups: with the Pokémon-style module on,
-**Map · Encounters** and **Map · Home** are there too. An Event's **Id** is shown
+**Map · Encounters** is there too, and the Home module puts its jobs, furniture
+and presents under **Game · Home & jobs**. An Event's **Id** is shown
 but not editable in the form — it is the name every script uses to find the
 Event, and renaming happens through the Events list, which rewrites every
 reference for you.

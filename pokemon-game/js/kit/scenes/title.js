@@ -32,6 +32,8 @@
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
             { action: 'settings', label: KIT.strings.get(project, 'settings') },
           ];
+          // The author's door is on the front page, not behind a game and a pause menu.
+          if (KIT.editor && typeof KIT.editor.open === 'function') items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
           items.forEach((it, i) => {
             const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
             b.type = 'button';
