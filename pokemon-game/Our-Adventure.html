@@ -463,6 +463,8 @@ body { overflow: hidden; }
   .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
   .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }   /* one swipeable row of layers */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips .ed-chip { white-space: nowrap; flex: 0 0 auto; }
   .ed-group { padding: 6px 2px; font-size: 15px; }
   .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
@@ -706,6 +708,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
 .ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-firststeps { border: 1px dashed #3d5c8f; background: #161e2c; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; color: #c3cfe2; }
 .ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-cast-form { margin: 6px 0 8px; }
 .ed-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; flex: 1 1 120px; min-width: 110px; }
@@ -26527,10 +26530,17 @@ PKMN.TILES.register([
     for (const k of Object.keys(patch || {})) {
       if (k === 'show') Object.assign(state.show, patch.show);
       else if (k === 'view') Object.assign(state.view, patch.view);
-      else { if (k === 'panel' && state.panel !== patch[k]) panelChanged = true; state[k] = patch[k]; }
+      else {
+        if (k === 'panel' && state.panel !== patch[k]) panelChanged = true;
+        if (k === 'tool' && state.tool !== patch[k]) cancelTool();     // a half-drawn rectangle does not belong to the next tool
+        state[k] = patch[k];
+      }
     }
     if (state.view.scale < MIN_SCALE) state.view.scale = MIN_SCALE;
     if (state.view.scale > MAX_SCALE) state.view.scale = MAX_SCALE;
+    // Every camera write stays on the map: the Hand tool (a phone's only pan) used
+    // to be able to drag the whole map off screen with nothing left to grab.
+    if (patch && patch.view && ED.el && ED.el.canvas) clampView();
     if (panelChanged) showPanel(state.panel);
     emit('change', patch);
     updateStatus();
@@ -26549,6 +26559,7 @@ PKMN.TILES.register([
   };
   ED.openMap = function (id) {
     if (!state.project.maps[id]) return false;
+    cancelTool();                       // a corner tapped on the old map must not finish a rectangle on the new one
     state.mapId = id;
     state.map = KIT.mapView(state.project, null, id);
     state.view.x = 0; state.view.y = 0;
@@ -26845,6 +26856,7 @@ PKMN.TILES.register([
     touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (touches.size < 2) return false;
     if (drawing) { drawing = false; ED.abortStroke(); }
+    cancelTool();                       // the first finger of a two-finger tap is not a corner
     if (!gesture) gesture = { fingers: 0, start: nowMs(), moved: false };
     gesture.fingers = Math.max(gesture.fingers, touches.size);
     return true;
@@ -26921,6 +26933,12 @@ PKMN.TILES.register([
     afterDocument('edit');
   }
   function pinchCandidate() { return false; }      // two-finger zoom is handled by the wheel/buttons for now
+  /** The active tool forgets any half-made gesture (a rectangle's first corner, a pencil's ghost). */
+  function cancelTool() {
+    const t = KIT.registry('editorTools').get(state.tool);
+    if (t && t.cancel) { try { t.cancel(); } catch (e) { (KIT.log || console).error('[tool]', e); } }
+  }
+  ED.cancelTool = cancelTool;
   function clampView() {
     const map = state.map;
     if (!map) return;
@@ -27326,7 +27344,17 @@ PKMN.TILES.register([
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
     overlay.addEventListener('contextmenu', (e) => e.preventDefault());
-    overlay.addEventListener('wheel', (e) => { e.preventDefault(); ED.zoom(e.deltaY < 0 ? 1 : -1, ED.pointFromEvent(e)); }, { passive: false });
+    // A mouse wheel sends one notch (~100px) per click; a trackpad sends dozens of
+    // 1–5px events per flick. One zoom step per ~40px of travel treats both alike.
+    let wheelAcc = 0;
+    overlay.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      wheelAcc += e.deltaMode === 1 ? e.deltaY * 40 : (e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY);
+      if (Math.abs(wheelAcc) < 40) return;
+      const d = wheelAcc < 0 ? 1 : -1;
+      wheelAcc = 0;
+      ED.zoom(d, ED.pointFromEvent(e));
+    }, { passive: false });
     window.addEventListener('resize', () => { if (renderer) renderer.resize(); ED.repaint(); });
 
     renderer = KIT.renderer.create({ canvas, project: state.project, editor: true });
@@ -28469,12 +28497,13 @@ PKMN.TILES.register([
    */
   INS.pickOnMap = function (opts) {
     INS.stopPicking(false);
-    picking = Object.assign({ prevTool: ED.state.tool }, opts || {});
+    const mine = picking = Object.assign({ prevTool: ED.state.tool }, opts || {});
     ED.set({ tool: 'pick-position' });
     if (ED.el && ED.el.root) ED.el.root.classList.add('ed-is-picking');
     if (ED.toast) ED.toast(opts && opts.hint ? opts.hint : 'Tap the map to pick a tile');
     document.addEventListener('keydown', onPickKey, true);
-    return () => INS.stopPicking(true);
+    // cancel() ends THIS pick and nothing that was started after it
+    return (silent) => { if (picking === mine) INS.stopPicking(silent !== false); };
   };
   INS.isPicking = () => !!picking;
   INS.stopPicking = function (silent) {
@@ -28882,11 +28911,12 @@ PKMN.TILES.register([
       row.appendChild(make('span.ed-sub', { text: 'x' })); row.appendChild(nx);
       row.appendChild(make('span.ed-sub', { text: 'y' })); row.appendChild(ny);
       el.appendChild(row);
+      let cancelPick = null;       // set while THIS widget's pick is the one running
       const pick = btn('✛ Pick on the map', 'Tap the map to set this position', () => {
         if (INS.isPicking()) { INS.stopPicking(false); return; }
         pick.classList.add('is-picking');
         pick.textContent = 'Tap the map… (cancel)';
-        INS.pickOnMap({
+        cancelPick = INS.pickOnMap({
           hint: `Tap the map to set ${f.label || titleCase(f.key)}`,
           onPick(p) {
             cur = Object.assign({}, cur, wantsMap ? { map: p.map, x: p.x, y: p.y } : { x: p.x, y: p.y });
@@ -28896,7 +28926,7 @@ PKMN.TILES.register([
           },
           onCancel: done,
         });
-        function done() { pick.classList.remove('is-picking'); pick.textContent = '✛ Pick on the map'; }
+        function done() { cancelPick = null; pick.classList.remove('is-picking'); pick.textContent = '✛ Pick on the map'; }
       }, 'wide');
       el.appendChild(pick);
       const paint = () => {
@@ -28905,7 +28935,14 @@ PKMN.TILES.register([
         if (mapSel) mapSel.value = cur.map || '';
       };
       paint();
-      return { set(v) { cur = KIT.isObject(v) ? Object.assign({}, v) : { x: 0, y: 0 }; paint(); } };
+      return {
+        set(v) { cur = KIT.isObject(v) ? Object.assign({}, v) : { x: 0, y: 0 }; paint(); },
+        // The form this widget lived in is gone (a preset form cancelled, another
+        // event opened): a pick still running would answer the next tap on the map
+        // through a form that no longer exists. Ended after the teardown, not
+        // inside it — stopPicking refreshes every panel.
+        destroy() { const c = cancelPick; cancelPick = null; if (c) setTimeout(() => c(true), 0); },
+      };
     },
   });
 
@@ -29079,7 +29116,13 @@ PKMN.TILES.register([
       box.appendChild(err);
       el.appendChild(box);
 
-      const set = (next) => { cond = next; onChange(cond); paint(); };
+      // `quiet`: a value typed into one of the tree's own boxes. The tree used to be
+      // rebuilt on every change, which threw away the box being typed in after each
+      // keystroke — "12" in a page condition came out as "1" with the keyboard gone.
+      // The box already shows what was typed; only the text line and the summary
+      // under the node need to follow. Anything that changes the SHAPE of the
+      // condition (a kind, a child added or removed) still rebuilds.
+      const set = (next, quiet) => { cond = next; onChange(cond); if (quiet) paintText(); else paint(); };
       function paint() { paintTree(); paintText(); }
       function paintText() { if (document.activeElement !== textIn) textIn.value = INS.conditionText(cond); err.hidden = true; }
       function paintTree() { clear(tree); tree.appendChild(condNode(cond, set, ctx, 0)); }
@@ -29088,7 +29131,12 @@ PKMN.TILES.register([
     },
   });
 
-  /** One condition row (and its children for all/any/not). */
+  /**
+   * One condition row (and its children for all/any/not).
+   * setCond(next, quiet) — `quiet` means a field of a leaf changed and the DOM is
+   * already right; it is passed up so no ancestor rebuilds either. `cur` is the
+   * node's latest value, since quiet edits leave the tree in place.
+   */
   function condNode(cond, setCond, ctx, depth) {
     const wrap = make('div.ed-cond-node');
     if (depth) wrap.classList.add('is-nested');
@@ -29099,6 +29147,7 @@ PKMN.TILES.register([
       wrap.appendChild(row);
       return wrap;
     }
+    let cur = cond;
     const def = KIT.registry('conditions').get(cond.kind);
     const head = make('div.ed-row.ed-cond-head');
     const kindSel = make('select.ed-cond-kind');
@@ -29106,8 +29155,8 @@ PKMN.TILES.register([
     kindSel.value = cond.kind;
     kindSel.onchange = () => {
       const next = INS.newCondition(kindSel.value);
-      if (next && (kindSel.value === 'not') && cond) next.of = cond;
-      if (next && (kindSel.value === 'all' || kindSel.value === 'any') && cond) next.of = [cond];
+      if (next && (kindSel.value === 'not') && cur) next.of = cur;
+      if (next && (kindSel.value === 'all' || kindSel.value === 'any') && cur) next.of = [cur];
       setCond(next);
     };
     head.appendChild(kindSel);
@@ -29121,34 +29170,40 @@ PKMN.TILES.register([
       const of = Array.isArray(cond.of) ? cond.of : [];
       of.forEach((child, i) => {
         if (i) kids.appendChild(make('div.ed-cond-join', { text: cond.kind === 'all' ? 'and' : 'or' }));
-        kids.appendChild(condNode(child, (next) => {
-          const list = of.slice();
+        kids.appendChild(condNode(child, (next, quiet) => {
+          const list = (Array.isArray(cur.of) ? cur.of : []).slice();
           if (next == null) list.splice(i, 1); else list[i] = next;
-          setCond(Object.assign({}, cond, { of: list }));
+          cur = Object.assign({}, cur, { of: list });
+          setCond(cur, quiet && next != null);
         }, ctx, depth + 1));
       });
-      kids.appendChild(addButton(cond.kind === 'all' ? '＋ and…' : '＋ or…', (kind) => setCond(Object.assign({}, cond, { of: of.concat([INS.newCondition(kind)]) }))));
+      kids.appendChild(addButton(cond.kind === 'all' ? '＋ and…' : '＋ or…', (kind) => setCond(Object.assign({}, cur, { of: (Array.isArray(cur.of) ? cur.of : []).concat([INS.newCondition(kind)]) }))));
       wrap.appendChild(kids);
       return wrap;
     }
     if (cond.kind === 'not') {
       const kids = make('div.ed-cond-kids');
-      kids.appendChild(condNode(cond.of || null, (next) => setCond(Object.assign({}, cond, { of: next })), ctx, depth + 1));
+      kids.appendChild(condNode(cond.of || null, (next, quiet) => { cur = Object.assign({}, cur, { of: next }); setCond(cur, quiet); }, ctx, depth + 1));
       wrap.appendChild(kids);
       return wrap;
     }
     const fieldsRow = make('div.ed-cond-fields');
+    const says = make('div.ed-sub.ed-cond-says', { text: INS.conditionSays(cond, ctx) });
     for (const fd of S.fields(def.fields || [])) {
       const cell = make('div.ed-cond-cell');
       cell.appendChild(make('span.ed-sub', { text: fd.label || titleCase(fd.key) }));
       const body = make('div');
       cell.appendChild(body);
       const value = cond[fd.key] === undefined ? S.defaultFor(fd, ctx) : cond[fd.key];
-      INS.field(body, fd, value, (v) => setCond(Object.assign({}, cond, { [fd.key]: v })), Object.assign({}, ctx, { compact: true }));
+      INS.field(body, fd, value, (v) => {
+        cur = Object.assign({}, cur, { [fd.key]: v });
+        says.textContent = INS.conditionSays(cur, ctx);
+        setCond(cur, true);
+      }, Object.assign({}, ctx, { compact: true }));
       fieldsRow.appendChild(cell);
     }
     wrap.appendChild(fieldsRow);
-    wrap.appendChild(make('div.ed-sub.ed-cond-says', { text: INS.conditionSays(cond, ctx) }));
+    wrap.appendChild(says);
     return wrap;
   }
   function addButton(label, onPick) {
@@ -29556,6 +29611,11 @@ PKMN.TILES.register([
       this.host = host;
       UI.clear(host);
 
+      // --- first steps, on a map with nobody on it ------------------------------
+      this.firstSteps = make('div.ed-hint.ed-firststeps', { text: 'A blank map. Paint the floor with the Pencil, then Events › ＋ Add puts somebody on it, and ▶ Play here walks it.' });
+      this.firstSteps.hidden = true;
+      host.appendChild(this.firstSteps);
+
       // --- layer -------------------------------------------------------------
       this.layerChips = make('div.ed-chips');
       for (const l of LAYERS) {
@@ -29621,6 +29681,10 @@ PKMN.TILES.register([
       if (!this._offChange) this._offChange = ED.on('change', (patch) => {
         if (!patch) return;
         if (patch.layer !== undefined && !fitsLayer(ED.state.tile, patch.layer)) ED.state.tile = T.brushFor(patch.layer);
+        // The Terrain brush only ever paints terrain (its first tap flips the layer
+        // back): leaving the Terrain layer with it in hand, by chip or by [ ],
+        // would make "Painting on Ground" paint terrain. Hand over to the Pencil.
+        if (patch.layer !== undefined && patch.layer !== 'terrain' && patch.tool === undefined && ED.state.tool === 'terrain') ED.set({ tool: 'pencil' });
         this.refresh(ED);
       });
 
@@ -29635,6 +29699,7 @@ PKMN.TILES.register([
       T.remember(ED.state.layer, ED.state.tile);
       const patch = { layer, tile: T.brushFor(layer) };
       if (layer === 'terrain' && !['terrain', 'pencil', 'fill', 'rect', 'eraser'].includes(ED.state.tool)) patch.tool = 'terrain';
+      if (layer !== 'terrain' && ED.state.tool === 'terrain') patch.tool = 'pencil';    // and back again: the brush follows the layer
       ED.set(patch);
       if (ED.updateStatus) ED.updateStatus();      // the status bar names the layer; the shell only refreshes it on a pointer move
       this.group = null;
@@ -29652,6 +29717,7 @@ PKMN.TILES.register([
       if (!this.host || this.host.hidden) return;
       const st = ed.state;
       const layer = LAYERS.find(l => l.id === st.layer) || LAYERS[0];
+      this.firstSteps.hidden = !(st.map && !(st.map.objects || []).length);
       for (const b of this.layerChips.querySelectorAll('[data-layer]')) b.setAttribute('aria-pressed', String(b.dataset.layer === st.layer));
       this.layerHelp.textContent = layer.help;
       for (const b of this.viewChips.querySelectorAll('[data-show]')) b.setAttribute('aria-pressed', String(!!st.show[b.dataset.show]));
@@ -30527,6 +30593,40 @@ PKMN.TILES.register([
   };
 
   /**
+   * retype(doc, { map, id, type }) -> true — change an event's type and let the new
+   * type's page defaults through.
+   *
+   * fillPage keeps whatever a page already says, which is right for a page the
+   * author wrote and wrong for one that merely inherited the old type's defaults:
+   * an NPC turned into a Door / Warp kept `layer: 'same', through: false` and so
+   * stayed solid — a door the hero could never step on, and no problem said so.
+   * A value that still equals the OLD type's default is inherited, not chosen, so
+   * it is dropped and the new type (or the schema) decides.
+   */
+  OBJ.retype = function (doc, o) {
+    const has = (obj, k) => Object.prototype.hasOwnProperty.call(obj || {}, k);
+    const path = ['maps', o.map, 'objects', (doc.get(['maps', o.map, 'objects']) || []).findIndex(x => x.id === o.id)];
+    if (path[3] < 0) return false;
+    const typeOf = (t) => (KIT.registry.exists('objectTypes') && KIT.registry('objectTypes').get(t)) || null;
+    const from = ((typeOf(doc.get(path.concat('type'))) || {}).page) || {};
+    const to = ((typeOf(o.type) || {}).page) || {};
+    const keys = Object.keys(from).concat(Object.keys(to)).filter((k, i, a) => a.indexOf(k) === i);
+    const schemaDefault = (k) => { const f = S.fields(P.fields.page).find(f => f.key === k); return f ? S.defaultFor(f) : undefined; };
+    doc.transaction('Change event type', () => {
+      doc.set(path.concat('type'), o.type);
+      doc.set(path.concat('pages'), (doc.get(path.concat('pages')) || []).map(pg => {
+        const next = Object.assign({}, pg);
+        for (const k of keys) {
+          const was = has(from, k) ? from[k] : schemaDefault(k);
+          if (KIT.deepEqual(next[k], was)) delete next[k];
+        }
+        return P.fillPage(next, o.type);
+      }));
+    });
+    return true;
+  };
+
+  /**
    * placePreset(doc, { preset, map, x, y, input }) -> [ids]
    * ops.placeObject only handles one map; a preset may build objects on two (a
    * transfer pair), so this walks KIT.project.buildPreset's [{ map, object }] itself.
@@ -30573,6 +30673,7 @@ PKMN.TILES.register([
   let el = {};            // the panel's DOM
   let search = '';
   let pageIndex = 0;
+  let seenSel = null;     // the selection pageIndex was last read from (a page tab sets one; the page actions must not be undone by it)
   let listSig = '';
   let detailSig = '';
   let forms = [];
@@ -30647,7 +30748,14 @@ PKMN.TILES.register([
   function renderAdd() {
     clear(el.add);
     el.add.hidden = !addOpen;
-    if (!addOpen) { presetDraft = null; renderPresetForm(); return; }
+    if (!addOpen) {
+      presetDraft = null;
+      renderPresetForm();
+      // Closing the row is the way out of “tap the map to place it” — a phone has no
+      // Escape — and a pick left running would answer a later tap with a dead form.
+      if (INS.isPicking && INS.isPicking()) INS.stopPicking(false);
+      return;
+    }
     renderPresetForm();
     el.add.appendChild(make('div.ed-hint', { text: 'Pick one, then tap the map where it goes.' }));
     const presets = KIT.registry('presets').list().filter(p => (p.kind || 'object') === 'object');
@@ -30738,9 +30846,14 @@ PKMN.TILES.register([
   // ---- render ----------------------------------------------------------------------
   function render() {
     if (!ED.state.project || !ED.state.project.maps[mapId()]) return;
-    // the shell does not call panel.onSelect, so the selection is read here
+    // the shell does not call panel.onSelect, so the selection is read here — once
+    // per selection. Reading it on every render put the page back to the tab you
+    // had tapped after every “Add a page” / “Later” / “Delete page”.
     const sel = ED.state.selection;
-    if (sel && (sel.kind === 'page' || sel.kind === 'slot') && sel.page != null && sel.page !== pageIndex) { pageIndex = sel.page; detailSig = ''; }
+    if (sel !== seenSel) {
+      seenSel = sel;
+      if (sel && (sel.kind === 'page' || sel.kind === 'slot') && sel.page != null && sel.page !== pageIndex) { pageIndex = sel.page; detailSig = ''; }
+    }
     renderList();
     renderDetail();
   }
@@ -30892,7 +31005,13 @@ PKMN.TILES.register([
       ED.select({ kind: 'object', map: mapId(), id });
       ED.toast(`Copied — ${id}`);
     }));
-    bar.appendChild(btn('🗑', 'Delete this event', () => ED.deleteSelection(), 'danger'));
+    bar.appendChild(btn('🗑', 'Delete this event', () => {
+      // A page tab leaves a `page` selection behind, and the shell's delete only
+      // knows `object`: say which event this is before asking it.
+      const s = ED.state.selection;
+      if (!s || s.kind !== 'object' || s.id !== obj.id) ED.select({ kind: 'object', map: mapId(), id: obj.id });
+      ED.deleteSelection();
+    }, 'danger'));
     bar.appendChild(btn('▶ Play here', 'Play the game standing next to this event', () => ED.playHere({ at: { x: obj.x, y: Math.min(obj.y + 1, ED.state.map.height - 1) } })));
     host.appendChild(bar);
 
@@ -30924,10 +31043,7 @@ PKMN.TILES.register([
         if (p[0] === 'at') {
           commit('Move event', (doc, O) => O.moveObject(doc, { map: mapId(), id: cur.id, x: v.x | 0, y: v.y | 0 }));
         } else if (p[0] === 'type') {
-          commit('Change event type', (doc) => {
-            doc.set(base.concat('type'), v);
-            doc.set(base.concat('pages'), (doc.get(base.concat('pages')) || []).map(pg => P.fillPage(pg, v)));
-          });
+          commit('Change event type', (doc) => OBJ.retype(doc, { map: mapId(), id: cur.id, type: v }));
           detailSig = '';
           render();
         } else {
@@ -31082,15 +31198,11 @@ PKMN.TILES.register([
     head.appendChild(make('span.ed-spacer'));
     head.appendChild(btn('＋', 'Add a page', () => {
       commit('Add page', (doc, O) => O.addPage(doc, { map: mapId(), id: obj.id }));
-      pageIndex = (selectedObject().pages || []).length - 1;
-      detailSig = '';
-      render();
+      showPage(obj.id, (selectedObject().pages || []).length - 1);
     }));
     head.appendChild(btn('⧉', 'Duplicate this page', () => {
       commit('Duplicate page', (doc, O) => O.addPage(doc, { map: mapId(), id: obj.id, copyFrom: pageIndex }));
-      pageIndex = (selectedObject().pages || []).length - 1;
-      detailSig = '';
-      render();
+      showPage(obj.id, (selectedObject().pages || []).length - 1);
     }));
     head.appendChild(btn('▲', 'Earlier (checked sooner)', () => movePage(obj, -1)));
     head.appendChild(btn('▼', 'Later (wins over the ones above)', () => movePage(obj, 1)));
@@ -31098,9 +31210,7 @@ PKMN.TILES.register([
       if ((obj.pages || []).length <= 1) { ED.toast('An event needs at least one page'); return; }
       if (!(await ED.confirm(`Delete page ${pageIndex + 1} of “${obj.name || obj.id}”?`))) return;
       commit('Delete page', (doc, O) => O.deletePage(doc, { map: mapId(), id: obj.id, page: pageIndex }));
-      pageIndex = Math.max(0, pageIndex - 1);
-      detailSig = '';
-      render();
+      showPage(obj.id, Math.max(0, pageIndex - 1));
     }, 'danger');
     del.disabled = (obj.pages || []).length <= 1;
     head.appendChild(del);
@@ -31136,9 +31246,19 @@ PKMN.TILES.register([
     const to = pageIndex + delta;
     if (to < 0 || to >= (obj.pages || []).length) return;
     commit('Reorder pages', (doc, O) => O.movePage(doc, { map: mapId(), id: obj.id, page: pageIndex, to }));
-    pageIndex = to;
+    showPage(obj.id, to);
+  }
+  /**
+   * Show page `index` of the event after a page action. When a page tab had been
+   * tapped the selection names a page too, so it is moved along — the script
+   * editor and the problems list read it — and either way the detail is rebuilt.
+   */
+  function showPage(id, index) {
+    pageIndex = index;
     detailSig = '';
-    render();
+    const s = ED.state.selection;
+    if (s && (s.kind === 'page' || s.kind === 'slot') && s.id === id) ED.select({ kind: 'page', map: mapId(), id, page: index });
+    else render();
   }
 
   // ---- script slots --------------------------------------------------------------------
@@ -34254,12 +34374,27 @@ PKMN.TILES.register([
     }
   });
 
+  // ---- 2b. Delete with a page selected ------------------------------------------------
+  // Tapping a page tab in the Events panel selects `{ kind:'page', id }`; the shell's
+  // deleteSelection only knows `object`, so the Delete key (and the panel's 🗑,
+  // which asks the shell) did nothing until the event was picked again. A page
+  // names its event: delete that.
+  const deleteSelection = ED.deleteSelection;
+  ED.deleteSelection = function () {
+    const s = ED.state.selection;
+    if (s && s.kind === 'page' && s.map && s.id) ED.select({ kind: 'object', map: s.map, id: s.id });
+    return deleteSelection.call(ED);
+  };
+
   // ---- 3. play mode: a way back ------------------------------------------------------
   // playHere() hides the editor's middle, but the host is opaque and the shell's key
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
   let playBar = null;
   function buildPlayBar() {
+    // Every open rebuilds the shell's DOM, so a bar from the last open is a detached
+    // element: forget it, or the second time round Play here has no way back on a phone.
+    if (playBar && !playBar.isConnected) playBar = null;
     if (playBar || !ED.el || !ED.el.root) return;
     playBar = UI.make('div.ed-playbar');
     const back = UI.make('button.ed-btn.primary', { text: '‹ Back to Creator Mode' });

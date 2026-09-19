@@ -46,10 +46,17 @@
     for (const k of Object.keys(patch || {})) {
       if (k === 'show') Object.assign(state.show, patch.show);
       else if (k === 'view') Object.assign(state.view, patch.view);
-      else { if (k === 'panel' && state.panel !== patch[k]) panelChanged = true; state[k] = patch[k]; }
+      else {
+        if (k === 'panel' && state.panel !== patch[k]) panelChanged = true;
+        if (k === 'tool' && state.tool !== patch[k]) cancelTool();     // a half-drawn rectangle does not belong to the next tool
+        state[k] = patch[k];
+      }
     }
     if (state.view.scale < MIN_SCALE) state.view.scale = MIN_SCALE;
     if (state.view.scale > MAX_SCALE) state.view.scale = MAX_SCALE;
+    // Every camera write stays on the map: the Hand tool (a phone's only pan) used
+    // to be able to drag the whole map off screen with nothing left to grab.
+    if (patch && patch.view && ED.el && ED.el.canvas) clampView();
     if (panelChanged) showPanel(state.panel);
     emit('change', patch);
     updateStatus();
@@ -68,6 +75,7 @@
   };
   ED.openMap = function (id) {
     if (!state.project.maps[id]) return false;
+    cancelTool();                       // a corner tapped on the old map must not finish a rectangle on the new one
     state.mapId = id;
     state.map = KIT.mapView(state.project, null, id);
     state.view.x = 0; state.view.y = 0;
@@ -364,6 +372,7 @@
     touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (touches.size < 2) return false;
     if (drawing) { drawing = false; ED.abortStroke(); }
+    cancelTool();                       // the first finger of a two-finger tap is not a corner
     if (!gesture) gesture = { fingers: 0, start: nowMs(), moved: false };
     gesture.fingers = Math.max(gesture.fingers, touches.size);
     return true;
@@ -440,6 +449,12 @@
     afterDocument('edit');
   }
   function pinchCandidate() { return false; }      // two-finger zoom is handled by the wheel/buttons for now
+  /** The active tool forgets any half-made gesture (a rectangle's first corner, a pencil's ghost). */
+  function cancelTool() {
+    const t = KIT.registry('editorTools').get(state.tool);
+    if (t && t.cancel) { try { t.cancel(); } catch (e) { (KIT.log || console).error('[tool]', e); } }
+  }
+  ED.cancelTool = cancelTool;
   function clampView() {
     const map = state.map;
     if (!map) return;
@@ -845,7 +860,17 @@
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
     overlay.addEventListener('contextmenu', (e) => e.preventDefault());
-    overlay.addEventListener('wheel', (e) => { e.preventDefault(); ED.zoom(e.deltaY < 0 ? 1 : -1, ED.pointFromEvent(e)); }, { passive: false });
+    // A mouse wheel sends one notch (~100px) per click; a trackpad sends dozens of
+    // 1–5px events per flick. One zoom step per ~40px of travel treats both alike.
+    let wheelAcc = 0;
+    overlay.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      wheelAcc += e.deltaMode === 1 ? e.deltaY * 40 : (e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY);
+      if (Math.abs(wheelAcc) < 40) return;
+      const d = wheelAcc < 0 ? 1 : -1;
+      wheelAcc = 0;
+      ED.zoom(d, ED.pointFromEvent(e));
+    }, { passive: false });
     window.addEventListener('resize', () => { if (renderer) renderer.resize(); ED.repaint(); });
 
     renderer = KIT.renderer.create({ canvas, project: state.project, editor: true });

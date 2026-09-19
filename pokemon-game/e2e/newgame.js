@@ -21,6 +21,7 @@ async function run(browser, label, size, touch) {
   await page.waitForFunction(() => window.KIT && KIT.editor && KIT.editor.isOpen && KIT.editor.isOpen(), undefined, { timeout: 30000 });
   await page.waitForTimeout(300);
   const before = await page.evaluate(() => ({ title: KIT.editor.state.project.meta.title, maps: Object.keys(KIT.editor.state.project.maps).length, modules: KIT.editor.state.project.modules.slice() }));
+  check(!(await page.isVisible('.ed-firststeps')), 'the example map, with people on it, shows no first-steps hint');
 
   await page.click('.ed-group[data-group="game"]');
   await page.waitForTimeout(150);
@@ -42,6 +43,7 @@ async function run(browser, label, size, touch) {
   check(after.title === 'Mill Lane' && after.id === 'mill-lane', `the project is now “${after.title}” (${after.id})`);
   check(after.maps.length === 1 && after.mapId === after.maps[0], `one blank map, open (${after.mapId})`);
   check(after.panel === 'tiles', 'and the Tiles panel is up, ready to paint');
+  check(await page.isVisible('.ed-firststeps'), 'with the first steps written at the top (paint, add somebody, play)');
   check(JSON.stringify(after.modules) === JSON.stringify(before.modules), `the modules stayed switched on (${after.modules.join(', ') || 'none'})`);
   await page.screenshot({ path: `${SHOTS}/newgame-${label}-2-blank.png` });
 

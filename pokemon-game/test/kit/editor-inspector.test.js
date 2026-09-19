@@ -265,6 +265,31 @@ test('objects: a rename that cannot work is refused with a reason', () => {
   assert.equal(doc.history.length, 0, 'nothing was written');
 });
 
+test('objects: changing the type lets the new type\'s page defaults through, but keeps what the author chose', () => {
+  const { project, mapId } = projectWithReferences();
+  const doc = docOf(project);
+  const mom = () => doc.get(['maps', mapId, 'objects', 0]);
+  assert.deepEqual([mom().pages[0].layer, mom().pages[0].through, mom().pages[0].visible], ['same', false, true], 'an NPC starts solid and visible');
+  const before = doc.history.length;
+  assert.equal(OBJ.retype(doc, { map: mapId, id: 'mom', type: 'warp' }), true);
+  assert.equal(doc.history.length, before + 1, 'one undo step');
+  assert.equal(mom().type, 'warp');
+  // fillPage alone kept `same`/false, which is a warp the hero can never step on (world.js: solid = same && !through)
+  assert.equal(mom().pages[0].layer, 'below', 'the warp type says below');
+  assert.equal(mom().pages[0].through, true, 'and through');
+  assert.deepEqual(mom().pages[0].props.to, { map: null, x: 0, y: 0 }, 'the warp props are filled in');
+  assert.equal(OBJ.retype(doc, { map: mapId, id: 'mom', type: 'trigger' }), true);
+  assert.equal(mom().pages[0].visible, false, 'a trigger is invisible');
+  // a value the author set stays: a visible trigger turned back into an NPC is still visible
+  doc.set(['maps', mapId, 'objects', 0, 'pages', 0, 'visible'], true);
+  doc.set(['maps', mapId, 'objects', 0, 'pages', 0, 'dir'], 'left');
+  OBJ.retype(doc, { map: mapId, id: 'mom', type: 'npc' });
+  assert.equal(mom().pages[0].visible, true, 'visible was chosen, so it is kept');
+  assert.equal(mom().pages[0].dir, 'left', 'a field no type talks about is untouched');
+  assert.equal(mom().pages[0].through, false, 'through goes back to the schema default');
+  assert.equal(OBJ.retype(doc, { map: mapId, id: 'ghost', type: 'npc' }), false, 'no such event');
+});
+
 // ---- pages -------------------------------------------------------------------------------
 test('objects: the page list shows which page wins under the current conditions', () => {
   const project = blank();

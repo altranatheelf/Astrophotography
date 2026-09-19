@@ -371,6 +371,59 @@ async function run(browser, label, size, opts) {
   }
   check(true, `all ${everyPanel.length} panels opened and were photographed`);
 
+  // --- 8b. the camera and the tools cannot be left in a broken state --------------------
+  await openPanel(page, 'tiles');
+  await page.keyboard.press('9');                                  // Hand
+  const far = await page.evaluate(() => { KIT.editor.set({ view: { x: -300, y: -200 } }); return { x: KIT.editor.state.view.x, y: KIT.editor.state.view.y }; });
+  check(far.x >= -2 && far.y >= -2, `a pan cannot drag the map off screen (view ${far.x}, ${far.y})`);
+  const scale0 = await page.evaluate(() => { KIT.editor.set({ view: { scale: 3 } }); return KIT.editor.state.view.scale; });
+  const canvasBox = await page.$eval('.ed-overlay', el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(canvasBox.x, canvasBox.y);
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -3); await page.waitForTimeout(16); }
+  await page.waitForTimeout(150);
+  const scale1 = await page.evaluate(() => KIT.editor.state.view.scale);
+  check(scale1 <= scale0 + 1, `a trackpad flick zooms one step, not to the ceiling (${scale0} → ${scale1})`);
+  await page.evaluate(() => KIT.editor.set({ view: { scale: 2, x: 0, y: 0 } }));
+  await page.keyboard.press('3');                                  // Rectangle
+  await page.waitForTimeout(100);
+  await tapTile(page, 1, 1);                                       // first corner…
+  await page.waitForTimeout(150);
+  const other = await page.evaluate(() => Object.keys(KIT.editor.state.project.maps).find(id => id !== KIT.editor.state.mapId));
+  const histBefore = await page.evaluate(() => KIT.editor.state.doc.history.length);
+  await page.evaluate((id) => KIT.editor.openMap(id), other);
+  await page.waitForTimeout(200);
+  await tapTile(page, 6, 6);                                       // …must not be finished on another map
+  await page.waitForTimeout(300);
+  const histAfter = await page.evaluate(() => KIT.editor.state.doc.history.length);
+  const lastLabel = await page.evaluate(() => { const h = KIT.editor.state.doc.history; return h.length ? h[h.length - 1].label : null; });
+  check(lastLabel !== 'Rectangle' || histAfter === histBefore, `a corner tapped on one map does not draw a rectangle on the next (${histBefore} → ${histAfter}, last: ${lastLabel})`);
+  for (let i = histBefore; i < histAfter; i++) { await page.click('[title^="Undo"]'); await page.waitForTimeout(150); }
+  await page.evaluate((id) => KIT.editor.openMap(id), await page.evaluate(() => KIT.game.project.start.map));
+  await page.keyboard.press('1');                                  // Pencil again
+  await page.waitForTimeout(100);
+
+  // --- 9a. typing into a page condition keeps the keyboard and every keystroke ----------
+  await openPanel(page, 'objects');
+  await page.evaluate(() => KIT.editor.select({ kind: 'object', map: KIT.editor.state.mapId, id: 'mom' }));
+  await page.waitForTimeout(300);
+  for (const b of await page.$$('.ed-obj-detail .ed-page-tab')) { if ((await b.textContent()).trim() === '2') { await b.click(); break; } }
+  await page.waitForTimeout(300);
+  let box = null;
+  for (const i of await page.$$('.ed-cond-fields input')) { if (await i.isVisible() && (await i.inputValue()) === '1') box = i; }
+  check(!!box, 'Mom’s page 2 condition (chapter ≥ 1) shows its value box');
+  if (box) {
+    await box.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('12');
+    await page.waitForTimeout(400);
+    const typed = await page.evaluate(() => ({ tag: document.activeElement && document.activeElement.tagName, value: document.activeElement && document.activeElement.value }));
+    const stored = await page.evaluate(() => KIT.editor.state.project.maps[KIT.editor.state.mapId].objects.find(o => o.id === 'mom').pages[1].when.value);
+    check(typed.tag === 'INPUT' && typed.value === '12', `typing “12” into the condition keeps the box and the keyboard (${typed.value})`);
+    check(stored === 12, `and the page condition reads chapter ≥ 12 (${stored})`);
+    await page.click('[title^="Undo"]');
+    await page.waitForTimeout(200);
+  }
+
   // --- 9b. the cast is written in the Cast panel, not in raw JSON -------------------
   await openPanel(page, 'cast');
   const castBefore = await page.evaluate(() => Object.keys(KIT.editor.state.project.cast || {}).length);
@@ -411,6 +464,20 @@ async function run(browser, label, size, opts) {
   check(await page.evaluate(() => document.getElementById('editor').hidden), 'closing hides Creator Mode');
   check(await page.evaluate(() => KIT.game.scene() === 'title' || KIT.game.scene() === 'map'), 'the game is on screen again');
   await shot(page, label, '14-closed');
+
+  // --- 12. the second time round, Play here still has a way back (a phone has no Escape) ---
+  await page.evaluate(() => KIT.game.openEditor());
+  await page.waitForTimeout(400);
+  check(await page.evaluate(() => KIT.editor.isOpen()), 'Creator Mode opens a second time');
+  await page.evaluate(() => { KIT.editor.playHere(); });   // not awaited: playHere resolves when the run ends
+  await page.waitForFunction(() => KIT.editor.state.mode === 'play', undefined, { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  check(await page.isVisible('.ed-playbar'), 'and Play here shows ‹ Back to Creator Mode again');
+  await page.click('.ed-playbar .ed-btn');
+  await page.waitForTimeout(400);
+  check((await state(page)).mode === 'edit', 'which comes back to editing');
+  await page.evaluate(() => KIT.editor.close());
+  await page.waitForTimeout(300);
 
   check(problems.length === 0, 'no console errors or page errors' + (problems.length ? ':\n     ' + problems.slice(0, 6).join('\n     ') : ''));
   await context.close();

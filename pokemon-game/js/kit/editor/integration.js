@@ -38,12 +38,27 @@
     }
   });
 
+  // ---- 2b. Delete with a page selected ------------------------------------------------
+  // Tapping a page tab in the Events panel selects `{ kind:'page', id }`; the shell's
+  // deleteSelection only knows `object`, so the Delete key (and the panel's 🗑,
+  // which asks the shell) did nothing until the event was picked again. A page
+  // names its event: delete that.
+  const deleteSelection = ED.deleteSelection;
+  ED.deleteSelection = function () {
+    const s = ED.state.selection;
+    if (s && s.kind === 'page' && s.map && s.id) ED.select({ kind: 'object', map: s.map, id: s.id });
+    return deleteSelection.call(ED);
+  };
+
   // ---- 3. play mode: a way back ------------------------------------------------------
   // playHere() hides the editor's middle, but the host is opaque and the shell's key
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
   let playBar = null;
   function buildPlayBar() {
+    // Every open rebuilds the shell's DOM, so a bar from the last open is a detached
+    // element: forget it, or the second time round Play here has no way back on a phone.
+    if (playBar && !playBar.isConnected) playBar = null;
     if (playBar || !ED.el || !ED.el.root) return;
     playBar = UI.make('div.ed-playbar');
     const back = UI.make('button.ed-btn.primary', { text: '‹ Back to Creator Mode' });

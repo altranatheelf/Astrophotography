@@ -955,7 +955,13 @@
       box.appendChild(err);
       el.appendChild(box);
 
-      const set = (next) => { cond = next; onChange(cond); paint(); };
+      // `quiet`: a value typed into one of the tree's own boxes. The tree used to be
+      // rebuilt on every change, which threw away the box being typed in after each
+      // keystroke — "12" in a page condition came out as "1" with the keyboard gone.
+      // The box already shows what was typed; only the text line and the summary
+      // under the node need to follow. Anything that changes the SHAPE of the
+      // condition (a kind, a child added or removed) still rebuilds.
+      const set = (next, quiet) => { cond = next; onChange(cond); if (quiet) paintText(); else paint(); };
       function paint() { paintTree(); paintText(); }
       function paintText() { if (document.activeElement !== textIn) textIn.value = INS.conditionText(cond); err.hidden = true; }
       function paintTree() { clear(tree); tree.appendChild(condNode(cond, set, ctx, 0)); }
@@ -964,7 +970,12 @@
     },
   });
 
-  /** One condition row (and its children for all/any/not). */
+  /**
+   * One condition row (and its children for all/any/not).
+   * setCond(next, quiet) — `quiet` means a field of a leaf changed and the DOM is
+   * already right; it is passed up so no ancestor rebuilds either. `cur` is the
+   * node's latest value, since quiet edits leave the tree in place.
+   */
   function condNode(cond, setCond, ctx, depth) {
     const wrap = make('div.ed-cond-node');
     if (depth) wrap.classList.add('is-nested');
@@ -975,6 +986,7 @@
       wrap.appendChild(row);
       return wrap;
     }
+    let cur = cond;
     const def = KIT.registry('conditions').get(cond.kind);
     const head = make('div.ed-row.ed-cond-head');
     const kindSel = make('select.ed-cond-kind');
@@ -982,8 +994,8 @@
     kindSel.value = cond.kind;
     kindSel.onchange = () => {
       const next = INS.newCondition(kindSel.value);
-      if (next && (kindSel.value === 'not') && cond) next.of = cond;
-      if (next && (kindSel.value === 'all' || kindSel.value === 'any') && cond) next.of = [cond];
+      if (next && (kindSel.value === 'not') && cur) next.of = cur;
+      if (next && (kindSel.value === 'all' || kindSel.value === 'any') && cur) next.of = [cur];
       setCond(next);
     };
     head.appendChild(kindSel);
@@ -997,34 +1009,40 @@
       const of = Array.isArray(cond.of) ? cond.of : [];
       of.forEach((child, i) => {
         if (i) kids.appendChild(make('div.ed-cond-join', { text: cond.kind === 'all' ? 'and' : 'or' }));
-        kids.appendChild(condNode(child, (next) => {
-          const list = of.slice();
+        kids.appendChild(condNode(child, (next, quiet) => {
+          const list = (Array.isArray(cur.of) ? cur.of : []).slice();
           if (next == null) list.splice(i, 1); else list[i] = next;
-          setCond(Object.assign({}, cond, { of: list }));
+          cur = Object.assign({}, cur, { of: list });
+          setCond(cur, quiet && next != null);
         }, ctx, depth + 1));
       });
-      kids.appendChild(addButton(cond.kind === 'all' ? '＋ and…' : '＋ or…', (kind) => setCond(Object.assign({}, cond, { of: of.concat([INS.newCondition(kind)]) }))));
+      kids.appendChild(addButton(cond.kind === 'all' ? '＋ and…' : '＋ or…', (kind) => setCond(Object.assign({}, cur, { of: (Array.isArray(cur.of) ? cur.of : []).concat([INS.newCondition(kind)]) }))));
       wrap.appendChild(kids);
       return wrap;
     }
     if (cond.kind === 'not') {
       const kids = make('div.ed-cond-kids');
-      kids.appendChild(condNode(cond.of || null, (next) => setCond(Object.assign({}, cond, { of: next })), ctx, depth + 1));
+      kids.appendChild(condNode(cond.of || null, (next, quiet) => { cur = Object.assign({}, cur, { of: next }); setCond(cur, quiet); }, ctx, depth + 1));
       wrap.appendChild(kids);
       return wrap;
     }
     const fieldsRow = make('div.ed-cond-fields');
+    const says = make('div.ed-sub.ed-cond-says', { text: INS.conditionSays(cond, ctx) });
     for (const fd of S.fields(def.fields || [])) {
       const cell = make('div.ed-cond-cell');
       cell.appendChild(make('span.ed-sub', { text: fd.label || titleCase(fd.key) }));
       const body = make('div');
       cell.appendChild(body);
       const value = cond[fd.key] === undefined ? S.defaultFor(fd, ctx) : cond[fd.key];
-      INS.field(body, fd, value, (v) => setCond(Object.assign({}, cond, { [fd.key]: v })), Object.assign({}, ctx, { compact: true }));
+      INS.field(body, fd, value, (v) => {
+        cur = Object.assign({}, cur, { [fd.key]: v });
+        says.textContent = INS.conditionSays(cur, ctx);
+        setCond(cur, true);
+      }, Object.assign({}, ctx, { compact: true }));
       fieldsRow.appendChild(cell);
     }
     wrap.appendChild(fieldsRow);
-    wrap.appendChild(make('div.ed-sub.ed-cond-says', { text: INS.conditionSays(cond, ctx) }));
+    wrap.appendChild(says);
     return wrap;
   }
   function addButton(label, onPick) {

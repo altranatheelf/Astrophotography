@@ -161,6 +161,11 @@
       this.host = host;
       UI.clear(host);
 
+      // --- first steps, on a map with nobody on it ------------------------------
+      this.firstSteps = make('div.ed-hint.ed-firststeps', { text: 'A blank map. Paint the floor with the Pencil, then Events › ＋ Add puts somebody on it, and ▶ Play here walks it.' });
+      this.firstSteps.hidden = true;
+      host.appendChild(this.firstSteps);
+
       // --- layer -------------------------------------------------------------
       this.layerChips = make('div.ed-chips');
       for (const l of LAYERS) {
@@ -226,6 +231,10 @@
       if (!this._offChange) this._offChange = ED.on('change', (patch) => {
         if (!patch) return;
         if (patch.layer !== undefined && !fitsLayer(ED.state.tile, patch.layer)) ED.state.tile = T.brushFor(patch.layer);
+        // The Terrain brush only ever paints terrain (its first tap flips the layer
+        // back): leaving the Terrain layer with it in hand, by chip or by [ ],
+        // would make "Painting on Ground" paint terrain. Hand over to the Pencil.
+        if (patch.layer !== undefined && patch.layer !== 'terrain' && patch.tool === undefined && ED.state.tool === 'terrain') ED.set({ tool: 'pencil' });
         this.refresh(ED);
       });
 
@@ -240,6 +249,7 @@
       T.remember(ED.state.layer, ED.state.tile);
       const patch = { layer, tile: T.brushFor(layer) };
       if (layer === 'terrain' && !['terrain', 'pencil', 'fill', 'rect', 'eraser'].includes(ED.state.tool)) patch.tool = 'terrain';
+      if (layer !== 'terrain' && ED.state.tool === 'terrain') patch.tool = 'pencil';    // and back again: the brush follows the layer
       ED.set(patch);
       if (ED.updateStatus) ED.updateStatus();      // the status bar names the layer; the shell only refreshes it on a pointer move
       this.group = null;
@@ -257,6 +267,7 @@
       if (!this.host || this.host.hidden) return;
       const st = ed.state;
       const layer = LAYERS.find(l => l.id === st.layer) || LAYERS[0];
+      this.firstSteps.hidden = !(st.map && !(st.map.objects || []).length);
       for (const b of this.layerChips.querySelectorAll('[data-layer]')) b.setAttribute('aria-pressed', String(b.dataset.layer === st.layer));
       this.layerHelp.textContent = layer.help;
       for (const b of this.viewChips.querySelectorAll('[data-show]')) b.setAttribute('aria-pressed', String(!!st.show[b.dataset.show]));
