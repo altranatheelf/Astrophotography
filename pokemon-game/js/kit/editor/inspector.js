@@ -336,12 +336,13 @@
    */
   INS.pickOnMap = function (opts) {
     INS.stopPicking(false);
-    picking = Object.assign({ prevTool: ED.state.tool }, opts || {});
+    const mine = picking = Object.assign({ prevTool: ED.state.tool }, opts || {});
     ED.set({ tool: 'pick-position' });
     if (ED.el && ED.el.root) ED.el.root.classList.add('ed-is-picking');
     if (ED.toast) ED.toast(opts && opts.hint ? opts.hint : 'Tap the map to pick a tile');
     document.addEventListener('keydown', onPickKey, true);
-    return () => INS.stopPicking(true);
+    // cancel() ends THIS pick and nothing that was started after it
+    return (silent) => { if (picking === mine) INS.stopPicking(silent !== false); };
   };
   INS.isPicking = () => !!picking;
   INS.stopPicking = function (silent) {
@@ -749,11 +750,12 @@
       row.appendChild(make('span.ed-sub', { text: 'x' })); row.appendChild(nx);
       row.appendChild(make('span.ed-sub', { text: 'y' })); row.appendChild(ny);
       el.appendChild(row);
+      let cancelPick = null;       // set while THIS widget's pick is the one running
       const pick = btn('✛ Pick on the map', 'Tap the map to set this position', () => {
         if (INS.isPicking()) { INS.stopPicking(false); return; }
         pick.classList.add('is-picking');
         pick.textContent = 'Tap the map… (cancel)';
-        INS.pickOnMap({
+        cancelPick = INS.pickOnMap({
           hint: `Tap the map to set ${f.label || titleCase(f.key)}`,
           onPick(p) {
             cur = Object.assign({}, cur, wantsMap ? { map: p.map, x: p.x, y: p.y } : { x: p.x, y: p.y });
@@ -763,7 +765,7 @@
           },
           onCancel: done,
         });
-        function done() { pick.classList.remove('is-picking'); pick.textContent = '✛ Pick on the map'; }
+        function done() { cancelPick = null; pick.classList.remove('is-picking'); pick.textContent = '✛ Pick on the map'; }
       }, 'wide');
       el.appendChild(pick);
       const paint = () => {
@@ -772,7 +774,14 @@
         if (mapSel) mapSel.value = cur.map || '';
       };
       paint();
-      return { set(v) { cur = KIT.isObject(v) ? Object.assign({}, v) : { x: 0, y: 0 }; paint(); } };
+      return {
+        set(v) { cur = KIT.isObject(v) ? Object.assign({}, v) : { x: 0, y: 0 }; paint(); },
+        // The form this widget lived in is gone (a preset form cancelled, another
+        // event opened): a pick still running would answer the next tap on the map
+        // through a form that no longer exists. Ended after the teardown, not
+        // inside it — stopPicking refreshes every panel.
+        destroy() { const c = cancelPick; cancelPick = null; if (c) setTimeout(() => c(true), 0); },
+      };
     },
   });
 

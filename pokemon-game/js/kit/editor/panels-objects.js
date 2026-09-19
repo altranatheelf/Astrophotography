@@ -90,6 +90,40 @@
   };
 
   /**
+   * retype(doc, { map, id, type }) -> true — change an event's type and let the new
+   * type's page defaults through.
+   *
+   * fillPage keeps whatever a page already says, which is right for a page the
+   * author wrote and wrong for one that merely inherited the old type's defaults:
+   * an NPC turned into a Door / Warp kept `layer: 'same', through: false` and so
+   * stayed solid — a door the hero could never step on, and no problem said so.
+   * A value that still equals the OLD type's default is inherited, not chosen, so
+   * it is dropped and the new type (or the schema) decides.
+   */
+  OBJ.retype = function (doc, o) {
+    const has = (obj, k) => Object.prototype.hasOwnProperty.call(obj || {}, k);
+    const path = ['maps', o.map, 'objects', (doc.get(['maps', o.map, 'objects']) || []).findIndex(x => x.id === o.id)];
+    if (path[3] < 0) return false;
+    const typeOf = (t) => (KIT.registry.exists('objectTypes') && KIT.registry('objectTypes').get(t)) || null;
+    const from = ((typeOf(doc.get(path.concat('type'))) || {}).page) || {};
+    const to = ((typeOf(o.type) || {}).page) || {};
+    const keys = Object.keys(from).concat(Object.keys(to)).filter((k, i, a) => a.indexOf(k) === i);
+    const schemaDefault = (k) => { const f = S.fields(P.fields.page).find(f => f.key === k); return f ? S.defaultFor(f) : undefined; };
+    doc.transaction('Change event type', () => {
+      doc.set(path.concat('type'), o.type);
+      doc.set(path.concat('pages'), (doc.get(path.concat('pages')) || []).map(pg => {
+        const next = Object.assign({}, pg);
+        for (const k of keys) {
+          const was = has(from, k) ? from[k] : schemaDefault(k);
+          if (KIT.deepEqual(next[k], was)) delete next[k];
+        }
+        return P.fillPage(next, o.type);
+      }));
+    });
+    return true;
+  };
+
+  /**
    * placePreset(doc, { preset, map, x, y, input }) -> [ids]
    * ops.placeObject only handles one map; a preset may build objects on two (a
    * transfer pair), so this walks KIT.project.buildPreset's [{ map, object }] itself.
@@ -136,6 +170,7 @@
   let el = {};            // the panel's DOM
   let search = '';
   let pageIndex = 0;
+  let seenSel = null;     // the selection pageIndex was last read from (a page tab sets one; the page actions must not be undone by it)
   let listSig = '';
   let detailSig = '';
   let forms = [];
@@ -210,7 +245,14 @@
   function renderAdd() {
     clear(el.add);
     el.add.hidden = !addOpen;
-    if (!addOpen) { presetDraft = null; renderPresetForm(); return; }
+    if (!addOpen) {
+      presetDraft = null;
+      renderPresetForm();
+      // Closing the row is the way out of “tap the map to place it” — a phone has no
+      // Escape — and a pick left running would answer a later tap with a dead form.
+      if (INS.isPicking && INS.isPicking()) INS.stopPicking(false);
+      return;
+    }
     renderPresetForm();
     el.add.appendChild(make('div.ed-hint', { text: 'Pick one, then tap the map where it goes.' }));
     const presets = KIT.registry('presets').list().filter(p => (p.kind || 'object') === 'object');
@@ -301,9 +343,14 @@
   // ---- render ----------------------------------------------------------------------
   function render() {
     if (!ED.state.project || !ED.state.project.maps[mapId()]) return;
-    // the shell does not call panel.onSelect, so the selection is read here
+    // the shell does not call panel.onSelect, so the selection is read here — once
+    // per selection. Reading it on every render put the page back to the tab you
+    // had tapped after every “Add a page” / “Later” / “Delete page”.
     const sel = ED.state.selection;
-    if (sel && (sel.kind === 'page' || sel.kind === 'slot') && sel.page != null && sel.page !== pageIndex) { pageIndex = sel.page; detailSig = ''; }
+    if (sel !== seenSel) {
+      seenSel = sel;
+      if (sel && (sel.kind === 'page' || sel.kind === 'slot') && sel.page != null && sel.page !== pageIndex) { pageIndex = sel.page; detailSig = ''; }
+    }
     renderList();
     renderDetail();
   }
@@ -455,7 +502,13 @@
       ED.select({ kind: 'object', map: mapId(), id });
       ED.toast(`Copied — ${id}`);
     }));
-    bar.appendChild(btn('🗑', 'Delete this event', () => ED.deleteSelection(), 'danger'));
+    bar.appendChild(btn('🗑', 'Delete this event', () => {
+      // A page tab leaves a `page` selection behind, and the shell's delete only
+      // knows `object`: say which event this is before asking it.
+      const s = ED.state.selection;
+      if (!s || s.kind !== 'object' || s.id !== obj.id) ED.select({ kind: 'object', map: mapId(), id: obj.id });
+      ED.deleteSelection();
+    }, 'danger'));
     bar.appendChild(btn('▶ Play here', 'Play the game standing next to this event', () => ED.playHere({ at: { x: obj.x, y: Math.min(obj.y + 1, ED.state.map.height - 1) } })));
     host.appendChild(bar);
 
@@ -487,10 +540,7 @@
         if (p[0] === 'at') {
           commit('Move event', (doc, O) => O.moveObject(doc, { map: mapId(), id: cur.id, x: v.x | 0, y: v.y | 0 }));
         } else if (p[0] === 'type') {
-          commit('Change event type', (doc) => {
-            doc.set(base.concat('type'), v);
-            doc.set(base.concat('pages'), (doc.get(base.concat('pages')) || []).map(pg => P.fillPage(pg, v)));
-          });
+          commit('Change event type', (doc) => OBJ.retype(doc, { map: mapId(), id: cur.id, type: v }));
           detailSig = '';
           render();
         } else {
@@ -645,15 +695,11 @@
     head.appendChild(make('span.ed-spacer'));
     head.appendChild(btn('＋', 'Add a page', () => {
       commit('Add page', (doc, O) => O.addPage(doc, { map: mapId(), id: obj.id }));
-      pageIndex = (selectedObject().pages || []).length - 1;
-      detailSig = '';
-      render();
+      showPage(obj.id, (selectedObject().pages || []).length - 1);
     }));
     head.appendChild(btn('⧉', 'Duplicate this page', () => {
       commit('Duplicate page', (doc, O) => O.addPage(doc, { map: mapId(), id: obj.id, copyFrom: pageIndex }));
-      pageIndex = (selectedObject().pages || []).length - 1;
-      detailSig = '';
-      render();
+      showPage(obj.id, (selectedObject().pages || []).length - 1);
     }));
     head.appendChild(btn('▲', 'Earlier (checked sooner)', () => movePage(obj, -1)));
     head.appendChild(btn('▼', 'Later (wins over the ones above)', () => movePage(obj, 1)));
@@ -661,9 +707,7 @@
       if ((obj.pages || []).length <= 1) { ED.toast('An event needs at least one page'); return; }
       if (!(await ED.confirm(`Delete page ${pageIndex + 1} of “${obj.name || obj.id}”?`))) return;
       commit('Delete page', (doc, O) => O.deletePage(doc, { map: mapId(), id: obj.id, page: pageIndex }));
-      pageIndex = Math.max(0, pageIndex - 1);
-      detailSig = '';
-      render();
+      showPage(obj.id, Math.max(0, pageIndex - 1));
     }, 'danger');
     del.disabled = (obj.pages || []).length <= 1;
     head.appendChild(del);
@@ -699,9 +743,19 @@
     const to = pageIndex + delta;
     if (to < 0 || to >= (obj.pages || []).length) return;
     commit('Reorder pages', (doc, O) => O.movePage(doc, { map: mapId(), id: obj.id, page: pageIndex, to }));
-    pageIndex = to;
+    showPage(obj.id, to);
+  }
+  /**
+   * Show page `index` of the event after a page action. When a page tab had been
+   * tapped the selection names a page too, so it is moved along — the script
+   * editor and the problems list read it — and either way the detail is rebuilt.
+   */
+  function showPage(id, index) {
+    pageIndex = index;
     detailSig = '';
-    render();
+    const s = ED.state.selection;
+    if (s && (s.kind === 'page' || s.kind === 'slot') && s.id === id) ED.select({ kind: 'page', map: mapId(), id, page: index });
+    else render();
   }
 
   // ---- script slots --------------------------------------------------------------------

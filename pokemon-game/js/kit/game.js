@@ -488,6 +488,21 @@
     syncViewport();
     render();
   };
+  /** Should the on-screen pad be on screen? The setting, or a guess from the device. */
+  G.wantsButtons = function (s) {
+    s = s || settings();
+    if (s.buttons === 'on') return true;
+    if (s.buttons === 'off') return false;
+    return !!(KIT.input.isTouch && KIT.input.isTouch());
+  };
+  /** applyButtons() — show or hide the pad to match the setting, and give the map the room. */
+  G.applyButtons = function () {
+    if (!controls) return;
+    const show = G.wantsButtons();
+    if (controls.hidden === !show) return;
+    controls.hidden = !show;
+    G.resize();
+  };
 
   /** boot({ mount, project }) -> Promise<KIT.game> */
   G.boot = async function (opts) {
@@ -535,6 +550,7 @@
 
     KIT.input.attach(canvas);
     KIT.input.mount(controls, { players: s.coop ? 2 : 1 });
+    G.applyButtons();
     KIT.input.onPress((ev) => {
       KIT.audio.unlock();
       // The same gesture that unlocks sound is the one a browser will accept a

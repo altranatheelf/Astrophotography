@@ -238,6 +238,8 @@
     return body;
   }
 
+  // What the “Start a new game” box holds, kept across redraws like moveState.
+  const newState = { open: false, name: '' };
   // The last thing the “other device” section said. It outlives the panel, because
   // the act it reports on — opening a game — rebuilds the panel.
   const moveState = { said: null, open: false };
@@ -488,6 +490,36 @@
       // translation is one text file beside the project, keyed on the lines
       // themselves, and the editor's whole job is to hand that file out and take
       // it back.
+      // ---- starting over ----------------------------------------------------------
+      // The demo is a worked example, not a cage. A person who wants THEIR game
+      // needs a blank map with their title on it, from the phone, without a CLI.
+      section(host, 'Start a new game', newState.open === true, (body) => {
+        body.appendChild(make('div.ed-hint', { text: 'A blank map with your title on it, in place of this game. Ctrl+Z brings this one back, and “Save a copy” above keeps it for good.' }));
+        const name = make('input.ed-newgame-name');
+        name.type = 'text';
+        name.placeholder = 'What is it called?';
+        name.value = newState.name || '';
+        name.setAttribute('aria-label', 'The new game’s title');
+        name.oninput = () => { newState.name = name.value; };
+        body.appendChild(name);
+        const row = make('div.ed-row');
+        row.appendChild(btn('✦ Start from a blank map', 'Replace this game with a blank one (one undo step)', async () => {
+          const title = (name.value || '').trim() || 'New Adventure';
+          const was = (p.meta && p.meta.title) || 'this game';
+          if (!(await ED.confirm(`Replace “${was}” with a blank game called “${title}”? Ctrl+Z brings “${was}” back.`, { yes: 'Start over' }))) return;
+          // The modules stay as they are: a blank game with the same engine, not a different one.
+          const fresh = P.normalize(Object.assign(P.blank({ title, id: KIT.slug(title) || 'new-adventure' }), { modules: (p.modules || []).slice() })).project;
+          newState.open = false; newState.name = '';
+          commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
+          ED.select(null);
+          ED.refresh({ drop: true });
+          ED.openMap(fresh.start.map);
+          ED.set({ panel: 'tiles' });
+          ED.toast(`“${title}” — a blank map. Paint something.`);
+        }, 'primary'));
+        body.appendChild(row);
+      });
+
       const langBody = section(host, 'Languages', langState.open === true, (body) => {
         const L = KIT.lang;
         if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
@@ -1051,8 +1083,13 @@
       if (sig === this._sig) return;
       if (document.activeElement === el.ta) return;
       this._sig = sig;
-      el.what.textContent = where.label;
-      el.whole.setAttribute('aria-pressed', String(!where.path.length));
+      // "Showing: Mom on Home" and a chip to widen to the whole project; with nothing
+      // selected there is nothing to widen, so the chip stays out of the way.
+      const selected = PP.dataPath(p, ed.state.selection);
+      el.what.textContent = where.path.length ? `Showing ${where.label}` : 'Showing the whole project';
+      el.whole.hidden = !selected.path.length;
+      el.whole.textContent = this._whole ? `Back to ${selected.label}` : 'Whole project';
+      el.whole.setAttribute('aria-pressed', String(!!this._whole));
       el.ta.value = JSON.stringify(value === undefined ? null : value, null, 2);
       el.status.textContent = `${el.ta.value.length} characters`;
     },

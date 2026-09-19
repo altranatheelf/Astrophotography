@@ -19,6 +19,9 @@
   const DEFAULT_SETTINGS = {
     textSpeed: 'normal', zoom: 'auto', sound: true, music: true,
     soundVolume: 0.9, musicVolume: 0.5, coop: false, reduceMotion: false,
+    // The on-screen pad: 'auto' shows it where there is a touch screen and hides
+    // it where there is a mouse, 'on' and 'off' overrule the guess.
+    buttons: 'auto',
     // null = never chosen, so the first boot may guess from the browser.
     // A chosen language is a device preference and outlives every save.
     language: null,
@@ -97,6 +100,11 @@
   let adapter = null;
   let readyPromise = null;
   let projectId = 'kit';
+  // The draft is the built-in game's understudy, so it lives under the built-in
+  // game's id — the one boot derives BEFORE reading the draft. Keying it by the
+  // current id instead lost work: open a game whose meta.id differs (or start a
+  // blank one), and every autosave after that went to a key boot never reads.
+  let draftKey = null;
   let settingsCache = null;
   let metaCache = null;
   let draftTimer = null;
@@ -191,7 +199,7 @@
     return readyPromise;
   };
   /** _reset() — tests only: forget the adapter and the caches. */
-  S._reset = function () { adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
+  S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
   S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning });
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
@@ -262,10 +270,11 @@
     }
     if (!base) { base = KIT.project.blank(); source = 'default'; }
     projectId = (base.meta && base.meta.id) || 'kit';
+    draftKey = key('draft');
     metaCache = Object.assign({}, DEFAULT_META, (await S.get(key('meta'))) || {});
 
     if (opts.draft !== false) {
-      const draft = await S.get(key('draft'));
+      const draft = await S.get(draftKey);
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
     }
     let project = base, problems = [];
@@ -301,13 +310,15 @@
       const p = draftPending;
       draftPending = null;
       if (!p) return Promise.resolve(false);
-      return S.set(key('draft'), { savedAt: new Date().toISOString(), writerId: S.writerId(), project: p });
+      return S.set(draftKey || key('draft'), { savedAt: new Date().toISOString(), writerId: S.writerId(), project: p });
     };
     if (opts && opts.now) return flush();
     return new Promise((resolve) => { draftTimer = setTimeout(() => resolve(flush()), 500); });
   };
-  S.discardDraft = function () { if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; } draftPending = null; return S.del(key('draft')); };
-  S.hasDraft = async function () { return !!(await S.get(key('draft'))); };
+  S.discardDraft = function () { if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; } draftPending = null; return S.del(draftKey || key('draft')); };
+  S.hasDraft = async function () { return !!(await S.get(draftKey || key('draft'))); };
+  /** draftKey() — where the draft lives (for tests and the storage experiment). */
+  S.draftKey = () => draftKey || key('draft');
   let writerId = null;
   S.writerId = function () { return writerId || (writerId = KIT.uid('tab')); };
 

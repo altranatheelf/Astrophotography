@@ -173,18 +173,22 @@
       this.layerHelp = make('p.ed-hint');
       host.appendChild(this.layerHelp);
 
-      // --- what the brush is holding -----------------------------------------
+      // --- what the brush is holding, and the search, on one row ---------------
+      // (on a phone the palette was below the fold: every row above it costs a swipe)
+      const brushRow = make('div.ed-brushrow');
       this.brushLine = make('div.ed-brush');
-      host.appendChild(this.brushLine);
+      brushRow.appendChild(this.brushLine);
 
       // --- the palette (tiles / terrains / regions / collision) ---------------
       this.searchWrap = make('div.ed-field.ed-searchwrap');
       this.searchInput = make('input');
       this.searchInput.type = 'search';
-      this.searchInput.placeholder = 'Search tiles by name…';
+      this.searchInput.placeholder = 'Search tiles…';
+      this.searchInput.setAttribute('aria-label', 'Search tiles by name');
       this.searchInput.oninput = () => { this.search = this.searchInput.value.trim().toLowerCase(); this.renderPalette(ED); };
       this.searchWrap.appendChild(this.searchInput);
-      host.appendChild(this.searchWrap);
+      brushRow.appendChild(this.searchWrap);
+      host.appendChild(brushRow);
 
       this.groupTabs = make('div.ed-subtabs');
       host.appendChild(this.groupTabs);

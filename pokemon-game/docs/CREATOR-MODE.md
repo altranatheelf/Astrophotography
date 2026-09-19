@@ -25,6 +25,13 @@ into a draft in the browser a moment after you make it (the status bar says
 `Ctrl+S` saves right now if you want to be sure. To hand the game to someone
 else, run `node tools/build.js` — one `.html` file with everything in it.
 
+## Your own game
+
+The game that opens is a worked example. To start yours: **Game › Project ›
+Start a new game**, type a title, and **Start from a blank map**. That puts a
+blank outdoor map with your title on it in place of the example, as one undo
+step, and it is what loads from then on. Everything below works the same on it.
+
 ## The screen
 
 ```

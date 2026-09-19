@@ -462,6 +462,7 @@ body { overflow: hidden; }
   /* Off the Map group the sheet is what you are reading, so it gets most of the screen. */
   .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
+  .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
   .ed-group { padding: 6px 2px; font-size: 15px; }
   .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
@@ -639,6 +640,9 @@ textarea.is-bad { border-color: #b03434; }
 .ed-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .ed-subtabs .ed-tab { white-space: nowrap; text-transform: capitalize; }
 .ed-searchwrap { margin-bottom: 6px; }
+.ed-brushrow { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.ed-brushrow .ed-brush { flex: 1 1 200px; margin-bottom: 6px; }
+.ed-brushrow .ed-searchwrap { flex: 1 1 140px; margin-bottom: 6px; }
 .ed-searchwrap input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-palette { margin-bottom: 6px; }
 .ed-armed { color: #ffd166; }
@@ -702,6 +706,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
 .ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-cast-form { margin: 6px 0 8px; }
 .ed-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; flex: 1 1 120px; min-width: 110px; }
 .ed-picker { border: 1px solid #3d4a63; border-radius: 8px; background: #101728; padding: 8px; margin-bottom: 8px; }
@@ -3908,6 +3913,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const DEFAULT_SETTINGS = {
     textSpeed: 'normal', zoom: 'auto', sound: true, music: true,
     soundVolume: 0.9, musicVolume: 0.5, coop: false, reduceMotion: false,
+    // The on-screen pad: 'auto' shows it where there is a touch screen and hides
+    // it where there is a mouse, 'on' and 'off' overrule the guess.
+    buttons: 'auto',
     // null = never chosen, so the first boot may guess from the browser.
     // A chosen language is a device preference and outlives every save.
     language: null,
@@ -3986,6 +3994,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   let adapter = null;
   let readyPromise = null;
   let projectId = 'kit';
+  // The draft is the built-in game's understudy, so it lives under the built-in
+  // game's id — the one boot derives BEFORE reading the draft. Keying it by the
+  // current id instead lost work: open a game whose meta.id differs (or start a
+  // blank one), and every autosave after that went to a key boot never reads.
+  let draftKey = null;
   let settingsCache = null;
   let metaCache = null;
   let draftTimer = null;
@@ -4080,7 +4093,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return readyPromise;
   };
   /** _reset() — tests only: forget the adapter and the caches. */
-  S._reset = function () { adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
+  S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
   S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning });
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
@@ -4151,10 +4164,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     if (!base) { base = KIT.project.blank(); source = 'default'; }
     projectId = (base.meta && base.meta.id) || 'kit';
+    draftKey = key('draft');
     metaCache = Object.assign({}, DEFAULT_META, (await S.get(key('meta'))) || {});
 
     if (opts.draft !== false) {
-      const draft = await S.get(key('draft'));
+      const draft = await S.get(draftKey);
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
     }
     let project = base, problems = [];
@@ -4190,13 +4204,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const p = draftPending;
       draftPending = null;
       if (!p) return Promise.resolve(false);
-      return S.set(key('draft'), { savedAt: new Date().toISOString(), writerId: S.writerId(), project: p });
+      return S.set(draftKey || key('draft'), { savedAt: new Date().toISOString(), writerId: S.writerId(), project: p });
     };
     if (opts && opts.now) return flush();
     return new Promise((resolve) => { draftTimer = setTimeout(() => resolve(flush()), 500); });
   };
-  S.discardDraft = function () { if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; } draftPending = null; return S.del(key('draft')); };
-  S.hasDraft = async function () { return !!(await S.get(key('draft'))); };
+  S.discardDraft = function () { if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; } draftPending = null; return S.del(draftKey || key('draft')); };
+  S.hasDraft = async function () { return !!(await S.get(draftKey || key('draft'))); };
+  /** draftKey() — where the draft lives (for tests and the storage experiment). */
+  S.draftKey = () => draftKey || key('draft');
   let writerId = null;
   S.writerId = function () { return writerId || (writerId = KIT.uid('tab')); };
 
@@ -4824,6 +4840,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'speed-slow', default: 'slow' }, { id: 'speed-normal', default: 'normal' },
     { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
     { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
+    { id: 'buttons', default: 'On-screen buttons' }, { id: 'buttons-auto', default: 'auto' }, { id: 'buttons-on', default: 'on' }, { id: 'buttons-off', default: 'off' },
     { id: 'save-failed', default: 'Could not save.' },
     { id: 'sound-volume', default: 'Sound volume' }, { id: 'music-volume', default: 'Music volume' },
     { id: 'went-wrong', default: 'Something went wrong there.' },
@@ -18586,6 +18603,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const ED_KEYS = KIT.keysScreen = KIT.keysScreen || {};
 
   const TEXT_SPEEDS = ['slow', 'normal', 'fast', 'instant'];
+
+  const BUTTONS = ['auto', 'on', 'off'];
   const ZOOMS = ['auto', 'small', 'normal', 'large'];
 
   function settings() { return KIT.storage.settings(); }
@@ -18691,6 +18710,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
           ...(s.music ? [{ label: t('music-volume'), value: pct(s.musicVolume, 0.5), action: 'cycle:musicVolume' }] : []),
           { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
+          // The pad is a phone thing; on a laptop it is a quarter of the screen of
+          // buttons nobody presses. Auto guesses from the device, on/off overrule it.
+          { label: t('buttons'), value: t('buttons-' + (BUTTONS.includes(s.buttons) ? s.buttons : 'auto')), action: 'cycle:buttons' },
           // The Game Accessibility Guidelines' Basic tier opens with "allow
           // controls to be remapped", and this engine had the whole API — bind,
           // setKeymap, resetKeymap, keymaps, saved in settings.keys — with no
@@ -18731,6 +18753,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
+        else if (action === 'cycle:buttons') {
+          const now = BUTTONS.includes(s.buttons) ? s.buttons : 'auto';
+          const i = (BUTTONS.indexOf(now) + (dir || 1) + BUTTONS.length) % BUTTONS.length;
+          save({ buttons: BUTTONS[i] });
+          if (KIT.game && KIT.game.applyButtons) KIT.game.applyButtons();
+        }
         else return false;
         return true;
       }
@@ -19803,6 +19831,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     syncViewport();
     render();
   };
+  /** Should the on-screen pad be on screen? The setting, or a guess from the device. */
+  G.wantsButtons = function (s) {
+    s = s || settings();
+    if (s.buttons === 'on') return true;
+    if (s.buttons === 'off') return false;
+    return !!(KIT.input.isTouch && KIT.input.isTouch());
+  };
+  /** applyButtons() — show or hide the pad to match the setting, and give the map the room. */
+  G.applyButtons = function () {
+    if (!controls) return;
+    const show = G.wantsButtons();
+    if (controls.hidden === !show) return;
+    controls.hidden = !show;
+    G.resize();
+  };
 
   /** boot({ mount, project }) -> Promise<KIT.game> */
   G.boot = async function (opts) {
@@ -19850,6 +19893,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
     KIT.input.attach(canvas);
     KIT.input.mount(controls, { players: s.coop ? 2 : 1 });
+    G.applyButtons();
     KIT.input.onPress((ev) => {
       KIT.audio.unlock();
       // The same gesture that unlocks sound is the one a browser will accept a
@@ -27177,13 +27221,14 @@ PKMN.TILES.register([
   ED.updateStatus = updateStatus;
 
   ED.toast = function (text) { if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text); };
-  ED.confirm = function (text) {
+  /** confirm(text, { yes }) — a two-button question; the yes button says what it does ('Delete' unless told otherwise). */
+  ED.confirm = function (text, opts) {
     return new Promise((resolve) => {
       const wrap = UI.make('div.ed-confirm');
       wrap.appendChild(UI.make('p', { text }));
       const row = UI.make('div.ed-confirm-row');
       const no = UI.make('button.ed-btn', { text: 'Cancel' });
-      const yes = UI.make('button.ed-btn.danger', { text: 'Delete' });
+      const yes = UI.make('button.ed-btn.danger', { text: (opts && opts.yes) || 'Delete' });
       no.onclick = () => { wrap.remove(); resolve(false); };
       yes.onclick = () => { wrap.remove(); resolve(true); };
       row.appendChild(no); row.appendChild(yes);
@@ -29523,18 +29568,22 @@ PKMN.TILES.register([
       this.layerHelp = make('p.ed-hint');
       host.appendChild(this.layerHelp);
 
-      // --- what the brush is holding -----------------------------------------
+      // --- what the brush is holding, and the search, on one row ---------------
+      // (on a phone the palette was below the fold: every row above it costs a swipe)
+      const brushRow = make('div.ed-brushrow');
       this.brushLine = make('div.ed-brush');
-      host.appendChild(this.brushLine);
+      brushRow.appendChild(this.brushLine);
 
       // --- the palette (tiles / terrains / regions / collision) ---------------
       this.searchWrap = make('div.ed-field.ed-searchwrap');
       this.searchInput = make('input');
       this.searchInput.type = 'search';
-      this.searchInput.placeholder = 'Search tiles by name…';
+      this.searchInput.placeholder = 'Search tiles…';
+      this.searchInput.setAttribute('aria-label', 'Search tiles by name');
       this.searchInput.oninput = () => { this.search = this.searchInput.value.trim().toLowerCase(); this.renderPalette(ED); };
       this.searchWrap.appendChild(this.searchInput);
-      host.appendChild(this.searchWrap);
+      brushRow.appendChild(this.searchWrap);
+      host.appendChild(brushRow);
 
       this.groupTabs = make('div.ed-subtabs');
       host.appendChild(this.groupTabs);
@@ -32780,6 +32829,8 @@ PKMN.TILES.register([
     return body;
   }
 
+  // What the “Start a new game” box holds, kept across redraws like moveState.
+  const newState = { open: false, name: '' };
   // The last thing the “other device” section said. It outlives the panel, because
   // the act it reports on — opening a game — rebuilds the panel.
   const moveState = { said: null, open: false };
@@ -33030,6 +33081,36 @@ PKMN.TILES.register([
       // translation is one text file beside the project, keyed on the lines
       // themselves, and the editor's whole job is to hand that file out and take
       // it back.
+      // ---- starting over ----------------------------------------------------------
+      // The demo is a worked example, not a cage. A person who wants THEIR game
+      // needs a blank map with their title on it, from the phone, without a CLI.
+      section(host, 'Start a new game', newState.open === true, (body) => {
+        body.appendChild(make('div.ed-hint', { text: 'A blank map with your title on it, in place of this game. Ctrl+Z brings this one back, and “Save a copy” above keeps it for good.' }));
+        const name = make('input.ed-newgame-name');
+        name.type = 'text';
+        name.placeholder = 'What is it called?';
+        name.value = newState.name || '';
+        name.setAttribute('aria-label', 'The new game’s title');
+        name.oninput = () => { newState.name = name.value; };
+        body.appendChild(name);
+        const row = make('div.ed-row');
+        row.appendChild(btn('✦ Start from a blank map', 'Replace this game with a blank one (one undo step)', async () => {
+          const title = (name.value || '').trim() || 'New Adventure';
+          const was = (p.meta && p.meta.title) || 'this game';
+          if (!(await ED.confirm(`Replace “${was}” with a blank game called “${title}”? Ctrl+Z brings “${was}” back.`, { yes: 'Start over' }))) return;
+          // The modules stay as they are: a blank game with the same engine, not a different one.
+          const fresh = P.normalize(Object.assign(P.blank({ title, id: KIT.slug(title) || 'new-adventure' }), { modules: (p.modules || []).slice() })).project;
+          newState.open = false; newState.name = '';
+          commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
+          ED.select(null);
+          ED.refresh({ drop: true });
+          ED.openMap(fresh.start.map);
+          ED.set({ panel: 'tiles' });
+          ED.toast(`“${title}” — a blank map. Paint something.`);
+        }, 'primary'));
+        body.appendChild(row);
+      });
+
       const langBody = section(host, 'Languages', langState.open === true, (body) => {
         const L = KIT.lang;
         if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
@@ -33593,8 +33674,13 @@ PKMN.TILES.register([
       if (sig === this._sig) return;
       if (document.activeElement === el.ta) return;
       this._sig = sig;
-      el.what.textContent = where.label;
-      el.whole.setAttribute('aria-pressed', String(!where.path.length));
+      // "Showing: Mom on Home" and a chip to widen to the whole project; with nothing
+      // selected there is nothing to widen, so the chip stays out of the way.
+      const selected = PP.dataPath(p, ed.state.selection);
+      el.what.textContent = where.path.length ? `Showing ${where.label}` : 'Showing the whole project';
+      el.whole.hidden = !selected.path.length;
+      el.whole.textContent = this._whole ? `Back to ${selected.label}` : 'Whole project';
+      el.whole.setAttribute('aria-pressed', String(!!this._whole));
       el.ta.value = JSON.stringify(value === undefined ? null : value, null, 2);
       el.status.textContent = `${el.ta.value.length} characters`;
     },
@@ -39471,7 +39557,7 @@ PKMN.TILES.register([
   }
 
   const panel = {
-    id: 'home', label: 'Home & jobs', icon: 'house', order: 46, section: 'game',   // dials for the whole game, not one map — and not to be confused with a map called Home
+    id: 'home', label: 'Home & jobs', icon: 'house', order: 62, section: 'game',   // dials for the whole game, not one map — and not to be confused with a map called Home
 
     mount(el, ed) {
       UI.clear(el);

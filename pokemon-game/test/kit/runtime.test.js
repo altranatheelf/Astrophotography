@@ -120,6 +120,28 @@ test('storage: draft round-trip and discard', async () => {
   assert.equal((await S.loadProject()).source, 'default');
 });
 
+test('storage: the draft survives the project changing its id', async () => {
+  // Open a game (or start a blank one) whose meta.id differs from the built-in
+  // game's, keep editing, reload: the work must still be there. The draft is
+  // keyed by the built-in game's id — the one boot reads — not the current one.
+  globalThis.localStorage = fakeLocalStorage();
+  S._reset();
+  S.forceAdapter = 'localStorage';
+  await S.ready();
+  const { project } = await S.loadProject();
+  const other = KIT.deepClone(project);
+  other.meta.id = 'somebody-elses-game'; other.meta.title = 'Opened';
+  S.projectId(other.meta.id);                             // what game.loadProject does after "Open a game"
+  await S.saveDraft(other, { now: true });
+  assert.equal(await S.hasDraft(), true);
+  const again = await S.loadProject();
+  assert.equal(again.source, 'draft');
+  assert.equal(again.project.meta.title, 'Opened');
+  assert.equal(again.project.meta.id, 'somebody-elses-game');
+  await S.discardDraft();
+  assert.equal((await S.loadProject()).source, 'default');
+});
+
 test('storage: export/import text is stable JSON', () => {
   const text = S.exportText({ b: 1, a: { d: 2, c: 3 } });
   assert.equal(text, '{\n  "a": {\n    "c": 3,\n    "d": 2\n  },\n  "b": 1\n}');

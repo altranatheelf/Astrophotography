@@ -13,6 +13,8 @@
   const ED_KEYS = KIT.keysScreen = KIT.keysScreen || {};
 
   const TEXT_SPEEDS = ['slow', 'normal', 'fast', 'instant'];
+
+  const BUTTONS = ['auto', 'on', 'off'];
   const ZOOMS = ['auto', 'small', 'normal', 'large'];
 
   function settings() { return KIT.storage.settings(); }
@@ -118,6 +120,9 @@
           { label: t('music'), value: t(s.music ? 'on' : 'off'), action: 'toggle:music' },
           ...(s.music ? [{ label: t('music-volume'), value: pct(s.musicVolume, 0.5), action: 'cycle:musicVolume' }] : []),
           { label: t('motion'), value: t(s.reduceMotion ? 'motion-reduced' : 'motion-normal'), action: 'toggle:reduceMotion' },
+          // The pad is a phone thing; on a laptop it is a quarter of the screen of
+          // buttons nobody presses. Auto guesses from the device, on/off overrule it.
+          { label: t('buttons'), value: t('buttons-' + (BUTTONS.includes(s.buttons) ? s.buttons : 'auto')), action: 'cycle:buttons' },
           // The Game Accessibility Guidelines' Basic tier opens with "allow
           // controls to be remapped", and this engine had the whole API — bind,
           // setKeymap, resetKeymap, keymaps, saved in settings.keys — with no
@@ -158,6 +163,12 @@
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
         else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
+        else if (action === 'cycle:buttons') {
+          const now = BUTTONS.includes(s.buttons) ? s.buttons : 'auto';
+          const i = (BUTTONS.indexOf(now) + (dir || 1) + BUTTONS.length) % BUTTONS.length;
+          save({ buttons: BUTTONS[i] });
+          if (KIT.game && KIT.game.applyButtons) KIT.game.applyButtons();
+        }
         else return false;
         return true;
       }

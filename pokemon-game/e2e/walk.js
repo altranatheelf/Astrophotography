@@ -332,6 +332,18 @@ async function run(browser, label, size, opts) {
   await page.waitForTimeout(200);
   const speedAfter = await page.evaluate(() => KIT.storage.settings().textSpeed);
   check(speedBefore !== speedAfter, `text speed changes (${speedBefore} → ${speedAfter})`);
+  // The on-screen pad follows the device unless the player says otherwise.
+  const padAuto = await page.evaluate(() => ({ touch: KIT.input.isTouch(), hidden: document.getElementById('controls').hidden }));
+  check(padAuto.hidden === !padAuto.touch, `on “auto” the pad is ${padAuto.touch ? 'shown on a touch screen' : 'hidden where there is a mouse'}`);
+  check(!!(await page.$('[data-action="cycle:buttons"]')), 'the pad has a settings row');
+  await page.click('[data-action="cycle:buttons"]');            // auto -> on
+  await page.waitForTimeout(200);
+  check((await page.evaluate(() => KIT.storage.settings().buttons)) === 'on' && !(await page.evaluate(() => document.getElementById('controls').hidden)), '“on” shows the pad everywhere');
+  await page.click('[data-action="cycle:buttons"]');            // on -> off
+  await page.waitForTimeout(200);
+  check(await page.evaluate(() => document.getElementById('controls').hidden), '“off” hides it everywhere');
+  await page.click('[data-action="cycle:buttons"]');            // off -> auto
+  await page.waitForTimeout(200);
   await page.click('[data-action="back"]');
   await page.waitForTimeout(150);
 

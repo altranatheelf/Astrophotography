@@ -69,7 +69,7 @@
   }
 
   const panel = {
-    id: 'home', label: 'Home & jobs', icon: 'house', order: 46, section: 'game',   // dials for the whole game, not one map — and not to be confused with a map called Home
+    id: 'home', label: 'Home & jobs', icon: 'house', order: 62, section: 'game',   // dials for the whole game, not one map — and not to be confused with a map called Home
 
     mount(el, ed) {
       UI.clear(el);

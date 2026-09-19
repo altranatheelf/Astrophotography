@@ -85,6 +85,7 @@
   /* Off the Map group the sheet is what you are reading, so it gets most of the screen. */
   .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
+  .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
   .ed-group { padding: 6px 2px; font-size: 15px; }
   .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
@@ -262,6 +263,9 @@ textarea.is-bad { border-color: #b03434; }
 .ed-subtabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .ed-subtabs .ed-tab { white-space: nowrap; text-transform: capitalize; }
 .ed-searchwrap { margin-bottom: 6px; }
+.ed-brushrow { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.ed-brushrow .ed-brush { flex: 1 1 200px; margin-bottom: 6px; }
+.ed-brushrow .ed-searchwrap { flex: 1 1 140px; margin-bottom: 6px; }
 .ed-searchwrap input { width: 100%; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-palette { margin-bottom: 6px; }
 .ed-armed { color: #ffd166; }
@@ -325,6 +329,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
 .ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-cast-form { margin: 6px 0 8px; }
 .ed-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; flex: 1 1 120px; min-width: 110px; }
 .ed-picker { border: 1px solid #3d4a63; border-radius: 8px; background: #101728; padding: 8px; margin-bottom: 8px; }

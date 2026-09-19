@@ -184,6 +184,7 @@
     { id: 'speed-slow', default: 'slow' }, { id: 'speed-normal', default: 'normal' },
     { id: 'speed-fast', default: 'fast' }, { id: 'speed-instant', default: 'instant' },
     { id: 'motion-reduced', default: 'reduced' }, { id: 'motion-normal', default: 'normal' },
+    { id: 'buttons', default: 'On-screen buttons' }, { id: 'buttons-auto', default: 'auto' }, { id: 'buttons-on', default: 'on' }, { id: 'buttons-off', default: 'off' },
     { id: 'save-failed', default: 'Could not save.' },
     { id: 'sound-volume', default: 'Sound volume' }, { id: 'music-volume', default: 'Music volume' },
     { id: 'went-wrong', default: 'Something went wrong there.' },

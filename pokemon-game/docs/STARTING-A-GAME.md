@@ -7,6 +7,12 @@ everything after that is a text editor and a browser.
 
 ## 1. Make one
 
+No terminal at all: open `index.html`, choose **Creator Mode** on the title
+screen, then **Game › Project › Start a new game**. That is a blank map with
+your title on it, saved in the browser as you go (`docs/CREATOR-MODE.md`).
+
+With a terminal, a folder of your own:
+
 ```
 node tools/new-game.js "Mill Lane"
 ```

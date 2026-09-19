@@ -740,13 +740,14 @@
   ED.updateStatus = updateStatus;
 
   ED.toast = function (text) { if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text); };
-  ED.confirm = function (text) {
+  /** confirm(text, { yes }) — a two-button question; the yes button says what it does ('Delete' unless told otherwise). */
+  ED.confirm = function (text, opts) {
     return new Promise((resolve) => {
       const wrap = UI.make('div.ed-confirm');
       wrap.appendChild(UI.make('p', { text }));
       const row = UI.make('div.ed-confirm-row');
       const no = UI.make('button.ed-btn', { text: 'Cancel' });
-      const yes = UI.make('button.ed-btn.danger', { text: 'Delete' });
+      const yes = UI.make('button.ed-btn.danger', { text: (opts && opts.yes) || 'Delete' });
       no.onclick = () => { wrap.remove(); resolve(false); };
       yes.onclick = () => { wrap.remove(); resolve(true); };
       row.appendChild(no); row.appendChild(yes);
