@@ -56,7 +56,7 @@ KIT.editor.ops                     // js/kit/editor/ops.js — every edit (paint
 KIT.editor.commit(label, fn)       // doc.transaction + validate + autosave
 KIT.editor.problemsFor(selection)  // the problems that belong to a thing
 KIT.editor.toast(text) / KIT.editor.confirm(text) -> Promise<bool>
-KIT.editor.el                      // { root, canvas, panel, toolbar, statusbar } DOM
+KIT.editor.el                      // { host, root, toolbar, main, stage, canvas, overlay, side, groups, tabs, panel, status } DOM
 KIT.editor.previewWorld()          // a world-shaped object the renderer can draw (map + object entities, no play)
 ```
 
@@ -114,7 +114,7 @@ it, each written so the shell could take it over later:
 | | |
 |---|---|
 | `KIT.editor.afterEdit()` | A panel changed the document: refresh, validate, autosave. The shell only does this after a pointer stroke (`afterDocument` is private), so **every panel that commits calls it**. |
-| `panel.onSelect(sel, ed)` | Documented above but never called by the shell; integration.js delivers it to the mounted panels on the `selection` event. |
+| `panel.onSelect(sel, ed)` | Called by the shell from `KIT.editor.select` for every mounted panel, once per selection. (It was delivered twice for a while — once by the shell and once by integration.js — so a panel whose onSelect is a full rerender paid double.) |
 | `KIT.editor.fitMap()` | A map opens at a zoom that shows all of it, with squares no smaller than a thumb (`KIT.editor.tools.fitScale`, tested). |
 | `KIT.editor.emptyState({icon,text,hint,actions})` | In `inspector.js`: one look for “nothing here yet, do this”. |
 | Play here | Starts on the square under the cursor with the switches and bag the author was playing with (a test state), instead of a new game plus a warp. Escape — or the ‹ Back to Creator Mode bar — comes back. |

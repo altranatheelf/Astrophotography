@@ -463,6 +463,18 @@ async function run(browser, label, size, opts) {
     if (await page.isVisible('.ed-obj-head .ed-btn.primary:has-text("Close")')) { await page.click('.ed-obj-head .ed-btn.primary'); await page.waitForTimeout(150); }
   }
 
+  // --- 8f. a selection reaches each mounted panel's onSelect exactly once -------------
+  await openPanel(page, 'script');
+  const onSelectCalls = await page.evaluate(() => {
+    const def = KIT.registry('editorPanels').get('script');
+    let n = 0; const orig = def.onSelect;
+    def.onSelect = function () { n++; return orig.apply(this, arguments); };
+    KIT.editor.select({ kind: 'object', map: KIT.editor.state.mapId, id: 'mom' });
+    def.onSelect = orig;
+    return n;
+  });
+  check(onSelectCalls === 1, `selecting an event calls the Script panel's onSelect once (${onSelectCalls})`);
+
   // --- 9a. typing into a page condition keeps the keyboard and every keystroke ----------
   await openPanel(page, 'objects');
   await page.evaluate(() => KIT.editor.select({ kind: 'object', map: KIT.editor.state.mapId, id: 'mom' }));

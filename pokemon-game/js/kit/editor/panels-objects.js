@@ -343,8 +343,7 @@
   // ---- render ----------------------------------------------------------------------
   function render() {
     if (!ED.state.project || !ED.state.project.maps[mapId()]) return;
-    // the shell does not call panel.onSelect, so the selection is read here — once
-    // per selection. Reading it on every render put the page back to the tab you
+    // the selection is read here on render — once per selection. Reading it on every render put the page back to the tab you
     // had tapped after every “Add a page” / “Later” / “Delete page”.
     const sel = ED.state.selection;
     if (sel !== seenSel) {

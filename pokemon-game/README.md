@@ -13,7 +13,7 @@ are standing in.
 ```
 open index.html                 # the game (any modern browser, also from a file)
 open index.html?edit=1          # straight into Creator Mode (or pick it on the title screen)
-npm test                        # 373 unit tests, pure Node, no browser
+npm test                        # 580 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
 node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
 node tools/build.js             # bundle everything into one shareable .html
@@ -51,7 +51,7 @@ NODE_PATH=$(npm root -g) node e2e/vision.js   # the whole thing: new game -> cat
 | `js/modules/home/` | **Home**: decorating a room, jobs your friends run, moods, little presents |
 | `js/modules/dungeon/` | **Dungeon**: keys and locked doors, pushable blocks, plates and gates, the dark |
 | `js/content/demo/` | The demo world — ordinary content, made to be replaced |
-| `templates/` | The three shapes a new game can start from, and the files every game gets |
+| `templates/` | The shape a new game starts from, and the files every game gets |
 | `tools/` | Sprite/tile renderers, the demo builder, the importer CLI, the bundler, `new-game`, `new-module`, `pack-kit` |
 | `test/`, `e2e/` | Node tests (`test/kit/`, `test/modules/`) and browser play-throughs |
 
@@ -109,7 +109,7 @@ and the importers — a Tiled map, an RPG Maker MV/MZ project or Aseprite art
 becomes playable content with one command (`docs/IMPORTING.md`).
 
 Also done: the browser layer (renderer, scenes, input, audio, storage, game
-boot) and Creator Mode — fifteen panels in four groups and nine named map tools
+boot) and Creator Mode — sixteen panels in four groups and nine named map tools
 around one document, opened from the title screen, `?edit=1` or the pause menu
 (`docs/CREATOR-MODE.md`). `e2e/editor.js` plays the whole loop through a real
 browser at phone and laptop size, and photographs every panel at both.
@@ -125,7 +125,7 @@ dark. The demo enables `mons` and `home`; the dungeon template enables
 `dungeon`. `docs/MODULES.md` has the table and how to write a fourth.
 
 Also done: **starting a game of your own.** `tools/new-game.js` writes a whole
-playable game folder from one of three templates, `tools/new-module.js`
+playable game folder from the template, `tools/new-module.js`
 scaffolds a working module, and `tools/pack-kit.js` takes the engine out as a
 library with a version stamp and a manifest (`docs/STARTING-A-GAME.md`).
 
@@ -188,7 +188,7 @@ thing in the game should be yours.
 What you get instead is `story.js`: that one room written out as plain data with
 a comment on every field, so the shortest description of the project format is
 also the file you edit. `npm run build` turns it into the game's content;
-Creator Mode edits the same world in the browser and exports the same files.
+Creator Mode edits the same world in the browser, and **Save as files (for git)** writes the same `content/` files.
 
 Genres arrive as **modules**, not as templates. `--modules dungeon` adds keys,
 locked doors, pushable blocks, one-way ledges and a lantern you carry — a whole
@@ -231,5 +231,5 @@ a copy inside the game so the folder needs nothing else at all.
 | `tools/new-game.js` | a whole playable game folder, from a template |
 | `tools/new-module.js` | a working module, scaffolded |
 | `tools/pack-kit.js` | the engine as a library, with a manifest |
-| `templates/` | the three starting shapes, and `_shared/` (the page, the three scripts every game gets) |
+| `templates/` | the starting shape, and `_shared/` (the page, the three scripts every game gets) |
 | `docs/STARTING-A-GAME.md` | the author's guide to all of it |

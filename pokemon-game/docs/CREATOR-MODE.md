@@ -150,6 +150,7 @@ place in the editor.
 | **Story · Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
 | **Map · Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
 | **Game · Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
+| **Story · Rules** | Rules of the world: when something happens (a step, a bump, an item changing), what must be true, and what to do. A rule can be switched off, rewritten, or eaten by the player with `@rule eat <id>` — and after that the game plays differently |
 | **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it. **＋ New person** and **＋ New fact** add to it; each one opens as a form |
 | **Game · Variables** | Switches and Variables: declare them, see every read and every write |
 | **Game · Items** | What Events give and conditions ask about |
@@ -179,6 +180,10 @@ you move it. **Project › This game, on your other device** is how:
   instead of a trip through the Files app.
 * **Choose File**, or the paste box, opens one. It checks the file first: a file
   that is not a game says so and changes nothing.
+* **↓ Save as files (for git)** writes the same game the way version control
+  wants it — one file per map, sorted keys — into a folder you choose (Chrome or
+  Edge on a computer; elsewhere it downloads the files one by one). This is how
+  work done in Creator Mode gets back into a game folder's `content/`.
 
 Opening a game REPLACES the one you are editing, as one undo step — `Ctrl+Z`
 puts it back, and the one you replaced is still in the file you saved.

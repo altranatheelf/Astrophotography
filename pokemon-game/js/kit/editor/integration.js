@@ -4,7 +4,7 @@
 // have live here, each one written so the shell could adopt it later:
 //
 //   ED.afterEdit()      a panel changed the document (refresh + validate + save)
-//   panel.onSelect()    the contract documents it; the shell never calls it
+//   panel.onSelect()    the shell delivers it from select(); nothing here doubles it
 //   ED.close()          hands the player back to the game, not to the title
 //   play mode           Escape (and a visible bar) come back to editing
 //   re-open             the panels the shell mounted are kept across close/open
@@ -26,17 +26,9 @@
   ED.afterEdit = function () { if (INS.afterEdit) INS.afterEdit(); else if (ED.refresh) ED.refresh(); };
 
   // ---- 2. panel.onSelect ------------------------------------------------------------
-  // EDITOR-CONTRACT.md promises panels get onSelect(sel, ed); the shell only ever calls
-  // mount/refresh/visible. Deliver it to the panels that are actually mounted.
-  ED.on('selection', (sel) => {
-    const host = ED.el && ED.el.panel;
-    if (!host) return;
-    for (const body of host.querySelectorAll('.ed-panel-body')) {
-      const def = KIT.registry('editorPanels').get(body.dataset.panel);
-      if (!def || typeof def.onSelect !== 'function') continue;
-      try { def.onSelect(sel, ED); } catch (e) { (KIT.log || console).error(`[panel ${body.dataset.panel}] onSelect`, e); }
-    }
-  });
+  // The shell delivers onSelect(sel, ed) to every mounted panel from ED.select. This
+  // file used to deliver it AGAIN on the `selection` event, so the Script panel
+  // rebuilt every card twice per tap. Once is the contract.
 
   // ---- 2b. Delete with a page selected ------------------------------------------------
   // Tapping a page tab in the Events panel selects `{ kind:'page', id }`; the shell's

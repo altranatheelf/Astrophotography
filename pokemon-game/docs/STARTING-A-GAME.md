@@ -21,8 +21,10 @@ That writes `games/mill-lane/` — a whole game, finished enough to play. Open
 `games/mill-lane/index.html` in a browser (double-click it) and it runs. No
 server, no install, no build.
 
-Arrow keys or WASD to walk. **Z** to talk and to choose. **X** to go back.
-**Enter** for the menu. On a phone the pads are on the screen.
+Arrow keys to walk (a second player uses WASD once *Two players* is on).
+**Z** — or Enter, or Space — to talk and to choose. **X** to go back.
+**Escape** for the menu. On a phone the pads are on the screen and **☰** is
+the menu.
 
 ```
 cd games/mill-lane
@@ -114,15 +116,19 @@ npm run build
 and refresh the page. If the world is broken the build says where and writes
 nothing, so you can never half-save a game.
 
-**In the game.** Open it and choose **Create** in the pause menu (or add
-`?edit=1` to the address). That is Creator Mode: paint maps with a pencil, drop
-people on them, write their scripts, rename every word the game says, play from
-the square under your finger and come straight back. It saves as you go, and its
-**Export** writes `content/` back out.
+**In the game.** Open it and choose **Creator Mode** on the title screen, or
+press Escape and choose it in the pause menu (or add `?edit=1` to the address).
+That is Creator Mode: paint maps with a pencil, drop people on them, write their
+scripts, rename every word the game says, play from the square under your finger
+and come straight back. It saves as you go. To get those changes back into
+`content/`, open **Game › Project › This game, on your other device** and press
+**↓ Save as files (for git)** — the same one-file-per-map content, written into
+a folder you choose (Chrome or Edge on a computer; on a phone use **↓ Save a
+copy** and open that file on the computer).
 
 > Use whichever suits the afternoon. The one rule: do not run `npm run build`
-> while Creator Mode has changes you have not exported, or the build will write
-> over them.
+> while Creator Mode has changes you have not saved as files, or the build will
+> write over them.
 
 ---
 
