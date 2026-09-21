@@ -7349,9 +7349,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     };
     const chainBytes = parent ? (Number(parent.cb) || 0) : 0;
     const chainLen = parent ? (Number(parent.cl) || 0) + 1 : 0;
+    const d = base ? T.diff(base, save) : null;
+    // A save that changed nothing makes no moment. Autosaves fire on every map
+    // entered and every flag flipped, and the one that landed right after a
+    // manual save used to add a twin node and move the head off the save the
+    // player had just made. A name given now still sticks to the moment we are in.
+    if (parent && d && !d.length && !Object.keys(node.tk).length) {
+      if (node.label && !parent.label) { parent.label = node.label; bump(); }
+      return parentId;
+    }
     if (!base) node.full = KIT.deepClone(save);
     else {
-      const d = T.diff(base, save);
       const dBytes = sizeOf(d);
       // The rule: a chain of deltas may not cost more than the save it stands in
       // for, and may not get so long that rebuilding it stops feeling instant.

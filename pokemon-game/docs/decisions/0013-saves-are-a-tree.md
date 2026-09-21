@@ -15,6 +15,12 @@ playing on from an older node makes a **branch**. Nothing is overwritten.
 that point in the tree and the next save branches from there. That is the whole
 mechanic and it needs no button: going back and playing on **is** branching.
 
+A save that changed nothing is the moment you are already in, not a new one.
+Autosaves fire on every map entered and every flag flipped, and the one landing
+right after a manual save used to add a twin node and move "you are here" off
+the save the player had just made. A name given to an unchanged save sticks to
+the moment it names.
+
 The pause menu has a **Moments** row. A list, not a drawn graph: the tree is a
 shape, but what a player wants is "take me back to when I was in the graveyard",
 and indentation says branch well enough for that. A drawing is a nicer screen and

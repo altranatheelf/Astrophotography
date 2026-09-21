@@ -410,7 +410,7 @@ test('moments: the tree draws as rows, with the branch shape in them', () => {
   assert.equal(byId[line[0]].branches, 2, 'the fork says it is one');
 });
 
-test('moments: a save that changed nothing is still a moment, and an empty tree answers everything', () => {
+test('moments: an empty tree answers everything, and a save that changed nothing is the moment you are in', () => {
   fresh();
   assert.equal(T.count(), 0);
   assert.equal(T.head(), null);
@@ -421,6 +421,27 @@ test('moments: a save that changed nothing is still a moment, and an empty tree 
   const s = save0();
   const a = T.record(s, {});
   const b = T.record(KIT.deepClone(s), {});
-  assert.equal(T.node(b).p, a, 'saving twice with nothing between still records where you were');
-  assert.deepEqual(T.node(b).d, [], 'as a delta of nothing, which costs nothing');
+  // The first version of this rule made a twin node "as a delta of nothing, which
+  // costs nothing". It cost the player: the autosave on entering a map landed
+  // right after every manual save, doubled the Moments list, and moved "you are
+  // here" off the save they had just made.
+  assert.equal(b, a, 'saving twice with nothing between is the same moment');
+  assert.equal(T.count(), 1);
+});
+
+test('tree: a save that changed nothing makes no moment, and a name given then sticks', async () => {
+  await T.forgetAll();
+  const save = { heroes: [{ map: 'home', x: 1, y: 1 }], vars: { a: 1 }, log: { tally: {} }, clock: { day: 1, minutes: 0 } };
+  const m1 = T.record(save, {});
+  assert.equal(T.count(), 1);
+  assert.equal(T.record(KIT.deepClone(save), {}), m1, 'the same save again is the same moment');
+  assert.equal(T.count(), 1);
+  assert.equal(T.head(), m1);
+  assert.equal(T.record(KIT.deepClone(save), { label: 'the fork' }), m1, 'naming it does not fork it');
+  assert.equal(T.now().nodes[m1].label, 'the fork', 'but the name sticks');
+  const changed = KIT.deepClone(save); changed.vars.a = 2;
+  const m2 = T.record(changed, {});
+  assert.notEqual(m2, m1);
+  assert.equal(T.count(), 2);
+  assert.equal(T.head(), m2);
 });
