@@ -339,6 +339,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-image-slice .ed-cond-cell { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; }
 .ed-image-slice input[type="number"], .ed-image-slice select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; width: 100%; }
 .ed-check { display: flex; align-items: center; gap: 6px; margin: 6px 0; color: #c3cfe2; }
+input.ed-half { flex: 1 1 160px; min-width: 0; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; }
 .ed-check input { width: 20px; height: 20px; }
 .ed-firststeps { border: 1px dashed #3d5c8f; background: #161e2c; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; color: #c3cfe2; }
 .ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }

@@ -126,6 +126,12 @@ looks right. If you would rather change the game to match, pass
 
 ---
 
+Tiled's own examples import as they are: `desert.tmx` with its `desert.tsx`
+and `tmw_desert_spacing.png` (32px squares, a margin and spacing) dropped on
+**Game › Import** together comes in as one map, 48 tiles and two terrains, drawn
+with the real art. A project that uses 16px squares is told the import's art
+will be scaled to fit; start the game from the import instead and it keeps 32.
+
 ## A picture on its own
 
 Most of what turns up online is neither a Tiled map nor an Aseprite export: it
