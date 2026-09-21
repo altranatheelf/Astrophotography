@@ -186,9 +186,11 @@ you move it. **Project › This game, on your other device** is how:
 * **Choose File**, or the paste box, opens one. It checks the file first: a file
   that is not a game says so and changes nothing.
 * **↓ Save as files (for git)** writes the same game the way version control
-  wants it — one file per map, sorted keys — into a folder you choose (Chrome or
-  Edge on a computer; elsewhere it downloads the files one by one). This is how
-  work done in Creator Mode gets back into a game folder's `content/`.
+  wants it — one file per map, sorted keys. Chrome and Edge on a computer ask
+  you for a folder and write straight into it; everywhere else, phones included,
+  you get one `<name>-files.zip` with the same files inside, to unzip into the
+  game folder yourself. This is how work done in Creator Mode gets back into a
+  game folder's `content/`.
 
 Opening a game REPLACES the one you are editing, as one undo step — `Ctrl+Z`
 puts it back, and the one you replaced is still in the file you saved.
