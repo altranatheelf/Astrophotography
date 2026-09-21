@@ -126,6 +126,37 @@ looks right. If you would rather change the game to match, pass
 
 ---
 
+## A picture on its own
+
+Most of what turns up online is neither a Tiled map nor an Aseprite export: it
+is a PNG. A tileset sheet, or a character's walk cycle in a grid. Drop it in on
+its own and Creator Mode asks how it is cut, guesses from the picture's size,
+and cuts it.
+
+* **A tileset** — every square becomes a tile, `<sheet>:<n>`, in a palette group
+  named after the file. Tile size is guessed (16, then 32, 48…; the project's own
+  size wins when it fits); margin and spacing are there for sheets that have
+  them. Fully transparent squares are left out, so a sheet with gaps does not
+  fill the palette with nothing.
+* **A character** — rows are directions, columns are frames. A 3×4 sheet is the
+  common shape (RPG Maker and most walk cycles): down, left, right, up. Pick
+  another order if the sheet is laid out differently, or one row for a strip
+  that only faces down. The result is one sprite, ready for the NPC preset.
+
+The same from the terminal:
+
+```
+node tools/import.js forest.png --into games/mill-lane/content --prefix web
+node tools/import.js forest.png --tile-size 32 --margin 1 --spacing 1 …
+node tools/import.js hero.png --kind sprite --columns 3 --rows 4 --order dlru …
+```
+
+(The terminal cannot see pixels, so it keeps every square; leave out the empty
+ones in Creator Mode, or delete them from the palette.)
+
+Check the licence of what you download. A fan game is still a game you are
+publishing, and "found online" is not a licence.
+
 ## Art from Aseprite
 
 There are two ways in, and they give you different things.

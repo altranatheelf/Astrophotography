@@ -129,9 +129,32 @@ test('cli: a warp that names a map the project already has points at it', () => 
 test('cli: it refuses what it cannot read, and says why', () => {
   const dir = tmpProject();
   let code = 0, out = '';
-  try { run([path.join(FIX, 'tiled', 'tiles.png'), '--into', dir]); }
+  const junk = path.join(dir, 'notes.txt');
+  fs.writeFileSync(junk, 'a shopping list, not a map');
+  try { run([junk, '--into', dir]); }
   catch (e) { code = e.status; out = (e.stdout || '') + (e.stderr || ''); }
   assert.equal(code, 2);
-  assert.match(out, /image on its own/);
+  assert.match(out, /not a Tiled map or tileset/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('cli: a PNG on its own is cut into tiles, or into a walking character with --kind sprite', () => {
+  const { encodePng } = require(path.join(ROOT, 'tools', 'sprite-png.js'));
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kit-png-'));
+  const w = 48, h = 32, rgba = Buffer.alloc(w * h * 4, 255);
+  fs.writeFileSync(path.join(dir, 'ground.png'), encodePng(w, h, rgba));
+  assert.equal(cli.detect(path.join(dir, 'ground.png')).tool, 'image', 'a picture is no longer turned away');
+  const out = run([path.join(dir, 'ground.png'), '--into', path.join(dir, 'out'), '--inline', '--prefix', 'web', '--quiet']);
+  assert.match(out, /wrote/);
+  const project = fs.readFileSync(path.join(dir, 'out', 'project.js'), 'utf8');
+  for (let i = 0; i < 6; i++) assert.ok(project.includes(`"web:ground:${i}"`), `tile web:ground:${i} is in the project`);
+  assert.ok(!project.includes('"web:ground:6"'), 'a 48×32 sheet at 16px is six tiles, not more');
+  fs.writeFileSync(path.join(dir, 'hero.png'), encodePng(48, 64, Buffer.alloc(48 * 64 * 4, 200)));
+  const out2 = run([path.join(dir, 'hero.png'), '--kind', 'sprite', '--order', 'udlr', '--into', path.join(dir, 'out'), '--inline', '--quiet']);
+  assert.match(out2, /wrote/);
+  const project2 = fs.readFileSync(path.join(dir, 'out', 'project.js'), 'utf8');
+  assert.ok(project2.includes('"hero"'), 'the sprite is in the project');
+  assert.ok(/"up"/.test(project2) && /"down"/.test(project2), 'with its directions');
   fs.rmSync(dir, { recursive: true, force: true });
 });

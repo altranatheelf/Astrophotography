@@ -8,12 +8,27 @@ It is plain HTML, CSS and JavaScript. No install, no build step, no framework.
 Open the page and it runs; open Creator Mode and you can change the world you
 are standing in.
 
+## On your PC, in one minute
+
+1. Unzip (or clone) the folder. **Double-click `index.html`.** It runs from the
+   file, no server, no install — Chrome, Edge, Firefox or Safari. (`Our-Adventure.html`
+   is the same game in one file, for sending to someone.)
+2. On the title screen choose **Creator Mode**.
+3. **Game › Project › Start a new game**, give it a title. You are on a blank map.
+4. **Game › Import**: drop in a tileset PNG you found online (or a Tiled map, or an
+   RPG Maker folder). It is cut into tiles and joins the palette.
+5. Paint the town. **Map › ＋ New map** for the route next door, **Maps next door ›
+   Add a way through** to join them, paint **Tall grass** on the Collision layer,
+   and put somebody in the grass under **Map › Encounters**.
+6. **▶ Play here.** Your work saves itself in the browser as you go
+   (`docs/STARTING-A-GAME.md` walks through all of this).
+
 ## Run it
 
 ```
 open index.html                 # the game (any modern browser, also from a file)
 open index.html?edit=1          # straight into Creator Mode (or pick it on the title screen)
-npm test                        # 580 unit tests, pure Node, no browser
+npm test                        # 587 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
 node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
 node tools/build.js             # bundle everything into one shareable .html
@@ -105,8 +120,9 @@ randomness), the project format with migrations, autotiles, the full command
 set, conditions, the Screenplay text format, the interpreter with threads and
 breakpoints, the map view, entities and movement, the world runtime with event
 pages and slots, the standard systems, the editor operations, the demo world,
-and the importers — a Tiled map, an RPG Maker MV/MZ project or Aseprite art
-becomes playable content with one command (`docs/IMPORTING.md`).
+and the importers — a Tiled map, an RPG Maker MV/MZ project, Aseprite art or a
+PNG tileset found online becomes playable content with one command, or one drop
+into Creator Mode (`docs/IMPORTING.md`).
 
 Also done: the browser layer (renderer, scenes, input, audio, storage, game
 boot) and Creator Mode — sixteen panels in four groups and nine named map tools

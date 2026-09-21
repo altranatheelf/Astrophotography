@@ -1,7 +1,57 @@
 # Starting a game
 
-For the person writing the game. You need a terminal for about four commands;
-everything after that is a text editor and a browser.
+For the person writing the game. Section 0 needs no terminal at all; the rest
+needs one for about four commands, and everything after that is a text editor
+and a browser.
+
+---
+
+## 0. On your PC, without a terminal: a region in an afternoon
+
+**Boot it.** Unzip the folder and double-click `index.html`. It runs straight
+from the file in Chrome, Edge, Firefox or Safari; nothing is installed and
+nothing phones home. Everything you make is saved in that browser, on that
+computer, as you go — **Game › Project › Save a copy** is how it leaves.
+
+**Your own game.** Title screen › **Creator Mode** › **Game › Project › Start a
+new game**. Type a title. The example is replaced by one blank map with your
+title on it (Ctrl+Z brings the example back). The Pokémon-style module stays on.
+
+**Tiles from the internet.** Find a tileset — a PNG of squares — and drop it on
+**Game › Import**. Creator Mode reads its size, guesses 16px squares (or 32, or
+48), and cuts it up; set margin and spacing if the sheet has gaps between its
+squares. Every square becomes a tile in a palette group named after the file,
+empty squares are left out. A Tiled map (`.tmx` + `.tsx` + its PNG) or an RPG
+Maker MV/MZ `data` folder go in the same way and bring their maps with them.
+Check the licence of what you download: a fan game is still published.
+
+**Paint the town.** **Map › Tiles**: pick a square, draw with the Pencil, Fill
+the floor, Rect the roofs. **Map › Map** names the place and sets where the game
+starts.
+
+**The route next door.** **Map › Map › ＋ New map**, paint it, then back on the
+town: **Maps next door › Add a way through** (east edge → the route). Walking off
+that edge in play lands on the route. Doors and warps are Events: **Map › Events
+› ＋ Add › Door**.
+
+**Wild encounters.** On the route, **Map › Tiles › Painting on: Collision**, pick
+**Tall grass — wild encounters** and paint the grass, over any tile from any
+tileset. Then **Map › Encounters**: add who lives there and set the rate. A
+step in the painted grass rolls that table.
+
+**People.** **Map › Events › ＋ Add › NPC**: a name, a line, a sprite. A walk-cycle
+PNG dropped on Import becomes a sprite you can pick (3 columns × 4 rows, the
+RPG Maker shape, is guessed; other layouts are a setting away).
+
+**Play it.** **▶ Play here** starts the game on the square under the cursor with
+the switches you had. Escape (or **‹ Back to Creator Mode**) comes back.
+
+**What to know when it runs from a file.** Saves and your draft live in the
+browser's storage for that file — a different browser, or a private window, is
+a different world. Music and sounds must be embedded (the importer embeds every
+picture; keep audio as data URIs or in the project file), because a page opened
+from disk cannot read other files next to it. `e2e/fangame.js` plays exactly
+this recipe through a real browser at phone and laptop size.
 
 ---
 

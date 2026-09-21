@@ -192,3 +192,19 @@ test('mapView: the dimension follows the save unless one was asked for by name',
   assert.equal(pinnedFlood.dimension, 'flooded');
   assert.equal(pinnedFlood.tileAt('ground', 0, 0), 'wall');
 });
+
+test('map: tall grass painted on the collision layer rolls encounters over any tile, and stays walkable', () => {
+  const project = KIT.project.blank();
+  const m = project.maps[project.start.map];
+  m.collision[3 * m.width + 3] = 'g';
+  m.collision[3 * m.width + 4] = 1;
+  const view = KIT.mapView(project, null, m.id);
+  const grass = view.flagsAt(3, 3), wall = view.flagsAt(4, 3), plain = view.flagsAt(2, 3);
+  assert.equal(grass.encounter, true, 'a painted square is tall grass');
+  assert.equal(grass.solid, false, 'and can be walked on');
+  assert.equal(plain.encounter, false, 'the square next to it is not');
+  assert.equal(wall.solid, true);
+  require(path.join(__dirname, '..', '..', 'js/kit/editor/ops.js'));
+  require(path.join(__dirname, '..', '..', 'js/kit/editor/tools.js'));
+  assert.equal(KIT.editor.tools.collisionAt('g').short, '~', 'the Collision palette offers it');
+});

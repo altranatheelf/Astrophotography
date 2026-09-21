@@ -348,8 +348,8 @@ test('import dispatch: the right importer by name and by content', () => {
   assert.equal(d.images.length, 1);
 
   d = IMPP.dispatch([{ name: 'hero.png', bytes: new Uint8Array([0x89, 0x50]) }]);
-  assert.equal(d.tool, null);
-  assert.match(d.problems[0].message, /Export the data file/);
+  assert.equal(d.tool, 'image', 'a picture on its own goes to the slicer, not nowhere');
+  assert.equal(d.main.name, 'hero.png');
 
   d = IMPP.dispatch([{ name: 'notes.txt', text: 'hello' }]);
   assert.equal(d.tool, null);

@@ -123,6 +123,7 @@
       const c = collisionAt(x, y);
       if (c === 1) out.solid = true;
       else if (c === 0) { out.solid = false; out.passage = { n: true, s: true, e: true, w: true }; }
+      else if (c === 'g') out.encounter = true;             // tall grass painted on the square, whatever the tile
       else if (typeof c === 'string' && out.passage[c] !== undefined) out.passage[c] = false;
       return out;
     }

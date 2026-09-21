@@ -305,6 +305,7 @@
         const f = map.flagsAt(x, y);
         if (f.solid) { ctx.fillStyle = 'rgba(220,60,60,0.38)'; ctx.fillRect(x * px, y * px, px, px); }
         else if (f.ledge) { ctx.fillStyle = 'rgba(240,180,60,0.35)'; ctx.fillRect(x * px, y * px, px, px); }
+        else if (f.encounter) { ctx.fillStyle = 'rgba(120,220,110,0.35)'; ctx.fillRect(x * px, y * px, px, px); }
         else if (f.bush || f.counter) { ctx.fillStyle = 'rgba(80,200,120,0.25)'; ctx.fillRect(x * px, y * px, px, px); }
       }
     }

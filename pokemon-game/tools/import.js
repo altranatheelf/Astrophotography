@@ -8,8 +8,10 @@
 //     --overwrite      let the import replace ids that are already there
 //     --dry-run        say what would happen; write nothing
 //     --inline         embed images as data: URIs instead of copying files
-//     --tile-size <n>  force the tile size (RPG Maker sheets are 48px by default)
-//     --kind <k>       what an Aseprite sheet is: sprite (default) | tiles | faces | icons
+//     --tile-size <n>  force the tile size (RPG Maker sheets are 48px by default; a PNG on its own is guessed from its size)
+//     --kind <k>       what an Aseprite sheet is: sprite (default) | tiles | faces | icons — for a PNG on its own: tiles (default) | sprite
+//     --margin <n> --spacing <n>        a PNG tileset's border and gaps
+//     --columns <n> --rows <n> --order <dlru>   a PNG character sheet's grid and which row faces where
 //     --quiet          only the summary and the problems that matter
 //
 //   node tools/import.js town.tmj                        a Tiled map
@@ -39,7 +41,7 @@ function loadKit() {
     'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js',
     'js/kit/script/text.js', 'js/kit/script/conditions.js', 'js/kit/script/commands.js',
     'js/kit/script/screenplay.js', 'js/kit/script/interpreter.js',
-    'js/kit/import/tiled.js', 'js/kit/import/rpgmaker.js', 'js/kit/import/aseprite.js', 'js/kit/import/merge.js',
+    'js/kit/import/tiled.js', 'js/kit/import/rpgmaker.js', 'js/kit/import/aseprite.js', 'js/kit/import/image.js', 'js/kit/import/merge.js',
   ];
   for (const f of files) require(path.join(ROOT, f));
   // The art files register the tiles and sprites the existing content uses, so
@@ -93,7 +95,8 @@ const MIME = { '.png': 'image/png', '.gif': 'image/gif', '.jpg': 'image/jpeg', '
 function parseArgs(argv) {
   const o = { input: null, into: null, prefix: null, overwrite: false, dryRun: false, inline: false, tileSize: null, kind: null, quiet: false, srcBase: null };
   const flags = { '--overwrite': 'overwrite', '--dry-run': 'dryRun', '--dryrun': 'dryRun', '--inline': 'inline', '--quiet': 'quiet' };
-  const values = { '--into': 'into', '--prefix': 'prefix', '--tile-size': 'tileSize', '--kind': 'kind', '--src-base': 'srcBase' };
+  const values = { '--into': 'into', '--prefix': 'prefix', '--tile-size': 'tileSize', '--kind': 'kind', '--src-base': 'srcBase',
+    '--margin': 'margin', '--spacing': 'spacing', '--columns': 'columns', '--rows': 'rows', '--order': 'order' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (flags[a]) { o[flags[a]] = true; continue; }
@@ -132,7 +135,7 @@ function detect(input) {
     if (tiled) return { tool: 'tiled', kind: tiled, label: `Tiled ${tiled}` };
     if (KIT.import.aseprite.detect(raw) === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: 'Aseprite sheet' };
   }
-  if (ext === '.png') throw new Error(`'${rel(input)}' is an image on its own. Export the data file next to it (Aseprite: File > Export Sprite Sheet with JSON Data) and import that instead.`);
+  if (MIME[ext]) return { tool: 'image', kind: 'sheet', label: `image ${path.basename(input)}` };
   throw new Error(`'${rel(input)}' is not a Tiled map or tileset, an Aseprite sheet, or an RPG Maker folder`);
 }
 
@@ -254,6 +257,16 @@ function runImport(found, input, target, opts) {
   // Aseprite
   const dir = path.dirname(input);
   const assets = makeAssets({ bases: [dir], outDir: opts.outDir, srcBase: opts.srcBase, prefix, inline: opts.inline, dryRun: opts.dryRun });
+  if (found.tool === 'image') {
+    // A PNG on its own: tiles unless told it is a character (--kind sprite).
+    const size = imageSize(fs.readFileSync(input)) || { w: 0, h: 0 };
+    const name = path.basename(input);
+    const I = KIT.import.image;
+    const result = opts.kind === 'sprite'
+      ? I.sprite({ name, w: size.w, h: size.h, columns: opts.columns, rows: opts.rows, order: opts.order, prefix, asset: assets.asset })
+      : I.tileset({ name, w: size.w, h: size.h, tile: opts.tileSize, margin: opts.margin, spacing: opts.spacing, prefix, asset: assets.asset });
+    return { result, assets, source: `image ${name}` };
+  }
   const o = { asset: assets.asset, prefix, name: path.basename(input), id: KIT.slug(stem(input)), kind: opts.kind || 'sprite', inflate: (bytes) => new Uint8Array(zlib.inflateSync(Buffer.from(bytes))) };
   const result = found.kind === 'file'
     ? KIT.import.aseprite.file(fs.readFileSync(input), o)
@@ -323,7 +336,7 @@ function main(argv) {
 
   let run;
   try {
-    run = runImport(found, input, target, { prefix: opts.prefix, outDir: intoDir, srcBase, inline: opts.inline, dryRun: opts.dryRun, tileSize: opts.tileSize, kind: opts.kind });
+    run = runImport(found, input, target, { prefix: opts.prefix, outDir: intoDir, srcBase, inline: opts.inline, dryRun: opts.dryRun, tileSize: opts.tileSize, kind: opts.kind, margin: opts.margin, spacing: opts.spacing, columns: opts.columns, rows: opts.rows, order: opts.order });
   } catch (e) {
     console.error('The importer could not read that file: ' + (e && e.message ? e.message : e));
     return 2;

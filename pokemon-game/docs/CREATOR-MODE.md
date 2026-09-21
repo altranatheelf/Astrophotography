@@ -77,6 +77,10 @@ is what you read. The **▴ / ▾** grip beside the groups flips it either way.
      autotiles draw the edges and corners for you. Set them up under
      *Terrains & autotiles* in the Tiles panel.
 5. Anything you paint is one undo step per stroke: **↶** or `Ctrl+Z`.
+6. **Collision** is where walls, fences and **tall grass** live: paint *Tall
+   grass — wild encounters* over any squares, from any tileset, and a step there
+   can roll the map's encounter table (**Map › Encounters**). Turn on the
+   Collision view to see what you have painted.
 
 Handy: hold **Shift** with the Pencil to draw a straight line from the last
 square you painted; hold **Alt** to pick the tile under the pointer.
@@ -157,7 +161,7 @@ place in the editor.
 | **Game · Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
 | **Problems · Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
 | **Game · Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
-| **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder or Aseprite art, dropped in (`docs/IMPORTING.md`) |
+| **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder, Aseprite art — or a PNG on its own, cut into tiles or a walking character — dropped in (`docs/IMPORTING.md`) |
 
 Modules add their panels to the same groups: with the Pokémon-style module on,
 **Map · Encounters** is there too, and the Home module puts its jobs, furniture

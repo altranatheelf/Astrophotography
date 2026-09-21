@@ -179,7 +179,9 @@
       if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
     }
     if (images.length && list.length === images.length) {
-      problems.push({ severity: 'warn', code: 'image-only', message: 'That is an image on its own. Export the data file next to it (Aseprite: File ▸ Export Sprite Sheet, with JSON Data) and drop both in together.', where: {} });
+      // A PNG on its own — a tileset sheet or a walk cycle found online. The
+      // slicer asks how it is cut and does the rest.
+      return { tool: 'image', kind: 'sheet', label: `Image ${base(images[0].name)}`, main: images[0], files: list, images, problems };
     } else {
       problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, or an RPG Maker MV/MZ data folder.', where: {} });
     }
@@ -1155,7 +1157,7 @@
     mount(host) {
       clear(host);
       const el = this._el = {};
-      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder (the .json files), or Aseprite art (.aseprite, or a sheet .json next to its .png). Images are embedded, so nothing depends on where the file lived.' }));
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder (the .json files), Aseprite art (.aseprite, or a sheet .json next to its .png) — or a PNG on its own, which is cut into tiles or a walking character. Images are embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
       el.drop.appendChild(make('div', { text: 'Drop files here' }));
@@ -1193,11 +1195,144 @@
       opts.appendChild(el.overwrite);
       host.appendChild(opts);
       host.appendChild(make('div.ed-hint', { text: 'A prefix keeps imported ids apart from your own (outside → outside:grass). “Replace what is there” is off unless you turn it on, and an import is one undo step either way.' }));
+
+      // ---- a picture on its own: how is it cut? ----------------------------------
+      el.img = make('div.ed-preset-form.ed-image-slice');
+      el.img.hidden = true;
+      el.img.appendChild(make('div.ed-f-label', { text: 'A picture on its own — what is it?' }));
+      const kinds = make('div.ed-chips');
+      el.imgKind = 'tiles';
+      const kindChip = (id, label) => { const c = btn(label, null, () => { el.imgKind = id; syncImageForm(this); }, 'ed-chip'); c.dataset.kind = id; kinds.appendChild(c); return c; };
+      kindChip('tiles', 'A tileset (squares to paint with)');
+      kindChip('sprite', 'A character (rows of walking frames)');
+      el.img.appendChild(kinds);
+      el.imgSize = make('div.ed-hint');
+      el.img.appendChild(el.imgSize);
+      const num = (label, key, title) => {
+        const cell = make('div.ed-cond-cell');
+        cell.appendChild(make('span.ed-sub', { text: label }));
+        const input = make('input');
+        input.type = 'number'; input.min = '0'; input.step = '1'; input.title = title || '';
+        input.setAttribute('aria-label', label);
+        el[key] = input;
+        cell.appendChild(input);
+        return cell;
+      };
+      el.imgTilesRow = make('div.ed-cond-fields');
+      el.imgTilesRow.appendChild(num('Tile size', 'imgTile', 'How many pixels one square is (16 for most Pokémon-style art, 32 for Tiled’s examples, 48 for RPG Maker)'));
+      el.imgTilesRow.appendChild(num('Margin', 'imgMargin', 'Pixels around the outside of the sheet'));
+      el.imgTilesRow.appendChild(num('Spacing', 'imgSpacing', 'Pixels between squares'));
+      el.img.appendChild(el.imgTilesRow);
+      el.imgSpriteRow = make('div.ed-cond-fields');
+      el.imgSpriteRow.appendChild(num('Columns', 'imgCols', 'Frames per direction'));
+      el.imgSpriteRow.appendChild(num('Rows', 'imgRows', 'Directions (4) or 1 for a strip'));
+      const orderCell = make('div.ed-cond-cell');
+      orderCell.appendChild(make('span.ed-sub', { text: 'Rows are' }));
+      el.imgOrder = make('select');
+      for (const [v, l] of [['dlru', 'down, left, right, up (RPG Maker, most sheets)'], ['dulr', 'down, up, left, right'], ['udlr', 'up, down, left, right'], ['drul', 'down, right, up, left'], ['d', 'one row: facing down']]) {
+        const o = make('option', { text: l }); o.value = v; el.imgOrder.appendChild(o);
+      }
+      orderCell.appendChild(el.imgOrder);
+      el.imgSpriteRow.appendChild(orderCell);
+      el.img.appendChild(el.imgSpriteRow);
+      el.imgSkip = make('label.ed-check');
+      el.imgSkipBox = make('input'); el.imgSkipBox.type = 'checkbox'; el.imgSkipBox.checked = true;
+      el.imgSkip.appendChild(el.imgSkipBox);
+      el.imgSkip.appendChild(make('span', { text: ' Leave out empty squares' }));
+      el.img.appendChild(el.imgSkip);
+      const sliceRow = make('div.ed-row');
+      sliceRow.appendChild(btn('✂ Cut it up', 'Slice the picture and show what you would get', () => runImage(this), 'primary'));
+      el.img.appendChild(sliceRow);
+      host.appendChild(el.img);
+
       el.report = make('div.ed-import-report');
       host.appendChild(el.report);
     },
     refresh() { /* the report is only rebuilt when something is imported */ },
   });
+
+  /** The slice form follows the kind chip, and the guesses follow the picture. */
+  function syncImageForm(panel) {
+    const el = panel._el;
+    for (const c of el.img.querySelectorAll('.ed-chip[data-kind]')) c.setAttribute('aria-pressed', String(c.dataset.kind === el.imgKind));
+    el.imgTilesRow.hidden = el.imgKind !== 'tiles';
+    el.imgSkip.hidden = el.imgKind !== 'tiles';
+    el.imgSpriteRow.hidden = el.imgKind !== 'sprite';
+  }
+  function showImageForm(panel, found) {
+    const el = panel._el;
+    const size = IMPP.imageSize(found.main.bytes) || { w: 0, h: 0 };
+    importState.imageSize = size;
+    const I = KIT.import.image;
+    const p = project();
+    el.imgSize.textContent = size.w && size.h ? `${base(found.main.name)} is ${size.w}×${size.h} pixels.` : `${base(found.main.name)}: its size could not be read from the file.`;
+    el.imgTile.value = String(I.guessTile(size.w, size.h, (p.settings && p.settings.tileSize) || 16));
+    el.imgMargin.value = '0'; el.imgSpacing.value = '0';
+    const g = I.guessGrid(size.w, size.h);
+    el.imgCols.value = String(g.columns); el.imgRows.value = String(g.rows); el.imgOrder.value = g.order === 'd' ? 'd' : 'dlru';
+    // a tall narrow sheet that divides into a 3×4 grid is more likely a person than a floor
+    el.imgKind = (g.rows === 4 && size.h > size.w) ? 'sprite' : 'tiles';
+    syncImageForm(panel);
+    el.img.hidden = false;
+  }
+  /** Which cells of the sheet are fully transparent (so they need not become tiles). Empty when the picture cannot be drawn. */
+  function emptyCells(src, tile, margin, spacing, columns, rows) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const done = (list) => resolve(list || []);
+      img.onload = () => {
+        try {
+          const cv = document.createElement('canvas');
+          cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+          const ctx = cv.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0);
+          const out = [];
+          for (let r = 0; r < rows; r++) for (let c = 0; c < columns; c++) {
+            const x = margin + c * (tile + spacing), y = margin + r * (tile + spacing);
+            if (x + tile > cv.width || y + tile > cv.height) continue;
+            const d = ctx.getImageData(x, y, tile, tile).data;
+            let solid = false;
+            for (let i = 3; i < d.length; i += 4) if (d[i] > 8) { solid = true; break; }
+            if (!solid) out.push(r * columns + c);
+          }
+          done(out);
+        } catch (e) { done([]); }
+      };
+      img.onerror = () => done([]);
+      img.src = src;
+    });
+  }
+  async function runImage(panel) {
+    const el = panel._el;
+    const found = importState.found;
+    if (!found || found.tool !== 'image') return;
+    const files = found.files;
+    const prefix = (el.prefix.value || '').trim() || null;
+    const assets = assetResolver(files, prefix);
+    const size = importState.imageSize || IMPP.imageSize(found.main.bytes) || { w: 0, h: 0 };
+    const name = base(found.main.name);
+    const I = KIT.import.image;
+    let result = null;
+    clear(el.report);
+    try {
+      if (el.imgKind === 'sprite') {
+        result = I.sprite({ name, w: size.w, h: size.h, columns: el.imgCols.value, rows: el.imgRows.value, order: el.imgOrder.value, prefix, asset: assets.asset });
+      } else {
+        const tile = parseInt(el.imgTile.value, 10) || I.guessTile(size.w, size.h);
+        const margin = parseInt(el.imgMargin.value, 10) || 0, spacing = parseInt(el.imgSpacing.value, 10) || 0;
+        const columns = Math.max(1, Math.floor((size.w - margin + spacing) / (tile + spacing)));
+        const rows = Math.max(1, Math.floor((size.h - margin + spacing) / (tile + spacing)));
+        const a = assets.asset(name);
+        const skip = el.imgSkipBox.checked && a ? await emptyCells(a.src, tile, margin, spacing, columns, rows) : [];
+        result = I.tileset({ name, w: size.w, h: size.h, tile, margin, spacing, skip, prefix, asset: assets.asset });
+        if (skip.length) result.problems.push({ severity: 'info', code: 'empty-cells', message: `${skip.length} empty square${skip.length === 1 ? '' : 's'} left out`, where: {} });
+      }
+    } catch (e) {
+      el.report.appendChild(make('div.ed-problem', { text: `The picture could not be cut up: ${e && e.message ? e.message : e}` }));
+      return;
+    }
+    finishImport(panel, found, result, assets);
+  }
 
   /** Read the dropped files (text for data, bytes for art), then run the importer. */
   async function read(panel, fileList) {
@@ -1279,10 +1414,12 @@
     const found = IMPP.dispatch(files);
     importState.found = found;
     clear(el.report);
+    if (el.img) el.img.hidden = true;
     if (!found.tool) {
       for (const p of found.problems) el.report.appendChild(make('div.ed-problem.warn', { text: p.message }));
       return;
     }
+    if (found.tool === 'image') { showImageForm(panel, found); return; }
     const assets = assetResolver(files, prefix);
     const p = project();
     const mapId = (name) => {
@@ -1311,6 +1448,12 @@
       el.report.appendChild(make('div.ed-problem', { text: `The importer could not read that: ${e && e.message ? e.message : e}` }));
       return;
     }
+    finishImport(panel, found, result, assets);
+  }
+  /** The dry run and the report, shared by every kind of import. */
+  function finishImport(panel, found, result, assets) {
+    const el = panel._el;
+    const p = project();
     importState.result = result;
     const dry = KIT.import.merge(KIT.deepClone(p), result, { dryRun: true, overwrite: el.overwrite.getAttribute('aria-pressed') === 'true', prefix: null, source: found.label });
     for (const m of assets.missing) dry.problems.push({ severity: 'warn', code: 'image-missing', message: `the image “${m}” was not dropped in with it, so nothing was embedded`, where: {} });

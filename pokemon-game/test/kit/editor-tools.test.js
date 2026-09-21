@@ -91,15 +91,15 @@ test('floodCells: walks matching cells only, and stops at the cap', () => {
   assert.strictEqual(T.floodCells(empty, 0, 0, {}).cells.length, 2);     // null cells flood like any other value
 });
 
-test('collisionCycle: walkable, solid, the four edges, then back to none', () => {
-  assert.deepStrictEqual(T.COLLISION.map(c => c.value), [null, 0, 1, 'n', 's', 'e', 'w']);
+test('collisionCycle: walkable, solid, the four edges, tall grass, then back to none', () => {
+  assert.deepStrictEqual(T.COLLISION.map(c => c.value), [null, 0, 1, 'n', 's', 'e', 'w', 'g']);
   let v = null;
   const seen = [];
-  for (let i = 0; i < 7; i++) { v = T.collisionCycle(v); seen.push(v); }
-  assert.deepStrictEqual(seen, [0, 1, 'n', 's', 'e', 'w', null]);
+  for (let i = 0; i < 8; i++) { v = T.collisionCycle(v); seen.push(v); }
+  assert.deepStrictEqual(seen, [0, 1, 'n', 's', 'e', 'w', 'g', null]);
   assert.strictEqual(T.collisionCycle(undefined), 0);                    // an unset cell counts as "none"
   // every value says what it means in words, not in codes
-  for (const c of T.COLLISION) assert.ok(c.label.length > 3 && !/^[01nsew]$/.test(c.label), c.label);
+  for (const c of T.COLLISION) assert.ok(c.label.length > 3 && !/^[01nsewg]$/.test(c.label), c.label);
 });
 
 test('a pencil stroke of many moves is exactly one undo step', () => {

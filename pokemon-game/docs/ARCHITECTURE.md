@@ -201,7 +201,7 @@ Cross-tab: the draft carries `writerId`; a second tab that sees a foreign
 }
 Map = { id, name, width, height, kind:'outdoor'|'indoor'|'cave'|'garden'|string, music:null|id, note:'',
         layers: { terrain:[int], ground:[tileId], deco:[tileId|null], above:[tileId|null], regions:[int 0-255] },
-        collision: [ null|0|1|'n'|'s'|'e'|'w' ],            // override: 1 solid, 0 walkable, 'n' = cannot pass northward edge (ledge/one-way)
+        collision: [ null|0|1|'n'|'s'|'e'|'w'|'g' ],        // override: 1 solid, 0 walkable, 'n' = cannot pass northward edge (ledge/one-way), 'g' = tall grass (wild encounters)
         objects: [ Object ], props: {} }
 Object = { id:'mom', name:'Mom', type:'npc', x, y, note:'', pages:[ Page ] }
 Page = { when: null|Condition,

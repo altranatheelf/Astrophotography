@@ -108,6 +108,9 @@
     { value: 's', label: 'No crossing the bottom edge', short: '↓', color: 'rgba(240,180,60,0.6)', help: 'A fence along the bottom of this square.' },
     { value: 'e', label: 'No crossing the right edge', short: '→', color: 'rgba(240,180,60,0.6)', help: 'A fence down the right side of this square.' },
     { value: 'w', label: 'No crossing the left edge', short: '←', color: 'rgba(240,180,60,0.6)', help: 'A fence down the left side of this square.' },
+    // Tall grass used to be a property of one tile in the kit's own art, so a
+    // tileset found online could never roll an encounter. It is a square now.
+    { value: 'g', label: 'Tall grass — wild encounters', short: '~', color: 'rgba(120,220,110,0.6)', help: 'Walkable, and a step here can roll this map’s encounter table (Map › Encounters) — over any tile, from any tileset.' },
   ];
   T.collisionAt = function (value) {
     for (const c of T.COLLISION) if (T.sameValue(c.value, value)) return c;
