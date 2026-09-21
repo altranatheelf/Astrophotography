@@ -262,7 +262,7 @@ async function run(browser, label, size, opts) {
   await openPanel(page, 'objects');
   check((await state(page)).tool === 'select', 'opening Events hands the pointer to Move, so a tap picks an event instead of painting');
   const eventsBefore = (await objects(page)).length;
-  await page.click('.ed-obj-head .ed-btn.primary');            // ＋ Add
+  await page.click('.ed-panel-body[data-panel="objects"] .ed-obj-head .ed-btn.primary');   // ＋ Add
   await page.waitForTimeout(200);
   await shot(page, label, '05-add');
   const npcChip = await page.$('.ed-chip.is-preset:has-text("NPC")');
@@ -435,7 +435,7 @@ async function run(browser, label, size, opts) {
 
   // --- 8d. a pick-on-map does not follow the author to another panel ---------------------
   await openPanel(page, 'objects');
-  await page.click('.ed-obj-head .ed-btn.primary');            // ＋ Add
+  await page.click('.ed-panel-body[data-panel="objects"] .ed-obj-head .ed-btn.primary');   // ＋ Add
   await page.waitForTimeout(200);
   const doorChip = await page.$('.ed-chip.is-preset:has-text("Door")');
   if (doorChip) {
@@ -460,7 +460,7 @@ async function run(browser, label, size, opts) {
       await page.waitForTimeout(200);
     }
     await openPanel(page, 'objects');
-    if (await page.isVisible('.ed-obj-head .ed-btn.primary:has-text("Close")')) { await page.click('.ed-obj-head .ed-btn.primary'); await page.waitForTimeout(150); }
+    if (await page.isVisible('.ed-panel-body[data-panel="objects"] .ed-obj-head .ed-btn.primary:has-text("Close")')) { await page.click('.ed-panel-body[data-panel="objects"] .ed-obj-head .ed-btn.primary'); await page.waitForTimeout(150); }
   }
 
   // --- 8f. a selection reaches each mounted panel's onSelect exactly once -------------

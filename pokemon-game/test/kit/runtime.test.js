@@ -596,6 +596,8 @@ test('storage: a folder of text files becomes one real zip', () => {
   // the same input twice is the same bytes, so a zip can be committed
   assert.deepEqual(Array.from(S.zip(files)), Array.from(zip));
   assert.equal(S.zip({}).length, 22, 'an empty game is an empty zip, not a crash');
+  const u16 = (at) => zip[at] | (zip[at + 1] << 8);
+  assert.equal(u16(12), 0x0021, 'and every entry carries a date a tool will accept (1 Jan 1980), not a zero');
 });
 
 test('storage: a browser that refuses storage outright still boots, on memory', () => {
