@@ -86,7 +86,9 @@
   .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
   .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
-  .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }   /* one swipeable row of layers */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  /* Safari before 18.2 ignores scrollbar-width, and a scrollbar over the layer chips is a scrollbar over a tap target. */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips::-webkit-scrollbar { display: none; }   /* one swipeable row of layers */
   .ed-panel-body[data-panel="tiles"] > .ed-chips .ed-chip { white-space: nowrap; flex: 0 0 auto; }
   .ed-group { padding: 6px 2px; font-size: 15px; }
   .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }

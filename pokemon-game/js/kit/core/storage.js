@@ -124,11 +124,28 @@
 
   async function pickAdapter() {
     const tries = [];
-    if (!S.forceAdapter || S.forceAdapter === 'indexedDB') tries.push(idbAdapter());
-    if (!S.forceAdapter || S.forceAdapter === 'localStorage') tries.push(localAdapter());
+    // Building an adapter TOUCHES the API it wraps, and Safari throws on
+    // `localStorage` itself for a page opened from a file (so does Chrome with
+    // site data blocked). A throw here used to happen before the memory fallback
+    // below could be reached: the game did not start at all, on the one way of
+    // opening it the README recommends.
+    const safely = (make) => { try { return make(); } catch (e) { S.blocked = (S.blocked || []).concat(String(e && e.message || e)); return null; } };
+    if (!S.forceAdapter || S.forceAdapter === 'indexedDB') tries.push(safely(idbAdapter));
+    if (!S.forceAdapter || S.forceAdapter === 'localStorage') tries.push(safely(localAdapter));
     for (const a of tries) {
       if (!a) continue;
-      try { await a.ready(); return a; } catch (e) { /* try the next one */ }
+      try {
+        await a.ready();
+        // IndexedDB is refused to file:// pages by Chrome and Edge, so a game
+        // opened by double-clicking falls back to localStorage — about 5MB,
+        // shared by every file:// page. An imported tileset is most of that, so
+        // say it plainly rather than waiting for "⚠ NOT SAVED".
+        if (a.name === 'localStorage' && !S.warning) {
+          const fromFile = typeof location !== 'undefined' && location.protocol === 'file:';
+          if (fromFile) S.warning = 'This browser keeps about 5MB for a page opened from a file. Big imports may not fit — keep a copy with Project › Save a copy, or run the folder from a local server.';
+        }
+        return a;
+      } catch (e) { /* try the next one */ }
     }
     S.warning = 'Saving only lasts while this page is open (your browser blocked storage).';
     const m = memoryAdapter();
@@ -200,7 +217,68 @@
   };
   /** _reset() — tests only: forget the adapter and the caches. */
   S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
-  S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning });
+  S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning, blocked: S.blocked || [] });
+
+  // ---- a zip of text files, built here ------------------------------------------
+  // "Save as files" used to be N downloads. Only the first survives the user
+  // gesture in Firefox and Safari, and `download()` cannot tell that the browser
+  // refused — so it reported nine files saved and delivered one. A zip is one
+  // download, which every browser allows, and every computer can open.
+  const CRC = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+    return t;
+  })();
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  /**
+   * zip(files) -> Uint8Array — a store-only (uncompressed) .zip of { path: text }.
+   * These are text files a person will read in git; compression would save a
+   * little space and cost a dependency, which is the wrong trade here.
+   */
+  S.zip = function (files) {
+    const enc = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+    const bytesOf = (str) => {
+      if (enc) return enc.encode(str);
+      const out = []; const s2 = unescape(encodeURIComponent(String(str)));
+      for (let i = 0; i < s2.length; i++) out.push(s2.charCodeAt(i) & 0xFF);
+      return new Uint8Array(out);
+    };
+    const names = Object.keys(files || {}).sort();
+    const chunks = [], central = [];
+    let offset = 0;
+    const u16 = (n) => [n & 0xFF, (n >>> 8) & 0xFF];
+    const u32 = (n) => [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF];
+    for (const name of names) {
+      const nameBytes = bytesOf(name);
+      const data = bytesOf(files[name]);
+      const sum = crc32(data);
+      // Local file header. No data descriptor, no compression, DOS time 0 — a
+      // zip with no timestamps is a zip that is the same twice, which git likes.
+      const head = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+        u32(sum), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0));
+      chunks.push(new Uint8Array(head), nameBytes, data);
+      central.push({ name: nameBytes, sum, size: data.length, offset });
+      offset += head.length + nameBytes.length + data.length;
+    }
+    const dir = [];
+    for (const e of central) {
+      const head = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+        u32(e.sum), u32(e.size), u32(e.size), u16(e.name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(e.offset));
+      dir.push(new Uint8Array(head), e.name);
+    }
+    const dirBytes = dir.reduce((n, a) => n + a.length, 0);
+    const end = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length), u32(dirBytes), u32(offset), u16(0)));
+    const all = chunks.concat(dir, [end]);
+    const total = all.reduce((n, a) => n + a.length, 0);
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const a of all) { out.set(a, at); at += a.length; }
+    return out;
+  };
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
   // ---- raw access (every call is safe) -----------------------------------------
@@ -345,15 +423,16 @@
   }
 
   /** download(name, text) -> true when the file left the page one way or another. */
-  S.download = async function (name, text) {
+  /** download(name, data, mime) — `data` is text, or bytes for something like a zip. */
+  S.download = async function (name, text, mime) {
     const cap = capability('downloadFile') || capability('download');
-    if (cap) {
+    if (cap && typeof text === 'string') {
       const r = await withTimeout(cap({ filename: name, content: text }));
       if (r !== null) return true;
     }
     try {
       if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
-        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+        const url = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain;charset=utf-8' }));
         const a = document.createElement('a');
         a.href = url; a.download = name;
         document.body.appendChild(a);

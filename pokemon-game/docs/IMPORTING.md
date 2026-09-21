@@ -132,6 +132,45 @@ and `tmw_desert_spacing.png` (32px squares, a margin and spacing) dropped on
 with the real art. A project that uses 16px squares is told the import's art
 will be scaled to fit; start the game from the import instead and it keeps 32.
 
+## A Pokémon Essentials game
+
+Essentials is what most Pokémon fan games are already built in, and the part of
+it that is plain text is its `PBS` folder. Two of those files come straight in —
+drop them on **Game › Import**, or pass them to `tools/import.js`:
+
+* **`pokemon.txt`** — the roster. Every entry becomes a species of this game's
+  own (`packs.mons.species`), which is what **Game › Species** edits. Both
+  shapes of the file are read: the old one (`[1]` with `InternalName=`) and
+  v20+'s (`[BULBASAUR]`). They write their base stats in a *different order*, so
+  the shape is worked out first — read the wrong way round, a Bulbasaur outruns
+  a Jolteon. A type this engine has never heard of is kept as a word.
+* **`encounters.txt`** — who lives where. Land and cave blocks become encounter
+  tables; the rest (water, the rods, rock smash, headbutt) says it was left out.
+  Essentials keys its tables by RPG Maker map id, so they arrive under that name
+  and you move each onto one of your maps.
+
+What does not come across, and says so rather than pretending: moves, abilities,
+items, evolutions, and anything inside a `.rxdata`. Bring the maps through Tiled
+or as pictures.
+
+This one is the Pokémon module's, not the engine's — it is registered in
+`KIT.registry('importers')`, which is how any module can teach the Import panel
+and the CLI a format of its own.
+
+## Music and sound effects
+
+Drop a `.ogg`, `.mp3`, `.wav`, `.m4a`, `.flac` or `.opus` in and say whether it
+is music (it loops, and a map can pick it) or an effect (a script plays it). The
+sound is put *inside* the game, so it still plays when the page is opened from a
+file and it travels with **Save a copy**. A few minutes of music is a few
+megabytes of game; a browser opened from a file has about 5MB of room, so keep
+a copy of the game as a file once the music is in.
+
+```
+node tools/import.js bgm_route1.ogg --kind music --into games/mill-lane/content
+node tools/import.js se_jump.wav    --kind sound --into games/mill-lane/content
+```
+
 ## A picture on its own
 
 Most of what turns up online is neither a Tiled map nor an Aseprite export: it

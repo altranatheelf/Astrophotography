@@ -42,7 +42,7 @@ Every random decision in the kit goes through one of these; same seed, same run.
 ## core/registry + core/registries — stable
 `KIT.defineRegistry(name, { fields, onAdd, onRemove, doc }) -> reg` (idempotent) · `KIT.registry(name)` (throws if undefined) · `KIT.registry.exists(name)`.
 Registry: `add(def)` (fills defaults, validates against `fields`, warns on replace unless `def.replace`), `addAll`, `get`, `require`, `has`, `list`, `ids`, `size`, `remove`, `clear`, `on('add'|'remove')`, `groups(key)`.
-Standard registries: `tiles sprites faces icons sounds music objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors validators presets migrations strings`.
+Standard registries: `tiles sprites faces icons sounds music objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors validators presets migrations strings importers`.
 `KIT.registry('tiles').stamps` is the multi-tile brush list.
 
 ## core/schema — stable

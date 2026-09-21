@@ -25,6 +25,7 @@
 //   result.icons       -> project.icons[id]         + KIT.registry('icons')
 //   result.animations  -> project.animations[id]    (no registry yet — see 'animations-stored')
 //   result.maps        -> project.maps[id]
+//   result.packs[key]  -> project.packs[key]  (a module's own content, merged by id)
 //   result.scripts     -> project.scripts[id]
 //   result.vars        -> project.vars[name]
 //   result.items       -> project.items[id]
@@ -74,6 +75,10 @@
     { key: 'scripts', kind: 'script' },
     { key: 'maps', kind: 'map' },
   ];
+  // A module's content slice. The kit does not know what any of it means — the
+  // key names a module's pack and the value is merged into it, so an importer a
+  // module brought can fill the module's own content (ADR-0005).
+  const PACK_KEY = 'packs';
 
   // Keys whose string values are prose, never ids: the prefixer leaves them alone.
   const TEXT_KEYS = new Set(['name', 'label', 'title', 'note', 'doc', 'desc', 'text', 'who', 'group',
@@ -190,6 +195,7 @@
     const problem = (severity, code, message, where) => rep.problems.push({ severity, code, message, where: where || {} });
     const toRegister = [];
     let touched = 0;
+    let sawPacks = false;
 
     // Everything a document sees lands in ONE undo step called "Import <source>".
     const body = () => {
@@ -224,6 +230,54 @@
         }
       }
 
+      // 1b. a module's content slice ----------------------------------------------
+      // `result.packs[key]` goes into `project.packs[key]`. The kit does not read
+      // any of it: a list of things with ids is merged by id (yours kept unless
+      // asked otherwise), anything else is set when the project has nothing there.
+      const packs = isObj(res[PACK_KEY]) ? res[PACK_KEY] : null;
+      if (packs) {
+        sawPacks = true;
+        for (const key of sorted(packs)) {
+          const slice = packs[key];
+          if (!isObj(slice)) continue;
+          if (w.get([PACK_KEY]) === undefined) w.set([PACK_KEY], {});
+          if (w.get([PACK_KEY, key]) === undefined) w.set([PACK_KEY, key], {});
+          for (const field of sorted(slice)) {
+            const incoming = slice[field];
+            const path = [PACK_KEY, key, field];
+            const here = w.get(path);
+            if (Array.isArray(incoming)) {
+              const mineById = new Map((Array.isArray(here) ? here : []).map((x, i) => [x && x.id != null ? String(x.id) : `#${i}`, x]));
+              let added = 0, replaced = 0, skipped = 0;
+              for (const entry of incoming) {
+                if (!isObj(entry) || entry.id == null) continue;
+                const id = String(entry.id);
+                if (!mineById.has(id)) { mineById.set(id, clone(entry)); added++; continue; }
+                if (same(mineById.get(id), entry)) continue;
+                if (overwrite) { mineById.set(id, clone(entry)); replaced++; }
+                else { skipped++; problem('warn', 'duplicate-id', `${key}.${field} '${id}' is already in this game and is different — kept the one that was there`, { path }); }
+              }
+              if (added || replaced) { w.set(path, Array.from(mineById.values())); touched++; }
+              rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + added;
+              if (replaced) rep.replaced[`${key}.${field}`] = (rep.replaced[`${key}.${field}`] || 0) + replaced;
+              if (skipped) rep.skipped[`${key}.${field}`] = (rep.skipped[`${key}.${field}`] || 0) + skipped;
+            } else if (isObj(incoming)) {
+              const merged = Object.assign({}, isObj(here) ? here : {});
+              let added = 0, skipped = 0;
+              for (const k of sorted(incoming)) {
+                if (merged[k] !== undefined && !overwrite) { if (!same(merged[k], incoming[k])) skipped++; continue; }
+                merged[k] = clone(incoming[k]); added++;
+              }
+              if (added) { w.set(path, merged); touched++; }
+              rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + added;
+              if (skipped) rep.skipped[`${key}.${field}`] = (rep.skipped[`${key}.${field}`] || 0) + skipped;
+            } else if (here === undefined || overwrite) {
+              if (!same(here, incoming)) { w.set(path, clone(incoming)); touched++; rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + 1; }
+            }
+          }
+        }
+      }
+
       // Aseprite slices that are neither a face nor an icon have nowhere to go.
       if (Array.isArray(res.slices) && res.slices.length) {
         problem('info', 'slices-dropped', `${res.slices.length} named slice(s) were not imported: a slice becomes a face or an icon only when its name says so (face-…, icon-…)`, {});
@@ -250,7 +304,16 @@
     if (doc && !rep.dryRun) target.transaction(label, body); else body();
 
     // 4. registries -------------------------------------------------------------
-    if (!rep.dryRun && o.register !== false) rep.registered = register(toRegister, problem);
+    if (!rep.dryRun && o.register !== false) {
+      rep.registered = register(toRegister, problem);
+      // A module's own content has its own registries (the mons module's species):
+      // it knows where they go, the kit does not. Without this an imported roster
+      // was in the project and in no picker until the next reload.
+      if (sawPacks && KIT.modules && typeof KIT.modules.registerContent === 'function') {
+        try { KIT.modules.registerContent(project); }
+        catch (e) { problem('warn', 'registry-rejected', `a module could not take its part of the import: ${e && e.message ? e.message : e}`, {}); }
+      }
+    }
     rep.problems = rep.problems.concat((res.problems || []).map(p => Object.assign({ severity: 'info', code: 'import', message: '' }, p)));
     return rep;
   }

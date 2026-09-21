@@ -15,7 +15,7 @@ const R = (f) => require(path.join(root, f));
 
 /** The files each module needs, in load order. `manifest` must come last. */
 const FILES = {
-  mons: ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'scenes', 'panel', 'manifest'],
+  mons: ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'scenes', 'essentials', 'panel', 'manifest'],
   home: ['rules', 'register', 'scenes', 'panel', 'manifest'],
   dungeon: ['rules', 'art', 'register', 'panel', 'manifest'],
   bullet: ['rules', 'register', 'manifest'],

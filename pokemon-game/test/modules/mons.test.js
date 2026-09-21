@@ -739,3 +739,35 @@ test('mons: the old format\'s encounter table belongs to the module, not to the 
     'and an empty table is nothing to show, so the section stays out of the way');
   assert.equal(KIT.mons.legacyEncounters(null, 'meadow'), null);
 });
+
+// ---------------------------------------------------------------- a game's own roster
+test('mons: a game writes its own species, and one of its own beats the built-in of that id', () => {
+  const p = project();
+  assert.equal(M.projectSpecies(p).length, 0, 'a project starts with the built-in roster only');
+  const before = M.species('venusaur');
+  assert.ok(before && before.name === 'Venusaur');
+
+  const mine = M.newSpecies('emberling', 'Emberling');
+  mine.types = ['fire']; mine.color = '#e06030'; mine.base.spe = 95;
+  const restat = Object.assign(M.newSpecies('venusaur', 'Venusaur'), { types: ['grass'], base: { hp: 200, atk: 1, def: 1, spa: 1, spd: 1, spe: 1 } });
+  p.packs = p.packs || {}; p.packs.mons = Object.assign(M.pack(p), { species: [mine, restat] });
+
+  assert.deepEqual(M.projectSpecies(p).map(s => s.id), ['emberling', 'venusaur']);
+  M.registerSpecies(M.projectSpecies(p));
+  const emberling = M.species('emberling');
+  assert.ok(emberling, 'a species nobody had heard of is in the registry now');
+  assert.equal(emberling.name, 'Emberling');
+  assert.deepEqual(emberling.types, ['fire']);
+  assert.equal(emberling.bst, M.bst(mine), 'its rarity band is worked out from its own stats');
+  assert.equal(M.species('venusaur').base.hp, 200, 'and a built-in id the game restated is the game’s');
+  assert.ok(M.speciesList().some(s => s.id === 'emberling'), 'it is in the list the pickers read');
+
+  // an encounter table may name it like any other
+  const map = { id: 'route', props: { encounters: { rate: 100, byRegion: { 0: [{ id: 'emberling', weight: 5 }] } } } };
+  const table = M.encounterTable(map, p);
+  assert.equal(M.rollEncounter(table, 0, KIT.rng(3)).id, 'emberling', 'an encounter table may name it like any other');
+
+  // put the engine's own back, so the rest of the file sees what it expects
+  M.registerSpecies((globalThis.PKMN && globalThis.PKMN.POKEMON) || []);
+  assert.equal(M.species('venusaur').base.hp, before.base.hp);
+});

@@ -83,6 +83,21 @@ arrangement, and `KIT.editor.el.groups` is the row. Panels must work at 390px
 wide, use `KIT.ui` helpers for consistency, and never write to the project
 except through `KIT.editor.ops` or `KIT.editor.commit`.
 
+## Importers (`importers` registry)
+```js
+KIT.registry('importers').add({
+  id: 'essentials', label: 'Pokémon Essentials PBS', order: 20,
+  detect(files) {},       // [{ name, text?, bytes? }] -> { kind, main, label } | null
+  run(found, opts) {},    // -> a Result (docs/IMPORT-CONTRACT.md)
+});
+```
+The Import panel and `tools/import.js` ask this registry **before** their own
+guesses, so a module can bring a whole toolchain's files with it and the engine
+never learns what they are (ADR-0005). A Result may carry `packs[key]`, which is
+merged into `project.packs[key]` — that is how an importer fills a module's own
+content, and `content.register(pack, project)` on the module's manifest puts it
+wherever that module keeps it.
+
 ## Tools (`editorTools` registry)
 ```js
 KIT.registry('editorTools').add({

@@ -27,6 +27,7 @@
       M.registerItems();
       M.registerSystems();
       M.registerEditor();
+      if (M.essentials && typeof M.essentials.register === 'function') M.essentials.register();
       if (typeof M.registerScenes === 'function') M.registerScenes();
     },
 
@@ -41,6 +42,10 @@
     content: {
       key: 'mons',
       defaults: () => M.contentDefaults(),
+      // The built-in roster is registered when the module starts; a project's own
+      // species land on top of it (same id = yours wins), every time a project is
+      // loaded or edited. A fan game with none of its own is unchanged.
+      register: (pack) => M.registerSpecies(Array.isArray(pack.species) ? pack.species : []).map(s => s.id),
       fields: [
         { key: 'ball', type: 'ref:item', nullable: false, default: 'pokeball', label: 'Ball item' },
         { key: 'berry', type: 'ref:item', nullable: false, default: 'berry', label: 'Berry item' },

@@ -37,7 +37,7 @@ const ROOT = path.join(__dirname, '..');
 function loadKit() {
   const files = [
     'js/kit/core/util.js', 'js/kit/core/events.js', 'js/kit/core/rng.js', 'js/kit/core/registry.js',
-    'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/pixels.js', 'js/kit/core/assets.js',
+    'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/modules.js', 'js/kit/core/pixels.js', 'js/kit/core/assets.js',
     'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js',
     'js/kit/script/text.js', 'js/kit/script/conditions.js', 'js/kit/script/commands.js',
     'js/kit/script/screenplay.js', 'js/kit/script/interpreter.js',
@@ -55,6 +55,19 @@ function loadKit() {
   for (const f of first.concat(art.filter(f => !first.includes(f)))) {
     try { require(path.join(artDir, f)); } catch (e) { console.warn(`[import] js/art/${f} did not load: ${e.message}`); }
   }
+  // The modules, in the order the page loads them, so a format one of them knows
+  // (Pokémon Essentials PBS) can be imported from the terminal too. index.html is
+  // the one source of load order; a file that needs a browser no-ops here.
+  try {
+    const page = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const srcs = (page.match(/<script src="(js\/(?:modules|data)\/[^"]+)"/g) || []).map(m => /"([^"]+)"/.exec(m)[1]);
+    for (const f of srcs) {
+      try { require(path.join(ROOT, f)); } catch (e) { /* a module file that needs a browser is not needed here */ }
+    }
+    for (const def of (globalThis.KIT.modules && globalThis.KIT.modules.all ? globalThis.KIT.modules.all() : [])) {
+      try { if (def && typeof def.register === 'function') def.register(globalThis.KIT); } catch (e) { /* the parts that need a browser are skipped */ }
+    }
+  } catch (e) { /* no page, no modules: the engine's own importers still work */ }
   return globalThis.KIT;
 }
 const KIT = loadKit();
@@ -129,13 +142,24 @@ function detect(input) {
   if (!exists(input)) throw new Error(`there is no file called '${rel(input)}'`);
   const ext = path.extname(input).toLowerCase();
   if (ext === '.aseprite' || ext === '.ase') return { tool: 'aseprite', kind: 'file', label: 'Aseprite document' };
-  const raw = ext === '.png' ? null : readText(input);
+  const raw = MIME[ext] ? null : readText(input);
   if (raw != null) {
+    // A module's own format first (KIT.registry('importers')), then the engine's.
+    if (KIT.registry && KIT.registry.exists && KIT.registry.exists('importers')) {
+      const files = [{ name: path.basename(input), text: raw }];
+      for (const imp of KIT.registry('importers').list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
+        if (typeof imp.detect !== 'function') continue;
+        let hit = null;
+        try { hit = imp.detect(files); } catch (e) { hit = null; }
+        if (hit) return Object.assign({ tool: 'registry', importer: imp.id, label: imp.label || imp.id }, hit);
+      }
+    }
     const tiled = KIT.import.tiled.detect(raw);
     if (tiled) return { tool: 'tiled', kind: tiled, label: `Tiled ${tiled}` };
     if (KIT.import.aseprite.detect(raw) === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: 'Aseprite sheet' };
   }
   if (MIME[ext]) return { tool: 'image', kind: 'sheet', label: `image ${path.basename(input)}` };
+  if (KIT.import.image && KIT.import.image.AUDIO_EXT.test(input)) return { tool: 'audio', kind: 'audio', label: `sound ${path.basename(input)}` };
   throw new Error(`'${rel(input)}' is not a Tiled map or tileset, an Aseprite sheet, or an RPG Maker folder`);
 }
 
@@ -257,6 +281,20 @@ function runImport(found, input, target, opts) {
   // Aseprite
   const dir = path.dirname(input);
   const assets = makeAssets({ bases: [dir], outDir: opts.outDir, srcBase: opts.srcBase, prefix, inline: opts.inline, dryRun: opts.dryRun });
+  if (found.tool === 'registry') {
+    const imp = KIT.registry('importers').get(found.importer);
+    const mapId = (name) => { const want = KIT.slug(String(name)); return (target.project.maps && target.project.maps[want]) ? want : null; };
+    return { result: imp.run(found, { asset: assets.asset, prefix, mapId, name: path.basename(input) }), assets, source: found.label };
+  }
+  if (found.tool === 'audio') {
+    const buf = fs.readFileSync(input);
+    const ext = path.extname(input).toLowerCase().slice(1);
+    const AUDIO_MIME = { ogg: 'audio/ogg', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg', webm: 'audio/webm' };
+    const name = path.basename(input);
+    const kind = opts.kind === 'music' || opts.kind === 'sound' ? opts.kind : KIT.import.image.guessAudio(name, buf);
+    const src = `data:${AUDIO_MIME[ext] || 'audio/mpeg'};base64,${buf.toString('base64')}`;
+    return { result: KIT.import.image.audio({ name, kind, src, prefix }), assets, source: `sound ${name}` };
+  }
   if (found.tool === 'image') {
     // A PNG on its own: tiles unless told it is a character (--kind sprite).
     const size = imageSize(fs.readFileSync(input)) || { w: 0, h: 0 };

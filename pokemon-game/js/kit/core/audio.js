@@ -420,7 +420,16 @@
       stopFileSource();
       // Through the AudioContext when we can, so it loops properly and can be
       // ducked; an <audio> element is the fallback when there is no context yet.
-      if (init()) return playMusicFile(Object.assign({ id }, def), opts.volume).then(() => undefined);
+      // fetch() refuses the file: scheme in every browser, so a track whose src
+      // is a path next to the page cannot be decoded when the game was opened by
+      // double-clicking. An <audio> element can read it. Loop points are lost,
+      // but the music plays instead of failing into silence with a console line.
+      if (init()) {
+        return playMusicFile(Object.assign({ id }, def), opts.volume).then((ok) => {
+          if (ok === false && current && current.id === id) current.el = playFile(def, opts.volume, true);
+          return undefined;
+        });
+      }
       current.el = playFile(def, opts.volume, true);
       return Promise.resolve();
     }

@@ -578,3 +578,41 @@ test('registries: a camelCase id is accepted by the rule itself, not by a patch'
   assert.throws(() => KIT.registry('commands').add({ id: 'no spaces here', label: 'x', fields: [], async run() {} }),
     /ids are letters/, 'while an id that is not an id is still refused');
 });
+
+test('storage: a folder of text files becomes one real zip', () => {
+  // "Save as files" is one download now: N downloads only ever delivered the
+  // first outside Chrome, and nothing could tell that the browser had refused.
+  const files = { 'project.js': 'hello', 'maps/town.js': 'a'.repeat(300), 'maps/route.js': '' };
+  const zip = S.zip(files);
+  assert.ok(zip instanceof Uint8Array && zip.length > 100);
+  const u32 = (at) => zip[at] | (zip[at + 1] << 8) | (zip[at + 2] << 16) | (zip[at + 3] << 24);
+  assert.equal(u32(0), 0x04034b50, 'it starts with a local file header');
+  const tail = zip.length - 22;
+  assert.equal(u32(tail), 0x06054b50, 'and ends with the end-of-directory record');
+  assert.equal(zip[tail + 10] | (zip[tail + 11] << 8), 3, 'with all three files in the directory');
+  const text = Buffer.from(zip).toString('latin1');
+  for (const name of Object.keys(files)) assert.ok(text.includes(name), `${name} is named inside`);
+  assert.ok(text.includes('a'.repeat(300)), 'and stored whole, uncompressed');
+  // the same input twice is the same bytes, so a zip can be committed
+  assert.deepEqual(Array.from(S.zip(files)), Array.from(zip));
+  assert.equal(S.zip({}).length, 22, 'an empty game is an empty zip, not a crash');
+});
+
+test('storage: a browser that refuses storage outright still boots, on memory', () => {
+  // Safari throws on `localStorage` itself for a file:// page; the probe used to
+  // throw before its own fallback could be reached, and the game did not start.
+  globalThis.localStorage = undefined;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('The operation is insecure.'); },
+  });
+  S._reset();
+  S.forceAdapter = null;
+  return S.ready().then(() => {
+    assert.equal(S.info().adapter, 'memory', 'it lands on memory instead of dying');
+    assert.ok((S.info().blocked || []).some(m => /insecure/.test(m)), 'and remembers what the browser said');
+    assert.match(S.warning || '', /only lasts/);
+    delete globalThis.localStorage;
+    S._reset();
+  });
+});

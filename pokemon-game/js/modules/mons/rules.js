@@ -96,6 +96,39 @@
     return out;
   };
 
+  /**
+   * The shape of a species a person writes in Creator Mode. The built-in roster
+   * (js/data/pokemon.js) has the same shape; a project's own entry with the same
+   * id replaces it, which is how a fan game keeps the names and changes the stats.
+   */
+  M.SPECIES_FIELDS = [
+    { key: 'id', type: 'string', display: 'readonly', doc: 'What scripts and encounter tables call it' },
+    { key: 'name', type: 'string', default: '', shown: true, doc: 'What the game says' },
+    { key: 'dex', type: 'number', integer: true, min: 0, max: 9999, default: 0, label: 'Dex number' },
+    { key: 'types', type: 'list', of: { type: 'string' }, default: [], doc: 'grass, fire, water… your own words are fine' },
+    { key: 'color', type: 'color', default: '#8a8a9a', label: 'Colour', doc: 'The silhouette, and the card, until there is art' },
+    { key: 'sprite', type: 'ref:sprite', nullable: true, default: null, doc: 'Art of your own, imported or drawn' },
+    { key: 'blurb', type: 'text', default: '', doc: 'The Pokédex line' },
+    { key: 'height', type: 'number', min: 0, default: 0, doc: 'Metres' },
+    { key: 'weight', type: 'number', min: 0, default: 0, doc: 'Kilograms' },
+    { key: 'base', type: 'numbers', default: {}, label: 'Base stats', doc: 'hp atk def spa spd spe' },
+    { key: 'moves', type: 'list', of: { type: 'string' }, default: [], doc: 'Up to four move ids' },
+    { key: 'note', type: 'note' },
+  ];
+  M.STATS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  /** newSpecies(id, name) -> a filled species, ready to edit. */
+  M.newSpecies = function (id, name) {
+    const base = {};
+    for (const k of M.STATS) base[k] = 50;
+    return { id: KIT.slug(id || name || 'new-one'), name: name || 'New one', dex: 0, types: [], color: '#8a8a9a',
+      sprite: null, blurb: '', height: 0, weight: 0, base, moves: [], note: '' };
+  };
+  /** projectSpecies(project) -> the project's own list (never the registry's). */
+  M.projectSpecies = function (project) {
+    const list = M.pack(project).species;
+    return Array.isArray(list) ? list : [];
+  };
+
   /** species(id) -> the registry entry, or null. Never throws on a bad id. */
   M.species = function (id) {
     if (!id) return null;
@@ -139,6 +172,7 @@
       berryBonus: 10,
       favouriteBerryBonus: 5,
       followStepBonus: 1,
+      species: [],             // the game's own roster, on top of the built-in one
       rarity: {},
       encounters: {},
       starters: null,          // { var:'starter', friendship:70, ask:true }

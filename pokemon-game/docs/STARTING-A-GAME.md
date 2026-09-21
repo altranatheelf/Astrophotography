@@ -39,6 +39,17 @@ that edge in play lands on the route. Doors and warps are Events: **Map › Even
 tileset. Then **Map › Encounters**: add who lives there and set the rate. A
 step in the painted grass rolls that table.
 
+**Creatures of your own.** **Game › Species**. The engine comes with a roster as
+a worked example; **✎ Make it mine** copies one into your game to restat or
+rename, **＋ New species** invents one from nothing (a name, types in your own
+words, base stats, a colour, and art when you have it). Already have an
+Essentials game? Drop its `PBS/pokemon.txt` and `PBS/encounters.txt` on **Game ›
+Import** and the roster and the wild tables come with it.
+
+**Music.** Drop an `.ogg` or `.mp3` on **Game › Import**, say it is music, and
+pick it under **Map › Map › Music**. It is stored inside the game, so it plays
+from a double-clicked page.
+
 **People.** **Map › Events › ＋ Add › NPC**: a name, a line, a sprite. A walk-cycle
 PNG dropped on Import becomes a sprite you can pick (3 columns × 4 rows, the
 RPG Maker shape, is guessed; other layouts are a setting away).
@@ -48,10 +59,23 @@ the switches you had. Escape (or **‹ Back to Creator Mode**) comes back.
 
 **What to know when it runs from a file.** Saves and your draft live in the
 browser's storage for that file — a different browser, or a private window, is
-a different world. Music and sounds must be embedded (the importer embeds every
-picture; keep audio as data URIs or in the project file), because a page opened
-from disk cannot read other files next to it. `e2e/fangame.js` plays exactly
-this recipe through a real browser at phone and laptop size.
+a different world. Everything imported is embedded (pictures and sound alike),
+because a page opened from disk cannot read the files next to it.
+
+One limit worth knowing before it bites: **Chrome and Edge give a page opened
+from a file about 5MB**, shared by every such page, because they refuse the
+larger store to `file://` documents. Firefox does not, and neither does anything
+served over `http://`. Two or three imported tilesets can fill it, and the
+status bar then says **⚠ NOT SAVED**. Either keep a copy as you go (**Project ›
+Save a copy**), or run the folder from a local server while you work:
+
+```
+npx serve .        # then open the address it prints
+```
+
+`e2e/fangame.js` plays the region recipe through a real browser at phone and
+laptop size, and `e2e/fankit.js` does the same for an Essentials roster, its
+encounter tables, a music file and a species written in the Species panel.
 
 ---
 

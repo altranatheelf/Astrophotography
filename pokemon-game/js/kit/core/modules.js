@@ -177,6 +177,24 @@
       return out;
     },
 
+    /**
+     * registerContent(project) -> the ids each module registered.
+     * A module's content slice may carry things that belong in a registry — the
+     * mons module's species, say. The kit knows nothing about what they are: it
+     * calls the hook at load time (KIT.project.registerContent) and after an
+     * edit, and the module puts its own content where it belongs.
+     */
+    registerContent(project) {
+      const out = {};
+      for (const def of loaded) {
+        const decl = def.content;
+        if (!decl || typeof decl.register !== 'function') continue;
+        try { out[def.id] = decl.register(M.pack(project, def.id), project) || []; }
+        catch (e) { (KIT.log || console).warn(`[modules] ${def.id} could not register its content`, e); }
+      }
+      return out;
+    },
+
     /** ensurePacks(project) -> project — writes each loaded module's filled pack back. */
     ensurePacks(project) {
       if (!project) return project;

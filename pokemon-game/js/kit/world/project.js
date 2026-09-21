@@ -1079,6 +1079,12 @@
         catch (e) { (KIT.log || console).warn(`[project] ${name.replace(/s$/, '')} '${id}' was not registered: ${e.message}`); }
       }
     }
+    // A module's own content may belong in a registry too (the mons module's
+    // species). The kit does not know what those are; it asks.
+    if (KIT.modules && typeof KIT.modules.registerContent === 'function') {
+      try { counts.modules = KIT.modules.registerContent(project); }
+      catch (e) { (KIT.log || console).warn('[project] a module could not register its content', e); }
+    }
     return counts;
   };
 

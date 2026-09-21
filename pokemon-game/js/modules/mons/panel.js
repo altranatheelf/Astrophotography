@@ -13,6 +13,7 @@
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
   const UI = KIT.ui;
+  const ED = KIT.editor = KIT.editor || {};
   const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
@@ -84,6 +85,143 @@
       refresh(ed) { paintPanel(this._el, ed); },
       onSelect(sel, ed) { paintPanel(this._el, ed); },
     });
+    // ---- the Species panel ------------------------------------------------------
+    // A fan game is its own creatures. The built-in roster is a worked example the
+    // way the demo world is: this panel writes `packs.mons.species`, which is
+    // registered over it, so a game can rename one, restat it, or invent its own.
+    KIT.registry('editorPanels').add({
+      id: 'mons-species', label: 'Species', icon: 'npc', order: 47, section: 'game', replace: true,
+      mount(el, ed) { this._el = el; this._forms = []; this._sig = ''; this.refresh(ed); },
+      refresh(ed) { paintSpecies(this, ed); },
+    });
+  }
+
+  const speciesState = { query: '', open: {}, adding: false, draft: '' };
+  /** Every species the game knows: the project's own first, then the built-ins. */
+  function speciesRows(project) {
+    const mine = new Map(M.projectSpecies(project).map(s => [s.id, s]));
+    const rows = [];
+    for (const s of mine.values()) rows.push({ id: s.id, name: s.name || s.id, def: s, mine: true });
+    for (const s of M.speciesList()) if (!mine.has(s.id)) rows.push({ id: s.id, name: s.name || s.id, def: s, mine: false });
+    return rows;
+  }
+  /** Write the project's roster back, as one undo step, and re-register it. */
+  function writeSpecies(ed, fn) {
+    const list = KIT.deepClone(M.projectSpecies(ed.state.project));
+    const next = fn(list) || list;
+    ed.commit('Species', (doc, O) => O.setField(doc, ['packs', 'mons', 'species'], next, 'Species'));
+    afterSpecies(ed, next);
+  }
+  /** One field of one species: a set at its own path, so undo is per field. */
+  function editSpecies(ed, id, path, value) {
+    const i = M.projectSpecies(ed.state.project).findIndex(s => s.id === id);
+    if (i < 0) return;
+    ed.commit('Edit species', (doc, O) => O.setField(doc, ['packs', 'mons', 'species', i].concat(path), value, 'Edit species'));
+    afterSpecies(ed, M.projectSpecies(ed.state.project));
+  }
+  function afterSpecies(ed, list) {
+    M.registerSpecies(list || []);                 // the picker, the card and the map see it at once
+    if (typeof ed.afterEdit === 'function') ed.afterEdit();
+    if (typeof ed.refresh === 'function') ed.refresh();
+  }
+  function paintSpecies(panel, ed) {
+    const el = panel._el;
+    if (!el || !ed || !ed.state) return;
+    const project = ed.state.project;
+    const rows = speciesRows(project);
+    const sig = JSON.stringify([speciesState.query, speciesState.adding, speciesState.open, M.projectSpecies(project), rows.length]);
+    if (sig === panel._sig) return;
+    const active = document.activeElement;
+    const inSearch = !!(active && el.contains(active) && active.classList.contains('ed-obj-search'));
+    if (!inSearch && active && el.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { panel._stale = true; return; }
+    const caret = inSearch ? active.selectionStart : 0;
+    panel._sig = sig; panel._stale = false;
+    for (const f of panel._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+    panel._forms = [];
+    UI.clear(el);
+    el.appendChild(make('div.ed-hint', { text: 'Everybody who can be met, caught and walked with. The ones that came with the engine are a worked example: rename one, restat it, or write your own — a species of yours with the same id wins.' }));
+
+    const head = make('div.ed-row.ed-obj-head');
+    const search = make('input.ed-obj-search');
+    search.type = 'search';
+    search.placeholder = 'Find a species…';
+    search.value = speciesState.query;
+    search.oninput = () => { speciesState.query = search.value; panel._sig = ''; paintSpecies(panel, ed); };
+    head.appendChild(search);
+    head.appendChild(edBtn('＋ New species', 'Invent one of your own', () => { speciesState.adding = true; speciesState.draft = ''; panel._sig = ''; paintSpecies(panel, ed); }, 'primary'));
+    el.appendChild(head);
+    if (inSearch) setTimeout(() => { const box = el.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
+
+    if (speciesState.adding) {
+      const box = make('div.ed-preset-form');
+      const input = make('input.ed-newgame-name');
+      input.type = 'text';
+      input.placeholder = 'What is it called? — Emberling, Tidepup…';
+      input.value = speciesState.draft;
+      input.oninput = () => { speciesState.draft = input.value; };
+      const done = () => {
+        const name = (input.value || '').trim();
+        if (!name) { input.focus(); return; }
+        const taken = new Set(speciesRows(project).map(r => r.id));
+        let id = KIT.slug(name) || 'new-one', n = 2;
+        while (taken.has(id)) id = `${KIT.slug(name) || 'new-one'}-${n++}`;
+        speciesState.adding = false; speciesState.draft = '';
+        speciesState.open[id] = true;
+        input.blur();
+        writeSpecies(ed, (list) => { list.push(M.newSpecies(id, name)); });
+        panel._sig = ''; paintSpecies(panel, ed);
+      };
+      input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { speciesState.adding = false; input.blur(); panel._sig = ''; paintSpecies(panel, ed); } };
+      box.appendChild(input);
+      const row = make('div.ed-row');
+      row.appendChild(edBtn('＋ Add them', null, done, 'primary'));
+      row.appendChild(edBtn('Cancel', null, () => { speciesState.adding = false; speciesState.draft = ''; input.blur(); panel._sig = ''; paintSpecies(panel, ed); }));
+      box.appendChild(row);
+      el.appendChild(box);
+      setTimeout(() => input.focus(), 0);
+    }
+
+    const q = speciesState.query.trim().toLowerCase();
+    const shown = rows.filter(r => !q || r.name.toLowerCase().includes(q) || r.id.includes(q));
+    el.appendChild(make('div.ed-label', { text: `${shown.length} of ${rows.length} · ${rows.filter(r => r.mine).length} of them yours` }));
+    for (const row of shown) {
+      const sec = make('details.ed-sec');
+      sec.open = speciesState.open[row.id] === true;
+      const sum = make('summary');
+      sum.appendChild(monCanvas(row.id, 2));
+      sum.appendChild(make('span.ed-item-name', { text: `${row.name}${row.mine ? '' : ' · came with the engine'}` }));
+      sec.appendChild(sum);
+      const body = make('div.ed-sec-body');
+      sec.appendChild(body);
+      sec.addEventListener('toggle', () => { speciesState.open[row.id] = sec.open; });
+      if (!sec.open) { el.appendChild(sec); continue; }
+      const def = M.projectSpecies(project).find(s => s.id === row.id);
+      if (!def) {
+        body.appendChild(make('div.ed-sub', { text: `${(row.def.types || []).join('/') || 'no type'} · ${M.rarityLabel(project, row.id)}` }));
+        body.appendChild(edBtn('✎ Make it mine', 'Copy it into this game, where you can change it', () => {
+          const copy = Object.assign(M.newSpecies(row.id, row.name), KIT.deepClone(row.def));
+          delete copy.bst; delete copy.rarity; delete copy.replace; delete copy.group;
+          speciesState.open[row.id] = true;
+          writeSpecies(ed, (list) => { list.push(copy); });
+          panel._sig = ''; paintSpecies(panel, ed);
+        }));
+      } else {
+        const form = make('div.ed-species-form');
+        body.appendChild(form);
+        panel._forms.push(ED.inspector.mount(form, {
+          fields: M.SPECIES_FIELDS, value: def, ctx: { project },
+          onChange(path, v) { editSpecies(ed, row.id, path, v); },
+        }));
+        body.appendChild(edBtn('✕ Remove from this game', 'Take it out of the roster (the built-in one, if there was one, comes back on reload)', async () => {
+          if (!(await ED.confirm(`Take “${row.name}” out of this game’s roster?`, { yes: 'Remove' }))) return;
+          delete speciesState.open[row.id];
+          writeSpecies(ed, (list) => list.filter(s => s.id !== row.id));
+          panel._sig = ''; paintSpecies(panel, ed);
+        }, 'danger'));
+      }
+      el.appendChild(sec);
+    }
+    if (!shown.length) el.appendChild(ED.emptyState ? ED.emptyState({ icon: '🐾', text: 'Nobody by that name', hint: 'Clear the search, or ＋ New species to invent one.' }) : make('div.ed-sub', { text: 'Nobody by that name.' }));
   }
 
   /** The table as the panel edits it — always a full { byRegion, rate } object. */

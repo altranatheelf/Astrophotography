@@ -367,7 +367,9 @@ body { overflow: hidden; }
 .bullet-hud { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
 /* The fight owns the screen, so its HP sits at the bottom of it rather than in
    the middle of the arena. */
-#pause-menu:has(.bullet-hud) { align-items: flex-end; padding-bottom: 6%; }
+/* `:has()` is in every current browser but not Firefox ESR 115, and the bullet
+   HUD sitting in the middle of the arena is a bad way to find that out. */
+#pause-menu:has(.bullet-hud), #pause-menu.has-hud { align-items: flex-end; padding-bottom: 6%; }
 .bullet-hp-label { font-family: var(--font-ui); font-size: 10px; color: #3b4b8a; }
 .bullet-hp { flex: 1 1 auto; min-width: 80px; height: 10px; background: #2a2f3d; border-radius: 5px; overflow: hidden; }
 .bullet-hp-fill { height: 100%; background: linear-gradient(90deg, #ffd23f, #ff2d55); transition: width 90ms linear; }

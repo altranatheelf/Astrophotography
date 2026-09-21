@@ -380,7 +380,9 @@ body { overflow: hidden; }
 .bullet-hud { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
 /* The fight owns the screen, so its HP sits at the bottom of it rather than in
    the middle of the arena. */
-#pause-menu:has(.bullet-hud) { align-items: flex-end; padding-bottom: 6%; }
+/* `:has()` is in every current browser but not Firefox ESR 115, and the bullet
+   HUD sitting in the middle of the arena is a bad way to find that out. */
+#pause-menu:has(.bullet-hud), #pause-menu.has-hud { align-items: flex-end; padding-bottom: 6%; }
 .bullet-hp-label { font-family: var(--font-ui); font-size: 10px; color: #3b4b8a; }
 .bullet-hp { flex: 1 1 auto; min-width: 80px; height: 10px; background: #2a2f3d; border-radius: 5px; overflow: hidden; }
 .bullet-hp-fill { height: 100%; background: linear-gradient(90deg, #ffd23f, #ff2d55); transition: width 90ms linear; }
@@ -477,7 +479,9 @@ body { overflow: hidden; }
   .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
   .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
-  .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }   /* one swipeable row of layers */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  /* Safari before 18.2 ignores scrollbar-width, and a scrollbar over the layer chips is a scrollbar over a tap target. */
+  .ed-panel-body[data-panel="tiles"] > .ed-chips::-webkit-scrollbar { display: none; }   /* one swipeable row of layers */
   .ed-panel-body[data-panel="tiles"] > .ed-chips .ed-chip { white-space: nowrap; flex: 0 0 auto; }
   .ed-group { padding: 6px 2px; font-size: 15px; }
   .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
@@ -1711,6 +1715,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
   KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  // A format the engine has never heard of is a module's to read: the Import
+  // panel and tools/import.js ask this registry before their own guesses, so a
+  // module can bring a whole toolchain's files with it (ADR-0005).
+  //   { id, label, detect(files) -> { kind, main, files } | null, run(found, opts) -> Result }
+  // `files` are { name, text?, bytes? }; a Result is the shape in docs/IMPORT-CONTRACT.md.
+  KIT.defineRegistry('importers', { fields: named.concat([{ key: 'order', type: 'number', integer: true, default: 50 }]), doc: 'File formats a module can import: { id, label, detect(files), run(found, opts) }.' });
   KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'target', type: 'enum', options: ['project', 'save'], default: 'project' }, { key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: '{ id, target, from, to, up(data) -> data }' });
   KIT.defineRegistry('strings', { fields: base.concat([{ key: 'default', type: 'string' }, { key: 'doc', type: 'text', optional: true }]), doc: 'System strings (Terms) with defaults; the project may override each.' });
 
@@ -1931,6 +1941,24 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const target = at ? Object.assign({}, defaultsOf(decl)[at], raw[at] || {}) : out;
         const filled = KIT.schema.fill(decl.fields, target);
         if (at) out[at] = filled; else Object.assign(out, filled);
+      }
+      return out;
+    },
+
+    /**
+     * registerContent(project) -> the ids each module registered.
+     * A module's content slice may carry things that belong in a registry — the
+     * mons module's species, say. The kit knows nothing about what they are: it
+     * calls the hook at load time (KIT.project.registerContent) and after an
+     * edit, and the module puts its own content where it belongs.
+     */
+    registerContent(project) {
+      const out = {};
+      for (const def of loaded) {
+        const decl = def.content;
+        if (!decl || typeof decl.register !== 'function') continue;
+        try { out[def.id] = decl.register(M.pack(project, def.id), project) || []; }
+        catch (e) { (KIT.log || console).warn(`[modules] ${def.id} could not register its content`, e); }
       }
       return out;
     },
@@ -3373,7 +3401,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       stopFileSource();
       // Through the AudioContext when we can, so it loops properly and can be
       // ducked; an <audio> element is the fallback when there is no context yet.
-      if (init()) return playMusicFile(Object.assign({ id }, def), opts.volume).then(() => undefined);
+      // fetch() refuses the file: scheme in every browser, so a track whose src
+      // is a path next to the page cannot be decoded when the game was opened by
+      // double-clicking. An <audio> element can read it. Loop points are lost,
+      // but the music plays instead of failing into silence with a console line.
+      if (init()) {
+        return playMusicFile(Object.assign({ id }, def), opts.volume).then((ok) => {
+          if (ok === false && current && current.id === id) current.el = playFile(def, opts.volume, true);
+          return undefined;
+        });
+      }
       current.el = playFile(def, opts.volume, true);
       return Promise.resolve();
     }
@@ -4045,11 +4082,28 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   async function pickAdapter() {
     const tries = [];
-    if (!S.forceAdapter || S.forceAdapter === 'indexedDB') tries.push(idbAdapter());
-    if (!S.forceAdapter || S.forceAdapter === 'localStorage') tries.push(localAdapter());
+    // Building an adapter TOUCHES the API it wraps, and Safari throws on
+    // `localStorage` itself for a page opened from a file (so does Chrome with
+    // site data blocked). A throw here used to happen before the memory fallback
+    // below could be reached: the game did not start at all, on the one way of
+    // opening it the README recommends.
+    const safely = (make) => { try { return make(); } catch (e) { S.blocked = (S.blocked || []).concat(String(e && e.message || e)); return null; } };
+    if (!S.forceAdapter || S.forceAdapter === 'indexedDB') tries.push(safely(idbAdapter));
+    if (!S.forceAdapter || S.forceAdapter === 'localStorage') tries.push(safely(localAdapter));
     for (const a of tries) {
       if (!a) continue;
-      try { await a.ready(); return a; } catch (e) { /* try the next one */ }
+      try {
+        await a.ready();
+        // IndexedDB is refused to file:// pages by Chrome and Edge, so a game
+        // opened by double-clicking falls back to localStorage — about 5MB,
+        // shared by every file:// page. An imported tileset is most of that, so
+        // say it plainly rather than waiting for "⚠ NOT SAVED".
+        if (a.name === 'localStorage' && !S.warning) {
+          const fromFile = typeof location !== 'undefined' && location.protocol === 'file:';
+          if (fromFile) S.warning = 'This browser keeps about 5MB for a page opened from a file. Big imports may not fit — keep a copy with Project › Save a copy, or run the folder from a local server.';
+        }
+        return a;
+      } catch (e) { /* try the next one */ }
     }
     S.warning = 'Saving only lasts while this page is open (your browser blocked storage).';
     const m = memoryAdapter();
@@ -4121,7 +4175,68 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
   /** _reset() — tests only: forget the adapter and the caches. */
   S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
-  S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning });
+  S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning, blocked: S.blocked || [] });
+
+  // ---- a zip of text files, built here ------------------------------------------
+  // "Save as files" used to be N downloads. Only the first survives the user
+  // gesture in Firefox and Safari, and `download()` cannot tell that the browser
+  // refused — so it reported nine files saved and delivered one. A zip is one
+  // download, which every browser allows, and every computer can open.
+  const CRC = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+    return t;
+  })();
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  /**
+   * zip(files) -> Uint8Array — a store-only (uncompressed) .zip of { path: text }.
+   * These are text files a person will read in git; compression would save a
+   * little space and cost a dependency, which is the wrong trade here.
+   */
+  S.zip = function (files) {
+    const enc = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+    const bytesOf = (str) => {
+      if (enc) return enc.encode(str);
+      const out = []; const s2 = unescape(encodeURIComponent(String(str)));
+      for (let i = 0; i < s2.length; i++) out.push(s2.charCodeAt(i) & 0xFF);
+      return new Uint8Array(out);
+    };
+    const names = Object.keys(files || {}).sort();
+    const chunks = [], central = [];
+    let offset = 0;
+    const u16 = (n) => [n & 0xFF, (n >>> 8) & 0xFF];
+    const u32 = (n) => [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF];
+    for (const name of names) {
+      const nameBytes = bytesOf(name);
+      const data = bytesOf(files[name]);
+      const sum = crc32(data);
+      // Local file header. No data descriptor, no compression, DOS time 0 — a
+      // zip with no timestamps is a zip that is the same twice, which git likes.
+      const head = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+        u32(sum), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0));
+      chunks.push(new Uint8Array(head), nameBytes, data);
+      central.push({ name: nameBytes, sum, size: data.length, offset });
+      offset += head.length + nameBytes.length + data.length;
+    }
+    const dir = [];
+    for (const e of central) {
+      const head = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+        u32(e.sum), u32(e.size), u32(e.size), u16(e.name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(e.offset));
+      dir.push(new Uint8Array(head), e.name);
+    }
+    const dirBytes = dir.reduce((n, a) => n + a.length, 0);
+    const end = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length), u32(dirBytes), u32(offset), u16(0)));
+    const all = chunks.concat(dir, [end]);
+    const total = all.reduce((n, a) => n + a.length, 0);
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const a of all) { out.set(a, at); at += a.length; }
+    return out;
+  };
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
   // ---- raw access (every call is safe) -----------------------------------------
@@ -4266,15 +4381,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   /** download(name, text) -> true when the file left the page one way or another. */
-  S.download = async function (name, text) {
+  /** download(name, data, mime) — `data` is text, or bytes for something like a zip. */
+  S.download = async function (name, text, mime) {
     const cap = capability('downloadFile') || capability('download');
-    if (cap) {
+    if (cap && typeof text === 'string') {
       const r = await withTimeout(cap({ filename: name, content: text }));
       if (r !== null) return true;
     }
     try {
       if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
-        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+        const url = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain;charset=utf-8' }));
         const a = document.createElement('a');
         a.href = url; a.download = name;
         document.body.appendChild(a);
@@ -5761,6 +5877,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         try { reg.add(Object.assign({ id }, table[id], { replace: true })); counts[name]++; }
         catch (e) { (KIT.log || console).warn(`[project] ${name.replace(/s$/, '')} '${id}' was not registered: ${e.message}`); }
       }
+    }
+    // A module's own content may belong in a registry too (the mons module's
+    // species). The kit does not know what those are; it asks.
+    if (KIT.modules && typeof KIT.modules.registerContent === 'function') {
+      try { counts.modules = KIT.modules.registerContent(project); }
+      catch (e) { (KIT.log || console).warn('[project] a module could not register its content', e); }
     }
     return counts;
   };
@@ -16082,7 +16204,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const DIR = { d: 'down', u: 'up', l: 'left', r: 'right' };
 
   function blank() {
-    return { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, project: null, problems: [], stats: {} };
+    return { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, sounds: {}, music: {}, project: null, problems: [], stats: {} };
   }
 
   /** guessTile(w, h, prefer) -> the tile size a sheet of w×h most likely uses. */
@@ -16163,6 +16285,41 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return res;
   };
 
+  // ---- audio ------------------------------------------------------------------
+  // A game needs music, and a page opened from a file cannot fetch the .ogg next
+  // to it — so an imported track is embedded like every imported picture.
+  I.AUDIO_EXT = /\.(ogg|mp3|wav|m4a|aac|flac|opus|webm)$/i;
+  /** guessAudio(name) -> 'music' | 'sound': long things loop, short things are effects. */
+  I.guessAudio = function (name, bytes) {
+    const n = String(name || '').toLowerCase();
+    if (/\b(bgm|music|theme|track|song|loop)\b|^bgm|^music/.test(n)) return 'music';
+    if (/\b(se|sfx|sound|effect|cry|hit|step|beep)\b|^se[-_]|^sfx/.test(n)) return 'sound';
+    // Nothing in the name: a file over about half a megabyte is a piece of music.
+    return (bytes && bytes.length > 512 * 1024) ? 'music' : 'sound';
+  };
+  /**
+   * audio(o) -> Result — one dropped track or effect.
+   * o: { name, kind:'music'|'sound', src (a data: URI), loop, loopStart, loopEnd, prefix, id }
+   */
+  I.audio = function (o) {
+    const res = blank();
+    const src = String((o && o.src) || '');
+    if (!src) { res.problems.push({ severity: 'error', code: 'no-audio', message: 'that sound came with no data to play', where: {} }); return res; }
+    const base = KIT.slug(o.id || stem(o.name) || 'track');
+    const id = withPrefix(base, o.prefix);
+    const kind = o.kind === 'music' ? 'music' : 'sound';
+    const name = titleCase(stem(o.name) || base);
+    if (kind === 'music') {
+      res.music = { [id]: { id, name, kind: 'file', src, loop: o.loop !== false,
+        loopStart: o.loopStart == null ? null : Number(o.loopStart), loopEnd: o.loopEnd == null ? null : Number(o.loopEnd) } };
+    } else {
+      res.sounds = { [id]: { id, name, kind: 'file', src } };
+    }
+    if (!/^data:/i.test(src)) res.problems.push({ severity: 'warn', code: 'audio-not-embedded', message: `“${o.name}” is a path, not embedded — a page opened from a file cannot read it`, where: {} });
+    res.stats = { audio: 1, kind, from: 'image' };
+    return res;
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -16196,6 +16353,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   result.icons       -> project.icons[id]         + KIT.registry('icons')
 //   result.animations  -> project.animations[id]    (no registry yet — see 'animations-stored')
 //   result.maps        -> project.maps[id]
+//   result.packs[key]  -> project.packs[key]  (a module's own content, merged by id)
 //   result.scripts     -> project.scripts[id]
 //   result.vars        -> project.vars[name]
 //   result.items       -> project.items[id]
@@ -16245,6 +16403,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { key: 'scripts', kind: 'script' },
     { key: 'maps', kind: 'map' },
   ];
+  // A module's content slice. The kit does not know what any of it means — the
+  // key names a module's pack and the value is merged into it, so an importer a
+  // module brought can fill the module's own content (ADR-0005).
+  const PACK_KEY = 'packs';
 
   // Keys whose string values are prose, never ids: the prefixer leaves them alone.
   const TEXT_KEYS = new Set(['name', 'label', 'title', 'note', 'doc', 'desc', 'text', 'who', 'group',
@@ -16361,6 +16523,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const problem = (severity, code, message, where) => rep.problems.push({ severity, code, message, where: where || {} });
     const toRegister = [];
     let touched = 0;
+    let sawPacks = false;
 
     // Everything a document sees lands in ONE undo step called "Import <source>".
     const body = () => {
@@ -16395,6 +16558,54 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         }
       }
 
+      // 1b. a module's content slice ----------------------------------------------
+      // `result.packs[key]` goes into `project.packs[key]`. The kit does not read
+      // any of it: a list of things with ids is merged by id (yours kept unless
+      // asked otherwise), anything else is set when the project has nothing there.
+      const packs = isObj(res[PACK_KEY]) ? res[PACK_KEY] : null;
+      if (packs) {
+        sawPacks = true;
+        for (const key of sorted(packs)) {
+          const slice = packs[key];
+          if (!isObj(slice)) continue;
+          if (w.get([PACK_KEY]) === undefined) w.set([PACK_KEY], {});
+          if (w.get([PACK_KEY, key]) === undefined) w.set([PACK_KEY, key], {});
+          for (const field of sorted(slice)) {
+            const incoming = slice[field];
+            const path = [PACK_KEY, key, field];
+            const here = w.get(path);
+            if (Array.isArray(incoming)) {
+              const mineById = new Map((Array.isArray(here) ? here : []).map((x, i) => [x && x.id != null ? String(x.id) : `#${i}`, x]));
+              let added = 0, replaced = 0, skipped = 0;
+              for (const entry of incoming) {
+                if (!isObj(entry) || entry.id == null) continue;
+                const id = String(entry.id);
+                if (!mineById.has(id)) { mineById.set(id, clone(entry)); added++; continue; }
+                if (same(mineById.get(id), entry)) continue;
+                if (overwrite) { mineById.set(id, clone(entry)); replaced++; }
+                else { skipped++; problem('warn', 'duplicate-id', `${key}.${field} '${id}' is already in this game and is different — kept the one that was there`, { path }); }
+              }
+              if (added || replaced) { w.set(path, Array.from(mineById.values())); touched++; }
+              rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + added;
+              if (replaced) rep.replaced[`${key}.${field}`] = (rep.replaced[`${key}.${field}`] || 0) + replaced;
+              if (skipped) rep.skipped[`${key}.${field}`] = (rep.skipped[`${key}.${field}`] || 0) + skipped;
+            } else if (isObj(incoming)) {
+              const merged = Object.assign({}, isObj(here) ? here : {});
+              let added = 0, skipped = 0;
+              for (const k of sorted(incoming)) {
+                if (merged[k] !== undefined && !overwrite) { if (!same(merged[k], incoming[k])) skipped++; continue; }
+                merged[k] = clone(incoming[k]); added++;
+              }
+              if (added) { w.set(path, merged); touched++; }
+              rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + added;
+              if (skipped) rep.skipped[`${key}.${field}`] = (rep.skipped[`${key}.${field}`] || 0) + skipped;
+            } else if (here === undefined || overwrite) {
+              if (!same(here, incoming)) { w.set(path, clone(incoming)); touched++; rep.added[`${key}.${field}`] = (rep.added[`${key}.${field}`] || 0) + 1; }
+            }
+          }
+        }
+      }
+
       // Aseprite slices that are neither a face nor an icon have nowhere to go.
       if (Array.isArray(res.slices) && res.slices.length) {
         problem('info', 'slices-dropped', `${res.slices.length} named slice(s) were not imported: a slice becomes a face or an icon only when its name says so (face-…, icon-…)`, {});
@@ -16421,7 +16632,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (doc && !rep.dryRun) target.transaction(label, body); else body();
 
     // 4. registries -------------------------------------------------------------
-    if (!rep.dryRun && o.register !== false) rep.registered = register(toRegister, problem);
+    if (!rep.dryRun && o.register !== false) {
+      rep.registered = register(toRegister, problem);
+      // A module's own content has its own registries (the mons module's species):
+      // it knows where they go, the kit does not. Without this an imported roster
+      // was in the project and in no picker until the next reload.
+      if (sawPacks && KIT.modules && typeof KIT.modules.registerContent === 'function') {
+        try { KIT.modules.registerContent(project); }
+        catch (e) { problem('warn', 'registry-rejected', `a module could not take its part of the import: ${e && e.message ? e.message : e}`, {}); }
+      }
+    }
     rep.problems = rep.problems.concat((res.problems || []).map(p => Object.assign({ severity: 'info', code: 'import', message: '' }, p)));
     return rep;
   }
@@ -17214,7 +17434,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   const LAYERS = ['ground', 'deco', 'above'];
   const ZOOM = { small: 0.8, normal: 1, large: 1.25, auto: 1 };
-  const MAX_CACHE_PX = 8192;                   // bigger maps are drawn cell by cell
+  // Bigger than this on a side is drawn cell by cell. 4096 is what every browser
+  // and every GPU of the last decade handles; 8192 is where Safari starts quietly
+  // handing back blank canvases instead of raising anything.
+  const MAX_CACHE_PX = 4096;
   /**
    * How much backing store the baked tile layers may hold, across all maps.
    * 192MB sounds enormous and is about two rooms on a dpr-3 phone — the point
@@ -17387,10 +17610,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     function buildCache(view) {
       const wpx = view.width * tilePx, hpx = view.height * tilePx;
-      const cached = wpx <= MAX_CACHE_PX && hpx <= MAX_CACHE_PX;
+      const bytes = wpx * hpx * 4 * LAYERS.length;
+      // The budget is checked BEFORE the pixels are asked for, not after. Asking
+      // first was most of a gigabyte on a big map at a big zoom, and WebKit does
+      // not throw when it refuses a canvas that size — it hands back a blank one,
+      // so the ground simply stopped being drawn.
+      const cached = wpx <= MAX_CACHE_PX && hpx <= MAX_CACHE_PX && bytes <= R.cacheBudget;
       const c = { scale, w: view.width, h: view.height, cached, canvases: {}, animated: [], bytes: 0 };
       if (!cached) return c;
-      c.bytes = wpx * hpx * 4 * LAYERS.length;
+      c.bytes = bytes;
       for (const layer of LAYERS) {
         const cv = document.createElement('canvas');
         cv.width = wpx; cv.height = hpx;
@@ -33132,6 +33360,16 @@ PKMN.TILES.register([
     const list = (files || []).filter(Boolean);
     const problems = [];
     const images = list.filter(f => IMAGE_EXT.test(base(f.name)));
+    // A module may know a format the engine has never heard of (ADR-0005). It is
+    // asked first, so its own toolchain's files win over a lucky guess here.
+    if (KIT.registry.exists('importers')) {
+      for (const imp of KIT.registry('importers').list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
+        if (typeof imp.detect !== 'function') continue;
+        let hit = null;
+        try { hit = imp.detect(list); } catch (e) { (KIT.log || console).warn(`[import] ${imp.id} could not look at these files`, e); hit = null; }
+        if (hit) return Object.assign({ tool: 'registry', importer: imp.id, kind: null, label: imp.label || imp.id, main: null, files: list, images, problems }, hit);
+      }
+    }
     const rm = list.filter(f => RM_FILE.test(base(f.name)));
     if (rm.length) {
       const data = list.filter(f => ext(f.name) === 'json');
@@ -33152,6 +33390,10 @@ PKMN.TILES.register([
       let kind = null;
       try { kind = KIT.import.aseprite.detect(f.text); } catch (e) { kind = null; }
       if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
+    }
+    const audio = list.filter(f => KIT.import.image && KIT.import.image.AUDIO_EXT.test(base(f.name)));
+    if (audio.length && list.length === audio.length) {
+      return { tool: 'audio', kind: 'audio', label: `Sound ${base(audio[0].name)}${audio.length > 1 ? ` and ${audio.length - 1} more` : ''}`, main: audio[0], files: audio, images, problems };
     }
     if (images.length && list.length === images.length) {
       // A PNG on its own — a tileset sheet or a walk cycle found online. The
@@ -33408,16 +33650,16 @@ PKMN.TILES.register([
               }
               return;
             }
-            // No directory picker (every browser on a phone, and Safari): one
-            // file at a time is unusable at 400 maps, so it says so rather than
-            // starting four hundred downloads.
-            if (names.length > 12) {
-              say(`This browser cannot save a folder, and this game is ${names.length} files. Open Creator Mode on a computer in Chrome or Edge to save it for git — or use “Save a copy” above, which is one file and works everywhere.`, false);
-              return;
-            }
-            let wrote = 0;
-            for (const name of names) if (await KIT.storage.download(name.replace(/\//g, '-'), files[name])) wrote++;
-            say(wrote ? `Saved ${wrote} file${wrote === 1 ? '' : 's'}.` : 'This browser would not save the files.', !!wrote);
+            // No directory picker (Firefox, Safari, every phone): one zip, which
+            // every browser will download and every computer can open. N
+            // downloads only ever delivered the first outside Chrome, and the
+            // old code could not tell, so it said it had saved them all.
+            const zip = KIT.storage.zip(files);
+            const zipName = `${(p.meta && p.meta.id) || 'game'}-files.zip`;
+            const ok = await KIT.storage.download(zipName, zip, 'application/zip');
+            say(ok
+              ? `Saved ${zipName} — ${names.length} file${names.length === 1 ? '' : 's'} inside, one per map. Unzip it into your game folder; that folder is a git repository waiting to happen.`
+              : 'This browser would not save the file.', !!ok);
           }));
         body.appendChild(gitRow);
         body.appendChild(make('div.ed-sub', {
@@ -34132,7 +34374,7 @@ PKMN.TILES.register([
     mount(host) {
       clear(host);
       const el = this._el = {};
-      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder (the .json files), Aseprite art (.aseprite, or a sheet .json next to its .png) — or a PNG on its own, which is cut into tiles or a walking character. Images are embedded, so nothing depends on where the file lived.' }));
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — or music and sound effects (.ogg, .mp3, .wav). Everything is embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
       el.drop.appendChild(make('div', { text: 'Drop files here' }));
@@ -34142,7 +34384,7 @@ PKMN.TILES.register([
       el.file.type = 'file';
       el.file.multiple = true;
       el.file.style.display = 'none';
-      el.file.onchange = () => { if (el.file.files && el.file.files.length) read(this, Array.from(el.file.files)); };
+      el.file.onchange = () => { if (el.file.files && el.file.files.length) Promise.resolve(read(this, Array.from(el.file.files))).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); }); };
       pick.onclick = () => el.file.click();
       el.drop.appendChild(pick);
       el.drop.appendChild(el.file);
@@ -34152,7 +34394,7 @@ PKMN.TILES.register([
         e.preventDefault();
         el.drop.classList.remove('is-over');
         const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-        if (files.length) read(this, files);
+        if (files.length) Promise.resolve(read(this, files)).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); });
       });
       host.appendChild(el.drop);
       host.appendChild(make('div.ed-label', { text: 'Before you import' }));
@@ -34250,6 +34492,54 @@ PKMN.TILES.register([
     syncImageForm(panel);
     el.img.hidden = false;
   }
+  const AUDIO_MIME = { ogg: 'audio/ogg', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg', webm: 'audio/webm' };
+  /** A dropped .ogg/.mp3: is it music or an effect, and does it loop? */
+  function showAudioForm(panel, found) {
+    const el = panel._el;
+    clear(el.report);
+    const I = KIT.import.image;
+    const box = make('div.ed-preset-form.ed-audio-form');
+    box.appendChild(make('div.ed-f-label', { text: found.files.length === 1 ? `“${base(found.main.name)}” — what is it?` : `${found.files.length} sounds — what are they?` }));
+    const kinds = make('div.ed-chips');
+    const guess = I.guessAudio(found.main.name, found.main.bytes);
+    let kind = guess;
+    const chip = (id, label) => {
+      const c = btn(label, null, () => { kind = id; for (const b of kinds.querySelectorAll('.ed-chip')) b.setAttribute('aria-pressed', String(b.dataset.kind === id)); loopRow.hidden = id !== 'music'; }, 'ed-chip');
+      c.dataset.kind = id;
+      c.setAttribute('aria-pressed', String(id === guess));
+      kinds.appendChild(c);
+    };
+    chip('music', 'Music (it plays on a map and loops)');
+    chip('sound', 'A sound effect (a script plays it)');
+    box.appendChild(kinds);
+    const loopRow = make('label.ed-check');
+    const loopBox = make('input'); loopBox.type = 'checkbox'; loopBox.checked = true;
+    loopRow.appendChild(loopBox);
+    loopRow.appendChild(make('span', { text: ' Loop it' }));
+    loopRow.hidden = guess !== 'music';
+    box.appendChild(loopRow);
+    box.appendChild(make('div.ed-hint', { text: 'The sound is put inside the game, so it still plays when the page is opened from a file, and travels with “Save a copy”. Big files make a big game: a few minutes of music is a few megabytes.' }));
+    const row = make('div.ed-row');
+    row.appendChild(btn('♪ Bring it in', 'Add it to the game', () => runAudio(panel, found, kind, loopBox.checked), 'primary'));
+    box.appendChild(row);
+    el.report.appendChild(box);
+  }
+  function runAudio(panel, found, kind, loop) {
+    const el = panel._el;
+    const prefix = (el.prefix.value || '').trim() || null;
+    const I = KIT.import.image;
+    const merged = { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, sounds: {}, music: {}, problems: [], stats: { audio: 0 } };
+    for (const f of found.files) {
+      const ext = (base(f.name).split('.').pop() || '').toLowerCase();
+      const src = `data:${AUDIO_MIME[ext] || 'audio/mpeg'};base64,${bytesToBase64(f.bytes)}`;
+      const one = I.audio({ name: base(f.name), kind, src, loop, prefix });
+      Object.assign(merged.sounds, one.sounds); Object.assign(merged.music, one.music);
+      merged.problems = merged.problems.concat(one.problems);
+      merged.stats.audio += 1;
+    }
+    finishImport(panel, found, merged, { missing: [] });
+  }
+
   /** Which cells of the sheet are fully transparent (so they need not become tiles). Empty when the picture cannot be drawn. */
   function emptyCells(src, tile, margin, spacing, columns, rows) {
     return new Promise((resolve) => {
@@ -34315,15 +34605,28 @@ PKMN.TILES.register([
     clear(el.report);
     el.report.appendChild(make('div.ed-hint', { text: `Reading ${fileList.length} file${fileList.length === 1 ? '' : 's'}…` }));
     const files = [];
+    const unreadable = [];
     for (const f of fileList) {
       const name = f.webkitRelativePath || f.name;
-      const bytes = new Uint8Array(await f.arrayBuffer());
+      let bytes = null;
+      // A dropped FOLDER arrives as a File that cannot be read, in every browser.
+      // Unhandled, the panel sat on “Reading 1 file…” for good — and dropping the
+      // folder is exactly what its own instructions invite for RPG Maker.
+      try { bytes = new Uint8Array(await f.arrayBuffer()); }
+      catch (e) { unreadable.push(name); continue; }
       const isImage = IMAGE_EXT.test(name);
-      const isBinary = isImage || /\.(aseprite|ase)$/i.test(name);
+      const isAudio = !!(KIT.import.image && KIT.import.image.AUDIO_EXT.test(name));
+      const isBinary = isImage || isAudio || /\.(aseprite|ase)$/i.test(name);
       let text = null;
       if (!isBinary) { try { text = new TextDecoder().decode(bytes); } catch (e) { text = null; } }
       files.push({ name, bytes, text, type: f.type });
     }
+    if (unreadable.length && !files.length) {
+      clear(el.report);
+      el.report.appendChild(make('div.ed-problem.warn', { text: `“${unreadable.join('”, “')}” could not be read. A folder cannot be dropped in as one thing: open it and drop the files inside.` }));
+      return;
+    }
+    if (unreadable.length) el.report.appendChild(make('div.ed-problem.warn', { text: `${unreadable.length} thing(s) could not be read (a folder?) and were left out.` }));
     runImport(panel, files);
   }
 
@@ -34395,6 +34698,7 @@ PKMN.TILES.register([
       return;
     }
     if (found.tool === 'image') { showImageForm(panel, found); return; }
+    if (found.tool === 'audio') { showAudioForm(panel, found); return; }
     const assets = assetResolver(files, prefix);
     const p = project();
     const mapId = (name) => {
@@ -34405,7 +34709,10 @@ PKMN.TILES.register([
     };
     let result = null;
     try {
-      if (found.tool === 'tiled') {
+      if (found.tool === 'registry') {
+        const imp = KIT.registry('importers').get(found.importer);
+        result = imp.run(found, { asset: assets.asset, prefix, mapId, name: found.main && base(found.main.name), inflate });
+      } else if (found.tool === 'tiled') {
         const byName = new Map();
         for (const f of files) if (f.text != null) byName.set(base(f.name).toLowerCase(), f.text);
         const external = (src) => byName.get(base(src).toLowerCase());
@@ -35069,6 +35376,39 @@ PKMN.TILES.register([
     return out;
   };
 
+  /**
+   * The shape of a species a person writes in Creator Mode. The built-in roster
+   * (js/data/pokemon.js) has the same shape; a project's own entry with the same
+   * id replaces it, which is how a fan game keeps the names and changes the stats.
+   */
+  M.SPECIES_FIELDS = [
+    { key: 'id', type: 'string', display: 'readonly', doc: 'What scripts and encounter tables call it' },
+    { key: 'name', type: 'string', default: '', shown: true, doc: 'What the game says' },
+    { key: 'dex', type: 'number', integer: true, min: 0, max: 9999, default: 0, label: 'Dex number' },
+    { key: 'types', type: 'list', of: { type: 'string' }, default: [], doc: 'grass, fire, water… your own words are fine' },
+    { key: 'color', type: 'color', default: '#8a8a9a', label: 'Colour', doc: 'The silhouette, and the card, until there is art' },
+    { key: 'sprite', type: 'ref:sprite', nullable: true, default: null, doc: 'Art of your own, imported or drawn' },
+    { key: 'blurb', type: 'text', default: '', doc: 'The Pokédex line' },
+    { key: 'height', type: 'number', min: 0, default: 0, doc: 'Metres' },
+    { key: 'weight', type: 'number', min: 0, default: 0, doc: 'Kilograms' },
+    { key: 'base', type: 'numbers', default: {}, label: 'Base stats', doc: 'hp atk def spa spd spe' },
+    { key: 'moves', type: 'list', of: { type: 'string' }, default: [], doc: 'Up to four move ids' },
+    { key: 'note', type: 'note' },
+  ];
+  M.STATS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  /** newSpecies(id, name) -> a filled species, ready to edit. */
+  M.newSpecies = function (id, name) {
+    const base = {};
+    for (const k of M.STATS) base[k] = 50;
+    return { id: KIT.slug(id || name || 'new-one'), name: name || 'New one', dex: 0, types: [], color: '#8a8a9a',
+      sprite: null, blurb: '', height: 0, weight: 0, base, moves: [], note: '' };
+  };
+  /** projectSpecies(project) -> the project's own list (never the registry's). */
+  M.projectSpecies = function (project) {
+    const list = M.pack(project).species;
+    return Array.isArray(list) ? list : [];
+  };
+
   /** species(id) -> the registry entry, or null. Never throws on a bad id. */
   M.species = function (id) {
     if (!id) return null;
@@ -35112,6 +35452,7 @@ PKMN.TILES.register([
       berryBonus: 10,
       favouriteBerryBonus: 5,
       followStepBonus: 1,
+      species: [],             // the game's own roster, on top of the built-in one
       rarity: {},
       encounters: {},
       starters: null,          // { var:'starter', friendship:70, ask:true }
@@ -37767,6 +38108,250 @@ PKMN.TILES.register([
 
 </script>
 <script>
+// ---- js/modules/mons/essentials.js ----
+// mons/essentials — Pokémon Essentials PBS text files -> this module's content.
+//
+// It lives with the module, not with the engine's importers, because everything
+// it reads is this module's: species and wild encounters. The engine learns the
+// format through the `importers` registry (ADR-0005), which is also how the
+// Import panel and tools/import.js find it.
+//
+// Essentials is the toolkit most Pokémon fan games are already built in, and the
+// part of it that is plain text is its PBS folder. Two of those files are worth
+// reading: the roster and the wild encounters. Neither needs Ruby, RGSS or a
+// .rxdata reader — they are ini-ish text, and this parses both of the shapes
+// Essentials has used.
+//
+// Pure: no fs, no DOM, no network.
+//   pokemon(text, opts)     PBS/pokemon.txt   -> species (packs.mons.species)
+//   encounters(text, opts)  PBS/encounters.txt -> per-map encounter tables
+//   detect(text)            'pokemon' | 'encounters' | null
+//
+// The two shapes, both accepted:
+//   v19 and earlier          v20 and later
+//   [1]                      [BULBASAUR]
+//   Name=Bulbasaur           Name = Bulbasaur
+//   InternalName=BULBASAUR   Types = GRASS,POISON
+//   Type1=GRASS              BaseStats = 45,49,49,65,65,45
+//   Type2=POISON             Pokedex = A strange seed...
+//   BaseStats=45,49,49,65,65,45
+//
+//   encounters.txt
+//   v19:  [012]  /  Land,25  /  25,PIDGEY,2,4
+//   v20:  [MAPID]  or  [MAPID,version]  /  Land,25  /      25,PIDGEY,2,4
+//
+// What is NOT read, and says so: moves (Essentials move ids are its own), evolution
+// chains, abilities, items, and anything in a .rxdata. A fan game's maps come
+// through Tiled or as pictures; this brings the creatures and where they live.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const M = KIT.mons = KIT.mons || {};
+  const E = M.essentials = M.essentials || {};
+
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const int = (v, d) => Math.round(num(v, d));
+  const titleCase = (s) => String(s || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const slug = (s) => (KIT.slug ? KIT.slug(String(s || '')) : String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+  const withPrefix = (id, opts) => (opts && opts.prefix ? slug(opts.prefix) + ':' + id : id);
+  // BaseStats is written in a different ORDER by the two generations of the format,
+  // which is the one thing you cannot see by looking at the numbers:
+  //   v19 and earlier  HP, Attack, Defense, Speed, SpAtk, SpDef
+  //   v20 and later    HP, Attack, Defense, SpAtk, SpDef, Speed
+  // Reading v20 with the v19 order gives a Bulbasaur that outruns a Jolteon.
+  const STATS_V19 = ['hp', 'atk', 'def', 'spe', 'spa', 'spd'];
+  const STATS_V20 = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+
+  // A colour per type, so an imported roster is not 800 grey silhouettes.
+  const TYPE_COLOR = {
+    normal: '#a8a878', fire: '#f08030', water: '#6890f0', electric: '#f8d030', grass: '#78c850', ice: '#98d8d8',
+    fighting: '#c03028', poison: '#a040a0', ground: '#e0c068', flying: '#a890f0', psychic: '#f85888', bug: '#a8b820',
+    rock: '#b8a038', ghost: '#705898', dragon: '#7038f8', dark: '#705848', steel: '#b8b8d0', fairy: '#ee99ac',
+    qmarks: '#68a090', shadow: '#604e82',
+  };
+
+  function blank() {
+    return { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [],
+      scripts: {}, vars: {}, items: {}, packs: { mons: { species: [], encounters: {} } }, project: null, problems: [], stats: {} };
+  }
+  const problem = (res, severity, code, message, where) => { res.problems.push({ severity, code, message, where: where || {} }); return res; };
+  function once(seen, res, severity, code, key, message, where) {
+    const k = code + '|' + key;
+    if (seen.has(k)) return;
+    seen.add(k);
+    problem(res, severity, code, message, where);
+  }
+
+  /**
+   * sections(text) -> [{ head, lines: [[key, value] | [null, rawLine]] }]
+   * The shared shape of every PBS file: `[head]` then lines. Comments start with
+   * `#`, and both `Key=Value` and `Key = Value` are the same line.
+   */
+  function sections(text) {
+    const out = [];
+    let cur = null;
+    for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
+      const line = raw.replace(/^﻿/, '');
+      const body = line.replace(/\s+$/, '');
+      if (!body.trim() || /^\s*#/.test(body)) continue;
+      const head = /^\s*\[(.*)\]\s*$/.exec(body);
+      if (head) { cur = { head: head[1].trim(), lines: [] }; out.push(cur); continue; }
+      if (!cur) continue;                                  // matter before the first heading is not ours
+      const kv = /^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(body);
+      if (kv) cur.lines.push([kv[1], kv[2].trim()]);
+      else cur.lines.push([null, body.trim()]);
+    }
+    return out;
+  }
+  const valueOf = (lines, ...keys) => {
+    for (const key of keys) {
+      for (const [k, v] of lines) if (k && k.toLowerCase() === key.toLowerCase()) return v;
+    }
+    return null;
+  };
+  const listOf = (v) => String(v == null ? '' : v).split(',').map(s => s.trim()).filter(Boolean);
+
+  /** detect(text) -> which PBS file this is, or null. */
+  E.detect = function (text) {
+    const s = String(text == null ? '' : text);
+    if (!/^\s*\[/m.test(s)) return null;
+    if (/^\s*(InternalName|BaseStats|Type1|Types)\s*=/mi.test(s)) return 'pokemon';
+    // encounters.txt has no Key=Value lines at all: headings, method names and rows
+    if (/^\s*\[[^\]]+\]\s*$/m.test(s) && /^\s*(Land|Cave|Water|OldRod|GoodRod|SuperRod|RockSmash|HeadbuttLow|HeadbuttHigh|BugContest|LandDay|LandNight|LandMorning|Fishing)\b/mi.test(s)) return 'encounters';
+    return null;
+  };
+
+  /**
+   * pokemon(text, opts) -> Result with `species` filled in.
+   * opts: { prefix, keepIds } — `keepIds` keeps Essentials' internal names as ids
+   * (BULBASAUR -> bulbasaur is the default and is what a person types).
+   */
+  E.pokemon = function (text, opts) {
+    const o = opts || {};
+    const res = blank();
+    const secs = sections(text);
+    if (!secs.length) { problem(res, 'error', 'not-pbs', 'that file has no [sections] in it, so it is not a PBS file', {}); return res; }
+    const seen = new Set();
+    const ids = new Set();
+    let unknownTypes = 0;
+    // Which generation of the format this is: v19 heads its sections with the dex
+    // number and carries InternalName; v20 heads them with the internal name.
+    const v19 = secs.some(sec => /^\d+$/.test(sec.head)) || secs.some(sec => valueOf(sec.lines, 'InternalName'));
+    const STATS = v19 ? STATS_V19 : STATS_V20;
+    secs.forEach((sec, order) => {
+      const lines = sec.lines;
+      // v20: the heading IS the internal name. v19: the heading is a dex number.
+      const headIsNumber = /^\d+$/.test(sec.head);
+      const internal = valueOf(lines, 'InternalName') || (headIsNumber ? null : sec.head);
+      const name = valueOf(lines, 'Name') || titleCase(internal || sec.head);
+      if (!internal && !name) return;
+      const id = withPrefix(slug(internal || name), o);
+      if (ids.has(id)) { once(seen, res, 'warn', 'duplicate-id', id, `two entries are both called '${id}'; the later one was skipped`, {}); return; }
+      ids.add(id);
+      const types = (valueOf(lines, 'Types') ? listOf(valueOf(lines, 'Types')) : [valueOf(lines, 'Type1'), valueOf(lines, 'Type2')].filter(Boolean))
+        .map(t => slug(t));
+      for (const t of types) if (!TYPE_COLOR[t]) { unknownTypes++; once(seen, res, 'info', 'unknown-type', t, `'${t}' is not one of the types this engine knows a colour for — it is kept as a word`, {}); }
+      const statList = listOf(valueOf(lines, 'BaseStats'));
+      const base = {};
+      if (statList.length >= 6) { STATS.forEach((k, i) => { base[k] = int(statList[i], 50); }); }
+      else { for (const k of ['hp', 'atk', 'def', 'spa', 'spd', 'spe']) base[k] = 50; if (statList.length) once(seen, res, 'warn', 'bad-stats', id, `'${id}' has ${statList.length} base stats, not six; 50s were used`, {}); }
+      // v20 has no dex number of its own: the file's order IS the order.
+      const dexNum = headIsNumber ? int(sec.head, 0) : (int(valueOf(lines, 'Number'), 0) || order + 1);
+      const color = TYPE_COLOR[types[0]] || '#8a8a9a';
+      res.packs.mons.species.push({
+        id, name: name || titleCase(internal), dex: dexNum, types, color, sprite: null,
+        blurb: valueOf(lines, 'Pokedex', 'Dex', 'Description') || '',
+        height: num(valueOf(lines, 'Height'), 0), weight: num(valueOf(lines, 'Weight'), 0),
+        base, moves: [], note: `from Pokémon Essentials (${internal || sec.head})`,
+      });
+    });
+    if (!res.packs.mons.species.length) problem(res, 'error', 'no-species', 'no species could be read out of that file', {});
+    if (unknownTypes) problem(res, 'info', 'types-kept', `${unknownTypes} type name(s) this engine has no colour for were kept as written`, {});
+    problem(res, 'info', 'moves-skipped', 'moves, abilities, items and evolutions were not read: Essentials names them in its own tables, and this engine befriends rather than battles', {});
+    res.stats = { species: res.packs.mons.species.length, from: 'essentials', shape: v19 ? 'v19' : 'v20' };
+    return res;
+  };
+
+  /**
+   * encounters(text, opts) -> Result whose `encounters` is { mapKey: { rate, byRegion:{0:[{id,weight}]} } }.
+   * Essentials keys its tables by RPG Maker map id; `opts.mapId(key)` turns one
+   * into a map of yours when you have one, and otherwise the key is kept so the
+   * table can be moved by hand.
+   */
+  E.encounters = function (text, opts) {
+    const o = opts || {};
+    const res = blank();
+    const secs = sections(text);
+    if (!secs.length) { problem(res, 'error', 'not-pbs', 'that file has no [sections] in it, so it is not a PBS file', {}); return res; }
+    const seen = new Set();
+    const METHODS = /^(Land|Cave|Water|OldRod|GoodRod|SuperRod|RockSmash|HeadbuttLow|HeadbuttHigh|BugContest|LandDay|LandNight|LandMorning|LandAfternoon|LandEvening|Fishing)([A-Za-z]*)$/i;
+    let rows = 0, methodsSkipped = 0;
+    for (const sec of secs) {
+      const key = sec.head.split(',')[0].trim();            // v20 allows [MAPID,version]
+      const mapId = (typeof o.mapId === 'function' && o.mapId(key)) || null;
+      const table = { rate: 0, byRegion: { 0: [] } };
+      let method = null, rate = 0, lands = 0;
+      for (const [k, v] of sec.lines) {
+        const line = k ? `${k}${v ? ',' + v : ''}` : v;     // a method line may parse as Key=Value ("Land = 25")
+        const parts = String(line).split(',').map(s => s.trim()).filter(s => s !== '');
+        const m = METHODS.exec(parts[0] || '');
+        if (m) {
+          method = parts[0];
+          const isLand = /^land/i.test(method) || /^cave$/i.test(method) || /^bugcontest$/i.test(method);
+          if (parts[1] != null && isLand) { rate = Math.max(rate, int(parts[1], 0)); }
+          if (!isLand) { methodsSkipped++; once(seen, res, 'info', 'method-skipped', method, `'${method}' encounters are not a thing in this engine yet — that block was left out`, { map: key }); }
+          continue;
+        }
+        if (!method) continue;
+        // a row: weight, SPECIES, minLevel[, maxLevel]
+        const isLand = /^land/i.test(method) || /^cave$/i.test(method) || /^bugcontest$/i.test(method);
+        if (!isLand) continue;
+        const weight = int(parts[0], 0);
+        const speciesName = parts[1];
+        if (!speciesName || !weight) continue;
+        const id = withPrefix(slug(speciesName), o);
+        const at = table.byRegion[0].find(e => e.id === id);
+        if (at) at.weight += weight; else table.byRegion[0].push({ id, weight });
+        rows++; lands++;
+      }
+      if (!lands) continue;
+      // Essentials' number is "chance in 100 of a step being an encounter" for the
+      // whole block; this engine's rate is the same thing, so it carries over.
+      table.rate = rate || 21;
+      res.packs.mons.encounters[mapId || key] = table;
+      if (!mapId) once(seen, res, 'warn', 'map-unresolved', key, `map '${key}' is an RPG Maker map id; the table was kept under that name so you can move it onto one of your maps`, { map: key });
+    }
+    if (!Object.keys(res.packs.mons.encounters).length) problem(res, 'error', 'no-encounters', 'no land or cave encounter tables could be read out of that file', {});
+    res.stats = { tables: Object.keys(res.packs.mons.encounters).length, rows, methodsSkipped, from: 'essentials' };
+    return res;
+  };
+
+  /**
+   * The engine asks this registry before its own guesses, so dropping a PBS file
+   * on Creator Mode's Import panel works without the engine knowing what PBS is.
+   */
+  E.register = function () {
+    if (!KIT.registry || !KIT.registry.exists || !KIT.registry.exists('importers')) return;
+    KIT.registry('importers').add({
+      id: 'essentials', label: 'Pokémon Essentials PBS', order: 20, replace: true,
+      detect(files) {
+        for (const f of (files || [])) {
+          if (f.text == null) continue;
+          let kind = null;
+          try { kind = E.detect(f.text); } catch (e) { kind = null; }
+          if (kind) return { kind, main: f, label: `Pokémon Essentials ${kind === 'pokemon' ? 'roster' : 'encounters'} (${String(f.name).split(/[\\/]/).pop()})` };
+        }
+        return null;
+      },
+      run(found, opts) {
+        return found.kind === 'pokemon' ? E.pokemon(found.main.text, opts) : E.encounters(found.main.text, opts);
+      },
+    });
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/modules/mons/panel.js ----
 // mons/panel.js — Creator Mode's half of the module:
 //
@@ -37783,6 +38368,7 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
   const UI = KIT.ui;
+  const ED = KIT.editor = KIT.editor || {};
   const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
@@ -37854,6 +38440,143 @@ PKMN.TILES.register([
       refresh(ed) { paintPanel(this._el, ed); },
       onSelect(sel, ed) { paintPanel(this._el, ed); },
     });
+    // ---- the Species panel ------------------------------------------------------
+    // A fan game is its own creatures. The built-in roster is a worked example the
+    // way the demo world is: this panel writes `packs.mons.species`, which is
+    // registered over it, so a game can rename one, restat it, or invent its own.
+    KIT.registry('editorPanels').add({
+      id: 'mons-species', label: 'Species', icon: 'npc', order: 47, section: 'game', replace: true,
+      mount(el, ed) { this._el = el; this._forms = []; this._sig = ''; this.refresh(ed); },
+      refresh(ed) { paintSpecies(this, ed); },
+    });
+  }
+
+  const speciesState = { query: '', open: {}, adding: false, draft: '' };
+  /** Every species the game knows: the project's own first, then the built-ins. */
+  function speciesRows(project) {
+    const mine = new Map(M.projectSpecies(project).map(s => [s.id, s]));
+    const rows = [];
+    for (const s of mine.values()) rows.push({ id: s.id, name: s.name || s.id, def: s, mine: true });
+    for (const s of M.speciesList()) if (!mine.has(s.id)) rows.push({ id: s.id, name: s.name || s.id, def: s, mine: false });
+    return rows;
+  }
+  /** Write the project's roster back, as one undo step, and re-register it. */
+  function writeSpecies(ed, fn) {
+    const list = KIT.deepClone(M.projectSpecies(ed.state.project));
+    const next = fn(list) || list;
+    ed.commit('Species', (doc, O) => O.setField(doc, ['packs', 'mons', 'species'], next, 'Species'));
+    afterSpecies(ed, next);
+  }
+  /** One field of one species: a set at its own path, so undo is per field. */
+  function editSpecies(ed, id, path, value) {
+    const i = M.projectSpecies(ed.state.project).findIndex(s => s.id === id);
+    if (i < 0) return;
+    ed.commit('Edit species', (doc, O) => O.setField(doc, ['packs', 'mons', 'species', i].concat(path), value, 'Edit species'));
+    afterSpecies(ed, M.projectSpecies(ed.state.project));
+  }
+  function afterSpecies(ed, list) {
+    M.registerSpecies(list || []);                 // the picker, the card and the map see it at once
+    if (typeof ed.afterEdit === 'function') ed.afterEdit();
+    if (typeof ed.refresh === 'function') ed.refresh();
+  }
+  function paintSpecies(panel, ed) {
+    const el = panel._el;
+    if (!el || !ed || !ed.state) return;
+    const project = ed.state.project;
+    const rows = speciesRows(project);
+    const sig = JSON.stringify([speciesState.query, speciesState.adding, speciesState.open, M.projectSpecies(project), rows.length]);
+    if (sig === panel._sig) return;
+    const active = document.activeElement;
+    const inSearch = !!(active && el.contains(active) && active.classList.contains('ed-obj-search'));
+    if (!inSearch && active && el.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { panel._stale = true; return; }
+    const caret = inSearch ? active.selectionStart : 0;
+    panel._sig = sig; panel._stale = false;
+    for (const f of panel._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+    panel._forms = [];
+    UI.clear(el);
+    el.appendChild(make('div.ed-hint', { text: 'Everybody who can be met, caught and walked with. The ones that came with the engine are a worked example: rename one, restat it, or write your own — a species of yours with the same id wins.' }));
+
+    const head = make('div.ed-row.ed-obj-head');
+    const search = make('input.ed-obj-search');
+    search.type = 'search';
+    search.placeholder = 'Find a species…';
+    search.value = speciesState.query;
+    search.oninput = () => { speciesState.query = search.value; panel._sig = ''; paintSpecies(panel, ed); };
+    head.appendChild(search);
+    head.appendChild(edBtn('＋ New species', 'Invent one of your own', () => { speciesState.adding = true; speciesState.draft = ''; panel._sig = ''; paintSpecies(panel, ed); }, 'primary'));
+    el.appendChild(head);
+    if (inSearch) setTimeout(() => { const box = el.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
+
+    if (speciesState.adding) {
+      const box = make('div.ed-preset-form');
+      const input = make('input.ed-newgame-name');
+      input.type = 'text';
+      input.placeholder = 'What is it called? — Emberling, Tidepup…';
+      input.value = speciesState.draft;
+      input.oninput = () => { speciesState.draft = input.value; };
+      const done = () => {
+        const name = (input.value || '').trim();
+        if (!name) { input.focus(); return; }
+        const taken = new Set(speciesRows(project).map(r => r.id));
+        let id = KIT.slug(name) || 'new-one', n = 2;
+        while (taken.has(id)) id = `${KIT.slug(name) || 'new-one'}-${n++}`;
+        speciesState.adding = false; speciesState.draft = '';
+        speciesState.open[id] = true;
+        input.blur();
+        writeSpecies(ed, (list) => { list.push(M.newSpecies(id, name)); });
+        panel._sig = ''; paintSpecies(panel, ed);
+      };
+      input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { speciesState.adding = false; input.blur(); panel._sig = ''; paintSpecies(panel, ed); } };
+      box.appendChild(input);
+      const row = make('div.ed-row');
+      row.appendChild(edBtn('＋ Add them', null, done, 'primary'));
+      row.appendChild(edBtn('Cancel', null, () => { speciesState.adding = false; speciesState.draft = ''; input.blur(); panel._sig = ''; paintSpecies(panel, ed); }));
+      box.appendChild(row);
+      el.appendChild(box);
+      setTimeout(() => input.focus(), 0);
+    }
+
+    const q = speciesState.query.trim().toLowerCase();
+    const shown = rows.filter(r => !q || r.name.toLowerCase().includes(q) || r.id.includes(q));
+    el.appendChild(make('div.ed-label', { text: `${shown.length} of ${rows.length} · ${rows.filter(r => r.mine).length} of them yours` }));
+    for (const row of shown) {
+      const sec = make('details.ed-sec');
+      sec.open = speciesState.open[row.id] === true;
+      const sum = make('summary');
+      sum.appendChild(monCanvas(row.id, 2));
+      sum.appendChild(make('span.ed-item-name', { text: `${row.name}${row.mine ? '' : ' · came with the engine'}` }));
+      sec.appendChild(sum);
+      const body = make('div.ed-sec-body');
+      sec.appendChild(body);
+      sec.addEventListener('toggle', () => { speciesState.open[row.id] = sec.open; });
+      if (!sec.open) { el.appendChild(sec); continue; }
+      const def = M.projectSpecies(project).find(s => s.id === row.id);
+      if (!def) {
+        body.appendChild(make('div.ed-sub', { text: `${(row.def.types || []).join('/') || 'no type'} · ${M.rarityLabel(project, row.id)}` }));
+        body.appendChild(edBtn('✎ Make it mine', 'Copy it into this game, where you can change it', () => {
+          const copy = Object.assign(M.newSpecies(row.id, row.name), KIT.deepClone(row.def));
+          delete copy.bst; delete copy.rarity; delete copy.replace; delete copy.group;
+          speciesState.open[row.id] = true;
+          writeSpecies(ed, (list) => { list.push(copy); });
+          panel._sig = ''; paintSpecies(panel, ed);
+        }));
+      } else {
+        const form = make('div.ed-species-form');
+        body.appendChild(form);
+        panel._forms.push(ED.inspector.mount(form, {
+          fields: M.SPECIES_FIELDS, value: def, ctx: { project },
+          onChange(path, v) { editSpecies(ed, row.id, path, v); },
+        }));
+        body.appendChild(edBtn('✕ Remove from this game', 'Take it out of the roster (the built-in one, if there was one, comes back on reload)', async () => {
+          if (!(await ED.confirm(`Take “${row.name}” out of this game’s roster?`, { yes: 'Remove' }))) return;
+          delete speciesState.open[row.id];
+          writeSpecies(ed, (list) => list.filter(s => s.id !== row.id));
+          panel._sig = ''; paintSpecies(panel, ed);
+        }, 'danger'));
+      }
+      el.appendChild(sec);
+    }
+    if (!shown.length) el.appendChild(ED.emptyState ? ED.emptyState({ icon: '🐾', text: 'Nobody by that name', hint: 'Clear the search, or ＋ New species to invent one.' }) : make('div.ed-sub', { text: 'Nobody by that name.' }));
   }
 
   /** The table as the panel edits it — always a full { byRegion, rate } object. */
@@ -38110,6 +38833,7 @@ PKMN.TILES.register([
       M.registerItems();
       M.registerSystems();
       M.registerEditor();
+      if (M.essentials && typeof M.essentials.register === 'function') M.essentials.register();
       if (typeof M.registerScenes === 'function') M.registerScenes();
     },
 
@@ -38124,6 +38848,10 @@ PKMN.TILES.register([
     content: {
       key: 'mons',
       defaults: () => M.contentDefaults(),
+      // The built-in roster is registered when the module starts; a project's own
+      // species land on top of it (same id = yours wins), every time a project is
+      // loaded or edited. A fan game with none of its own is unchanged.
+      register: (pack) => M.registerSpecies(Array.isArray(pack.species) ? pack.species : []).map(s => s.id),
       fields: [
         { key: 'ball', type: 'ref:item', nullable: false, default: 'pokeball', label: 'Ball item' },
         { key: 'berry', type: 'ref:item', nullable: false, default: 'berry', label: 'Berry item' },

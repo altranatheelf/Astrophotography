@@ -130,6 +130,12 @@
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
   KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  // A format the engine has never heard of is a module's to read: the Import
+  // panel and tools/import.js ask this registry before their own guesses, so a
+  // module can bring a whole toolchain's files with it (ADR-0005).
+  //   { id, label, detect(files) -> { kind, main, files } | null, run(found, opts) -> Result }
+  // `files` are { name, text?, bytes? }; a Result is the shape in docs/IMPORT-CONTRACT.md.
+  KIT.defineRegistry('importers', { fields: named.concat([{ key: 'order', type: 'number', integer: true, default: 50 }]), doc: 'File formats a module can import: { id, label, detect(files), run(found, opts) }.' });
   KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'target', type: 'enum', options: ['project', 'save'], default: 'project' }, { key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: '{ id, target, from, to, up(data) -> data }' });
   KIT.defineRegistry('strings', { fields: base.concat([{ key: 'default', type: 'string' }, { key: 'doc', type: 'text', optional: true }]), doc: 'System strings (Terms) with defaults; the project may override each.' });
 

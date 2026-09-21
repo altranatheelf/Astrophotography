@@ -19,7 +19,10 @@
 
   const LAYERS = ['ground', 'deco', 'above'];
   const ZOOM = { small: 0.8, normal: 1, large: 1.25, auto: 1 };
-  const MAX_CACHE_PX = 8192;                   // bigger maps are drawn cell by cell
+  // Bigger than this on a side is drawn cell by cell. 4096 is what every browser
+  // and every GPU of the last decade handles; 8192 is where Safari starts quietly
+  // handing back blank canvases instead of raising anything.
+  const MAX_CACHE_PX = 4096;
   /**
    * How much backing store the baked tile layers may hold, across all maps.
    * 192MB sounds enormous and is about two rooms on a dpr-3 phone — the point
@@ -192,10 +195,15 @@
     }
     function buildCache(view) {
       const wpx = view.width * tilePx, hpx = view.height * tilePx;
-      const cached = wpx <= MAX_CACHE_PX && hpx <= MAX_CACHE_PX;
+      const bytes = wpx * hpx * 4 * LAYERS.length;
+      // The budget is checked BEFORE the pixels are asked for, not after. Asking
+      // first was most of a gigabyte on a big map at a big zoom, and WebKit does
+      // not throw when it refuses a canvas that size — it hands back a blank one,
+      // so the ground simply stopped being drawn.
+      const cached = wpx <= MAX_CACHE_PX && hpx <= MAX_CACHE_PX && bytes <= R.cacheBudget;
       const c = { scale, w: view.width, h: view.height, cached, canvases: {}, animated: [], bytes: 0 };
       if (!cached) return c;
-      c.bytes = wpx * hpx * 4 * LAYERS.length;
+      c.bytes = bytes;
       for (const layer of LAYERS) {
         const cv = document.createElement('canvas');
         cv.width = wpx; cv.height = hpx;

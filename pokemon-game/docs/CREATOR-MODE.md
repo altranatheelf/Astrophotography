@@ -158,10 +158,11 @@ place in the editor.
 | **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it. **＋ New person** and **＋ New fact** add to it; each one opens as a form |
 | **Game · Variables** | Switches and Variables: declare them, see every read and every write |
 | **Game · Items** | What Events give and conditions ask about |
+| **Game · Species** | Everybody who can be met, caught and walked with (the Pokémon-style module). The ones that came with the engine are a worked example: **✎ Make it mine** copies one in so you can restat or rename it, **＋ New species** invents one. A species of yours with a built-in id wins |
 | **Game · Terms** | The words the engine says (“Yes”, “Got {item}!”) when you want different ones |
 | **Problems · Problems** | What the validator noticed, in plain English. It is a to-do list, never a gate — you can always play |
 | **Game · Data** | The raw JSON of whatever is selected, for when you want to edit by hand |
-| **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder, Aseprite art — or a PNG on its own, cut into tiles or a walking character — dropped in (`docs/IMPORTING.md`) |
+| **Game · Import** | A Tiled map, an RPG Maker MV/MZ folder, Aseprite art, a Pokémon Essentials PBS file, a PNG on its own (cut into tiles or a walking character), or music and sound effects — dropped in (`docs/IMPORTING.md`) |
 
 Modules add their panels to the same groups: with the Pokémon-style module on,
 **Map · Encounters** is there too, and the Home module puts its jobs, furniture

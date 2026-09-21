@@ -157,6 +157,16 @@
     const list = (files || []).filter(Boolean);
     const problems = [];
     const images = list.filter(f => IMAGE_EXT.test(base(f.name)));
+    // A module may know a format the engine has never heard of (ADR-0005). It is
+    // asked first, so its own toolchain's files win over a lucky guess here.
+    if (KIT.registry.exists('importers')) {
+      for (const imp of KIT.registry('importers').list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
+        if (typeof imp.detect !== 'function') continue;
+        let hit = null;
+        try { hit = imp.detect(list); } catch (e) { (KIT.log || console).warn(`[import] ${imp.id} could not look at these files`, e); hit = null; }
+        if (hit) return Object.assign({ tool: 'registry', importer: imp.id, kind: null, label: imp.label || imp.id, main: null, files: list, images, problems }, hit);
+      }
+    }
     const rm = list.filter(f => RM_FILE.test(base(f.name)));
     if (rm.length) {
       const data = list.filter(f => ext(f.name) === 'json');
@@ -177,6 +187,10 @@
       let kind = null;
       try { kind = KIT.import.aseprite.detect(f.text); } catch (e) { kind = null; }
       if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
+    }
+    const audio = list.filter(f => KIT.import.image && KIT.import.image.AUDIO_EXT.test(base(f.name)));
+    if (audio.length && list.length === audio.length) {
+      return { tool: 'audio', kind: 'audio', label: `Sound ${base(audio[0].name)}${audio.length > 1 ? ` and ${audio.length - 1} more` : ''}`, main: audio[0], files: audio, images, problems };
     }
     if (images.length && list.length === images.length) {
       // A PNG on its own — a tileset sheet or a walk cycle found online. The
@@ -433,16 +447,16 @@
               }
               return;
             }
-            // No directory picker (every browser on a phone, and Safari): one
-            // file at a time is unusable at 400 maps, so it says so rather than
-            // starting four hundred downloads.
-            if (names.length > 12) {
-              say(`This browser cannot save a folder, and this game is ${names.length} files. Open Creator Mode on a computer in Chrome or Edge to save it for git — or use “Save a copy” above, which is one file and works everywhere.`, false);
-              return;
-            }
-            let wrote = 0;
-            for (const name of names) if (await KIT.storage.download(name.replace(/\//g, '-'), files[name])) wrote++;
-            say(wrote ? `Saved ${wrote} file${wrote === 1 ? '' : 's'}.` : 'This browser would not save the files.', !!wrote);
+            // No directory picker (Firefox, Safari, every phone): one zip, which
+            // every browser will download and every computer can open. N
+            // downloads only ever delivered the first outside Chrome, and the
+            // old code could not tell, so it said it had saved them all.
+            const zip = KIT.storage.zip(files);
+            const zipName = `${(p.meta && p.meta.id) || 'game'}-files.zip`;
+            const ok = await KIT.storage.download(zipName, zip, 'application/zip');
+            say(ok
+              ? `Saved ${zipName} — ${names.length} file${names.length === 1 ? '' : 's'} inside, one per map. Unzip it into your game folder; that folder is a git repository waiting to happen.`
+              : 'This browser would not save the file.', !!ok);
           }));
         body.appendChild(gitRow);
         body.appendChild(make('div.ed-sub', {
@@ -1157,7 +1171,7 @@
     mount(host) {
       clear(host);
       const el = this._el = {};
-      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder (the .json files), Aseprite art (.aseprite, or a sheet .json next to its .png) — or a PNG on its own, which is cut into tiles or a walking character. Images are embedded, so nothing depends on where the file lived.' }));
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — or music and sound effects (.ogg, .mp3, .wav). Everything is embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
       el.drop.appendChild(make('div', { text: 'Drop files here' }));
@@ -1167,7 +1181,7 @@
       el.file.type = 'file';
       el.file.multiple = true;
       el.file.style.display = 'none';
-      el.file.onchange = () => { if (el.file.files && el.file.files.length) read(this, Array.from(el.file.files)); };
+      el.file.onchange = () => { if (el.file.files && el.file.files.length) Promise.resolve(read(this, Array.from(el.file.files))).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); }); };
       pick.onclick = () => el.file.click();
       el.drop.appendChild(pick);
       el.drop.appendChild(el.file);
@@ -1177,7 +1191,7 @@
         e.preventDefault();
         el.drop.classList.remove('is-over');
         const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-        if (files.length) read(this, files);
+        if (files.length) Promise.resolve(read(this, files)).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); });
       });
       host.appendChild(el.drop);
       host.appendChild(make('div.ed-label', { text: 'Before you import' }));
@@ -1275,6 +1289,54 @@
     syncImageForm(panel);
     el.img.hidden = false;
   }
+  const AUDIO_MIME = { ogg: 'audio/ogg', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg', webm: 'audio/webm' };
+  /** A dropped .ogg/.mp3: is it music or an effect, and does it loop? */
+  function showAudioForm(panel, found) {
+    const el = panel._el;
+    clear(el.report);
+    const I = KIT.import.image;
+    const box = make('div.ed-preset-form.ed-audio-form');
+    box.appendChild(make('div.ed-f-label', { text: found.files.length === 1 ? `“${base(found.main.name)}” — what is it?` : `${found.files.length} sounds — what are they?` }));
+    const kinds = make('div.ed-chips');
+    const guess = I.guessAudio(found.main.name, found.main.bytes);
+    let kind = guess;
+    const chip = (id, label) => {
+      const c = btn(label, null, () => { kind = id; for (const b of kinds.querySelectorAll('.ed-chip')) b.setAttribute('aria-pressed', String(b.dataset.kind === id)); loopRow.hidden = id !== 'music'; }, 'ed-chip');
+      c.dataset.kind = id;
+      c.setAttribute('aria-pressed', String(id === guess));
+      kinds.appendChild(c);
+    };
+    chip('music', 'Music (it plays on a map and loops)');
+    chip('sound', 'A sound effect (a script plays it)');
+    box.appendChild(kinds);
+    const loopRow = make('label.ed-check');
+    const loopBox = make('input'); loopBox.type = 'checkbox'; loopBox.checked = true;
+    loopRow.appendChild(loopBox);
+    loopRow.appendChild(make('span', { text: ' Loop it' }));
+    loopRow.hidden = guess !== 'music';
+    box.appendChild(loopRow);
+    box.appendChild(make('div.ed-hint', { text: 'The sound is put inside the game, so it still plays when the page is opened from a file, and travels with “Save a copy”. Big files make a big game: a few minutes of music is a few megabytes.' }));
+    const row = make('div.ed-row');
+    row.appendChild(btn('♪ Bring it in', 'Add it to the game', () => runAudio(panel, found, kind, loopBox.checked), 'primary'));
+    box.appendChild(row);
+    el.report.appendChild(box);
+  }
+  function runAudio(panel, found, kind, loop) {
+    const el = panel._el;
+    const prefix = (el.prefix.value || '').trim() || null;
+    const I = KIT.import.image;
+    const merged = { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, sounds: {}, music: {}, problems: [], stats: { audio: 0 } };
+    for (const f of found.files) {
+      const ext = (base(f.name).split('.').pop() || '').toLowerCase();
+      const src = `data:${AUDIO_MIME[ext] || 'audio/mpeg'};base64,${bytesToBase64(f.bytes)}`;
+      const one = I.audio({ name: base(f.name), kind, src, loop, prefix });
+      Object.assign(merged.sounds, one.sounds); Object.assign(merged.music, one.music);
+      merged.problems = merged.problems.concat(one.problems);
+      merged.stats.audio += 1;
+    }
+    finishImport(panel, found, merged, { missing: [] });
+  }
+
   /** Which cells of the sheet are fully transparent (so they need not become tiles). Empty when the picture cannot be drawn. */
   function emptyCells(src, tile, margin, spacing, columns, rows) {
     return new Promise((resolve) => {
@@ -1340,15 +1402,28 @@
     clear(el.report);
     el.report.appendChild(make('div.ed-hint', { text: `Reading ${fileList.length} file${fileList.length === 1 ? '' : 's'}…` }));
     const files = [];
+    const unreadable = [];
     for (const f of fileList) {
       const name = f.webkitRelativePath || f.name;
-      const bytes = new Uint8Array(await f.arrayBuffer());
+      let bytes = null;
+      // A dropped FOLDER arrives as a File that cannot be read, in every browser.
+      // Unhandled, the panel sat on “Reading 1 file…” for good — and dropping the
+      // folder is exactly what its own instructions invite for RPG Maker.
+      try { bytes = new Uint8Array(await f.arrayBuffer()); }
+      catch (e) { unreadable.push(name); continue; }
       const isImage = IMAGE_EXT.test(name);
-      const isBinary = isImage || /\.(aseprite|ase)$/i.test(name);
+      const isAudio = !!(KIT.import.image && KIT.import.image.AUDIO_EXT.test(name));
+      const isBinary = isImage || isAudio || /\.(aseprite|ase)$/i.test(name);
       let text = null;
       if (!isBinary) { try { text = new TextDecoder().decode(bytes); } catch (e) { text = null; } }
       files.push({ name, bytes, text, type: f.type });
     }
+    if (unreadable.length && !files.length) {
+      clear(el.report);
+      el.report.appendChild(make('div.ed-problem.warn', { text: `“${unreadable.join('”, “')}” could not be read. A folder cannot be dropped in as one thing: open it and drop the files inside.` }));
+      return;
+    }
+    if (unreadable.length) el.report.appendChild(make('div.ed-problem.warn', { text: `${unreadable.length} thing(s) could not be read (a folder?) and were left out.` }));
     runImport(panel, files);
   }
 
@@ -1420,6 +1495,7 @@
       return;
     }
     if (found.tool === 'image') { showImageForm(panel, found); return; }
+    if (found.tool === 'audio') { showAudioForm(panel, found); return; }
     const assets = assetResolver(files, prefix);
     const p = project();
     const mapId = (name) => {
@@ -1430,7 +1506,10 @@
     };
     let result = null;
     try {
-      if (found.tool === 'tiled') {
+      if (found.tool === 'registry') {
+        const imp = KIT.registry('importers').get(found.importer);
+        result = imp.run(found, { asset: assets.asset, prefix, mapId, name: found.main && base(found.main.name), inflate });
+      } else if (found.tool === 'tiled') {
         const byName = new Map();
         for (const f of files) if (f.text != null) byName.set(base(f.name).toLowerCase(), f.text);
         const external = (src) => byName.get(base(src).toLowerCase());

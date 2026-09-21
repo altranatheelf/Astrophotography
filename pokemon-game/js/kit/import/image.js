@@ -27,7 +27,7 @@
   const DIR = { d: 'down', u: 'up', l: 'left', r: 'right' };
 
   function blank() {
-    return { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, project: null, problems: [], stats: {} };
+    return { assets: {}, tiles: [], sprites: [], faces: [], icons: [], animations: [], maps: {}, objects: [], scripts: {}, vars: {}, items: {}, sounds: {}, music: {}, project: null, problems: [], stats: {} };
   }
 
   /** guessTile(w, h, prefer) -> the tile size a sheet of w×h most likely uses. */
@@ -105,6 +105,41 @@
     res.assets[a.id] = { kind: 'image', src: a.src, w: a.w || w, h: a.h || h, from: `image:${o.name || base}` };
     res.sprites.push(def);
     res.stats = { sprites: 1, columns, rows, w: fw, h: fh, dirs: Object.keys(def.frames), from: 'image' };
+    return res;
+  };
+
+  // ---- audio ------------------------------------------------------------------
+  // A game needs music, and a page opened from a file cannot fetch the .ogg next
+  // to it — so an imported track is embedded like every imported picture.
+  I.AUDIO_EXT = /\.(ogg|mp3|wav|m4a|aac|flac|opus|webm)$/i;
+  /** guessAudio(name) -> 'music' | 'sound': long things loop, short things are effects. */
+  I.guessAudio = function (name, bytes) {
+    const n = String(name || '').toLowerCase();
+    if (/\b(bgm|music|theme|track|song|loop)\b|^bgm|^music/.test(n)) return 'music';
+    if (/\b(se|sfx|sound|effect|cry|hit|step|beep)\b|^se[-_]|^sfx/.test(n)) return 'sound';
+    // Nothing in the name: a file over about half a megabyte is a piece of music.
+    return (bytes && bytes.length > 512 * 1024) ? 'music' : 'sound';
+  };
+  /**
+   * audio(o) -> Result — one dropped track or effect.
+   * o: { name, kind:'music'|'sound', src (a data: URI), loop, loopStart, loopEnd, prefix, id }
+   */
+  I.audio = function (o) {
+    const res = blank();
+    const src = String((o && o.src) || '');
+    if (!src) { res.problems.push({ severity: 'error', code: 'no-audio', message: 'that sound came with no data to play', where: {} }); return res; }
+    const base = KIT.slug(o.id || stem(o.name) || 'track');
+    const id = withPrefix(base, o.prefix);
+    const kind = o.kind === 'music' ? 'music' : 'sound';
+    const name = titleCase(stem(o.name) || base);
+    if (kind === 'music') {
+      res.music = { [id]: { id, name, kind: 'file', src, loop: o.loop !== false,
+        loopStart: o.loopStart == null ? null : Number(o.loopStart), loopEnd: o.loopEnd == null ? null : Number(o.loopEnd) } };
+    } else {
+      res.sounds = { [id]: { id, name, kind: 'file', src } };
+    }
+    if (!/^data:/i.test(src)) res.problems.push({ severity: 'warn', code: 'audio-not-embedded', message: `“${o.name}” is a path, not embedded — a page opened from a file cannot read it`, where: {} });
+    res.stats = { audio: 1, kind, from: 'image' };
     return res;
   };
 
