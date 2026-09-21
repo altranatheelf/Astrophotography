@@ -309,3 +309,18 @@ test('strings registry drives project.strings; project schema fields are exposed
   assert.ok(P.fields.meta.some(f => f.key === 'pitch') && P.fields.page.some(f => f.key === 'when') && P.fields.autotileRule.some(f => f.key === 'pattern'));
   assert.deepEqual(P.SLOTS, ['interact', 'step', 'touch', 'enter', 'tick', 'init']);
 });
+
+test('validate looks inside rules: a broken command, a bad transfer and an undeclared variable are reported', () => {
+  const s = sample();
+  s.rules = { odd: { name: 'Odd', when: 'step', if: { kind: 'var', name: 'nosuchvar', op: '==', value: 1 },
+    do: [{ t: 'nonsense' }, { t: 'transfer', map: 'nowhere', x: 99, y: 99, dir: 'down' }, { t: 'say', who: '', text: '' }] } };
+  const { project: p } = P.normalize(s);
+  const problems = P.validate(p);
+  const inRule = problems.filter(x => x.where && x.where.rule === 'odd');
+  const codes = new Set(inRule.map(x => x.code));
+  for (const c of ['unknown-command', 'bad-target', 'empty-text', 'undeclared-var']) assert.ok(codes.has(c), `expected ${c} on the rule, got ${Array.from(codes).join(',')}`);
+  // and a rule's lines are walked like every other script's
+  const seen = [];
+  P.walkCommands(p, (cmd, where) => { if (where.rule) seen.push(cmd.t); });
+  assert.deepEqual(seen, ['nonsense', 'transfer', 'say']);
+});

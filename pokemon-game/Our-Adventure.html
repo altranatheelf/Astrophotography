@@ -90,7 +90,19 @@ body { overflow: hidden; }
 }
 
 .overlay { position: absolute; inset: 0; }
+/* Stacked the way scenes are pushed, not the way the divs happen to sit in the
+   page: Quit's Yes/No was painted under the pause menu, and Settings from the
+   title under the title. */
+#screen-title { z-index: 1; }
+#pause-menu { z-index: 2; }
+#dialogue { z-index: 3; }
+#choice { z-index: 4; }
+#chapter { z-index: 5; }
+#toast { z-index: 6; }
 #toast, #chapter { pointer-events: none; }
+/* The pad can shrink to its menu button (a phone with the pad "off" still needs a way to pause). */
+.kit-controls.is-minimal .kit-dpad, .kit-controls.is-minimal .kit-face, .kit-controls.is-minimal .kit-swap { display: none; }
+.kit-controls.is-minimal .kit-pad { grid-template-columns: auto; justify-items: end; }
 
 /* ---- dialogue ------------------------------------------------------------- */
 #dialogue {
@@ -327,8 +339,10 @@ body { overflow: hidden; }
 .kit-extra { display: flex; flex-direction: column; gap: 8px; }
 .kit-menu, .kit-swap { min-width: 56px; min-height: 44px; font-size: 14px; }
 
-/* ---- wide screens: pads beside the screen -------------------------------------- */
-@media (min-width: 900px) {
+/* ---- wide screens, and a phone held sideways: pads beside the screen ---------------
+   A 844×390 phone is narrower than 900px but has no room for a pad UNDER the map:
+   stacked, the map was four tiles tall. Short-and-wide counts as wide. */
+@media (min-width: 900px), ((orientation: landscape) and (max-height: 520px)) {
   #stage {
     flex-direction: row;
     justify-content: center;
@@ -708,6 +722,10 @@ textarea.is-bad { border-color: #b03434; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
 .ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 60; pointer-events: none; background: #eef3ff; color: #1b2233; border: 2px solid #3b4b8a; border-radius: 999px; padding: 8px 14px; font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.45); animation: ed-toast-in .18s ease-out; }
+@keyframes ed-toast-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.ed-status.is-picking { color: #ffd166; }
+.ed-list-row input, .ed-list-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; flex: 1 1 120px; min-width: 0; }
 .ed-firststeps { border: 1px dashed #3d5c8f; background: #161e2c; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; color: #c3cfe2; }
 .ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-cast-form { margin: 6px 0 8px; }
@@ -5303,6 +5321,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     const scripts = project.scripts || {};
     for (const id of Object.keys(scripts)) if (Array.isArray(scripts[id].body)) walkList(scripts[id].body, { script: id, path: ['scripts', id, 'body'] }, fn);
+    // Rules are scripts too: unchecked, a rule's broken command shipped clean
+    // through Problems and its lines were missing from the translation table.
+    const rules = project.rules || {};
+    for (const id of Object.keys(rules)) if (Array.isArray(rules[id].do)) walkList(rules[id].do, { rule: id, path: ['rules', id, 'do'] }, fn);
   };
   /** walkCommands(project, fn(cmd, where, index)) — every command anywhere; where.path points at the command. */
   P.walkCommands = function (project, fn) {
@@ -5411,6 +5433,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     // scripts: when + params
     for (const id of Object.keys(project.scripts || {})) { const o = []; fieldRefs(F.script.filter(f => f.key !== 'body'), project.scripts[id], ['scripts', id], o); push(o, { script: id }); }
+    for (const id of Object.keys(project.rules || {})) { const o = []; fieldRefs((F.rule || []).filter(f => f.key !== 'do'), project.rules[id], ['rules', id], o); push(o, { rule: id }); }
     // commands
     P.walkCommands(project, (cmd, where) => {
       const def = commandDef(cmd);
@@ -5503,6 +5526,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       if (k && k.fields) errors('schema', stripRefErrors(S.validate(k.fields, (it && it.props) || {})), { path: ['items', id, 'props'] }, `item ${id}`);
     }
     for (const id of Object.keys(project.scripts || {})) errors('schema', stripRefErrors(S.validate(F.script, project.scripts[id])), { script: id, path: ['scripts', id] }, `script ${id}`);
+    for (const id of Object.keys(project.rules || {})) errors('schema', stripRefErrors(S.validate(F.rule || [], project.rules[id])), { rule: id, path: ['rules', id] }, `rule ${id}`);
     (project.fragments || []).forEach((f, i) => errors('schema', S.validate(F.fragment, f), { path: ['fragments', i] }, 'fragment'));
     (project.testStates || []).forEach((t, i) => {
       errors('schema', stripRefErrors(S.validate(F.testState, t)), { path: ['testStates', i] }, `test state ${t && t.id}`);
@@ -6955,11 +6979,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             // fail the condition, and a world that goes busy on every footstep
             // is a world you cannot walk across.
             const w = ctx.world;
-            const was = w ? w.busy : false;
+            // The lock is taken when this rule's turn actually comes — a rule fired
+            // from inside a running script queues behind it on the main thread —
+            // and always released. Restoring an earlier value put `busy` back to
+            // true after the script that fired the rule had already let go: a
+            // frozen game with nothing in the console.
+            if (w && KIT.interpreter.whenIdle) await KIT.interpreter.whenIdle();
             if (w) w.busy = true;
             try {
               await KIT.interpreter.run(rule.do, sub, { label: 'rule:' + rule.id });
-            } finally { if (w) w.busy = was; }
+            } finally { if (w) w.busy = false; }
           }
           ran++;
         } catch (e) {
@@ -7321,6 +7350,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * makes a branch rather than an overwrite. That is the whole mechanic and it
    * needs no button: continuing from an old moment IS branching.
    */
+  /** Keys a save changes on its own between two moments: not a reason for a new one. */
+  const VOLATILE = new Set(['moment', 'playtimeMs', 'savedAt', 'music']);
   T.record = function (save, opts) {
     const o = opts || {};
     const t = T.now();
@@ -7353,9 +7384,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     // A save that changed nothing makes no moment. Autosaves fire on every map
     // entered and every flag flipped, and the one that landed right after a
     // manual save used to add a twin node and move the head off the save the
-    // player had just made. A name given now still sticks to the moment we are in.
-    if (parent && d && !d.length && !Object.keys(node.tk).length) {
-      if (node.label && !parent.label) { parent.label = node.label; bump(); }
+    // player had just made. "Nothing" ignores what every save changes by itself:
+    // the moment id the last save wrote into it and the play clock. A name given
+    // now sticks to the moment we are in.
+    if (parent && d && !d.some(op => !VOLATILE.has(op.p && op.p[0])) && !Object.keys(node.tk).length) {
+      if (node.label && node.label !== parent.label) { parent.label = node.label; bump(); }
       return parentId;
     }
     if (!base) node.full = KIT.deepClone(save);
@@ -11322,7 +11355,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         e.object = obj; e.page = page;
         kept.push(e);
       }
-      if (changed) { world.entities = kept; refreshBlockers(); }
+      if (changed || kept.length !== world.entities.length) { world.entities = kept; refreshBlockers(); }
     }
     world.refreshPages = refreshPages;
 
@@ -11438,6 +11471,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           world.activeEntity = previousActive;
           if (entity.data.resumeDir) { entity.dir = entity.data.resumeDir; entity.data.resumeDir = null; }
           refreshPages();
+          if (pendingSlots.length) drainSlots();   // the arrival scene a script's transfer had to wait for
         }
       }
     };
@@ -11446,7 +11480,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       return world.heroes.every(h => Math.abs(h.x - entity.x) + Math.abs(h.y - entity.y) <= 1);
     }
 
+    // A map entered from inside a running script (`@transfer` in a door's slot, a
+    // cutscene that ends by moving the player) arrives while the world is busy,
+    // and runSlot answers busy with null. The arrival scene was silently dropped
+    // and `init` was marked done for the visit. Now it waits for the lock.
+    const pendingSlots = [];
     async function runSlotsForMap(slot) {
+      if (world.busy) { if (!pendingSlots.includes(slot)) pendingSlots.push(slot); return; }
       for (const e of world.entities.slice()) {
         if (slot === 'init') {
           const k = `${world.map.id}:${e.id}`;
@@ -11457,6 +11497,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
     }
     world.runSlotsForMap = runSlotsForMap;
+    let slotDrain = null;
+    function drainSlots() {
+      if (slotDrain) return slotDrain;                 // one drain at a time; callers share its promise
+      slotDrain = (async () => {
+        try {
+          while (pendingSlots.length && !world.busy) {
+            try { await runSlotsForMap(pendingSlots.shift()); }
+            catch (e) { (KIT.log || console).error('[world] a deferred map slot failed', e); }
+          }
+        } finally { slotDrain = null; }
+      })();
+      return slotDrain;
+    }
+    world.drainSlots = drainSlots;
+    world.slotsPending = () => pendingSlots.length;
 
     // ---- rules -----------------------------------------------------------------
     // Rules are things in the world (js/kit/world/rules.js): `when` an event
@@ -11680,7 +11735,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     // Keep pages fresh when the story state changes.
     events.on('varChanged', refreshPages);
     events.on('selfChanged', refreshPages);
-    events.on('objectStateChanged', () => { buildEntities(); });
+    // Not buildEntities(): that rebuilt every NPC from its authored square, so a
+    // wanderer teleported home and a move route in flight was lost whenever an
+    // item was picked up or an object erased. refreshPages keeps the survivors.
+    events.on('objectStateChanged', refreshPages);
 
     return world;
   };
@@ -18658,7 +18716,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   scenes.add({
     id: 'menu', name: 'Menu',
     create() {
-      let mode = 'pause', rows = [], index = 0, ui = null, game = null;
+      let mode = 'pause', entered = 'pause', rows = [], index = 0, ui = null, game = null;
 
       const build = function (self) {
         if (mode === 'settings') rows = settingRows();
@@ -18788,7 +18846,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const action = row.action || '';
         KIT.audio.play('select');
         if (action === 'close') { this.finish('close'); return; }
-        if (action === 'back') { mode = 'pause'; index = 0; build(this); return; }
+        if (action === 'back') {
+          // Back from a screen the menu was opened ON (Settings from the title) is
+          // out, not "to the pause menu of a game that is not running".
+          if (mode === entered) { this.finish('close'); return; }
+          mode = 'pause'; index = 0; build(this); return;
+        }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
           const slot = action.slice(5);
@@ -18890,6 +18953,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         enter(params) {
           game = (params && params.game) || KIT.game;
           mode = (params && params.mode) || 'pause';
+          entered = mode;                // Settings from the title has no pause menu to go back to
           index = 0;
           this._saveRows = null;
           build(this);
@@ -19068,6 +19132,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         }
         if (!row.action.startsWith('bind:')) return;
         note = '';
+        stopWaiting();                 // a second row tapped while one waits must not leave the first listener alive for good
         waiting = { action: row.action, player: row.player, button: row.button };
         KIT.audio.play('blip');
         build(this);
@@ -19860,9 +19925,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /** applyButtons() — show or hide the pad to match the setting, and give the map the room. */
   G.applyButtons = function () {
     if (!controls) return;
-    const show = G.wantsButtons();
-    if (controls.hidden === !show) return;
-    controls.hidden = !show;
+    const s = settings();
+    const show = G.wantsButtons(s);
+    // "Off" on a touch screen keeps the ☰: a tap and a swipe are A and a direction,
+    // so without that one button there is no way back to the pause menu, and the
+    // setting outlives a reload.
+    const minimal = !show && s.buttons === 'off' && !!(KIT.input.isTouch && KIT.input.isTouch());
+    const hidden = !show && !minimal;
+    if (controls.hidden === hidden && controls.classList.contains('is-minimal') === minimal) return;
+    controls.hidden = hidden;
+    controls.classList.toggle('is-minimal', minimal);
     G.resize();
   };
 
@@ -27135,6 +27207,10 @@ PKMN.TILES.register([
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
     for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
     syncSheet();
+    // Every panel body shares one scrolling host, so switching used to keep the
+    // old panel's offset: after Start a new game the Tiles panel opened scrolled
+    // to its tail, hint and palette off screen. Each panel keeps its own place.
+    for (const rec of mounted.values()) if (!rec.el.hidden) rec.scrollTop = host.scrollTop;
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);
@@ -27146,13 +27222,18 @@ PKMN.TILES.register([
       try { def.mount(el, ED); } catch (e) { (KIT.log || console).error(`[panel ${id}]`, e); el.textContent = `This panel failed to open: ${e.message}`; }
     }
     const rec = mounted.get(id);
-    if (rec) { rec.el.hidden = false; refreshPanel(rec); }
+    if (rec) { rec.el.hidden = false; refreshPanel(rec); host.scrollTop = rec.scrollTop || 0; }
     // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
     // for painting. Opening one hands the pointer to its tool unless the active
     // tool is one the panel uses — otherwise a tap meant to select Mom paints
     // grass under her. The toolbar is refreshed by the ED.set that got us here.
     const want = rec && rec.def.tool;
-    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) state.tool = want;
+    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) {
+      // A pick-on-map or a half-drawn rectangle does not follow the author to the next panel.
+      if (ED.inspector && ED.inspector.isPicking && ED.inspector.isPicking()) ED.inspector.stopPicking(false);
+      cancelTool();
+      state.tool = want;
+    }
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -27231,7 +27312,9 @@ PKMN.TILES.register([
     if (!s) return;
     const errs = state.problems.filter(p => p.severity === 'error').length;
     const warns = state.problems.filter(p => p.severity === 'warn').length;
+    const picking = !!(ED.inspector && ED.inspector.isPicking && ED.inspector.isPicking());
     const bits = [
+      picking ? '✛ Tap the map to pick a square' : '',   // a pill can be missed under a thumb; this stays until the tap
       `${state.cursor.x}, ${state.cursor.y}`,
       `${state.layer}`,
       state.saving ? 'saving…' : (state.saveFailed ? '⚠ NOT SAVED' : (state.lastSaved ? 'saved' : '')),
@@ -27240,6 +27323,7 @@ PKMN.TILES.register([
     ].filter(Boolean);
     s.textContent = bits.join('   ·   ');
     s.classList.toggle('has-errors', errs > 0 || !!state.saveFailed);
+    s.classList.toggle('is-picking', picking);
     // The Problems group carries the count, so it is on screen whichever panel is open.
     const pb = ED.el.groups && ED.el.groups.querySelector('.ed-group[data-group="problems"]');
     if (pb) {
@@ -27257,7 +27341,20 @@ PKMN.TILES.register([
   }
   ED.updateStatus = updateStatus;
 
-  ED.toast = function (text) { if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text); };
+  // The game's toast lives inside the game stage, which the editor covers while
+  // editing — so "Tap the map to place NPC" was drawn behind an opaque panel and
+  // nobody ever saw it. While editing, the editor shows its own pill.
+  ED.toast = function (text) {
+    if (open && state.mode !== 'play' && ED.el && ED.el.root) {
+      const old = ED.el.root.querySelector('.ed-toast');
+      if (old) old.remove();
+      const pill = UI.make('div.ed-toast', { text });
+      ED.el.root.appendChild(pill);
+      setTimeout(() => pill.remove(), 1800);
+      return;
+    }
+    if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text);
+  };
   /** confirm(text, { yes }) — a two-button question; the yes button says what it does ('Delete' unless told otherwise). */
   ED.confirm = function (text, opts) {
     return new Promise((resolve) => {
@@ -28599,6 +28696,17 @@ PKMN.TILES.register([
     const errBox = make('div.ed-f-err');
     row.appendChild(errBox);
     host.appendChild(row);
+
+    // Shown, never edited: an entity's id is what everything else points at, and a
+    // box that changed the inner id while the table key stayed put broke references.
+    if (f.display === 'readonly') {
+      const box = make('div.ed-readonly');
+      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
+      show(io.get());
+      body.appendChild(box);
+      reset.hidden = true;
+      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) show(io.get()); } };
+    }
 
     const def = INS.editorFor(f);
     let widget = null;
@@ -31809,13 +31917,15 @@ PKMN.TILES.register([
       const box = make('div.ed-picker.ed-cmd-picker');
       const search = make('input');
       search.type = 'search';
-      search.placeholder = 'Find a command… (text, choice, branch, variable)';
+      search.placeholder = 'Find a command…';
       search.value = pickerQuery;
       search.oninput = () => { pickerQuery = search.value; paint(); };
       box.appendChild(search);
       const body = make('div.ed-picker-grid');
       box.appendChild(body);
-      setTimeout(() => search.focus(), 0);
+      // Focus only where a keyboard is physical: on a phone, focusing the box
+      // raises the soft keyboard over the very chips the person came to tap.
+      if (!(KIT.input && KIT.input.isTouch && KIT.input.isTouch())) setTimeout(() => search.focus(), 0);
 
       function chip(def, cls) {
         const c = make('button.ed-chip' + (cls ? '.' + cls : ''), { text: SE.labelOf(def) });
@@ -39856,7 +39966,7 @@ PKMN.TILES.register([
         const card = make('div.ed-card');
         const head = make('div.ed-obj-head');
         head.appendChild(make('strong', { text: f.item.name || f.id }));
-        head.appendChild(make('span.ed-hint', { text: f.id }));
+        head.appendChild(make('span.ed-badge', { text: f.id }));
         card.appendChild(head);
         const base = ['items', f.id, 'props'];
         const props = f.item.props || {};
@@ -39870,8 +39980,8 @@ PKMN.TILES.register([
         variants.forEach((v, i) => {
           const row = make('div.ed-list-row');
           row.appendChild(make('span.ed-hint', { text: `${i + 1}.` }));
-          row.appendChild(input('text', v.tile, (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile'), val))));
-          row.appendChild(input('text', v.tile2 || '', (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile2'), val || null))));
+          row.appendChild(Object.assign(input('text', v.tile, (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile'), val))), { placeholder: 'tile id', title: 'The tile drawn for this look' }));
+          row.appendChild(Object.assign(input('text', v.tile2 || '', (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile2'), val || null))), { placeholder: 'second tile (optional)', title: 'A second tile, for furniture two squares big' }));
           row.appendChild(select([{ value: 'down', label: '↓' }, { value: 'right', label: '→' }], v.dir, (val) => edit('Furniture shape', (doc) => doc.set(base.concat('variants', i, 'dir'), val))));
           if ((props.variants || []).length > 1) row.appendChild(button('×', () => edit('Remove look', (doc) => doc.splice(base.concat('variants'), i, 1, []))));
           vList.appendChild(row);

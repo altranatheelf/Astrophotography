@@ -494,13 +494,15 @@
       const box = make('div.ed-picker.ed-cmd-picker');
       const search = make('input');
       search.type = 'search';
-      search.placeholder = 'Find a command… (text, choice, branch, variable)';
+      search.placeholder = 'Find a command…';
       search.value = pickerQuery;
       search.oninput = () => { pickerQuery = search.value; paint(); };
       box.appendChild(search);
       const body = make('div.ed-picker-grid');
       box.appendChild(body);
-      setTimeout(() => search.focus(), 0);
+      // Focus only where a keyboard is physical: on a phone, focusing the box
+      // raises the soft keyboard over the very chips the person came to tap.
+      if (!(KIT.input && KIT.input.isTouch && KIT.input.isTouch())) setTimeout(() => search.focus(), 0);
 
       function chip(def, cls) {
         const c = make('button.ed-chip' + (cls ? '.' + cls : ''), { text: SE.labelOf(def) });

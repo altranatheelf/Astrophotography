@@ -275,6 +275,9 @@ async function run(browser, label, size, opts) {
   await shot(page, label, '06-preset-form');
   await page.click('.ed-preset-form .ed-btn.primary');         // ✛ Place it on the map
   await page.waitForTimeout(200);
+  // the cue for the next tap is on screen: the editor's own pill, and a standing line in the status bar
+  check(await page.isVisible('.ed-toast'), `“${(await page.textContent('.ed-toast').catch(() => '')).trim()}” is shown as a pill over the editor`);
+  check(/Tap the map/.test(await page.textContent('.ed-status')), 'and the status bar says to tap the map until you do');
   await tapTile(page, spot.x, spot.y);
   await page.waitForTimeout(400);
   const events = await objects(page);
@@ -430,6 +433,36 @@ async function run(browser, label, size, opts) {
     await page.waitForTimeout(200);
   }
 
+  // --- 8d. a pick-on-map does not follow the author to another panel ---------------------
+  await openPanel(page, 'objects');
+  await page.click('.ed-obj-head .ed-btn.primary');            // ＋ Add
+  await page.waitForTimeout(200);
+  const doorChip = await page.$('.ed-chip.is-preset:has-text("Door")');
+  if (doorChip) {
+    await doorChip.click();
+    await page.waitForTimeout(250);
+    const pickBtn = await page.$('.ed-preset-form button:has-text("Pick")');
+    check(!!pickBtn, 'the Door preset offers Pick on the map');
+    if (pickBtn) {
+      await pickBtn.click();
+      await page.waitForTimeout(150);
+      check(await page.evaluate(() => KIT.editor.inspector.isPicking()), 'and the pick is armed');
+      await openPanel(page, 'tiles');                          // wander off mid-pick
+      const armed = await page.evaluate(() => ({ picking: KIT.editor.inspector.isPicking(), tool: KIT.editor.state.tool, cls: document.querySelector('.ed-root').classList.contains('ed-is-picking') }));
+      check(!armed.picking && !armed.cls && armed.tool === 'pencil', `opening Tiles ends the pick and hands over the Pencil (picking=${armed.picking}, tool=${armed.tool})`);
+      const hist0 = await page.evaluate(() => KIT.editor.state.doc.history.length);
+      await tapTile(page, spot.x, spot.y);
+      await page.waitForTimeout(250);
+      const hist1 = await page.evaluate(() => KIT.editor.state.doc.history.length);
+      const lastLbl = await page.evaluate(() => { const h = KIT.editor.state.doc.history; return h.length ? h[h.length - 1].label : null; });
+      check(hist1 === hist0 + 1 && lastLbl !== 'Place event', `the next tap paints instead of answering a dead form (${lastLbl})`);
+      await page.click('[title^="Undo"]');
+      await page.waitForTimeout(200);
+    }
+    await openPanel(page, 'objects');
+    if (await page.isVisible('.ed-obj-head .ed-btn.primary:has-text("Close")')) { await page.click('.ed-obj-head .ed-btn.primary'); await page.waitForTimeout(150); }
+  }
+
   // --- 9a. typing into a page condition keeps the keyboard and every keystroke ----------
   await openPanel(page, 'objects');
   await page.evaluate(() => KIT.editor.select({ kind: 'object', map: KIT.editor.state.mapId, id: 'mom' }));
@@ -463,6 +496,8 @@ async function run(browser, label, size, opts) {
   const tomas = await page.evaluate(() => (KIT.editor.state.project.cast || {})['old-tomas']);
   check(!!tomas && tomas.name === 'Old Tomas', `＋ New person put “Old Tomas” in the cast (${castBefore} → ${castBefore + 1})`);
   check(await page.isVisible('.ed-cast-form'), 'and opened their form to fill in');
+  const idRow = await page.evaluate(() => { const row = document.querySelector('.ed-cast-form .ed-f[data-key="id"]'); return row ? { readonly: !!row.querySelector('.ed-readonly'), input: !!row.querySelector('input'), text: row.querySelector('.ed-readonly') && row.querySelector('.ed-readonly').textContent } : null; });
+  check(!!idRow && idRow.readonly && !idRow.input && idRow.text === 'old-tomas', 'their Id is shown as text in the full form, with no box to type in');
   await shot(page, label, '09b-cast');
   // the search box keeps the caret while the panel redraws under it
   await page.click('.ed-panel-body[data-panel="cast"] .ed-obj-search');

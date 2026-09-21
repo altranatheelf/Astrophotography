@@ -338,6 +338,8 @@
    * makes a branch rather than an overwrite. That is the whole mechanic and it
    * needs no button: continuing from an old moment IS branching.
    */
+  /** Keys a save changes on its own between two moments: not a reason for a new one. */
+  const VOLATILE = new Set(['moment', 'playtimeMs', 'savedAt', 'music']);
   T.record = function (save, opts) {
     const o = opts || {};
     const t = T.now();
@@ -370,9 +372,11 @@
     // A save that changed nothing makes no moment. Autosaves fire on every map
     // entered and every flag flipped, and the one that landed right after a
     // manual save used to add a twin node and move the head off the save the
-    // player had just made. A name given now still sticks to the moment we are in.
-    if (parent && d && !d.length && !Object.keys(node.tk).length) {
-      if (node.label && !parent.label) { parent.label = node.label; bump(); }
+    // player had just made. "Nothing" ignores what every save changes by itself:
+    // the moment id the last save wrote into it and the play clock. A name given
+    // now sticks to the moment we are in.
+    if (parent && d && !d.some(op => !VOLATILE.has(op.p && op.p[0])) && !Object.keys(node.tk).length) {
+      if (node.label && node.label !== parent.label) { parent.label = node.label; bump(); }
       return parentId;
     }
     if (!base) node.full = KIT.deepClone(save);

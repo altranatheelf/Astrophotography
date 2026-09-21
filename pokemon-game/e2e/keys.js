@@ -159,6 +159,33 @@ async function run(browser) {
   await page.waitForFunction(() => KIT.game.scene() === 'map', undefined, { timeout: 8000 }).catch(() => {});
   check(await walksWith(page, 'q') === false, 'and the game no longer answers it', true);
   check(await walksWith(page, 'ArrowUp') || await walksWith(page, 'ArrowDown'), 'while the arrows still work');
+
+  beat(5.5, 'a mistap on a second row does not leave a key listener behind');
+  // Two rows tapped in a row (easy with a thumb) used to leave the first row's raw
+  // listener installed for good: every key swallowed, and a ghost Controls panel
+  // over the map. Only a reload recovered.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(350);
+  await page.click('#pause-menu [data-action="menu:settings"]');
+  await page.waitForTimeout(300);
+  await page.click('#pause-menu [data-action="keys"]');
+  await page.waitForTimeout(300);
+  await page.click('#pause-menu [data-action="bind:0:up"]');
+  await page.waitForTimeout(200);
+  await page.click('#pause-menu [data-action="bind:0:down"]');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('m');                 // binds the row that is actually waiting
+  await page.waitForTimeout(250);
+  await page.click('#pause-menu [data-action="keys-reset"]').catch(() => {});
+  await page.waitForTimeout(200);
+  for (let i = 0; i < 3; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
+  await page.waitForFunction(() => KIT.game.scene() === 'map', undefined, { timeout: 8000 }).catch(() => {});
+  const before = await page.evaluate(() => ({ dir: KIT.game.world.hero().dir }));
+  await page.keyboard.press(before.dir === 'left' ? 'ArrowRight' : 'ArrowLeft');
+  await page.waitForTimeout(300);
+  const afterKey = await page.evaluate(() => ({ scene: KIT.game.scene(), ids: KIT.scenes.ids(), pauseHidden: document.getElementById('pause-menu').hidden, dir: KIT.game.world.hero().dir }));
+  check(afterKey.scene === 'map' && afterKey.pauseHidden, `back on the map, no ghost Controls panel (${afterKey.ids.join(',')})`);
+  check(afterKey.dir !== before.dir, `and the arrows reach the hero again (${before.dir} → ${afterKey.dir})`);
   await page.close();
 
   beat(6, 'nothing broke');

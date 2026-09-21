@@ -219,3 +219,47 @@ test('world: interact can be awaited for the press rather than the conversation'
   world.hero().dir = 'down';
   assert.equal(await world.interact(0, { wait: false }), false);
 });
+
+test('world: a map entered by a script’s @transfer still plays its arrival scene, once the script lets go', async () => {
+  // The door NPC transfers from inside its own interact slot, so the world is busy
+  // when the new map is entered. Its enter/init slots used to be dropped on the
+  // floor (and init marked done for the visit); now they wait for the lock.
+  const project = makeProject();
+  project.maps.home.objects.push({ id: 'door', name: 'Door', type: 'npc', x: 2, y: 3, pages: [page({ on: { interact: body(['@transfer town 1 2 right']) } })] });
+  project.maps.town.objects.push({ id: 'welcome', name: 'Welcome', type: 'trigger', x: 0, y: 0, pages: [page({ visible: false, on: { enter: body(['Narrator: Welcome to town.']), init: body(['@set chapter += 10']) } })] });
+  const world = makeWorld(project);
+  await world.enterMap('home', 2, 2, 'down');
+  await world.interact(0);
+  await KIT.interpreter.whenIdle();
+  await world.drainSlots();
+  assert.equal(world.map.id, 'town');
+  assert.ok(world.said().includes('Welcome to town.'), `the arrival scene played: ${JSON.stringify(world.said())}`);
+  assert.equal(world.save.vars.chapter, 10, 'and init ran, once');
+  assert.equal(world.busy, false);
+  // arriving the ordinary way (a warp object) behaves the same
+  const w2 = makeWorld(project);
+  await w2.enterMap('home', 4, 2, 'right');
+  await w2.move(0, 'right');
+  await KIT.interpreter.whenIdle();
+  await w2.drainSlots();
+  assert.ok(w2.said().includes('Welcome to town.'));
+});
+
+test('world: picking up an item does not send every NPC home', async () => {
+  const project = makeProject();
+  project.maps.home.objects.push({ id: 'floor-berry', name: 'Berry', type: 'item', x: 3, y: 4, pages: [page({ layer: 'below', through: true, props: { item: 'berry', count: 1, look: null } })] });
+  const world = makeWorld(project);
+  await world.enterMap('home', 2, 4, 'right');
+  const kid = world.entities.find(e => e.id === 'kid');
+  kid.x = 4; kid.y = 4; kid.px = 4; kid.py = 4;                 // the wanderer has wandered
+  kid.route = [{ dir: 'up' }];                                  // and is mid-route
+  const before = world.entities.length;
+  await world.move(0, 'right');                                 // onto the berry
+  await KIT.interpreter.whenIdle();
+  assert.equal(world.save.inventory.berry, 1, 'the berry is in the bag');
+  const after = world.entities.find(e => e.id === 'kid');
+  assert.equal(after, kid, 'the kid is the same entity');
+  assert.deepEqual([after.x, after.y], [4, 4], 'standing where it was, not back at its authored square');
+  assert.deepEqual(after.route, [{ dir: 'up' }], 'with its route intact');
+  assert.equal(world.entities.length, before - 1, 'and the berry is gone from the map');
+});

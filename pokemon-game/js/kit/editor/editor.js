@@ -632,6 +632,10 @@
     for (const b of ED.el.tabs.querySelectorAll('.ed-tab')) b.setAttribute('aria-selected', String(b.dataset.panel === id));
     for (const b of (ED.el.groups ? ED.el.groups.querySelectorAll('.ed-group') : [])) b.setAttribute('aria-selected', String(b.dataset.group === groupOf(id)));
     syncSheet();
+    // Every panel body shares one scrolling host, so switching used to keep the
+    // old panel's offset: after Start a new game the Tiles panel opened scrolled
+    // to its tail, hint and palette off screen. Each panel keeps its own place.
+    for (const rec of mounted.values()) if (!rec.el.hidden) rec.scrollTop = host.scrollTop;
     for (const [pid, rec] of mounted) rec.el.hidden = pid !== id;
     if (!mounted.has(id)) {
       const def = KIT.registry('editorPanels').get(id);
@@ -643,13 +647,18 @@
       try { def.mount(el, ED); } catch (e) { (KIT.log || console).error(`[panel ${id}]`, e); el.textContent = `This panel failed to open: ${e.message}`; }
     }
     const rec = mounted.get(id);
-    if (rec) { rec.el.hidden = false; refreshPanel(rec); }
+    if (rec) { rec.el.hidden = false; refreshPanel(rec); host.scrollTop = rec.scrollTop || 0; }
     // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
     // for painting. Opening one hands the pointer to its tool unless the active
     // tool is one the panel uses — otherwise a tap meant to select Mom paints
     // grass under her. The toolbar is refreshed by the ED.set that got us here.
     const want = rec && rec.def.tool;
-    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) state.tool = want;
+    if (want && !(rec.def.tools || [want]).includes(state.tool) && KIT.registry('editorTools').has(want)) {
+      // A pick-on-map or a half-drawn rectangle does not follow the author to the next panel.
+      if (ED.inspector && ED.inspector.isPicking && ED.inspector.isPicking()) ED.inspector.stopPicking(false);
+      cancelTool();
+      state.tool = want;
+    }
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -728,7 +737,9 @@
     if (!s) return;
     const errs = state.problems.filter(p => p.severity === 'error').length;
     const warns = state.problems.filter(p => p.severity === 'warn').length;
+    const picking = !!(ED.inspector && ED.inspector.isPicking && ED.inspector.isPicking());
     const bits = [
+      picking ? '✛ Tap the map to pick a square' : '',   // a pill can be missed under a thumb; this stays until the tap
       `${state.cursor.x}, ${state.cursor.y}`,
       `${state.layer}`,
       state.saving ? 'saving…' : (state.saveFailed ? '⚠ NOT SAVED' : (state.lastSaved ? 'saved' : '')),
@@ -737,6 +748,7 @@
     ].filter(Boolean);
     s.textContent = bits.join('   ·   ');
     s.classList.toggle('has-errors', errs > 0 || !!state.saveFailed);
+    s.classList.toggle('is-picking', picking);
     // The Problems group carries the count, so it is on screen whichever panel is open.
     const pb = ED.el.groups && ED.el.groups.querySelector('.ed-group[data-group="problems"]');
     if (pb) {
@@ -754,7 +766,20 @@
   }
   ED.updateStatus = updateStatus;
 
-  ED.toast = function (text) { if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text); };
+  // The game's toast lives inside the game stage, which the editor covers while
+  // editing — so "Tap the map to place NPC" was drawn behind an opaque panel and
+  // nobody ever saw it. While editing, the editor shows its own pill.
+  ED.toast = function (text) {
+    if (open && state.mode !== 'play' && ED.el && ED.el.root) {
+      const old = ED.el.root.querySelector('.ed-toast');
+      if (old) old.remove();
+      const pill = UI.make('div.ed-toast', { text });
+      ED.el.root.appendChild(pill);
+      setTimeout(() => pill.remove(), 1800);
+      return;
+    }
+    if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text);
+  };
   /** confirm(text, { yes }) — a two-button question; the yes button says what it does ('Delete' unless told otherwise). */
   ED.confirm = function (text, opts) {
     return new Promise((resolve) => {

@@ -124,7 +124,7 @@
         e.object = obj; e.page = page;
         kept.push(e);
       }
-      if (changed) { world.entities = kept; refreshBlockers(); }
+      if (changed || kept.length !== world.entities.length) { world.entities = kept; refreshBlockers(); }
     }
     world.refreshPages = refreshPages;
 
@@ -240,6 +240,7 @@
           world.activeEntity = previousActive;
           if (entity.data.resumeDir) { entity.dir = entity.data.resumeDir; entity.data.resumeDir = null; }
           refreshPages();
+          if (pendingSlots.length) drainSlots();   // the arrival scene a script's transfer had to wait for
         }
       }
     };
@@ -248,7 +249,13 @@
       return world.heroes.every(h => Math.abs(h.x - entity.x) + Math.abs(h.y - entity.y) <= 1);
     }
 
+    // A map entered from inside a running script (`@transfer` in a door's slot, a
+    // cutscene that ends by moving the player) arrives while the world is busy,
+    // and runSlot answers busy with null. The arrival scene was silently dropped
+    // and `init` was marked done for the visit. Now it waits for the lock.
+    const pendingSlots = [];
     async function runSlotsForMap(slot) {
+      if (world.busy) { if (!pendingSlots.includes(slot)) pendingSlots.push(slot); return; }
       for (const e of world.entities.slice()) {
         if (slot === 'init') {
           const k = `${world.map.id}:${e.id}`;
@@ -259,6 +266,21 @@
       }
     }
     world.runSlotsForMap = runSlotsForMap;
+    let slotDrain = null;
+    function drainSlots() {
+      if (slotDrain) return slotDrain;                 // one drain at a time; callers share its promise
+      slotDrain = (async () => {
+        try {
+          while (pendingSlots.length && !world.busy) {
+            try { await runSlotsForMap(pendingSlots.shift()); }
+            catch (e) { (KIT.log || console).error('[world] a deferred map slot failed', e); }
+          }
+        } finally { slotDrain = null; }
+      })();
+      return slotDrain;
+    }
+    world.drainSlots = drainSlots;
+    world.slotsPending = () => pendingSlots.length;
 
     // ---- rules -----------------------------------------------------------------
     // Rules are things in the world (js/kit/world/rules.js): `when` an event
@@ -482,7 +504,10 @@
     // Keep pages fresh when the story state changes.
     events.on('varChanged', refreshPages);
     events.on('selfChanged', refreshPages);
-    events.on('objectStateChanged', () => { buildEntities(); });
+    // Not buildEntities(): that rebuilt every NPC from its authored square, so a
+    // wanderer teleported home and a move route in flight was lost whenever an
+    // item was picked up or an object erased. refreshPages keeps the survivors.
+    events.on('objectStateChanged', refreshPages);
 
     return world;
   };

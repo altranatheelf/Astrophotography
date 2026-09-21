@@ -231,11 +231,16 @@
             // fail the condition, and a world that goes busy on every footstep
             // is a world you cannot walk across.
             const w = ctx.world;
-            const was = w ? w.busy : false;
+            // The lock is taken when this rule's turn actually comes — a rule fired
+            // from inside a running script queues behind it on the main thread —
+            // and always released. Restoring an earlier value put `busy` back to
+            // true after the script that fired the rule had already let go: a
+            // frozen game with nothing in the console.
+            if (w && KIT.interpreter.whenIdle) await KIT.interpreter.whenIdle();
             if (w) w.busy = true;
             try {
               await KIT.interpreter.run(rule.do, sub, { label: 'rule:' + rule.id });
-            } finally { if (w) w.busy = was; }
+            } finally { if (w) w.busy = false; }
           }
           ran++;
         } catch (e) {

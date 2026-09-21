@@ -420,6 +420,17 @@
     row.appendChild(errBox);
     host.appendChild(row);
 
+    // Shown, never edited: an entity's id is what everything else points at, and a
+    // box that changed the inner id while the table key stayed put broke references.
+    if (f.display === 'readonly') {
+      const box = make('div.ed-readonly');
+      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
+      show(io.get());
+      body.appendChild(box);
+      reset.hidden = true;
+      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) show(io.get()); } };
+    }
+
     const def = INS.editorFor(f);
     let widget = null;
     try {

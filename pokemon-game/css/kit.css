@@ -77,7 +77,19 @@ body { overflow: hidden; }
 }
 
 .overlay { position: absolute; inset: 0; }
+/* Stacked the way scenes are pushed, not the way the divs happen to sit in the
+   page: Quit's Yes/No was painted under the pause menu, and Settings from the
+   title under the title. */
+#screen-title { z-index: 1; }
+#pause-menu { z-index: 2; }
+#dialogue { z-index: 3; }
+#choice { z-index: 4; }
+#chapter { z-index: 5; }
+#toast { z-index: 6; }
 #toast, #chapter { pointer-events: none; }
+/* The pad can shrink to its menu button (a phone with the pad "off" still needs a way to pause). */
+.kit-controls.is-minimal .kit-dpad, .kit-controls.is-minimal .kit-face, .kit-controls.is-minimal .kit-swap { display: none; }
+.kit-controls.is-minimal .kit-pad { grid-template-columns: auto; justify-items: end; }
 
 /* ---- dialogue ------------------------------------------------------------- */
 #dialogue {
@@ -314,8 +326,10 @@ body { overflow: hidden; }
 .kit-extra { display: flex; flex-direction: column; gap: 8px; }
 .kit-menu, .kit-swap { min-width: 56px; min-height: 44px; font-size: 14px; }
 
-/* ---- wide screens: pads beside the screen -------------------------------------- */
-@media (min-width: 900px) {
+/* ---- wide screens, and a phone held sideways: pads beside the screen ---------------
+   A 844×390 phone is narrower than 900px but has no room for a pad UNDER the map:
+   stacked, the map was four tiles tall. Short-and-wide counts as wide. */
+@media (min-width: 900px), ((orientation: landscape) and (max-height: 520px)) {
   #stage {
     flex-direction: row;
     justify-content: center;

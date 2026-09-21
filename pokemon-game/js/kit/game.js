@@ -498,9 +498,16 @@
   /** applyButtons() — show or hide the pad to match the setting, and give the map the room. */
   G.applyButtons = function () {
     if (!controls) return;
-    const show = G.wantsButtons();
-    if (controls.hidden === !show) return;
-    controls.hidden = !show;
+    const s = settings();
+    const show = G.wantsButtons(s);
+    // "Off" on a touch screen keeps the ☰: a tap and a swipe are A and a direction,
+    // so without that one button there is no way back to the pause menu, and the
+    // setting outlives a reload.
+    const minimal = !show && s.buttons === 'off' && !!(KIT.input.isTouch && KIT.input.isTouch());
+    const hidden = !show && !minimal;
+    if (controls.hidden === hidden && controls.classList.contains('is-minimal') === minimal) return;
+    controls.hidden = hidden;
+    controls.classList.toggle('is-minimal', minimal);
     G.resize();
   };
 

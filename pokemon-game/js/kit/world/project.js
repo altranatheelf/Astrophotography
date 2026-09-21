@@ -644,6 +644,10 @@
     }
     const scripts = project.scripts || {};
     for (const id of Object.keys(scripts)) if (Array.isArray(scripts[id].body)) walkList(scripts[id].body, { script: id, path: ['scripts', id, 'body'] }, fn);
+    // Rules are scripts too: unchecked, a rule's broken command shipped clean
+    // through Problems and its lines were missing from the translation table.
+    const rules = project.rules || {};
+    for (const id of Object.keys(rules)) if (Array.isArray(rules[id].do)) walkList(rules[id].do, { rule: id, path: ['rules', id, 'do'] }, fn);
   };
   /** walkCommands(project, fn(cmd, where, index)) — every command anywhere; where.path points at the command. */
   P.walkCommands = function (project, fn) {
@@ -752,6 +756,7 @@
     }
     // scripts: when + params
     for (const id of Object.keys(project.scripts || {})) { const o = []; fieldRefs(F.script.filter(f => f.key !== 'body'), project.scripts[id], ['scripts', id], o); push(o, { script: id }); }
+    for (const id of Object.keys(project.rules || {})) { const o = []; fieldRefs((F.rule || []).filter(f => f.key !== 'do'), project.rules[id], ['rules', id], o); push(o, { rule: id }); }
     // commands
     P.walkCommands(project, (cmd, where) => {
       const def = commandDef(cmd);
@@ -844,6 +849,7 @@
       if (k && k.fields) errors('schema', stripRefErrors(S.validate(k.fields, (it && it.props) || {})), { path: ['items', id, 'props'] }, `item ${id}`);
     }
     for (const id of Object.keys(project.scripts || {})) errors('schema', stripRefErrors(S.validate(F.script, project.scripts[id])), { script: id, path: ['scripts', id] }, `script ${id}`);
+    for (const id of Object.keys(project.rules || {})) errors('schema', stripRefErrors(S.validate(F.rule || [], project.rules[id])), { rule: id, path: ['rules', id] }, `rule ${id}`);
     (project.fragments || []).forEach((f, i) => errors('schema', S.validate(F.fragment, f), { path: ['fragments', i] }, 'fragment'));
     (project.testStates || []).forEach((t, i) => {
       errors('schema', stripRefErrors(S.validate(F.testState, t)), { path: ['testStates', i] }, `test state ${t && t.id}`);

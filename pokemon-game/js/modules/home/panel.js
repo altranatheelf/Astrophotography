@@ -187,7 +187,7 @@
         const card = make('div.ed-card');
         const head = make('div.ed-obj-head');
         head.appendChild(make('strong', { text: f.item.name || f.id }));
-        head.appendChild(make('span.ed-hint', { text: f.id }));
+        head.appendChild(make('span.ed-badge', { text: f.id }));
         card.appendChild(head);
         const base = ['items', f.id, 'props'];
         const props = f.item.props || {};
@@ -201,8 +201,8 @@
         variants.forEach((v, i) => {
           const row = make('div.ed-list-row');
           row.appendChild(make('span.ed-hint', { text: `${i + 1}.` }));
-          row.appendChild(input('text', v.tile, (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile'), val))));
-          row.appendChild(input('text', v.tile2 || '', (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile2'), val || null))));
+          row.appendChild(Object.assign(input('text', v.tile, (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile'), val))), { placeholder: 'tile id', title: 'The tile drawn for this look' }));
+          row.appendChild(Object.assign(input('text', v.tile2 || '', (val) => edit('Furniture tile', (doc) => doc.set(base.concat('variants', i, 'tile2'), val || null))), { placeholder: 'second tile (optional)', title: 'A second tile, for furniture two squares big' }));
           row.appendChild(select([{ value: 'down', label: '↓' }, { value: 'right', label: '→' }], v.dir, (val) => edit('Furniture shape', (doc) => doc.set(base.concat('variants', i, 'dir'), val))));
           if ((props.variants || []).length > 1) row.appendChild(button('×', () => edit('Remove look', (doc) => doc.splice(base.concat('variants'), i, 1, []))));
           vList.appendChild(row);

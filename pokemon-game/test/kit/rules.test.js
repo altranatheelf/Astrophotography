@@ -359,3 +359,29 @@ test('rules: two events in one frame do not start two conversations at once', as
   await world.rulesSettled();
   assert.deepEqual(world.said(), ['one', 'two', 'one', 'two'], 'in order, one firing after the other');
 });
+
+test('rules: a rule that speaks, fired from inside a conversation, never leaves the world stuck busy', async () => {
+  // `@give` inside Mom's line fires itemChanged; the rule's line is queued behind the
+  // conversation. The lock used to be restored to the value it had when the event
+  // arrived (true), after the conversation had already let go: a frozen game.
+  const raw = {
+    version: 3, meta: { id: 'rules-busy', title: 'Rules' },
+    heroes: [{ id: 'p1', name: 'Ash', sprite: 'hero-boy' }],
+    start: { map: 'home', x: 2, y: 2, dir: 'down' },
+    items: { key: { name: 'Key' } },
+    rules: { keyrule: { name: 'The key hums', when: 'itemChanged', do: body(['Narrator: The key hums.']) } },
+    maps: { home: { id: 'home', name: 'Home', width: 8, height: 6, kind: 'indoor', objects: [
+      { id: 'mom', name: 'Mom', type: 'npc', x: 2, y: 3, pages: [{ sprite: 'woman', on: { interact: body(['Mom: Take this.', '@give item=key count=1', 'Mom: Off you go.']) } }] },
+    ] } },
+  };
+  const { project, problems } = P.normalize(raw);
+  assert.deepEqual(problems.filter(p => p.severity === 'error'), []);
+  const world = makeWorld(project);
+  await world.enterMap('home', 2, 2, 'down');
+  await world.interact(0);
+  await world.rulesSettled();
+  await KIT.interpreter.whenIdle();
+  assert.deepEqual(world.said(), ['Take this.', 'Off you go.', 'The key hums.']);
+  assert.equal(world.busy, false, 'the lock is released after the rule has spoken');
+  assert.notEqual(await world.move(0, 'left'), 'busy', 'and the player can walk again');
+});

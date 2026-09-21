@@ -49,7 +49,7 @@
   scenes.add({
     id: 'menu', name: 'Menu',
     create() {
-      let mode = 'pause', rows = [], index = 0, ui = null, game = null;
+      let mode = 'pause', entered = 'pause', rows = [], index = 0, ui = null, game = null;
 
       const build = function (self) {
         if (mode === 'settings') rows = settingRows();
@@ -179,7 +179,12 @@
         const action = row.action || '';
         KIT.audio.play('select');
         if (action === 'close') { this.finish('close'); return; }
-        if (action === 'back') { mode = 'pause'; index = 0; build(this); return; }
+        if (action === 'back') {
+          // Back from a screen the menu was opened ON (Settings from the title) is
+          // out, not "to the pause menu of a game that is not running".
+          if (mode === entered) { this.finish('close'); return; }
+          mode = 'pause'; index = 0; build(this); return;
+        }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
           const slot = action.slice(5);
@@ -281,6 +286,7 @@
         enter(params) {
           game = (params && params.game) || KIT.game;
           mode = (params && params.mode) || 'pause';
+          entered = mode;                // Settings from the title has no pause menu to go back to
           index = 0;
           this._saveRows = null;
           build(this);
@@ -459,6 +465,7 @@
         }
         if (!row.action.startsWith('bind:')) return;
         note = '';
+        stopWaiting();                 // a second row tapped while one waits must not leave the first listener alive for good
         waiting = { action: row.action, player: row.player, button: row.button };
         KIT.audio.play('blip');
         build(this);

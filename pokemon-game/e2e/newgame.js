@@ -44,6 +44,8 @@ async function run(browser, label, size, touch) {
   check(after.maps.length === 1 && after.mapId === after.maps[0], `one blank map, open (${after.mapId})`);
   check(after.panel === 'tiles', 'and the Tiles panel is up, ready to paint');
   check(await page.isVisible('.ed-firststeps'), 'with the first steps written at the top (paint, add somebody, play)');
+  const inView = await page.evaluate(() => { const host = KIT.editor.el.panel.getBoundingClientRect(); const h = document.querySelector('.ed-firststeps').getBoundingClientRect(); return { top: KIT.editor.el.panel.scrollTop, seen: h.top >= host.top - 1 && h.bottom <= host.bottom + 1 }; });
+  check(inView.seen && inView.top === 0, `and the Tiles panel opens at its top, hint in view (scrollTop ${inView.top})`);
   check(JSON.stringify(after.modules) === JSON.stringify(before.modules), `the modules stayed switched on (${after.modules.join(', ') || 'none'})`);
   await page.screenshot({ path: `${SHOTS}/newgame-${label}-2-blank.png` });
 

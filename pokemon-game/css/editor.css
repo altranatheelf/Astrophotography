@@ -331,6 +331,10 @@ textarea.is-bad { border-color: #b03434; }
 .ed-preset-form { border: 1px solid #3d5c8f; background: #161e2c; border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .ed-preset-form > .ed-f-label { font-size: 13px; margin-bottom: 4px; }
 .ed-cast-add input { width: 100%; margin-bottom: 8px; }
+.ed-toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 60; pointer-events: none; background: #eef3ff; color: #1b2233; border: 2px solid #3b4b8a; border-radius: 999px; padding: 8px 14px; font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.45); animation: ed-toast-in .18s ease-out; }
+@keyframes ed-toast-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.ed-status.is-picking { color: #ffd166; }
+.ed-list-row input, .ed-list-row select { background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; flex: 1 1 120px; min-width: 0; }
 .ed-firststeps { border: 1px dashed #3d5c8f; background: #161e2c; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; color: #c3cfe2; }
 .ed-newgame-name, .ed-cast-add input { width: 100%; margin: 6px 0 8px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; }
 .ed-cast-form { margin: 6px 0 8px; }

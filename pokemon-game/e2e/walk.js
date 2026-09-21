@@ -244,6 +244,22 @@ async function run(browser, label, size, opts) {
   await page.evaluate(() => KIT.editor.close());
   await expect(page, () => KIT.game.scene() === 'title' && !(KIT.editor && KIT.editor.isOpen()), 'closing it comes back to the title');
   await page.waitForTimeout(300);
+  // Settings from the title is drawn over the title, not under it.
+  await page.click('[data-action="settings"]');
+  await expect(page, () => KIT.game.scene() === 'menu', 'Settings opens from the title');
+  const titleHit = await page.evaluate(() => { const o = document.querySelector('#pause-menu .kit-menu-item'); if (!o) return null; const r = o.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!(el && el.closest('#pause-menu')); });
+  check(titleHit === true, 'and it is on top of the title screen');
+  await page.click('#pause-menu [data-action="back"]');
+  await expect(page, () => KIT.game.scene() === 'title', 'Back returns to the title');
+  if (label === 'phone') {
+    // A phone held sideways gets the side-by-side layout, not a four-tile strip of map.
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(400);
+    const land = await page.evaluate(() => ({ screen: document.getElementById('screen').getBoundingClientRect().height, dir: getComputedStyle(document.getElementById('stage')).flexDirection }));
+    check(land.dir === 'row' && land.screen >= 250, `sideways, the map keeps most of the height (${Math.round(land.screen)}px, pads beside it)`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(400);
+  }
 
   await page.click('[data-action="new-game"]');
 
@@ -324,6 +340,13 @@ async function run(browser, label, size, opts) {
   await expect(page, () => KIT.game.scene() === 'menu', 'the pause menu opens');
   check(await page.isVisible('#pause-menu'), '#pause-menu is visible');
   await page.screenshot({ path: `${SHOTS}/${label}-6-pause.png` });
+  // Quit's Yes/No is painted OVER the pause menu, where a tap can reach it.
+  await page.click('[data-action="menu:quit"]');
+  await expect(page, () => KIT.game.scene() === 'choice', 'Quit asks first');
+  const quitHit = await page.evaluate(() => { const o = document.querySelector('#choice .kit-option'); if (!o) return null; const r = o.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { inChoice: !!(el && el.closest('#choice')), hit: el && (el.id || el.className) }; });
+  check(!!quitHit && quitHit.inChoice, `and its buttons are on top, not under the pause menu (${quitHit && quitHit.hit})`);
+  await page.keyboard.press('x');                                       // no, stay
+  await expect(page, () => KIT.game.scene() === 'menu', 'saying no comes back to the pause menu');
   // Settings live in the same menu and stick.
   await page.click('[data-action="menu:settings"]');
   await expect(page, () => !!document.querySelector('[data-action="cycle:textSpeed"]'), 'settings are listed');
@@ -341,7 +364,8 @@ async function run(browser, label, size, opts) {
   check((await page.evaluate(() => KIT.storage.settings().buttons)) === 'on' && !(await page.evaluate(() => document.getElementById('controls').hidden)), '“on” shows the pad everywhere');
   await page.click('[data-action="cycle:buttons"]');            // on -> off
   await page.waitForTimeout(200);
-  check(await page.evaluate(() => document.getElementById('controls').hidden), '“off” hides it everywhere');
+  const off = await page.evaluate(() => ({ touch: KIT.input.isTouch(), hidden: document.getElementById('controls').hidden, minimal: document.getElementById('controls').classList.contains('is-minimal'), menu: !!document.querySelector('#controls .kit-menu') && document.querySelector('#controls .kit-menu').getBoundingClientRect().height > 0, dpad: !!document.querySelector('#controls .kit-dpad') && document.querySelector('#controls .kit-dpad').getBoundingClientRect().height > 0 }));
+  check(off.touch ? (!off.hidden && off.minimal && off.menu && !off.dpad) : off.hidden, off.touch ? '“off” on a touch screen keeps only the ☰ button, so the menu stays reachable' : '“off” hides the pad where there is a keyboard');
   await page.click('[data-action="cycle:buttons"]');            // off -> auto
   await page.waitForTimeout(200);
   await page.click('[data-action="back"]');

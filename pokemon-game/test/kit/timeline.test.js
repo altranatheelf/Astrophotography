@@ -395,7 +395,8 @@ test('moments: the tree draws as rows, with the branch shape in them', () => {
   const line = [];
   for (let i = 0; i < 3; i++) { s = play(s, i); line.push(T.record(s, {})); }
   const back = T.goto(line[0]);
-  const side = T.record(KIT.deepClone(back), { label: 'a side road' });
+  // going back and playing on IS branching — an unchanged save would only name the root
+  const side = T.record(play(KIT.deepClone(back), 9), { label: 'a side road' });
   T.headTo(line[2]);
 
   const rows = T.moments();
@@ -437,8 +438,14 @@ test('tree: a save that changed nothing makes no moment, and a name given then s
   assert.equal(T.record(KIT.deepClone(save), {}), m1, 'the same save again is the same moment');
   assert.equal(T.count(), 1);
   assert.equal(T.head(), m1);
+  // what the game itself writes into a save between two moments is not a change
+  const asPlayed = Object.assign(KIT.deepClone(save), { moment: m1, playtimeMs: 4200, music: { current: 'house' } });
+  assert.equal(T.record(asPlayed, {}), m1, 'the moment id and the play clock do not make a new moment');
+  assert.equal(T.count(), 1);
   assert.equal(T.record(KIT.deepClone(save), { label: 'the fork' }), m1, 'naming it does not fork it');
   assert.equal(T.now().nodes[m1].label, 'the fork', 'but the name sticks');
+  assert.equal(T.record(KIT.deepClone(save), { label: 'the other fork' }), m1);
+  assert.equal(T.now().nodes[m1].label, 'the other fork', 'and a newer name replaces it');
   const changed = KIT.deepClone(save); changed.vars.a = 2;
   const m2 = T.record(changed, {});
   assert.notEqual(m2, m1);
