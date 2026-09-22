@@ -955,7 +955,7 @@
         if (doc.get(['start', 'map']) === gone) doc.set(['start', 'map'], next);
       });
       ED.openMap(next);
-      ED.toast(`“${m.name}” is gone. Ctrl+Z brings it back.`);
+      ED.toast(`“${m.name}” is gone. Undo (↶) brings it back.`);
     },
 
     // ---- the world --------------------------------------------------------------------

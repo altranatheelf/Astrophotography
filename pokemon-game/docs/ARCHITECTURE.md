@@ -105,7 +105,7 @@ r.addAll(list) ; r.get(id) ; r.has(id) ; r.list() (stable insertion order) ; r.r
 ```
 Kit-defined registries: `tiles sprites faces icons sounds music objectTypes behaviours
 commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors
-validators presets` (quick-event presets) `migrations`. Modules define more (§11).
+validators presets` (quick-event presets) `blueprints` (whole games to start from) `migrations`. Modules define more (§11).
 
 ### 3.2 Schema
 A schema is an array of fields:

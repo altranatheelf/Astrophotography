@@ -28,6 +28,7 @@
       M.registerSystems();
       M.registerEditor();
       if (M.essentials && typeof M.essentials.register === 'function') M.essentials.register();
+      if (M.region && typeof M.region.register === 'function') M.region.register();
       if (typeof M.registerScenes === 'function') M.registerScenes();
     },
 

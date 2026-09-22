@@ -130,6 +130,16 @@
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
   KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  // A whole game to start from. `presets` makes one object; a blueprint makes the
+  // entire project — maps, connections, the people standing in them — so somebody
+  // on a phone gets a game they can already walk around in, with one tap and
+  // nothing to import. The engine ships `blank`; a module ships its own (ADR-0005).
+  //   { id, label, describe, order, defaultTitle, build({ title, id }) -> project }
+  KIT.defineRegistry('blueprints', { fields: named.concat([
+    { key: 'order', type: 'number', integer: true, default: 50 },
+    { key: 'describe', type: 'string', optional: true },
+    { key: 'defaultTitle', type: 'string', optional: true },
+  ]), doc: 'Whole games to start from: { id, label, describe, build({title,id}) -> project }.' });
   // A format the engine has never heard of is a module's to read: the Import
   // panel and tools/import.js ask this registry before their own guesses, so a
   // module can bring a whole toolchain's files with it (ADR-0005).

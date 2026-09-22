@@ -611,6 +611,13 @@
         await KIT.toast('No save to continue from yet.');
         continue;
       }
+      if (action === 'start-own') {
+        const pick = await KIT.scenes.run('start', { project: G.project, game: G });
+        if (titleRun !== mine) return;
+        if (!pick) continue;
+        if (await G.startOwnGame(pick)) return;
+        continue;
+      }
       if (action === 'creator') {
         // Creator Mode from the title: no world yet, so it opens on the start map,
         // and closing it comes back here (resumeFromEditor has nowhere else to go).
@@ -694,6 +701,60 @@
       project: G.project,
       mapId: (opts && opts.mapId) || (w && w.map ? w.map.id : null) || (G.project.start && G.project.start.map),
     });
+    return true;
+  };
+
+  /**
+   * startOwnGame({ blueprint, title }) — the whole of "start your own game".
+   *
+   * Creator Mode opens on the game being REPLACED, and the new one goes in as a
+   * single commit against that document. That ordering is the whole trick: it
+   * is what makes ↶ (and a two-finger tap, and Ctrl+Z) bring the old game back.
+   * Opening the editor on the new project instead would hand it a fresh
+   * document with an empty history, and the screen that offered this would be
+   * promising an undo that does not exist.
+   *
+   * It is also the same path the Project panel's "Start a new game" takes, so
+   * the two doors cannot behave differently.
+   */
+  G.startOwnGame = async function (pick) {
+    const ED = KIT.editor;
+    if (!pick || !pick.blueprint || !KIT.blueprints || !ED) return false;
+    let built;
+    try {
+      built = KIT.blueprints.build(pick.blueprint, { title: pick.title, keepModules: (G.project && G.project.modules) || [] });
+    } catch (e) {
+      (KIT.log || console).error('[kit] that blueprint did not build', e);
+      await KIT.toast('That would not start. Nothing has changed.');
+      return false;
+    }
+    // A blueprint may enable modules this page has not started yet, and they
+    // have to be registered before the document validates against them — the
+    // same step, in the same place, as booting a project (js/main.js).
+    try { KIT.modules.activate(built.project); } catch (e) { (KIT.log || console).warn('[kit] modules', e); }
+    // No leaveTitle(): closing Creator Mode comes back to the title, by then
+    // showing the new game — the same as the Creator Mode door beside this one.
+    if (!G.openEditor({})) {
+      await KIT.toast('Creator Mode is not in this build.');
+      return false;
+    }
+    ED.commit('Start your own game', (doc) => doc.replace(built.project, { label: 'Start your own game' }));
+    // Imported art the blueprint brought has no js/art file to register it.
+    try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[kit] content', e); }
+    ED.select(null);
+    ED.refresh({ drop: true });
+    const start = (ED.state.project.start && ED.state.project.start.map) || Object.keys(ED.state.project.maps)[0];
+    if (start) ED.openMap(start);
+    ED.set({ panel: 'tiles' });
+    // Now, not in half a second: the editor's autosave is debounced, and a phone
+    // decides to throw a tab away faster than that.
+    try { await ED.saveNow(); } catch (e) { (KIT.log || console).warn('[kit] draft', e); }
+    const title = (ED.state.project.meta && ED.state.project.meta.title) || '';
+    // saveDraft returns false rather than throwing when the store is full, so
+    // the one thing worth saying out loud is that it did not save.
+    ED.toast(ED.state.saveFailed
+      ? `“${title}” is yours — but it could not be saved. ${ED.state.saveFailed}`
+      : KIT.strings.get(ED.state.project, 'start-own-made', { title }));
     return true;
   };
 

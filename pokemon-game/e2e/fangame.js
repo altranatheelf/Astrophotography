@@ -55,7 +55,7 @@ async function run(browser, label, size, touch) {
   await page.click('details.ed-sec summary:has-text("Start a new game")');
   await page.waitForTimeout(150);
   await page.fill('.ed-newgame-name', 'Region Aster');
-  await page.click('button:has-text("Start from a blank map")');
+  await page.click('.ed-panel-body[data-panel="project"] button:has-text("A blank map")');
   await page.waitForTimeout(200);
   await page.click('.ed-confirm .ed-btn.danger');
   await page.waitForTimeout(500);

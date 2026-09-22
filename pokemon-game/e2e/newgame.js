@@ -33,7 +33,7 @@ async function run(browser, label, size, touch) {
   await page.waitForTimeout(200);
   await page.fill('.ed-newgame-name', 'Mill Lane');
   await page.screenshot({ path: `${SHOTS}/newgame-${label}-1-form.png` });
-  await page.click('button:has-text("Start from a blank map")');
+  await page.click('.ed-panel-body[data-panel="project"] button:has-text("A blank map")');
   await page.waitForTimeout(200);
   check(await page.isVisible('.ed-confirm'), 'it asks first');
   check((await page.textContent('.ed-confirm .ed-btn.danger')) === 'Start over', 'and the yes button says what it does (“Start over”)');

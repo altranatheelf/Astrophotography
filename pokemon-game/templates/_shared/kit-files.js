@@ -14,13 +14,13 @@ const CORE = [
   'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/modules.js',
   'js/kit/core/pixels.js', 'js/kit/core/assets.js',
   'js/kit/core/input.js', 'js/kit/core/audio.js', 'js/kit/core/lang.js', 'js/kit/core/storage.js',
-  'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js', 'js/kit/world/cast.js', 'js/kit/world/log.js', 'js/kit/world/rules.js', 'js/kit/world/timeline.js',
+  'js/kit/world/document.js', 'js/kit/world/project.js', 'js/kit/world/tiles.js', 'js/kit/world/blueprints.js', 'js/kit/world/cast.js', 'js/kit/world/log.js', 'js/kit/world/rules.js', 'js/kit/world/timeline.js',
   'js/kit/script/text.js', 'js/kit/script/conditions.js', 'js/kit/script/commands.js',
   'js/kit/script/screenplay.js', 'js/kit/script/interpreter.js',
   'js/kit/world/map.js', 'js/kit/world/entities.js', 'js/kit/world/world.js', 'js/kit/systems/index.js',
   'js/kit/import/tiled.js', 'js/kit/import/rpgmaker.js', 'js/kit/import/aseprite.js', 'js/kit/import/image.js', 'js/kit/import/merge.js',
   'js/kit/render/atmosphere.js', 'js/kit/render/text-canvas.js', 'js/kit/render/renderer.js',
-  'js/kit/scenes/stack.js', 'js/kit/scenes/dialogue.js', 'js/kit/scenes/menu.js', 'js/kit/scenes/title.js',
+  'js/kit/scenes/stack.js', 'js/kit/scenes/dialogue.js', 'js/kit/scenes/menu.js', 'js/kit/scenes/title.js', 'js/kit/scenes/start.js',
   'js/kit/scenes/map.js', 'js/kit/game.js',
 ];
 

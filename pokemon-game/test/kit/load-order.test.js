@@ -104,3 +104,25 @@ test('Our-Adventure.html — the single-file build — carries the same engine',
     assert.ok(html.includes('// ---- ' + f + ' ----'), f + ' is missing from the single-file build');
   }
 });
+
+test('the single file asks for nothing it does not carry', () => {
+  // It is one attachment, opened from wherever somebody saved it. index.html
+  // links a web app manifest and two icons, which are real files beside it and
+  // are not in here — left in, every open of the file that actually reaches a
+  // phone is three 404s for a manifest that only does anything when served.
+  const single = 'Our-Adventure.html';
+  if (!fs.existsSync(path.join(ROOT, single))) return;          // not built yet
+  const html = read(single);
+  const links = Array.from(html.matchAll(/<link\b[^>]*>/gi)).map(m => m[0])
+    .filter(tag => !/rel=["']?(?:preconnect|dns-prefetch)/i.test(tag));
+  const local = links.filter(tag => {
+    const href = (tag.match(/href=["']([^"']+)["']/i) || [])[1] || '';
+    return href && !/^(https?:)?\/\//i.test(href) && !href.startsWith('data:');
+  });
+  assert.deepEqual(local, [], 'these point at files the single attachment does not carry');
+  // And the page it is built from still has them, or the served copy loses its
+  // home-screen icon without anybody noticing.
+  const page = read('index.html');
+  assert.match(page, /<link\b[^>]*rel=["']manifest["']/i, 'index.html still links the manifest');
+  assert.match(page, /<link\b[^>]*rel=["']apple-touch-icon["']/i, 'index.html still links the apple-touch-icon');
+});

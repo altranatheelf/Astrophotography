@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c12">
+<!-- Add to Home Screen. Android reads the manifest; iOS reads these three and the
+     apple-touch-icon, and ignores the manifest entirely. Both want real files at
+     real URLs, so all of it is inert for a page opened from a Downloads folder —
+     see docs/ON-A-PHONE.md, which is about the served case. -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Adventure">
 <title>Our Adventure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -258,6 +267,32 @@ body { overflow: hidden; }
 }
 #screen-title .kit-menu-item.is-selected { background: var(--accent); color: #2a1d00; border-color: #fff; }
 #screen-title .kit-menu-item::before { color: #2a1d00; }
+
+/* "Start your own game": the same title-screen list, but each item says what it
+   is as well as what it is called, because a name alone ("A region to explore")
+   does not tell a person on a phone what they are about to get. */
+.kit-start .kit-title { margin-bottom: 4px; }
+.kit-start .kit-hint { margin: 0 0 16px; }
+.kit-start-name {
+  width: 100%; box-sizing: border-box; margin: 0 0 14px;
+  padding: 13px 12px; min-height: 48px;
+  font: inherit; font-size: 16px;           /* 16px or iOS zooms the page on focus */
+  color: #fff; background: rgba(255, 255, 255, .06);
+  border: 2px solid rgba(255, 255, 255, .18); border-radius: 10px;
+  text-align: center;
+}
+.kit-start-name::placeholder { color: rgba(255, 255, 255, .45); }
+.kit-start-name:focus { outline: none; border-color: var(--accent); }
+#screen-title .kit-start-item {
+  flex-direction: column; align-items: flex-start; gap: 4px;
+  text-align: left; padding: 12px 14px; min-height: 56px;
+}
+/* The list marker is for one-line items; on a two-line card it lands above the
+   name and reads as a bullet nobody asked for. The highlight is the marker here. */
+#screen-title .kit-start-item::before { display: none; }
+.kit-start-name-line { font-family: var(--font-ui); font-size: clamp(10px, 2.8vw, 12px); }
+.kit-start-describe { font-family: var(--font-text); font-size: 12px; line-height: 1.45; opacity: .66; white-space: normal; }
+#screen-title .kit-start-item.is-selected .kit-start-describe { opacity: .85; }
 
 #chapter { display: flex; align-items: center; justify-content: center; background: rgba(6, 7, 12, .82); }
 #chapter.is-in .kit-card { animation: kit-fade .5s ease-out; }
@@ -1715,6 +1750,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
   KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  // A whole game to start from. `presets` makes one object; a blueprint makes the
+  // entire project — maps, connections, the people standing in them — so somebody
+  // on a phone gets a game they can already walk around in, with one tap and
+  // nothing to import. The engine ships `blank`; a module ships its own (ADR-0005).
+  //   { id, label, describe, order, defaultTitle, build({ title, id }) -> project }
+  KIT.defineRegistry('blueprints', { fields: named.concat([
+    { key: 'order', type: 'number', integer: true, default: 50 },
+    { key: 'describe', type: 'string', optional: true },
+    { key: 'defaultTitle', type: 'string', optional: true },
+  ]), doc: 'Whole games to start from: { id, label, describe, build({title,id}) -> project }.' });
   // A format the engine has never heard of is a module's to read: the Import
   // panel and tools/import.js ask this registry before their own guesses, so a
   // module can bring a whole toolchain's files with it (ADR-0005).
@@ -4981,6 +5026,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'motion', default: 'Motion' }, { id: 'back', default: 'Back' },
     { id: 'keep-playing', default: 'Keep playing' }, { id: 'two-players', default: 'Two players' },
     { id: 'creator-mode', default: 'Creator Mode' }, { id: 'autosave', default: 'Autosave' },
+    { id: 'start-own', default: 'Start your own game' },
+    { id: 'start-own-title', default: 'What is it called?' },
+    { id: 'start-own-hint', default: 'Pick what you start with. Every part of it can be changed afterwards.' },
+    { id: 'start-own-made', default: '“{title}” is yours. Paint something.' },
+    { id: 'start-own-replaces', default: 'This replaces “{was}”.' },
+    { id: 'start-own-undo', default: 'One undo step: ↶ in Creator Mode brings “{was}” back.' },
+    { id: 'start-own-go', default: 'Start “{title}”' },
+    { id: 'start-own-keep', default: 'Keep what I have' },
     { id: 'slot', default: 'Slot {n}' }, { id: 'empty-slot', default: 'empty' },
     { id: 'on', default: 'on' }, { id: 'off', default: 'off' },
     { id: 'speed-slow', default: 'slow' }, { id: 'speed-normal', default: 'normal' },
@@ -6378,6 +6431,83 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     return g;
   };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/world/blueprints.js ----
+// Blueprints — a whole game to start from.
+//
+// `presets` makes one object. A blueprint makes the entire project: the maps,
+// the connections between them, the people standing in them, whatever the
+// modules need in `packs`. It exists for one reason: on a phone, "start your
+// own game" has to be one tap, and one tap has to leave you somewhere you can
+// already walk around. A blank grid is not that.
+//
+//   KIT.blueprints.list()                 -> [{ id, label, describe, ... }] in order
+//   KIT.blueprints.build('blank', opts)   -> { project, problems }
+//   KIT.blueprints.titleFor(id)           -> what to call it when nobody said
+//
+// The engine ships exactly one, `blank`, because a blank map is the only game
+// the engine can describe without knowing what kind of game it is. Everything
+// else — a region with tall grass in it, a dungeon, a bullet hell — belongs to
+// the module that knows the words (docs/decisions/0005).
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const B = KIT.blueprints = KIT.blueprints || {};
+  const REG = () => KIT.registry('blueprints');
+
+  /** list() -> every blueprint, lowest `order` first, then by label. */
+  B.list = function () {
+    const all = REG().list().slice();
+    all.sort((a, b) => (a.order || 50) - (b.order || 50) || String(a.label || a.id).localeCompare(String(b.label || b.id)));
+    return all;
+  };
+  /** get(id) -> the definition, or null. Never throws on a name nobody registered. */
+  B.get = function (id) { try { return REG().get(String(id)) || null; } catch (e) { return null; } };
+  /** titleFor(id) -> the title to use when the author has not typed one. */
+  B.titleFor = function (id) { const d = B.get(id); return (d && d.defaultTitle) || 'New Adventure'; };
+
+  /**
+   * build(id, opts) -> { project, problems }
+   * opts: { title, id, keepModules } — all optional; the blueprint's own
+   * defaults fill in. The result is normalized, so it is a project the editor
+   * and the game can both take as they are. A blueprint that throws is the
+   * blueprint's bug, and it says so rather than leaving a half-made game behind.
+   *
+   * `keepModules` is the list the game being replaced had switched on. Starting
+   * a new game is not the same as turning the engine off under somebody's feet:
+   * whatever was loaded stays loaded, and the blueprint adds what it needs on
+   * top. It lives here rather than at each door so the two doors cannot drift.
+   */
+  B.build = function (id, opts) {
+    opts = opts || {};
+    const def = B.get(id);
+    if (!def || typeof def.build !== 'function') throw new Error(`no blueprint “${id}”`);
+    const title = String(opts.title || def.defaultTitle || 'New Adventure').trim() || 'New Adventure';
+    const slug = KIT.slug(opts.id || title) || 'new-adventure';
+    const raw = def.build({ title, id: slug });
+    if (!raw || typeof raw !== 'object') throw new Error(`blueprint “${id}” built nothing`);
+    const keep = Array.isArray(opts.keepModules) ? opts.keepModules : [];
+    const mine = Array.isArray(raw.modules) ? raw.modules : [];
+    const all = [];
+    for (const m of keep.concat(mine)) if (typeof m === 'string' && m && all.indexOf(m) < 0) all.push(m);
+    raw.modules = all;
+    return KIT.project.normalize(raw);
+  };
+
+  // ---- the one the engine ships ----------------------------------------------
+  // Last on the list on purpose. The first item is the one a person lands on,
+  // and "here is an empty grid, good luck" is the answer that sent them back to
+  // RPG Maker; whatever a module offers has somewhere to walk in it.
+  REG().add({
+    id: 'blank', label: 'A blank map', order: 90,
+    defaultTitle: 'New Adventure',
+    describe: 'One empty map with your title on it. Everything else is yours to paint.',
+    build: (o) => KIT.project.blank({ title: o.title, id: o.id }),
+  });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -19623,8 +19753,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
             { action: 'settings', label: KIT.strings.get(project, 'settings') },
           ];
-          // The author's door is on the front page, not behind a game and a pause menu.
-          if (KIT.editor && typeof KIT.editor.open === 'function') items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
+          // The author's doors are on the front page, not behind a game and a
+          // pause menu. "Start your own game" comes first of the two because it
+          // is the one a person who has just opened this on a phone wants: the
+          // other one edits THIS game, and they are here to make theirs.
+          if (KIT.editor && typeof KIT.editor.open === 'function') {
+            // The door only appears when the room behind it does: a build without
+            // blueprints, or without the scene that lists them, simply has no door.
+            const canStart = KIT.blueprints && KIT.blueprints.list().length && KIT.registry.exists('scenes') && KIT.registry('scenes').has('start');
+            if (canStart) items.push({ action: 'start-own', label: KIT.strings.get(project, 'start-own') });
+            items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
+          }
           items.forEach((it, i) => {
             const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
             b.type = 'button';
@@ -19672,6 +19811,155 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (ev.key === 'up' || ev.key === 'left') step(-1);
           else if (ev.key === 'down' || ev.key === 'right') step(1);
           else if (ev.key === 'a' || ev.key === 'menu') this.choose(items[index].action);
+          return true;
+        },
+      };
+    },
+  });
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/scenes/start.js ----
+// "Start your own game" — the door on the front page.
+//
+// It is one screen with one big button per blueprint, because the thing it
+// replaces was five taps and a keyboard: Creator Mode, the Game group, the
+// Project panel, a folded-up section, a text field, a button. On a phone that
+// is enough friction to end the idea. Here the name is optional — it is filled
+// in for you — so the shortest path through this screen is a single tap.
+//
+// The one exception is a device that already has a game saved on it. Then the
+// tap repaints this screen as "this replaces that one", because the person most
+// likely to press a button labelled "start your own game" out of curiosity is
+// the person who already started one. Somebody opening this for the first time
+// never sees it, and for them it stays one tap.
+//
+// It resolves with { blueprint, title } or null for "changed my mind".
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const UI = KIT.ui;
+  const scenes = KIT.registry('scenes');
+
+  scenes.add({
+    id: 'start', name: 'Start your own game',
+    create() {
+      let host = null, items = [], index = 0, nameEl = null, typed = '';
+      let project = {}, hasWork = false, asking = null;
+
+      const T = (key, vars) => KIT.strings.get(project, key, vars);
+      const refresh = () => UI.select(host.querySelector('.kit-menu-list'), index);
+      const titleFor = (id) => typed || (KIT.blueprints ? KIT.blueprints.titleFor(id) : '');
+
+      /** The list of things you can start with. */
+      function paintList() {
+        UI.clear(host);
+        const inner = UI.make('div.kit-title-inner.kit-start');
+        inner.appendChild(UI.make('h1.kit-title', { text: T('start-own') }));
+        inner.appendChild(UI.make('p.kit-hint', { text: T('start-own-hint') }));
+
+        // The name box comes first so it is obvious it is there, and is left
+        // alone so it is obvious it is optional: blank means the blueprint's own
+        // name, which is a real name, not "Untitled". Not focused on purpose —
+        // a phone keyboard sliding up over the buttons is the opposite of one tap.
+        nameEl = UI.make('input.kit-start-name');
+        nameEl.type = 'text';
+        nameEl.setAttribute('aria-label', T('start-own-title'));
+        nameEl.placeholder = T('start-own-title');
+        nameEl.value = typed;
+        nameEl.oninput = () => { typed = String(nameEl.value || '').trim(); };
+        inner.appendChild(nameEl);
+
+        const list = UI.make('div.kit-menu-list');
+        const defs = (KIT.blueprints && KIT.blueprints.list()) || [];
+        items = defs.map(b => ({ action: 'make:' + b.id, label: KIT.labelOf(b, null, b.id), describe: b.describe || '' }));
+        items.push({ action: 'back', label: T('back'), describe: '' });
+        mount(list, items);
+        inner.appendChild(list);
+        host.appendChild(inner);
+        index = 0;
+        refresh();
+      }
+
+      /** The second screen, and only when there is something to lose. */
+      function paintAsk(id) {
+        const was = (project.meta && project.meta.title) || '';
+        const title = titleFor(id);
+        UI.clear(host);
+        nameEl = null;
+        const inner = UI.make('div.kit-title-inner.kit-start');
+        inner.appendChild(UI.make('h1.kit-title', { text: T('start-own-replaces', { was }) }));
+        inner.appendChild(UI.make('p.kit-hint', { text: T('start-own-undo', { was }) }));
+        const list = UI.make('div.kit-menu-list');
+        items = [
+          { action: 'go:' + id, label: T('start-own-go', { title }), describe: '' },
+          { action: 'list', label: T('start-own-keep'), describe: '' },
+        ];
+        mount(list, items);
+        inner.appendChild(list);
+        host.appendChild(inner);
+        index = 1;                          // the safe one is the one you land on
+        refresh();
+      }
+
+      function mount(list, rows) {
+        rows.forEach((it, i) => {
+          const b = UI.make('button.kit-uibtn.kit-menu-item.kit-start-item');
+          b.type = 'button';
+          b.setAttribute('data-action', it.action);
+          b.setAttribute('data-index', String(i));
+          b.appendChild(UI.make('span.kit-start-name-line', { text: it.label }));
+          if (it.describe) b.appendChild(UI.make('span.kit-start-describe', { text: it.describe }));
+          list.appendChild(b);
+        });
+      }
+
+      return {
+        id: 'start', transparent: false,
+        enter(params) {
+          project = (params && params.project) || (KIT.game && KIT.game.project) || {};
+          host = UI.el('screen-title');
+          if (!host || !KIT.blueprints || !KIT.blueprints.list().length) { this.finish(null); return; }
+          host.hidden = false;
+          typed = ''; asking = null; hasWork = false;
+          paintList();
+
+          // Is there anything of theirs to lose? The answer arrives after the
+          // screen does, which is fine: it is only needed when something is
+          // tapped, and a tap takes longer than a storage read.
+          Promise.resolve(KIT.storage && KIT.storage.hasDraft ? KIT.storage.hasDraft() : false)
+            .then((yes) => { hasWork = !!yes; }).catch(() => { hasWork = false; });
+
+          this._off = UI.onAction(host, (action, el) => {
+            if (el.disabled) return;
+            index = Number(el.getAttribute('data-index')) || 0;
+            this.choose(action);
+          });
+        },
+        exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
+        choose(action) {
+          KIT.audio.play('select');
+          if (action === 'back') { this.finish(null); return; }
+          if (action === 'list') { asking = null; paintList(); return; }
+          if (action.indexOf('make:') === 0) {
+            const id = action.slice(5);
+            if (hasWork && asking !== id) { asking = id; paintAsk(id); return; }
+            this.finish({ blueprint: id, title: titleFor(id) });
+            return;
+          }
+          if (action.indexOf('go:') === 0) {
+            const id = action.slice(3);
+            this.finish({ blueprint: id, title: titleFor(id) });
+          }
+        },
+        input(ev) {
+          const step = (d) => { index = (index + d + items.length) % items.length; KIT.audio.play('blip'); refresh(); };
+          if (ev.key === 'up' || ev.key === 'left') step(-1);
+          else if (ev.key === 'down' || ev.key === 'right') step(1);
+          else if (ev.key === 'a') this.choose(items[index].action);
+          else if (ev.key === 'b' || ev.key === 'menu') { if (asking) { asking = null; paintList(); } else this.finish(null); }
           return true;
         },
       };
@@ -20392,6 +20680,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         await KIT.toast('No save to continue from yet.');
         continue;
       }
+      if (action === 'start-own') {
+        const pick = await KIT.scenes.run('start', { project: G.project, game: G });
+        if (titleRun !== mine) return;
+        if (!pick) continue;
+        if (await G.startOwnGame(pick)) return;
+        continue;
+      }
       if (action === 'creator') {
         // Creator Mode from the title: no world yet, so it opens on the start map,
         // and closing it comes back here (resumeFromEditor has nowhere else to go).
@@ -20475,6 +20770,60 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       project: G.project,
       mapId: (opts && opts.mapId) || (w && w.map ? w.map.id : null) || (G.project.start && G.project.start.map),
     });
+    return true;
+  };
+
+  /**
+   * startOwnGame({ blueprint, title }) — the whole of "start your own game".
+   *
+   * Creator Mode opens on the game being REPLACED, and the new one goes in as a
+   * single commit against that document. That ordering is the whole trick: it
+   * is what makes ↶ (and a two-finger tap, and Ctrl+Z) bring the old game back.
+   * Opening the editor on the new project instead would hand it a fresh
+   * document with an empty history, and the screen that offered this would be
+   * promising an undo that does not exist.
+   *
+   * It is also the same path the Project panel's "Start a new game" takes, so
+   * the two doors cannot behave differently.
+   */
+  G.startOwnGame = async function (pick) {
+    const ED = KIT.editor;
+    if (!pick || !pick.blueprint || !KIT.blueprints || !ED) return false;
+    let built;
+    try {
+      built = KIT.blueprints.build(pick.blueprint, { title: pick.title, keepModules: (G.project && G.project.modules) || [] });
+    } catch (e) {
+      (KIT.log || console).error('[kit] that blueprint did not build', e);
+      await KIT.toast('That would not start. Nothing has changed.');
+      return false;
+    }
+    // A blueprint may enable modules this page has not started yet, and they
+    // have to be registered before the document validates against them — the
+    // same step, in the same place, as booting a project (js/main.js).
+    try { KIT.modules.activate(built.project); } catch (e) { (KIT.log || console).warn('[kit] modules', e); }
+    // No leaveTitle(): closing Creator Mode comes back to the title, by then
+    // showing the new game — the same as the Creator Mode door beside this one.
+    if (!G.openEditor({})) {
+      await KIT.toast('Creator Mode is not in this build.');
+      return false;
+    }
+    ED.commit('Start your own game', (doc) => doc.replace(built.project, { label: 'Start your own game' }));
+    // Imported art the blueprint brought has no js/art file to register it.
+    try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[kit] content', e); }
+    ED.select(null);
+    ED.refresh({ drop: true });
+    const start = (ED.state.project.start && ED.state.project.start.map) || Object.keys(ED.state.project.maps)[0];
+    if (start) ED.openMap(start);
+    ED.set({ panel: 'tiles' });
+    // Now, not in half a second: the editor's autosave is debounced, and a phone
+    // decides to throw a tab away faster than that.
+    try { await ED.saveNow(); } catch (e) { (KIT.log || console).warn('[kit] draft', e); }
+    const title = (ED.state.project.meta && ED.state.project.meta.title) || '';
+    // saveDraft returns false rather than throwing when the store is full, so
+    // the one thing worth saying out loud is that it did not save.
+    ED.toast(ED.state.saveFailed
+      ? `“${title}” is yours — but it could not be saved. ${ED.state.saveFailed}`
+      : KIT.strings.get(ED.state.project, 'start-own-made', { title }));
     return true;
   };
 
@@ -30890,7 +31239,7 @@ PKMN.TILES.register([
         if (doc.get(['start', 'map']) === gone) doc.set(['start', 'map'], next);
       });
       ED.openMap(next);
-      ED.toast(`“${m.name}” is gone. Ctrl+Z brings it back.`);
+      ED.toast(`“${m.name}” is gone. Undo (↶) brings it back.`);
     },
 
     // ---- the world --------------------------------------------------------------------
@@ -33700,7 +34049,7 @@ PKMN.TILES.register([
         }));
         body.appendChild(status);
         body.appendChild(make('div.ed-sub', {
-          text: 'Opening a game REPLACES the one you are editing. Ctrl+Z puts it back, and the one you replaced is still in the file you saved.',
+          text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
         }));
       });
       const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
@@ -33716,7 +34065,7 @@ PKMN.TILES.register([
       // The demo is a worked example, not a cage. A person who wants THEIR game
       // needs a blank map with their title on it, from the phone, without a CLI.
       section(host, 'Start a new game', newState.open === true, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'A blank map with your title on it, in place of this game. Ctrl+Z brings this one back, and “Save a copy” above keeps it for good.' }));
+        body.appendChild(make('div.ed-hint', { text: 'A game of your own, in place of this one. Undo (↶) brings this one back, and “Save a copy” above keeps it for good.' }));
         const name = make('input.ed-newgame-name');
         name.type = 'text';
         name.placeholder = 'What is it called?';
@@ -33724,22 +34073,38 @@ PKMN.TILES.register([
         name.setAttribute('aria-label', 'The new game’s title');
         name.oninput = () => { newState.name = name.value; };
         body.appendChild(name);
-        const row = make('div.ed-row');
-        row.appendChild(btn('✦ Start from a blank map', 'Replace this game with a blank one (one undo step)', async () => {
-          const title = (name.value || '').trim() || 'New Adventure';
-          const was = (p.meta && p.meta.title) || 'this game';
-          if (!(await ED.confirm(`Replace “${was}” with a blank game called “${title}”? Ctrl+Z brings “${was}” back.`, { yes: 'Start over' }))) return;
-          // The modules stay as they are: a blank game with the same engine, not a different one.
-          const fresh = P.normalize(Object.assign(P.blank({ title, id: KIT.slug(title) || 'new-adventure' }), { modules: (p.modules || []).slice() })).project;
-          newState.open = false; newState.name = '';
-          commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
-          ED.select(null);
-          ED.refresh({ drop: true });
-          ED.openMap(fresh.start.map);
-          ED.set({ panel: 'tiles' });
-          ED.toast(`“${title}” — a blank map. Paint something.`);
-        }, 'primary'));
-        body.appendChild(row);
+        // One button per blueprint, same list as the title screen's door — so a
+        // person already inside Creator Mode does not have to leave it to get
+        // the thing the front page offers.
+        const blueprints = (KIT.blueprints && KIT.blueprints.list()) || [];
+        if (!blueprints.length) { body.appendChild(make('div.ed-sub', { text: 'No starting points are loaded in this build.' })); return; }
+        for (const bp of blueprints) {
+          const row = make('div.ed-row');
+          row.appendChild(btn(`✦ ${KIT.labelOf ? KIT.labelOf(bp) : (bp.label || bp.id)}`, bp.describe || '', async () => {
+            const title = (name.value || '').trim() || KIT.blueprints.titleFor(bp.id);
+            const was = (p.meta && p.meta.title) || 'this game';
+            if (!(await ED.confirm(`Replace “${was}” with “${title}”? Undo (↶) brings “${was}” back.`, { yes: 'Start over' }))) return;
+            let fresh;
+            try {
+              fresh = KIT.blueprints.build(bp.id, { title, keepModules: p.modules || [] }).project;
+            } catch (e) {
+              (KIT.log || console).error('[editor] that blueprint did not build', e);
+              ED.toast('That would not start. Nothing has changed.');
+              return;
+            }
+            try { KIT.modules.activate(fresh); } catch (e) { (KIT.log || console).warn('[editor] modules', e); }
+            newState.open = false; newState.name = '';
+            commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
+            try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[editor] content', e); }
+            ED.select(null);
+            ED.refresh({ drop: true });
+            ED.openMap(fresh.start.map);
+            ED.set({ panel: 'tiles' });
+            ED.toast(`“${title}” is yours. Paint something.`);
+          }, 'primary'));
+          body.appendChild(row);
+          if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
+        }
       });
 
       const langBody = section(host, 'Languages', langState.open === true, (body) => {
@@ -33852,7 +34217,7 @@ PKMN.TILES.register([
           }
 
           body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
-            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Ctrl+Z puts it back.`)) return;
+            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Undo (↶) puts it back.`)) return;
             langState.code = '';
             langState.said = { text: 'Removed.', ok: true };
             commit('Remove a language', (doc) => doc.del(['languages', code]));
@@ -34344,7 +34709,7 @@ PKMN.TILES.register([
     moveState.said = {
       text: problems.length
         ? `Opened “${title}”${when} — with ${problems.length} thing(s) to fix; the Problems panel lists them.`
-        : `Opened “${title}”${when}. Ctrl+Z puts the old one back.`,
+        : `Opened “${title}”${when}. Undo (↶) puts the old one back.`,
       ok: !problems.length,
     };
     moveState.open = true;                       // and leave the section open, so the answer is on screen
@@ -34366,7 +34731,7 @@ PKMN.TILES.register([
     });
     ED.refresh();
     panel._sig = '';
-    ED.toast('Applied — Ctrl+Z puts it back');
+    ED.toast('Applied — undo (↶) puts it back');
   }
 
   // ----------------------------------------------------------------- Import ----------
@@ -34778,7 +35143,7 @@ PKMN.TILES.register([
       ED.refresh();
       ED.toast(`Imported · ${countLine(rep.added)}`);
       clear(el.report);
-      el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Ctrl+Z undoes the whole thing.` }));
+      el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Undo (↶) undoes the whole thing.` }));
       const first = Object.keys(result.maps || {})[0];
       if (first && ED.state.project.maps[first]) el.report.appendChild(btn(`Open the map “${first}”`, 'Go and look at it', () => ED.openMap(first), 'wide'));
     }, errs.length ? '' : 'primary');
@@ -38355,6 +38720,405 @@ PKMN.TILES.register([
 
 </script>
 <script>
+// ---- js/modules/mons/region.js ----
+// A region to start from.
+//
+// `KIT.blueprints` asks a module for a whole game. This is the mons module's
+// answer: a town you can walk around, a house and a lab you can walk into, a
+// professor who gives you a first partner, and a route north with tall grass
+// that has something living in it. Four maps, joined the two ways this engine
+// joins maps — a seamless edge between the town and the route, a warp through
+// each door.
+//
+// Why it exists: "start your own game" used to mean a blank grid, and a blank
+// grid on a phone is a dead end — you cannot paint your way to a region with
+// one thumb before you lose interest. This is the same thing every one of those
+// steps would have produced, done in one tap, and every tile of it is ordinary
+// project data: repaint it, rename it, delete the half you don't want.
+//
+// Nothing here is drawn from a file. The tiles are the built-in art
+// (js/art/tiles-*.js) and the people are the placeholder sprites, so it works
+// offline, on a phone, in a single-file build, with nothing imported.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const M = KIT.mons = KIT.mons || {};
+  const R = M.region = M.region || {};
+
+  // ---- the legend ---------------------------------------------------------------
+  // One character, one cell: `g` goes on the ground layer, `d` stands on it, `t`
+  // is the terrain id — so "Re-bake this map" in Creator Mode puts back what was
+  // there instead of flattening the paths into grass.
+  //
+  // Solidity is never written down. It belongs to the tile (js/art/tiles-*.js):
+  // a wall is solid because `wall` is solid, and a wild friend turns up in tall
+  // grass because `tall-grass` carries `encounter: true`. So the author can
+  // paint more tall grass anywhere and it simply works.
+  const GRASS = 1, PATH = 2, TALL = 3, WATER = 4;
+  const LEGEND = {
+    // outdoors
+    '.': { g: 'grass', t: GRASS },
+    ',': { g: 'grass-2', t: GRASS },
+    '-': { g: 'path', t: PATH },
+    '~': { g: 'tall-grass', t: TALL },
+    'w': { g: 'water', t: WATER },
+    'T': { g: 'grass', t: GRASS, tree: true },
+    'b': { g: 'grass', t: GRASS, d: 'bush' },
+    'k': { g: 'grass', t: GRASS, d: 'rock' },
+    'f': { g: 'grass', t: GRASS, d: 'flowers-red' },
+    'y': { g: 'grass', t: GRASS, d: 'flowers-yellow' },
+    's': { g: 'grass', t: GRASS, d: 'sign' },
+    'm': { g: 'grass', t: GRASS, d: 'mailbox' },
+    'h': { g: 'grass', t: GRASS, d: 'bench' },
+    'l': { g: 'grass', t: GRASS, d: 'ledge-down' },
+    'R': { g: 'grass', t: GRASS, d: 'roof-red' },
+    'r': { g: 'grass', t: GRASS, d: 'roof-red-eave' },
+    'B': { g: 'grass', t: GRASS, d: 'roof-blue' },
+    'e': { g: 'grass', t: GRASS, d: 'roof-blue-eave' },
+    'W': { g: 'grass', t: GRASS, d: 'wall' },
+    'N': { g: 'grass', t: GRASS, d: 'wall-window' },
+    'D': { g: 'grass', t: GRASS, d: 'door' },
+    'L': { g: 'grass', t: GRASS, d: 'lab-wall' },
+    'M': { g: 'grass', t: GRASS, d: 'lab-window' },
+    'A': { g: 'grass', t: GRASS, d: 'lab-door' },
+    // indoors — no terrain at all, the way the demo's interiors are built
+    '#': { g: 'floor-wood', d: 'wall-in-top' },
+    '%': { g: 'floor-wood', d: 'wall-in' },
+    'i': { g: 'floor-wood', d: 'window-inner' },
+    '_': { g: 'floor-wood' },
+    ':': { g: 'floor-tile' },
+    'X': { g: 'exit-mat' },
+    '[': { g: 'floor-wood', d: 'bed-top' },
+    ']': { g: 'floor-wood', d: 'bed-bottom' },
+    '+': { g: 'floor-wood', d: 'table' },
+    '<': { g: 'floor-wood', d: 'chair' },
+    'V': { g: 'floor-wood', d: 'tv' },
+    'H': { g: 'floor-tile', d: 'bookshelf' },
+    'C': { g: 'floor-tile', d: 'counter' },
+    'E': { g: 'floor-tile', d: 'pc' },
+    'Y': { g: 'floor-wood', d: 'plant' },
+    'U': { g: 'rug' },
+  };
+  R.LEGEND = LEGEND;
+
+  // ---- the sketches -------------------------------------------------------------
+  // Read them. That is the point: the map you get is the map you can see here,
+  // and a person who wants a wider route widens these rows.
+  //
+  // The town's top edge and the route's bottom edge are the same width and both
+  // have the path at x=9,10 — that is what makes the seam between them walkable
+  // (KIT.mapView.connectionAt checks exactly this, and the project validator
+  // says "no walkable tile leads across" when it is not true).
+  const TOWN = [
+    'TTTTTTTTT--TTTTTTTTT',
+    'T.......,--,.......T',
+    'T..RRRRR.--........T',
+    'T..rrrrr.--........T',
+    'T..WNWNW.--....b...T',
+    'T..WWDWW.--...b.b..T',
+    'T...m....--....b...T',
+    'T------------------T',
+    'T...,....--..wwww..T',
+    'T..f.....--..wwww..T',
+    'T........--..wwww..T',
+    'T..s.....--........T',
+    'T........--..BBBBB.T',
+    'T........--..eeeee.T',
+    'T..f.y...--..LMLML.T',
+    'T...h....--..LLALL.T',
+    'T........--........T',
+    'TTTTTTTTTTTTTTTTTTTT',
+  ];
+  const ROUTE = [
+    'TTTTTTTTTTTTTTTTTTTT',
+    'T........s.........T',
+    'T........--........T',
+    'T..~~~~..--..~~~~..T',
+    'T..~~~~..--..~~~~..T',
+    'T..~~~~..--..~~~~..T',
+    'T...~~...--...~~...T',
+    'T........--........T',
+    'T..k.....--.....k..T',
+    'T...lll..--..lll...T',
+    'T........--........T',
+    'T..~~~~~.--.~~~~~..T',
+    'T..~~~~~.--.~~~~~..T',
+    'T..~~~~~.--.~~~~~..T',
+    'T...~~~..--..~~~...T',
+    'T........--........T',
+    'T..b...b.--.b...b..T',
+    'T........--........T',
+    'T..~~~~..--..~~~~..T',
+    'T..~~~~..--..~~~~..T',
+    'T........--........T',
+    // The bottom row is the town's top row: the seam only works when both sides
+    // agree about what is walkable, and the validator says so when they do not.
+    'TTTTTTTTT--TTTTTTTTT',
+  ];
+  const HOME = [
+    '############',
+    '%%i%%%%%i%%%',
+    '__[_______Y_',
+    '__]_____+___',
+    '________<___',
+    '_H________V_',
+    '____UU______',
+    '____UU______',
+    '_____X______',
+  ];
+  const LAB = [
+    '##############',
+    '%%%i%%%%i%%%%%',
+    '::::::::::::::',
+    '::HH::::::CC::',
+    '::::::::::::::',
+    '::::::::::::::',
+    '::::E:::::E:::',
+    '::::::::::::::',
+    '::::::::::::::',
+    '::::::X:::::::',
+  ];
+  R.SKETCHES = { town: TOWN, route: ROUTE, home: HOME, lab: LAB };
+
+  // ---- painting -----------------------------------------------------------------
+  /**
+   * paint(rows) -> { width, height, layers:{ terrain, ground, deco, above, regions }, collision }
+   * Pure. Every row must be the same length, and every character must be in the
+   * legend — a typo in a sketch is a thrown error at build time, not a hole in
+   * somebody's map.
+   */
+  R.paint = function (rows) {
+    if (!Array.isArray(rows) || !rows.length) throw new Error('a sketch needs rows');
+    const height = rows.length;
+    const width = String(rows[0]).length;
+    for (let y = 0; y < height; y++) {
+      if (String(rows[y]).length !== width) throw new Error(`sketch row ${y} is ${String(rows[y]).length} wide, not ${width}`);
+    }
+    const n = width * height;
+    const terrain = new Array(n).fill(0);
+    const ground = new Array(n).fill(null);
+    const deco = new Array(n).fill(null);
+    const above = new Array(n).fill(null);
+    const regions = new Array(n).fill(0);
+    const collision = new Array(n).fill(null);
+    const tree = new Array(n).fill(false);
+    for (let y = 0; y < height; y++) {
+      const row = String(rows[y]);
+      for (let x = 0; x < width; x++) {
+        const ch = row[x];
+        const cell = LEGEND[ch];
+        if (!cell) throw new Error(`sketch character “${ch}” at ${x},${y} is not in the legend`);
+        const i = y * width + x;
+        terrain[i] = cell.t || 0;
+        ground[i] = cell.g || null;
+        if (cell.d) deco[i] = cell.d;
+        if (cell.tree) tree[i] = true;
+      }
+    }
+    // Trees are 2×2 (tree-tl/tr/bl/br) and a one-cell-wide line of them is not,
+    // so a mass of `T` is laid out greedily: a quad wherever four unclaimed tree
+    // cells meet, `tree-small` for whatever is left over. A one-thick border
+    // comes out as small trees, which is what it should look like.
+    const taken = new Array(n).fill(false);
+    const isTree = (x, y) => x >= 0 && y >= 0 && x < width && y < height && tree[y * width + x] && !taken[y * width + x];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (!tree[i] || taken[i]) continue;
+        if (isTree(x + 1, y) && isTree(x, y + 1) && isTree(x + 1, y + 1)) {
+          deco[i] = 'tree-tl'; deco[i + 1] = 'tree-tr';
+          deco[i + width] = 'tree-bl'; deco[i + width + 1] = 'tree-br';
+          taken[i] = taken[i + 1] = taken[i + width] = taken[i + width + 1] = true;
+        } else {
+          deco[i] = 'tree-small';
+          taken[i] = true;
+        }
+      }
+    }
+    return { width, height, layers: { terrain, ground, deco, above, regions }, collision };
+  };
+
+  // ---- the people ----------------------------------------------------------------
+  const say = (text, who) => ({ t: 'say', text, who: who || '', bg: 'window', face: null, position: 'bottom' });
+  const warp = (id, name, x, y, to) => ({
+    id, name, type: 'warp', x, y,
+    pages: [{ through: true, visible: false, layer: 'below', props: { to, dir: to.dir || 'down', fade: true, look: null, sound: null } }],
+  });
+  const person = (id, name, sprite, x, y, dir, lines) => ({
+    id, name, type: 'npc', x, y,
+    pages: [{ sprite, dir, dirFix: false, layer: 'same', on: { interact: lines } }],
+  });
+  /** A thing you read, not a person: the sign tile is already drawn, so this is invisible. */
+  const readable = (id, name, x, y, lines) => ({
+    id, name, type: 'npc', x, y,
+    pages: [{ sprite: null, visible: false, dirFix: true, layer: 'same', on: { interact: lines } }],
+  });
+
+  // The three the professor offers. They are built-in species, so a brand new
+  // game has a working first partner before the author has drawn anything — and
+  // Creator Mode › Species is where they become somebody else's.
+  R.STARTERS = ['venusaur', 'charizard', 'blastoise'];
+  // What lives in the tall grass on the first route. Weights, not percentages:
+  // the common ones are common because their number is bigger.
+  R.WILD = [
+    { id: 'pikachu', weight: 8 },
+    { id: 'butterfree', weight: 7 },
+    { id: 'clefable', weight: 4 },
+    { id: 'ninetales', weight: 2 },
+    { id: 'scyther', weight: 1 },
+  ];
+
+  function professorPage() {
+    const options = R.STARTERS.map((id) => ({
+      text: M.speciesName ? M.speciesName(id) : id,
+      when: null,
+      then: [
+        { t: 'setVar', name: 'starter', op: 'set', value: id, var: null, min: 1, max: 6 },
+        { t: 'setVar', name: 'hasStarter', op: 'set', value: true, var: null, min: 1, max: 6 },
+        say('Then off you go. {pause} The tall grass north of town is full of them.', 'Professor'),
+      ],
+    }));
+    return [
+      say('There you are. {pause} Everything out there is waiting to meet you.', 'Professor'),
+      { t: 'choice', prompt: 'Who comes with you?', cancel: 'none', options },
+    ];
+  }
+
+  // ---- the game ------------------------------------------------------------------
+  /**
+   * build({ title, id }) -> a project, ready for KIT.project.normalize.
+   * Everything is computed here rather than stored as a file so that the single
+   * page build carries it for free.
+   */
+  R.build = function (opts) {
+    opts = opts || {};
+    const title = String(opts.title || 'A New Region').trim() || 'A New Region';
+    const id = KIT.slug(opts.id || title) || 'a-new-region';
+
+    const town = Object.assign({ id: 'town', name: 'Town', kind: 'outdoor', music: 'town' }, R.paint(TOWN));
+    const route = Object.assign({ id: 'route', name: 'Route 1', kind: 'outdoor', music: 'route' }, R.paint(ROUTE));
+    const home = Object.assign({ id: 'home', name: 'Your house', kind: 'indoor', music: 'house' }, R.paint(HOME));
+    const lab = Object.assign({ id: 'lab', name: 'The lab', kind: 'indoor', music: 'house' }, R.paint(LAB));
+
+    town.objects = [
+      warp('front-door', 'Your front door', 5, 5, { map: 'home', x: 5, y: 7, dir: 'up' }),
+      warp('lab-door', 'The lab door', 15, 15, { map: 'lab', x: 6, y: 8, dir: 'up' }),
+      readable('town-sign', 'Town sign', 3, 11, [
+        say(`${title}. {pause} Population: you, so far.`),
+        say('Everything you can see is yours to move. Creator Mode is the ✦ on the title screen.'),
+      ]),
+      person('neighbour', 'Neighbour', 'woman', 12, 8, 'left', [
+        say('The professor is in the lab, down by the water.'),
+        say('She has been waiting to give somebody a partner all morning.'),
+      ]),
+    ];
+    home.objects = [
+      warp('way-out', 'Out', 5, 8, { map: 'town', x: 5, y: 6, dir: 'down' }),
+      readable('table-note', 'A note', 8, 3, [
+        say('A note on the table, in your own handwriting:'),
+        say('“Everything in this game can be changed. Press ✕ in Creator Mode to play it.”'),
+      ]),
+    ];
+    // Two pages, and the LAST one whose condition passes is the one you get: so
+    // the professor offers a partner until you have one, and afterwards has
+    // something else to say instead of offering a second.
+    lab.objects = [
+      warp('lab-out', 'Out', 6, 9, { map: 'town', x: 15, y: 16, dir: 'down' }),
+      {
+        id: 'prof', name: 'Professor', type: 'npc', x: 6, y: 4,
+        pages: [
+          {
+            sprite: 'professor', dir: 'down', dirFix: false, layer: 'same',
+            when: null,
+            on: { interact: professorPage() },
+          },
+          {
+            sprite: 'professor', dir: 'down', dirFix: false, layer: 'same',
+            when: { kind: 'var', name: 'hasStarter', op: '==', value: true, var: null },
+            on: { interact: [say('Go on then. {pause} The grass north of town is the place to start.', 'Professor')] },
+          },
+        ],
+      },
+    ];
+    route.objects = [
+      readable('route-sign', 'Route sign', 9, 1, [
+        say('ROUTE 1 — north: everything you have not built yet.'),
+        say('Open Creator Mode and keep going. A new map is one tap in the map list.'),
+      ]),
+      person('hiker', 'Hiker', 'man', 13, 10, 'left', [
+        say('Careful in the long grass. {pause} Things live in it.'),
+        say('That is what makes it long grass and not a lawn.'),
+      ]),
+    ];
+
+    // The one thing that makes the route a route: something to meet in it. The
+    // table is on the map, so copying the map to a new one copies its wildlife.
+    //
+    // The key is '0', not '*'. Both work at runtime — M.entriesFor falls back
+    // through '*' — but Map › Encounters lists one section per region the map
+    // paints, and a map with no regions layer paints only 0. Under '*' the
+    // panel would have said "Nobody lives here yet" over grass that was full of
+    // them, which is the editor lying about the game.
+    route.props = { encounters: { byRegion: { 0: R.WILD.map(e => ({ id: e.id, weight: e.weight })) }, rate: 14 } };
+
+    return {
+      version: KIT.project.VERSION,
+      meta: {
+        id, title,
+        subtitle: 'A region of your own',
+        author: '',
+        pitch: 'A town, a lab and one route north. Everything past that is yours to build.',
+      },
+      start: { map: 'town', x: 10, y: 16, dir: 'up' },
+      modules: ['mons'],
+      // No `settings`: normalize fills them, and an encounterRate here would be
+      // a number that looks like it decides something. The route's own table
+      // carries the rate that is actually rolled.
+      heroes: [
+        { id: 'p1', name: 'You', sprite: 'hero-boy', recolor: {} },
+        { id: 'p2', name: 'Your friend', sprite: 'hero-girl', recolor: {} },
+      ],
+      vars: {
+        starter: { type: 'string', default: '', group: 'Story', label: 'Your first partner' },
+        hasStarter: { type: 'bool', default: false, group: 'Story', label: 'Has a partner' },
+      },
+      terrains: [
+        { id: GRASS, name: 'Grass', color: '#78c850', base: 'grass' },
+        { id: PATH, name: 'Path', color: '#d8b878', base: 'path' },
+        { id: TALL, name: 'Tall grass', color: '#4ca050', base: 'tall-grass' },
+        { id: WATER, name: 'Water', color: '#5890f8', base: 'water' },
+      ],
+      world: {
+        maps: {
+          route: { x: 1, y: 0, folder: 'The region' },
+          town: { x: 1, y: 1, folder: 'The region' },
+          home: { x: 0, y: 1, folder: 'The region' },
+          lab: { x: 2, y: 1, folder: 'The region' },
+        },
+        connections: [{ a: 'town', side: 'n', b: 'route', offset: 0 }],
+      },
+      maps: { town, route, home, lab },
+      packs: { mons: { starters: { var: 'starter', friendship: 70, ask: true } } },
+    };
+  };
+
+  /** register() — adds the blueprint. Called from the module's manifest. */
+  R.register = function () {
+    if (!KIT.registry || !KIT.blueprints) return false;
+    KIT.registry('blueprints').add({
+      id: 'mons-region', label: 'A region to explore', order: 20,
+      defaultTitle: 'A New Region',
+      describe: 'A town, a house and a lab you can walk into, and a route north with tall grass that has something living in it.',
+      build: (o) => R.build(o),
+      replace: true,
+    });
+    return true;
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/modules/mons/panel.js ----
 // mons/panel.js — Creator Mode's half of the module:
 //
@@ -38837,6 +39601,7 @@ PKMN.TILES.register([
       M.registerSystems();
       M.registerEditor();
       if (M.essentials && typeof M.essentials.register === 'function') M.essentials.register();
+      if (M.region && typeof M.region.register === 'function') M.region.register();
       if (typeof M.registerScenes === 'function') M.registerScenes();
     },
 

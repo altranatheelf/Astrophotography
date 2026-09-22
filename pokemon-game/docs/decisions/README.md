@@ -44,3 +44,4 @@ is a new number.
 | [0012](0012-rules-are-entities.md) | A rule of the world is a condition plus a script, and can be eaten | accepted |
 | [0013](0013-saves-are-a-tree.md) | Saves are a tree of moments, stored as deltas | accepted |
 | [0014](0014-creator-mode-is-four-groups.md) | Creator Mode is four groups, and a panel picks its tool | accepted |
+| [0015](0015-a-new-game-is-a-blueprint.md) | A new game is a blueprint, and a module brings its own | accepted |

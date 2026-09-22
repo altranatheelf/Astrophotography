@@ -42,7 +42,7 @@ Every random decision in the kit goes through one of these; same seed, same run.
 ## core/registry + core/registries — stable
 `KIT.defineRegistry(name, { fields, onAdd, onRemove, doc }) -> reg` (idempotent) · `KIT.registry(name)` (throws if undefined) · `KIT.registry.exists(name)`.
 Registry: `add(def)` (fills defaults, validates against `fields`, warns on replace unless `def.replace`), `addAll`, `get`, `require`, `has`, `list`, `ids`, `size`, `remove`, `clear`, `on('add'|'remove')`, `groups(key)`.
-Standard registries: `tiles sprites faces icons sounds music objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors validators presets migrations strings importers`.
+Standard registries: `tiles sprites faces icons sounds music objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors validators presets blueprints migrations strings importers`.
 `KIT.registry('tiles').stamps` is the multi-tile brush list.
 
 ## core/schema — stable
@@ -79,6 +79,17 @@ Project v3 shape: see §5 — `version meta modules settings strings heroes star
 ## world/tiles — stable
 `KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, probability, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
 Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', warpLook, encounter, terrainTag, probability, animMs }`.
+
+## world/blueprints — stable
+A whole game to start from. `presets` makes one object, `importers` read one
+file; a blueprint makes the entire project.
+`KIT.blueprints.list() -> [def]` (by `order`, then label) · `get(id) -> def|null` ·
+`titleFor(id) -> string` (the name to use when the author typed none) ·
+`build(id, { title, id }) -> { project, problems }` (normalized; throws on an
+unknown id or a blueprint that builds nothing).
+Registry entry: `{ id, label, describe, defaultTitle, order, build({ title, id }) -> project }`.
+The kit ships `blank` only; a module registers its own (ADR-0005, ADR-0015) — the
+mons module's `mons-region` is in `js/modules/mons/region.js`.
 
 ## world/cast — stable
 The people in the story, what they know, and how they feel about each other — the thing switches do not scale to.
@@ -265,7 +276,7 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`),
 
 `KIT.editor.writing` — `textIndex(project)` `selectionFor explain fragmentTags matchFragment fragmentToSlot firstLine`. `KIT.editor.projectPanels` — `varIndex usageSelection usageLabel dataPath checkData guessType`. `KIT.editor.importPanel` — `dispatch(files)` `imageSize(bytes)`.
 
-`editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that.
+`editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that. `KIT.game.startOwnGame({ blueprint, title })` is the title screen's door: build the blueprint, keep the modules the current game had on, register its content, save the draft at once, open Creator Mode on its first map.
 
 ## core/modules.js — the module system
 `KIT.module(def)` registers a manifest (`{ id, version, label, requires, describe, register(KIT), save, content }`; see `docs/MODULES.md`) ·

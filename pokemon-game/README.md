@@ -8,23 +8,36 @@ It is plain HTML, CSS and JavaScript. No install, no build step, no framework.
 Open the page and it runs; open Creator Mode and you can change the world you
 are standing in.
 
-## On your PC, in one minute
+## In two taps, on anything
 
 1. Unzip (or clone) the folder. **Double-click `index.html`.** It runs from the
    file, no server, no install — Chrome, Edge, Firefox or Safari. (`Our-Adventure.html`
    is the same game in one file, for sending to someone.)
-2. On the title screen choose **Creator Mode**.
-3. **Game › Project › Start a new game**, give it a title. You are on a blank map.
-4. **Game › Import**: drop in a tileset PNG you found online — or a Tiled map, an
-   RPG Maker MV/MZ folder, a Pokémon Essentials `pokemon.txt`, or an `.ogg` of
-   music. It is cut up, embedded and joins the game.
-5. Paint the town. **Map › ＋ New map** for the route next door, **Maps next door ›
-   Add a way through** to join them, paint **Tall grass** on the Collision layer,
-   and put somebody in the grass under **Map › Encounters**.
-6. **Game › Species** invents creatures of your own, or restats the ones that
-   came with it. **▶ Play here.** Your work saves itself in the browser as you go
-   (`docs/STARTING-A-GAME.md` walks through all of this, including the 5MB that
-   Chrome gives a page opened from a file).
+2. On the title screen: **Start your own game**.
+3. **A region to explore.**
+
+That is a town with a house and a lab you can walk into, a professor who gives
+you a first partner, and a route north whose tall grass has things living in it
+— four maps, in Creator Mode, ready to repaint. Nothing to type, nothing to
+import, nothing to download. **A blank map** is the other button, for people who
+want one.
+
+**On a phone,** run `npm run phone` on the computer, open the address it prints,
+and use "Add to Home Screen" to get an icon and a full-screen window. The same
+two taps make the same region. See `docs/ON-A-PHONE.md`.
+
+## And then
+
+* **Game › Import**: drop in a tileset PNG you found online — or a Tiled map, an
+  RPG Maker MV/MZ folder, a Pokémon Essentials `pokemon.txt`, or an `.ogg` of
+  music. It is cut up, embedded and joins the game.
+* **Map › ＋ New map** for the next route along, **Maps next door › Add a way
+  through** to join them, paint **Tall grass**, and put somebody in it under
+  **Map › Encounters**.
+* **Game › Species** invents creatures of your own, or restats the ones that came
+  with it. **▶ Play here.** Your work saves itself in the browser as you go
+  (`docs/STARTING-A-GAME.md` walks through all of this, including the 5MB that
+  Chrome gives a page opened from a file).
 
 ## Run it
 
@@ -35,11 +48,14 @@ npm test                        # 597 unit tests, pure Node, no browser
 node tools/build-demo.js        # regenerate the demo world content
 node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or Aseprite art
 node tools/build.js             # bundle everything into one shareable .html
+npm run phone                   # serve it on your Wi-Fi, for the phone in your pocket
+npm run icons                   # redraw the home-screen icon and the web app manifest
 ```
 
 Play-throughs in a real browser (they need Playwright):
 
 ```
+NODE_PATH=$(npm root -g) node e2e/onetap.js   # two taps -> a region -> walk into the grass -> meet something
 NODE_PATH=$(npm root -g) node e2e/walk.js     # title -> walk -> talk -> save -> co-op
 NODE_PATH=$(npm root -g) node e2e/import.js   # import a map, then play it
 NODE_PATH=$(npm root -g) node e2e/editor.js   # paint -> place an event -> write a line -> play it

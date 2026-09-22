@@ -36,6 +36,12 @@ html = html.replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
   return `<script>\n// ---- ${src} ----\n${code}\n</script>`;
 });
 
+// Head links to files that do not travel with a single attachment: the web app
+// manifest and the home-screen icons live beside index.html, and this file is
+// meant to be opened from wherever somebody saved it. Left in, every open is
+// three 404s for nothing — the manifest only ever does anything on a served
+// copy, which is what `npm run phone` is for.
+html = html.replace(/[ \t]*<link\b[^>]*\brel=["'](?:manifest|apple-touch-icon|icon)["'][^>]*>\n?/gi, '');
 fs.writeFileSync(outFile, html);
 const kb = (fs.statSync(outFile).size / 1024).toFixed(0);
 console.log(`${styles} stylesheet(s) and ${scripts} script(s)${skipped ? ` (${skipped} missing skipped)` : ''} -> ${path.relative(process.cwd(), outFile)} (${kb} KB)`);

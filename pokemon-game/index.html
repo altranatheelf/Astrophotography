@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c12">
+<!-- Add to Home Screen. Android reads the manifest; iOS reads these three and the
+     apple-touch-icon, and ignores the manifest entirely. Both want real files at
+     real URLs, so all of it is inert for a page opened from a Downloads folder —
+     see docs/ON-A-PHONE.md, which is about the served case. -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Adventure">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <title>Our Adventure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,6 +68,7 @@
 <script src="js/kit/world/document.js"></script>
 <script src="js/kit/world/project.js"></script>
 <script src="js/kit/world/tiles.js"></script>
+<script src="js/kit/world/blueprints.js"></script>
 <script src="js/kit/world/cast.js"></script>
 <script src="js/kit/world/log.js"></script>
 <script src="js/kit/world/rules.js"></script>
@@ -90,6 +103,7 @@
 <script src="js/kit/scenes/dialogue.js"></script>
 <script src="js/kit/scenes/menu.js"></script>
 <script src="js/kit/scenes/title.js"></script>
+<script src="js/kit/scenes/start.js"></script>
 <script src="js/kit/scenes/map.js"></script>
 <script src="js/kit/game.js"></script>
 
@@ -152,6 +166,7 @@
 <script src="js/modules/mons/systems.js"></script>
 <script src="js/modules/mons/scenes.js"></script>
 <script src="js/modules/mons/essentials.js"></script>
+<script src="js/modules/mons/region.js"></script>
 <script src="js/modules/mons/panel.js"></script>
 <script src="js/modules/mons/manifest.js"></script>
 

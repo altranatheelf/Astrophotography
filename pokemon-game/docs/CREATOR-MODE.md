@@ -27,11 +27,28 @@ else, run `node tools/build.js` — one `.html` file with everything in it.
 
 ## Your own game
 
-The game that opens is a worked example. To start yours: **Game › Project ›
-Start a new game**, type a title, and **Start from a blank map**. That puts a
-blank outdoor map with your title on it in place of the example, as one undo
-step, and it is what loads from then on. The Tiles panel says what to do first
-while the map is empty. Everything below works the same on it.
+The game that opens is a worked example. To start yours, the front page has a
+door: **Start your own game**, above Creator Mode on the title screen. It asks
+one thing — what you want to begin with — and a name, which is optional because
+each starting point has a name of its own.
+
+* **A region to explore** is a town with a house and a lab you can walk into, a
+  professor who hands you a first partner, and a route north whose tall grass
+  has something living in it. Four maps, joined the two ways this engine joins
+  maps: a seamless edge between the town and the route, a warp through each
+  door. Every tile of it is ordinary project data — repaint it, rename it,
+  delete the half you don't want.
+* **A blank map** is one empty outdoor map with your title on it. The Tiles
+  panel says what to do first while it is empty.
+
+Either way the example is replaced as one undo step, **↶** (or `Ctrl+Z`) brings it back,
+and what you made is what loads from then on. Once there is a game saved on the
+device, the door asks before replacing it and names what it would replace; the
+first time, it does not. The same list is inside the editor at
+**Game › Project › Start a new game**, for when you are already in there.
+
+A module brings its own starting points with it, so this list is whatever is
+loaded (`docs/decisions/0015-a-new-game-is-a-blueprint.md`).
 
 ## The screen
 
@@ -192,7 +209,7 @@ you move it. **Project › This game, on your other device** is how:
   game folder yourself. This is how work done in Creator Mode gets back into a
   game folder's `content/`.
 
-Opening a game REPLACES the one you are editing, as one undo step — `Ctrl+Z`
+Opening a game REPLACES the one you are editing, as one undo step — **↶** (or `Ctrl+Z`)
 puts it back, and the one you replaced is still in the file you saved.
 
 No server, no account, and nothing goes through anybody else's computer. Your

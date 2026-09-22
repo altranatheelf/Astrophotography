@@ -22,6 +22,7 @@ const files = [
   'js/kit/world/document.js',
   'js/kit/world/project.js',
   'js/kit/world/tiles.js',
+  'js/kit/world/blueprints.js',
   'js/kit/world/cast.js',
   'js/kit/world/log.js',
   'js/kit/world/rules.js',

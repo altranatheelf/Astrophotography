@@ -32,8 +32,17 @@
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
             { action: 'settings', label: KIT.strings.get(project, 'settings') },
           ];
-          // The author's door is on the front page, not behind a game and a pause menu.
-          if (KIT.editor && typeof KIT.editor.open === 'function') items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
+          // The author's doors are on the front page, not behind a game and a
+          // pause menu. "Start your own game" comes first of the two because it
+          // is the one a person who has just opened this on a phone wants: the
+          // other one edits THIS game, and they are here to make theirs.
+          if (KIT.editor && typeof KIT.editor.open === 'function') {
+            // The door only appears when the room behind it does: a build without
+            // blueprints, or without the scene that lists them, simply has no door.
+            const canStart = KIT.blueprints && KIT.blueprints.list().length && KIT.registry.exists('scenes') && KIT.registry('scenes').has('start');
+            if (canStart) items.push({ action: 'start-own', label: KIT.strings.get(project, 'start-own') });
+            items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
+          }
           items.forEach((it, i) => {
             const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
             b.type = 'button';

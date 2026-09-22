@@ -13,9 +13,15 @@ from the file in Chrome, Edge, Firefox or Safari; nothing is installed and
 nothing phones home. Everything you make is saved in that browser, on that
 computer, as you go — **Game › Project › Save a copy** is how it leaves.
 
-**Your own game.** Title screen › **Creator Mode** › **Game › Project › Start a
-new game**. Type a title. The example is replaced by one blank map with your
-title on it (Ctrl+Z brings the example back). The Pokémon-style module stays on.
+**Your own game.** Title screen › **Start your own game** › **A region to
+explore**. That is a town with a house and a lab you can walk into, a professor
+who gives you a first partner, and a route north with tall grass in it — four
+maps, already painted, in Creator Mode. **A blank map** is the other button if
+you would rather start from nothing. Either replaces the example as one undo
+step (**↶** in the tool row, or `Ctrl+Z`, brings it back), and the mons module stays on.
+
+If you are already inside Creator Mode, the same list is at **Game › Project ›
+Start a new game**.
 
 **Tiles from the internet.** Find a tileset — a PNG of squares — and drop it on
 **Game › Import**. Creator Mode reads its size, guesses 16px squares (or 32, or
@@ -81,9 +87,10 @@ encounter tables, a music file and a species written in the Species panel.
 
 ## 1. Make one
 
-No terminal at all: open `index.html`, choose **Creator Mode** on the title
-screen, then **Game › Project › Start a new game**. That is a blank map with
-your title on it, saved in the browser as you go (`docs/CREATOR-MODE.md`).
+No terminal at all: open `index.html` and choose **Start your own game** on the
+title screen. Two taps and you have either a region to walk around or a blank
+map, saved in the browser as you go (`docs/CREATOR-MODE.md`). On a phone, that
+is the whole of it — see `docs/ON-A-PHONE.md`.
 
 With a terminal, a folder of your own:
 

@@ -494,7 +494,7 @@
         }));
         body.appendChild(status);
         body.appendChild(make('div.ed-sub', {
-          text: 'Opening a game REPLACES the one you are editing. Ctrl+Z puts it back, and the one you replaced is still in the file you saved.',
+          text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
         }));
       });
       const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
@@ -510,7 +510,7 @@
       // The demo is a worked example, not a cage. A person who wants THEIR game
       // needs a blank map with their title on it, from the phone, without a CLI.
       section(host, 'Start a new game', newState.open === true, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'A blank map with your title on it, in place of this game. Ctrl+Z brings this one back, and “Save a copy” above keeps it for good.' }));
+        body.appendChild(make('div.ed-hint', { text: 'A game of your own, in place of this one. Undo (↶) brings this one back, and “Save a copy” above keeps it for good.' }));
         const name = make('input.ed-newgame-name');
         name.type = 'text';
         name.placeholder = 'What is it called?';
@@ -518,22 +518,38 @@
         name.setAttribute('aria-label', 'The new game’s title');
         name.oninput = () => { newState.name = name.value; };
         body.appendChild(name);
-        const row = make('div.ed-row');
-        row.appendChild(btn('✦ Start from a blank map', 'Replace this game with a blank one (one undo step)', async () => {
-          const title = (name.value || '').trim() || 'New Adventure';
-          const was = (p.meta && p.meta.title) || 'this game';
-          if (!(await ED.confirm(`Replace “${was}” with a blank game called “${title}”? Ctrl+Z brings “${was}” back.`, { yes: 'Start over' }))) return;
-          // The modules stay as they are: a blank game with the same engine, not a different one.
-          const fresh = P.normalize(Object.assign(P.blank({ title, id: KIT.slug(title) || 'new-adventure' }), { modules: (p.modules || []).slice() })).project;
-          newState.open = false; newState.name = '';
-          commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
-          ED.select(null);
-          ED.refresh({ drop: true });
-          ED.openMap(fresh.start.map);
-          ED.set({ panel: 'tiles' });
-          ED.toast(`“${title}” — a blank map. Paint something.`);
-        }, 'primary'));
-        body.appendChild(row);
+        // One button per blueprint, same list as the title screen's door — so a
+        // person already inside Creator Mode does not have to leave it to get
+        // the thing the front page offers.
+        const blueprints = (KIT.blueprints && KIT.blueprints.list()) || [];
+        if (!blueprints.length) { body.appendChild(make('div.ed-sub', { text: 'No starting points are loaded in this build.' })); return; }
+        for (const bp of blueprints) {
+          const row = make('div.ed-row');
+          row.appendChild(btn(`✦ ${KIT.labelOf ? KIT.labelOf(bp) : (bp.label || bp.id)}`, bp.describe || '', async () => {
+            const title = (name.value || '').trim() || KIT.blueprints.titleFor(bp.id);
+            const was = (p.meta && p.meta.title) || 'this game';
+            if (!(await ED.confirm(`Replace “${was}” with “${title}”? Undo (↶) brings “${was}” back.`, { yes: 'Start over' }))) return;
+            let fresh;
+            try {
+              fresh = KIT.blueprints.build(bp.id, { title, keepModules: p.modules || [] }).project;
+            } catch (e) {
+              (KIT.log || console).error('[editor] that blueprint did not build', e);
+              ED.toast('That would not start. Nothing has changed.');
+              return;
+            }
+            try { KIT.modules.activate(fresh); } catch (e) { (KIT.log || console).warn('[editor] modules', e); }
+            newState.open = false; newState.name = '';
+            commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
+            try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[editor] content', e); }
+            ED.select(null);
+            ED.refresh({ drop: true });
+            ED.openMap(fresh.start.map);
+            ED.set({ panel: 'tiles' });
+            ED.toast(`“${title}” is yours. Paint something.`);
+          }, 'primary'));
+          body.appendChild(row);
+          if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
+        }
       });
 
       const langBody = section(host, 'Languages', langState.open === true, (body) => {
@@ -646,7 +662,7 @@
           }
 
           body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
-            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Ctrl+Z puts it back.`)) return;
+            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Undo (↶) puts it back.`)) return;
             langState.code = '';
             langState.said = { text: 'Removed.', ok: true };
             commit('Remove a language', (doc) => doc.del(['languages', code]));
@@ -1138,7 +1154,7 @@
     moveState.said = {
       text: problems.length
         ? `Opened “${title}”${when} — with ${problems.length} thing(s) to fix; the Problems panel lists them.`
-        : `Opened “${title}”${when}. Ctrl+Z puts the old one back.`,
+        : `Opened “${title}”${when}. Undo (↶) puts the old one back.`,
       ok: !problems.length,
     };
     moveState.open = true;                       // and leave the section open, so the answer is on screen
@@ -1160,7 +1176,7 @@
     });
     ED.refresh();
     panel._sig = '';
-    ED.toast('Applied — Ctrl+Z puts it back');
+    ED.toast('Applied — undo (↶) puts it back');
   }
 
   // ----------------------------------------------------------------- Import ----------
@@ -1572,7 +1588,7 @@
       ED.refresh();
       ED.toast(`Imported · ${countLine(rep.added)}`);
       clear(el.report);
-      el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Ctrl+Z undoes the whole thing.` }));
+      el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Undo (↶) undoes the whole thing.` }));
       const first = Object.keys(result.maps || {})[0];
       if (first && ED.state.project.maps[first]) el.report.appendChild(btn(`Open the map “${first}”`, 'Go and look at it', () => ED.openMap(first), 'wide'));
     }, errs.length ? '' : 'primary');
