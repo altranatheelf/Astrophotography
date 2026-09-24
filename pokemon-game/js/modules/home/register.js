@@ -141,7 +141,7 @@
     // --- object type: job board ---------------------------------------------------
     KIT.registry('objectTypes').add({
       id: 'job-board', name: 'Job board', doc: 'A board of errands your friends can run. Fill in the list; the game does the rest.',
-      tags: ['furniture'], icon: 'sign', toc: true,
+      tags: ['furniture'], icon: 'sign',
       fields: [
         { key: 'look', type: 'tile', nullable: true, default: 'sign', doc: 'The tile drawn where the board stands' },
         { key: 'title', type: 'string', default: 'Job board', doc: 'The heading on the screen' },

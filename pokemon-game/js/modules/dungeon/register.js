@@ -66,7 +66,7 @@
     // ---- object types -------------------------------------------------------------
     KIT.registry('objectTypes').addAll([
       { id: 'dungeon-door', name: 'Locked door', doc: 'A door that stays shut until you are carrying the right key. Face it and press A.',
-        tags: ['door'], icon: 'door', toc: true, fields: [
+        tags: ['door'], icon: 'door', fields: [
           { key: 'look', type: 'tile', nullable: true, default: 'dun-door-locked', doc: 'The tile drawn while it is locked' },
           { key: 'lookOpen', type: 'tile', nullable: true, default: 'dun-door-open', doc: 'The tile drawn once it is open' },
           { key: 'key', type: 'ref:item', nullable: true, default: null, doc: 'The bag item that opens it. Blank = it only needs a push.' },
@@ -78,14 +78,14 @@
         ], page: { layer: 'same', on: { interact: [{ t: 'openDoor', target: 'self' }] } }, look: { tile: 'look' } },
 
       { id: 'dungeon-block', name: 'Pushable block', doc: 'A block you shove one square at a time. Where you leave it is remembered in the save, never in the map.',
-        tags: ['furniture'], icon: 'tile', toc: true, fields: [
+        tags: ['furniture'], icon: 'tile', fields: [
           { key: 'look', type: 'tile', nullable: true, default: 'dun-block' },
           { key: 'sound', type: 'ref:sound', nullable: true, default: null, doc: 'Blank = the module’s push sound' },
           { key: 'resetOnEnter', type: 'bool', default: false, doc: 'Snaps back to where you drew it every time you walk into the room' },
         ], page: { layer: 'same', on: { interact: [{ t: 'pushBlock', target: 'self' }] } }, look: { tile: 'look' } },
 
       { id: 'dungeon-switch', name: 'Switch plate', doc: 'A plate in the floor. It is down while a hero or a block is standing on it.',
-        tags: ['logic'], icon: 'flag', toc: true, fields: [
+        tags: ['logic'], icon: 'flag', fields: [
           { key: 'name', type: 'string', min: 1, default: 'switch1', doc: 'The name gates listen for' },
           { key: 'look', type: 'tile', nullable: true, default: 'dun-plate' },
           { key: 'lookOn', type: 'tile', nullable: true, default: 'dun-plate-down' },
@@ -96,13 +96,13 @@
         ], page: { layer: 'below', through: true }, look: { tile: 'look' } },
 
       { id: 'dungeon-guard', name: 'Guard', doc: 'Somebody who walks one way until something stops them, then turns round. (The kit\u2019s own behaviour list is fixed, so the module gives its patrol its own event type — see the README.)',
-        tags: ['character'], icon: 'npc', toc: true, fields: [
+        tags: ['character'], icon: 'npc', fields: [
           { key: 'axis', type: 'enum', options: ['h', 'v'], default: 'h', label: 'Walks', doc: 'h: left and right · v: up and down' },
           { key: 'speed', type: 'number', min: 1, max: 9, default: 4 },
         ], page: { layer: 'same', sprite: 'man' }, look: { sprite: true } },
 
       { id: 'dungeon-gate', name: 'Gate', doc: 'Open while the switches it listens for are down; solid the rest of the time.',
-        tags: ['door'], icon: 'door', toc: true, fields: [
+        tags: ['door'], icon: 'door', fields: [
           { key: 'needs', type: 'string', default: 'switch1', doc: 'Switch names, separated by commas. All of them must be down.' },
           { key: 'invert', type: 'bool', default: false, doc: 'Open when they are NOT down' },
           { key: 'look', type: 'tile', nullable: true, default: 'dun-gate-closed' },

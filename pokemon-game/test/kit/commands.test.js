@@ -502,3 +502,16 @@ test('commands: a switched-off command survives the Text view, whatever its suga
   assert.equal(CMD.fromLine('@if when: chapter >= 2').when.kind, 'var', 'a real condition still reads as one');
   assert.equal(CMD.fromLine('@meet mira').who, 'mira');
 });
+
+
+test('sugar: a parser that refuses a line it recognised leaves its reason where screenplay can show it', () => {
+  // fromLine still answers null (a line nobody reads is not an exception), but
+  // the message a parser threw was swallowed with it, and screenplay.js's
+  // "could not read this line" was all an author ever saw for a malformed @if.
+  assert.equal(CMD.fromLine('@if chapter >='), null);
+  assert.match(String(CMD.parseError && CMD.parseError.message), /expected a value/);
+  assert.equal(CMD.fromLine('@wait ms=500').t, 'wait');
+  assert.equal(CMD.parseError, null, 'and a line that reads cleanly leaves nothing behind');
+  const sp = KIT.screenplay.parse('@if chapter >=\n');
+  assert.ok(sp.problems.some(p => /expected a value/.test(p.message)), 'the author sees the parser\'s reason: ' + JSON.stringify(sp.problems.map(p => p.message)));
+});

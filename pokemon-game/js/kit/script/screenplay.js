@@ -125,7 +125,12 @@
         if (/^---(\s|$)/.test(it.body)) { problem(it, 'a track (--- …) outside an “At the Same Time”'); cmds.push(rawCmd(it)); pos++; continue; }
         let cmd = null;
         try { cmd = CMD.fromLine(it.body); } catch (e) { cmd = null; problem(it, e && e.message ? e.message : 'could not read this line'); }
-        if (!cmd) { if (!problems.some(p => p.line === it.n)) problem(it, 'could not read this line'); cmds.push(rawCmd(it)); pos++; continue; }
+        if (!cmd) {
+          // The parser that recognised the line and refused it left its reason on CMD.parseError.
+          const why = CMD.parseError && CMD.parseError.message ? CMD.parseError.message : 'could not read this line';
+          if (!problems.some(p => p.line === it.n)) problem(it, why);
+          cmds.push(rawCmd(it)); pos++; continue;
+        }
         pos++;
         const layout = SP.layout(cmd);
         if (layout === 'if') {

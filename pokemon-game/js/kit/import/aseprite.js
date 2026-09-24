@@ -274,7 +274,7 @@
         }
       } catch (e) { /* fall through */ }
     }
-    try { return zinflate(bytes); } catch (e) { return null; }
+    try { return zinflate(bytes); } catch (e) { return { error: String(e && e.message || e) }; }   // a decoder that RAN and failed is not a missing decoder
   }
 
   // ---- directions and tag names ----------------------------------------------
@@ -820,8 +820,10 @@
       } else {
         const raw = r.bytes(end - r.pos);
         const out = inflate(raw, st.opts);
-        if (!out) {
-          problem(st.res, 'error', 'compressed-unsupported', `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed here — pass opts.inflate(bytes) -> Uint8Array`, st.where);
+        if (!out || out.error) {
+          problem(st.res, 'error', out && out.error ? 'bad-frame' : 'compressed-unsupported', out && out.error
+            ? `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed: ${out.error}`
+            : `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed here — pass opts.inflate(bytes) -> Uint8Array`, st.where);
         } else if (out.length < need) {
           problem(st.res, 'warn', 'bad-frame', `the cel on layer ${layerIndex} of frame ${frame.index} decompressed to ${out.length} bytes, ${need} were expected; it was skipped`, st.where);
         } else {

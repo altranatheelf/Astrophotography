@@ -13,7 +13,6 @@
   const C = KIT.conditions;
   const W = KIT.world = KIT.world || {};
 
-  const SLOT_EVENTS = { interact: 'interact', step: 'step', touch: 'touch', enter: 'enter', tick: 'tick', init: 'init' };
 
   /** create({ project, save, ports, rng, events }) -> world */
   W.create = function (opts) {
@@ -233,6 +232,9 @@
       try {
         const r = await I.run(page.on[slot], ctx, { kind: background ? 'background' : 'main', label: `${key}:${slot}`, path: [key, slot] });
         if (page.once && slot !== 'tick' && slot !== 'init') KIT.commands.state.setSelf(ctx, 'done', true, key);
+        // `interactMissed` is emitted when nothing answers; this is its other half,
+        // documented for as long, and until now emitted by nobody.
+        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r });
         return r;
       } finally {
         if (!background) {

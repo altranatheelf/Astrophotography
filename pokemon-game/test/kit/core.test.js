@@ -117,12 +117,6 @@ test('document: ops, inverses, undo/redo, transactions, watch, snapshots', () =>
   assert.deepEqual(doc.get(['maps', 'town', 'objects']).map(o => o.id), ['a', 'c', 'd']);
   doc.undo();
   assert.deepEqual(doc.get(['maps', 'town', 'objects']).map(o => o.id), ['a', 'b']);
-  const snap = doc.snapshot('before');
-  doc.set(['maps', 'town', 'name'], 'Changed');
-  assert.ok(doc.restore(snap));
-  assert.equal(doc.get(['maps', 'town', 'name']), 'Town');
-  doc.undo();
-  assert.equal(doc.get(['maps', 'town', 'name']), 'Changed');
   assert.ok(doc.dirty); doc.markClean(); assert.ok(!doc.dirty);
   off();
   assert.throws(() => doc.apply([{ op: 'splice', path: ['n'], index: 0, remove: 0, insert: [] }]), /not an array/);

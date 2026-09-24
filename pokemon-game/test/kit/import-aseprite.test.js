@@ -309,9 +309,11 @@ test('aseprite: indexed colour resolves through the palette, and index 0 is tran
 
 test('aseprite: a zlib cel that cannot be decompressed is an error problem, not a throw', () => {
   const res = ASE.file(bin('broken.aseprite'), { id: 'broken' });
-  const bad = res.problems.find(p => p.code === 'compressed-unsupported');
+  // The built-in inflater ran and refused the data, so the problem carries ITS
+  // reason — not "pass opts.inflate", which is the message for having no decoder.
+  const bad = res.problems.find(p => p.code === 'bad-frame' && /could not be decompressed:/.test(p.message));
+  assert.ok(bad, 'the corrupt cel is reported with the decoder\'s reason: ' + JSON.stringify(res.problems.map(p => p.code + ' ' + p.message)));
   assert.equal(bad.severity, 'error');
-  assert.match(bad.message, /opts\.inflate/);
   assert.ok(codes(res.problems).includes('empty-frame'));
   assert.equal(res.sprites.length, 1);                               // the import still produces something
 

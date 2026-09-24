@@ -83,8 +83,7 @@
       if (KIT.registry.exists(field.optionsFrom)) {
         const ids = KIT.registry(field.optionsFrom).ids();
         opts = ids.length ? ids : null;
-      } else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
-      else opts = null;
+      } else opts = null;
     }
     if (!opts) return null;
     return opts.map(o => (o !== null && typeof o === 'object') ? o.value : o);
@@ -268,6 +267,7 @@
     return h && h.default ? h.default(f, ctx || {}) : null;
   };
   /** defaults(fields, ctx) -> an object with every field at its default. */
+  S.enumOptions = enumOptions;
   S.defaults = function (fields, ctx) {
     const out = {};
     for (const f of S.fields(fields)) out[f.key] = S.defaultFor(f, ctx);

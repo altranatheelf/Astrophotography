@@ -94,9 +94,6 @@
       return loaded.slice();
     },
 
-    /** Forget every activation. Tests and the editor's "switch modules off" path. */
-    reset() { loaded.length = 0; },
-
     /**
      * forget(id) — unsay KIT.module(id) entirely: it is neither loaded nor
      * declared afterwards. Nothing in a game does this; a test that declares a

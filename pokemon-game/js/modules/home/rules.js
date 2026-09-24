@@ -101,11 +101,7 @@
   H.contentDefaults = function () {
     return { tuning: H.tuningDefaults(), giftItems: ['berry'], giftSpot: null, workers: 'auto' };
   };
-  H.tuningDefaults = function () {
-    const t = {};
-    for (const f of H.TUNING) t[f.key] = f.default;
-    return t;
-  };
+  H.tuningDefaults = () => KIT.schema.defaults(H.TUNING);
   /**
    * pack(project) -> packs.home with every default filled in (never mutates the
    * project). normalize() has usually written this already; this still fills it

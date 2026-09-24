@@ -38,10 +38,7 @@
   const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
   /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
   function freshId(table, name, fallback) {
-    const base = KIT.slug(name || '') || fallback;
-    let id = base, n = 2;
-    while (table[id]) id = `${base}-${n++}`;
-    return id;
+    return ED.ops.uniqueKey(table, KIT.slug(name || '') || fallback);
   }
 
   KIT.registry('editorPanels').add({

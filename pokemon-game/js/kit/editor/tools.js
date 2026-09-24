@@ -763,27 +763,6 @@
     T.byId[tool.id] = reg.add(tool) || reg.get(tool.id);
   }
 
-  // ---------------------------------------------------------------------------
-  // One grid for the map and the overlay (a hook the shell does not have).
-  //
-  // The shell draws the map with KIT.renderer — which chooses its own zoom from
-  // the canvas size — and draws the grid, the cursor and every tool ghost at
-  // `tileSize * ED.state.view.scale`. When those disagree the ghost sits a few
-  // pixels away from the square it is about to paint, which makes every tool in
-  // this file unusable. The shell is frozen, so we take the hook here: remember
-  // the renderer Creator Mode builds, then give its canvas element a CSS size
-  // that makes one drawn tile exactly `tileSize * view.scale` screen pixels.
-  // (Reported: the shell should own this — renderer.setScale(view.scale).)
-  // ---------------------------------------------------------------------------
-  if (KIT.renderer && KIT.renderer.create && !KIT.renderer.__editorScaleHook) {
-    const create = KIT.renderer.create;
-    KIT.renderer.create = function (opts) {
-      const r = create.apply(this, arguments);
-      if (opts && opts.editor) ED.renderer = r;
-      return r;
-    };
-    KIT.renderer.__editorScaleHook = true;
-  }
   /** Zoom to a chosen scale (the shell and the renderer agree on it: tileSize * scale CSS pixels a tile). */
   T.lockScale = function (scale) { ED.set({ view: { scale: KIT.clamp(Math.round(scale) || 1, 1, 8) } }); };
 

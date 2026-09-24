@@ -263,3 +263,18 @@ test('world: picking up an item does not send every NPC home', async () => {
   assert.deepEqual(after.route, [{ dir: 'up' }], 'with its route intact');
   assert.equal(world.entities.length, before - 1, 'and the berry is gone from the map');
 });
+
+
+test('world: an object that answers emits `interact`, the half of interactMissed the docs promised', async () => {
+  const world = makeWorld(makeProject());
+  await world.enterMap('home', 2, 2, 'right');
+  const seen = [];
+  world.events.on('interact', (p) => seen.push(p));
+  const kid = world.entities.find(e => e.id === 'kid');
+  await world.runSlot(kid, 'interact', 'p1');
+  assert.equal(seen.length, 1, 'one answer, one event');
+  assert.equal(seen[0].hero, 'p1', 'naming the hero who pressed');
+  assert.ok(seen[0].object, 'and the object that answered');
+  await world.runSlot(kid, 'step', 'p1');
+  assert.equal(seen.length, 1, 'other slots are not interactions');
+});

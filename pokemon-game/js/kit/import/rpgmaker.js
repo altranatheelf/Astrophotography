@@ -1188,7 +1188,7 @@
         art: art ? art.art : null,
         solid: flags.solid, passage: flags.passage, bush: flags.bush, counter: flags.counter,
         ledge: null, warpLook: false, encounter: false, terrainTag: flags.terrainTag,
-        probability: 1, animMs: 500, note: notes.join(' '),
+        animMs: 500, note: notes.join(' '),
         props: Object.assign({ mvTileId: tileId, mvTileset: tilesetId, mvSheet: SHEET_NAMES[setNumber] }, flags.props),
       };
       tileDefs.set(id, def);

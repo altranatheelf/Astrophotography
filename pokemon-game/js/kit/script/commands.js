@@ -1367,10 +1367,16 @@
       const g = CMD.genericFromLine(s);
       if (g && g.disabled !== undefined) return CMD.normalize(g);
     }
+    // A parser that throws on a line it did not match must not stop the search,
+    // so every throw is swallowed here — but a parser that throws on a line it
+    // DID match has something to say ("condition: expected a value at end"),
+    // and screenplay.js was written to show it. The first message is kept on
+    // CMD.parseError for the caller that gets null back and wants to know why.
+    CMD.parseError = null;
     for (const def of reg.list()) {
       if (!def.text || typeof def.text.fromLine !== 'function') continue;
       let cmd = null;
-      try { cmd = def.text.fromLine(s); } catch (e) { cmd = null; }
+      try { cmd = def.text.fromLine(s); } catch (e) { if (!CMD.parseError) CMD.parseError = e; cmd = null; }
       if (cmd) return CMD.normalize(cmd);
     }
     const g = CMD.genericFromLine(s);

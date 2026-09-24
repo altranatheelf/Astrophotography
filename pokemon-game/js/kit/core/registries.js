@@ -21,7 +21,7 @@
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },
     { key: 'counter', type: 'bool', default: false }, { key: 'warpLook', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
-    { key: 'probability', type: 'number', min: 0, default: 1 }, { key: 'animMs', type: 'number', min: 50, default: 500 },
+    { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
   KIT.defineRegistry('sprites', { fields: named, doc: 'Walking character sprites (frames down/up/left × 3).' });
@@ -42,8 +42,7 @@
   ]) });
   KIT.defineRegistry('objectTypes', { fields: named.concat([
     { key: 'tags', type: 'list', of: { type: 'string' }, default: [] },
-    { key: 'maxCount', type: 'number', integer: true, optional: true }, { key: 'limit', type: 'enum', options: ['moveLast', 'prevent'], default: 'prevent' },
-    { key: 'toc', type: 'bool', default: false },
+    { key: 'maxCount', type: 'number', integer: true, optional: true },
   ]), doc: 'Kinds of things placed on maps (npc, sign, item, warp, trigger, ...). `fields` is the page-props schema.' });
   KIT.defineRegistry('behaviours', { fields: named, doc: 'Autonomous movement kinds: { id, fields, update(entity, world, dt) }.' });
   KIT.defineRegistry('commands', { fields: named.concat([
@@ -128,8 +127,11 @@
   KIT.defineRegistry('editorPanels', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Creator Mode side panels: { id, label, icon, order, mount(el, editor) }.' });
   KIT.defineRegistry('editorTools', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }, { key: 'key', type: 'string', optional: true }]), doc: 'Map tools: { id, label, icon, key, begin/move/end(pointer, editor), preview(ctx, editor) }.' });
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
+  // Documented, asked for by the Map panel, added to by the mons module — and
+  // never defined, so both guarded on it and the section never appeared.
+  KIT.defineRegistry('mapSections', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Sections a module adds to the Map panel: { id, label, order, when(project, mapId) -> bool, render(body, { project, mapId, ed }) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
-  KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  KIT.defineRegistry('presets', { fields: named, doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
   // A whole game to start from. `presets` makes one object; a blueprint makes the
   // entire project — maps, connections, the people standing in them — so somebody
   // on a phone gets a game they can already walk around in, with one tap and

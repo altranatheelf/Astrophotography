@@ -42,7 +42,6 @@
     let value = initial;
     const undoStack = [], redoStack = [];
     const watchers = [];
-    const snapshots = [];
     let txDepth = 0, txOps = null, txInverse = null, txLabel = null;
     let dirty = false;
     let seq = 0;
@@ -200,20 +199,6 @@
       },
       /** Replace the whole document (one undo step). */
       replace(next, o) { return doc.apply([{ op: 'set', path: [], value: next }], Object.assign({ label: 'Replace' }, o || {})); },
-      snapshot(label) {
-        const id = KIT.uid('snap');
-        snapshots.push({ id, label: label || `Snapshot ${snapshots.length + 1}`, value: KIT.deepClone(value), seq });
-        if (opts.maxSnapshots && snapshots.length > opts.maxSnapshots) snapshots.shift();
-        return id;
-      },
-      snapshots() { return snapshots.map(s => ({ id: s.id, label: s.label, seq: s.seq })); },
-      restore(id) {
-        const s = snapshots.find(x => x.id === id);
-        if (!s) return false;
-        doc.replace(KIT.deepClone(s.value), { label: `Restore "${s.label}"` });
-        return true;
-      },
-      deleteSnapshot(id) { const i = snapshots.findIndex(x => x.id === id); if (i >= 0) snapshots.splice(i, 1); return i >= 0; },
       clearHistory() { undoStack.length = 0; redoStack.length = 0; },
     };
     return doc;

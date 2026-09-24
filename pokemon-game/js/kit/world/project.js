@@ -67,7 +67,6 @@
         { key: 'stampEverySeconds', type: 'number', min: 1, max: 600, default: 20, label: 'Seconds between “still here” stamps',
           doc: 'How often the save records that you are playing, so the next gap is measured from the truth even after a crash.' },
       ] },
-      { key: 'encounterRate', type: 'number', min: 0, max: 100, default: 12 },
     ],
     hero: [idField('id'), { key: 'name', type: 'string', default: 'Player', shown: true }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
@@ -116,8 +115,6 @@
         doc: 'Higher goes first when two rules answer the same event.' },
       { key: 'edible', type: 'bool', default: true, label: 'Can be eaten',
         doc: 'Whether the story is allowed to take this rule out of the world.' },
-      { key: 'carrier', type: 'string', default: '', label: 'Carried by',
-        doc: 'An object id. Destroying it takes the rule with it.' },
       { key: 'scope', type: 'group', fields: [
         { key: 'maps', type: 'list', of: { type: 'ref:map' }, default: [] },
         { key: 'layers', type: 'list', of: { type: 'string' }, default: [] },
@@ -149,7 +146,7 @@
       // each kind up there, so a module that registers `pace` can put
       // `behaviour: { kind: 'pace' }` on a page and have it validate and appear
       // in the dropdown. The kit's own five are registered in systems/index.js.
-      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
+      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, when: { field: 'kind', eq: 'wander' } },
       { key: 'speed', type: 'number', min: 0.1, max: 20, default: 1 }, { key: 'frequency', type: 'number', min: 0, max: 10, default: 2 }, { key: 'route', type: 'route', when: { field: 'kind', eq: 'route' } }, { key: 'repeat', type: 'bool', default: true },
     ],
     autotileGroup: [idField('id'), { key: 'name', type: 'string' }, { key: 'active', type: 'bool', default: true }, { key: 'terrain', type: 'number', integer: true, default: 0 }, { key: 'layer', type: 'enum', options: ['ground', 'deco'], default: 'ground' }],
@@ -217,7 +214,7 @@
   // ---- basic object types (§5) ----------------------------------------------
   // `fields` = page props schema, `page` = page defaults for the type, `look` = what the editor draws.
   KIT.registry('objectTypes').addAll([
-    { id: 'npc', name: 'NPC', doc: 'A character with a sprite that talks or moves.', tags: ['character'], icon: 'npc', toc: true, fields: [], page: {}, look: { sprite: true } },
+    { id: 'npc', name: 'NPC', doc: 'A character with a sprite that talks or moves.', tags: ['character'], icon: 'npc', fields: [], page: {}, look: { sprite: true } },
     { id: 'sign', name: 'Sign', doc: 'A tile you can read (interact while facing it).', tags: ['furniture'], icon: 'sign', fields: [
       { key: 'look', type: 'tile', default: 'sign', doc: 'The tile drawn at the sign' },
     ], page: { layer: 'same' }, look: { tile: 'look' } },
@@ -338,7 +335,7 @@
       fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {}, rules: {},
     };
     const s = p.settings || {};
-    out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop }, encounterRate: s.encounterRate == null ? 12 : s.encounterRate };
+    out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop } };
     out.heroes = (p.heroes || []).map((h, i) => ({ id: h.id || `p${i + 1}`, name: h.name || `Player ${i + 1}`, sprite: h.sprite || null, recolor: h.recolor || {} }));
     for (const id of Object.keys(p.items || {})) { const it = p.items[id]; out.items[id] = { kind: it.kind || 'item', name: it.name || titleCase(id), icon: it.icon || null, desc: it.desc || '', note: '', props: {} }; }
     if (Array.isArray(p.intro) && p.intro.length) {

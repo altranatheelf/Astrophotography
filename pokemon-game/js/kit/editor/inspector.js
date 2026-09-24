@@ -84,9 +84,10 @@
   INS.enumOptions = function (field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: KIT.labelOf(d, ctx, d.id) }));
-      else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
-      else opts = [];
+      // The schema decides what the options ARE (and that an empty registry means
+      // "unknown", not "none"); this only puts labels on them.
+      const reg = KIT.registry.exists(field.optionsFrom) ? KIT.registry(field.optionsFrom) : null;
+      opts = (KIT.schema.enumOptions(field, ctx) || []).map(id => ({ value: id, label: reg && reg.get(id) ? KIT.labelOf(reg.get(id), ctx, id) : titleCase(id) }));
     }
     return (opts || []).map(o => (o !== null && typeof o === 'object') ? { value: o.value, label: o.label || titleCase(o.value) } : { value: o, label: titleCase(o) });
   };

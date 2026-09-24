@@ -392,7 +392,7 @@
   };
   const legacyTable = (project, mapId) => M.legacyEncounters(project, mapId);
   function registerMapSection() {
-    if (!KIT.registry.exists('mapSections')) return;
+    if (!KIT.registry.exists('mapSections')) { (KIT.log || console).error('[mons] no mapSections registry; the legacy encounter section will not appear'); return; }
     KIT.registry('mapSections').add({
       id: 'mons-legacy-encounters', label: 'Wild encounters (from the old format)', order: 20, replace: true,
       when(project, mapId) { return !!legacyTable(project, mapId); },

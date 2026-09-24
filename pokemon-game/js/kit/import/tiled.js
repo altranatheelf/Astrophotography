@@ -378,7 +378,7 @@
       if (method === 'gzip' && zlib.gunzipSync) return asBytes(zlib.gunzipSync(buf));
       if (method === 'zlib' && zlib.inflateSync) return asBytes(zlib.inflateSync(buf));
       if (method === 'zstd' && zlib.zstdDecompressSync) return asBytes(zlib.zstdDecompressSync(buf));
-    } catch (e) { return null; }
+    } catch (e) { return { error: String(e && e.message || e) }; }   // corrupt data, not a missing decoder
     return null;
   }
   function gidsFromBytes(bytes) {                    // unsigned 32-bit little-endian
@@ -399,8 +399,9 @@
     let bytes = base64Bytes(data);
     if (compression) {
       const out = inflate(bytes, compression, st.opts);
-      if (!out) {
-        once(st, 'compressed-unsupported', compression, 'error',
+      if (!out || out.error) {
+        if (out && out.error) problem(st.res, 'error', 'bad-layer-data', `${label}: '${compression}' compressed layer data could not be decoded: ${out.error}`, where);
+        else once(st, 'compressed-unsupported', compression, 'error',
           `${label}: '${compression}' compressed layer data cannot be decoded here — call KIT.import.tiled.prepare(json) first, or pass opts.inflate(bytes, method)`, where);
         return null;
       }
@@ -431,6 +432,7 @@
     for (const job of jobs) {
       const bytes = base64Bytes(job.holder.data);
       let plain = inflate(bytes, job.layer.compression, opts);
+      if (plain && plain.error) { (KIT.log || console).warn(`[tiled] layer data could not be decoded: ${plain.error}`); plain = null; }   // the browser's decoder below may still manage
       if (!plain && typeof DecompressionStream === 'function' && (job.layer.compression === 'gzip' || job.layer.compression === 'zlib')) {
         const format = job.layer.compression === 'gzip' ? 'gzip' : 'deflate';
         const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
@@ -688,7 +690,6 @@
       }
       def.art = art;
 
-      if (meta.probability != null) def.probability = num(meta.probability, 1);
       const cls = meta.type || meta.class;
       if (cls && FLAG_NAMES.includes(FLAG_ALIASES[normKey(cls)])) def[FLAG_ALIASES[normKey(cls)]] = true;
 
@@ -716,7 +717,7 @@
         } else if (canon === 'terrainTag' || canon === 'animMs') {
           def[canon] = int(value, 0);
         } else if (canon === 'probability') {
-          def.probability = num(value, 1);
+          // Tiled's terrain-brush weighting. The kit's autotiles pick evenly; nothing here reads it.
         } else {
           def[canon] = truthy(value);
         }
@@ -824,10 +825,12 @@
       if (!isObj(entry)) continue;
       const firstgid = int(entry.firstgid, 1) || 1;
       if (entry.source) {
+        st.externalError = null;
         const external = externalFile(entry.source, st, 'tilesets', 'tileset');
         if (!external) {
           const id = withPrefix(KIT.slug(stem(entry.source)), st.opts);
-          problem(res, 'warn', 'external-tileset-missing', `external tileset '${entry.source}' was not supplied (opts.tilesets) — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
+          if (st.externalError) problem(res, 'warn', 'external-tileset-bad', `external tileset '${entry.source}' could not be read: ${st.externalError} — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
+          else problem(res, 'warn', 'external-tileset-missing', `external tileset '${entry.source}' was not supplied (opts.tilesets) — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
           sets.push({ id, name: stem(entry.source), firstgid, tileIds: new Map(), tilecount: 0, objectalignment: '', stub: true });
           continue;
         }
@@ -1275,7 +1278,7 @@
     if (raw === undefined) raw = table[baseName(source)];
     if (raw === undefined && typeof st.opts[fnKey] === 'function') raw = st.opts[fnKey](source);
     if (raw === undefined || raw === null) return null;
-    try { return toJson(raw, st.res); } catch (e) { return null; }
+    try { return toJson(raw, st.res); } catch (e) { st.externalError = String(e && e.message || e); return null; }   // supplied, but unreadable: the caller says which
   }
 
   /** tileset(json, opts) -> Result with the tileset's image(s), tile definitions and terrains. */

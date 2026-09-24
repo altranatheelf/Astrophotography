@@ -1215,7 +1215,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const registries = new Map();
 
   /**
-   * defineRegistry(name, { fields, onAdd, onRemove, doc }) -> registry
+   * defineRegistry(name, { fields, doc }) -> registry
    * `fields` is a schema (see schema.js) that every definition is validated against
    * (only when KIT.schema is loaded). Idempotent: defining twice returns the same registry.
    */
@@ -1234,9 +1234,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (errs.length) throw new Error(`registry '${name}': invalid '${def.id}': ` + errs.map(e => e.path.join('.') + ': ' + e.message).join('; '));
         }
         const existed = items.has(def.id);
-        if (existed && !def.replace && !opts.silentReplace) (KIT.log || console).warn(`registry '${name}': replacing '${def.id}'`);
+        if (existed && !def.replace) (KIT.log || console).warn(`registry '${name}': replacing '${def.id}'`);
         items.set(def.id, def);
-        if (opts.onAdd) opts.onAdd(def, reg, existed);
         for (const fn of listeners.add.slice()) fn(def, existed);
         return def;
       },
@@ -1251,7 +1250,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const d = items.get(id);
         if (!d) return false;
         items.delete(id);
-        if (opts.onRemove) opts.onRemove(d, reg);
         for (const fn of listeners.remove.slice()) fn(d);
         return true;
       },
@@ -1285,7 +1283,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
   KIT.registry.exists = (name) => registries.has(name);
   KIT.registry.names = () => Array.from(registries.keys());
-  KIT.registry.reset = () => registries.clear(); // tests only
   KIT.reg = KIT.registry;
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
@@ -1379,8 +1376,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       if (KIT.registry.exists(field.optionsFrom)) {
         const ids = KIT.registry(field.optionsFrom).ids();
         opts = ids.length ? ids : null;
-      } else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
-      else opts = null;
+      } else opts = null;
     }
     if (!opts) return null;
     return opts.map(o => (o !== null && typeof o === 'object') ? o.value : o);
@@ -1564,6 +1560,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return h && h.default ? h.default(f, ctx || {}) : null;
   };
   /** defaults(fields, ctx) -> an object with every field at its default. */
+  S.enumOptions = enumOptions;
   S.defaults = function (fields, ctx) {
     const out = {};
     for (const f of S.fields(fields)) out[f.key] = S.defaultFor(f, ctx);
@@ -1656,7 +1653,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },
     { key: 'counter', type: 'bool', default: false }, { key: 'warpLook', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
-    { key: 'probability', type: 'number', min: 0, default: 1 }, { key: 'animMs', type: 'number', min: 50, default: 500 },
+    { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
   KIT.defineRegistry('sprites', { fields: named, doc: 'Walking character sprites (frames down/up/left × 3).' });
@@ -1677,8 +1674,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   ]) });
   KIT.defineRegistry('objectTypes', { fields: named.concat([
     { key: 'tags', type: 'list', of: { type: 'string' }, default: [] },
-    { key: 'maxCount', type: 'number', integer: true, optional: true }, { key: 'limit', type: 'enum', options: ['moveLast', 'prevent'], default: 'prevent' },
-    { key: 'toc', type: 'bool', default: false },
+    { key: 'maxCount', type: 'number', integer: true, optional: true },
   ]), doc: 'Kinds of things placed on maps (npc, sign, item, warp, trigger, ...). `fields` is the page-props schema.' });
   KIT.defineRegistry('behaviours', { fields: named, doc: 'Autonomous movement kinds: { id, fields, update(entity, world, dt) }.' });
   KIT.defineRegistry('commands', { fields: named.concat([
@@ -1763,8 +1759,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   KIT.defineRegistry('editorPanels', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Creator Mode side panels: { id, label, icon, order, mount(el, editor) }.' });
   KIT.defineRegistry('editorTools', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }, { key: 'key', type: 'string', optional: true }]), doc: 'Map tools: { id, label, icon, key, begin/move/end(pointer, editor), preview(ctx, editor) }.' });
   KIT.defineRegistry('fieldEditors', { fields: base.concat([{ key: 'types', type: 'list', of: { type: 'string' }, default: [] }]), doc: 'Form widgets by field type: { id, types, mount(el, field, value, onChange, ctx) }.' });
+  // Documented, asked for by the Map panel, added to by the mons module — and
+  // never defined, so both guarded on it and the section never appeared.
+  KIT.defineRegistry('mapSections', { fields: named.concat([{ key: 'order', type: 'number', default: 50 }]), doc: 'Sections a module adds to the Map panel: { id, label, order, when(project, mapId) -> bool, render(body, { project, mapId, ed }) }.' });
   KIT.defineRegistry('validators', { fields: named, doc: 'Project validators: { id, run(project, ctx) -> problems[] }.' });
-  KIT.defineRegistry('presets', { fields: named.concat([{ key: 'kind', type: 'enum', options: ['object', 'script', 'map'], default: 'object' }]), doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
+  KIT.defineRegistry('presets', { fields: named, doc: 'Quick-create presets (Door, Sign, Item, Transfer pair, ...).' });
   // A whole game to start from. `presets` makes one object; a blueprint makes the
   // entire project — maps, connections, the people standing in them — so somebody
   // on a phone gets a game they can already walk around in, with one tap and
@@ -1921,9 +1920,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
       return loaded.slice();
     },
-
-    /** Forget every activation. Tests and the editor's "switch modules off" path. */
-    reset() { loaded.length = 0; },
 
     /**
      * forget(id) — unsay KIT.module(id) entirely: it is neither loaded nor
@@ -4693,7 +4689,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     let value = initial;
     const undoStack = [], redoStack = [];
     const watchers = [];
-    const snapshots = [];
     let txDepth = 0, txOps = null, txInverse = null, txLabel = null;
     let dirty = false;
     let seq = 0;
@@ -4851,20 +4846,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       },
       /** Replace the whole document (one undo step). */
       replace(next, o) { return doc.apply([{ op: 'set', path: [], value: next }], Object.assign({ label: 'Replace' }, o || {})); },
-      snapshot(label) {
-        const id = KIT.uid('snap');
-        snapshots.push({ id, label: label || `Snapshot ${snapshots.length + 1}`, value: KIT.deepClone(value), seq });
-        if (opts.maxSnapshots && snapshots.length > opts.maxSnapshots) snapshots.shift();
-        return id;
-      },
-      snapshots() { return snapshots.map(s => ({ id: s.id, label: s.label, seq: s.seq })); },
-      restore(id) {
-        const s = snapshots.find(x => x.id === id);
-        if (!s) return false;
-        doc.replace(KIT.deepClone(s.value), { label: `Restore "${s.label}"` });
-        return true;
-      },
-      deleteSnapshot(id) { const i = snapshots.findIndex(x => x.id === id); if (i >= 0) snapshots.splice(i, 1); return i >= 0; },
       clearHistory() { undoStack.length = 0; redoStack.length = 0; },
     };
     return doc;
@@ -4945,7 +4926,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         { key: 'stampEverySeconds', type: 'number', min: 1, max: 600, default: 20, label: 'Seconds between “still here” stamps',
           doc: 'How often the save records that you are playing, so the next gap is measured from the truth even after a crash.' },
       ] },
-      { key: 'encounterRate', type: 'number', min: 0, max: 100, default: 12 },
     ],
     hero: [idField('id'), { key: 'name', type: 'string', default: 'Player', shown: true }, { key: 'sprite', type: 'ref:sprite' }, { key: 'recolor', type: 'strings' }],
     start: [{ key: 'map', type: 'ref:map' }, { key: 'x', type: 'number', integer: true, min: 0 }, { key: 'y', type: 'number', integer: true, min: 0 }, { key: 'dir', type: 'direction' }],
@@ -4994,8 +4974,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         doc: 'Higher goes first when two rules answer the same event.' },
       { key: 'edible', type: 'bool', default: true, label: 'Can be eaten',
         doc: 'Whether the story is allowed to take this rule out of the world.' },
-      { key: 'carrier', type: 'string', default: '', label: 'Carried by',
-        doc: 'An object id. Destroying it takes the rule with it.' },
       { key: 'scope', type: 'group', fields: [
         { key: 'maps', type: 'list', of: { type: 'ref:map' }, default: [] },
         { key: 'layers', type: 'list', of: { type: 'string' }, default: [] },
@@ -5027,7 +5005,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       // each kind up there, so a module that registers `pace` can put
       // `behaviour: { kind: 'pace' }` on a page and have it validate and appear
       // in the dropdown. The kit's own five are registered in systems/index.js.
-      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, display: 'radius', when: { field: 'kind', eq: 'wander' } },
+      { key: 'kind', type: 'enum', optionsFrom: 'behaviours', default: 'none' }, { key: 'radius', type: 'number', integer: true, min: 0, max: 50, default: 3, when: { field: 'kind', eq: 'wander' } },
       { key: 'speed', type: 'number', min: 0.1, max: 20, default: 1 }, { key: 'frequency', type: 'number', min: 0, max: 10, default: 2 }, { key: 'route', type: 'route', when: { field: 'kind', eq: 'route' } }, { key: 'repeat', type: 'bool', default: true },
     ],
     autotileGroup: [idField('id'), { key: 'name', type: 'string' }, { key: 'active', type: 'bool', default: true }, { key: 'terrain', type: 'number', integer: true, default: 0 }, { key: 'layer', type: 'enum', options: ['ground', 'deco'], default: 'ground' }],
@@ -5095,7 +5073,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // ---- basic object types (§5) ----------------------------------------------
   // `fields` = page props schema, `page` = page defaults for the type, `look` = what the editor draws.
   KIT.registry('objectTypes').addAll([
-    { id: 'npc', name: 'NPC', doc: 'A character with a sprite that talks or moves.', tags: ['character'], icon: 'npc', toc: true, fields: [], page: {}, look: { sprite: true } },
+    { id: 'npc', name: 'NPC', doc: 'A character with a sprite that talks or moves.', tags: ['character'], icon: 'npc', fields: [], page: {}, look: { sprite: true } },
     { id: 'sign', name: 'Sign', doc: 'A tile you can read (interact while facing it).', tags: ['furniture'], icon: 'sign', fields: [
       { key: 'look', type: 'tile', default: 'sign', doc: 'The tile drawn at the sign' },
     ], page: { layer: 'same' }, look: { tile: 'look' } },
@@ -5216,7 +5194,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       fragments: [], testStates: [], autotiles: {}, terrains: [], world: { maps: {}, connections: [] }, maps: {}, packs: {}, rules: {},
     };
     const s = p.settings || {};
-    out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop }, encounterRate: s.encounterRate == null ? 12 : s.encounterRate };
+    out.settings = { textSpeed: s.textSpeed || 'normal', coop: { enabled: !!s.coop } };
     out.heroes = (p.heroes || []).map((h, i) => ({ id: h.id || `p${i + 1}`, name: h.name || `Player ${i + 1}`, sprite: h.sprite || null, recolor: h.recolor || {} }));
     for (const id of Object.keys(p.items || {})) { const it = p.items[id]; out.items[id] = { kind: it.kind || 'item', name: it.name || titleCase(id), icon: it.icon || null, desc: it.desc || '', note: '', props: {} }; }
     if (Array.isArray(p.intro) && p.intro.length) {
@@ -6219,7 +6197,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const DIR_KEY = { n: 'n', s: 's', e: 'e', w: 'w', up: 'n', down: 's', right: 'e', left: 'w', north: 'n', south: 's', east: 'e', west: 'w' };
 
   /** Defaults every tile has (a missing/unknown tile is walkable ground). */
-  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, warpLook: false, encounter: false, terrainTag: 0, probability: 1, animMs: 500 });
+  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, warpLook: false, encounter: false, terrainTag: 0, animMs: 500 });
 
   function registry() { return KIT.registry.exists('tiles') ? KIT.registry('tiles') : null; }
   T.def = function (tileOrId) {
@@ -6229,7 +6207,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
 
   /**
-   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, probability, animMs, animated }
+   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, animMs, animated }
    * Registry flags merged over the defaults. Unknown ids are walkable with exists:false.
    */
   T.flags = function (tileOrId) {
@@ -10450,10 +10428,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const g = CMD.genericFromLine(s);
       if (g && g.disabled !== undefined) return CMD.normalize(g);
     }
+    // A parser that throws on a line it did not match must not stop the search,
+    // so every throw is swallowed here — but a parser that throws on a line it
+    // DID match has something to say ("condition: expected a value at end"),
+    // and screenplay.js was written to show it. The first message is kept on
+    // CMD.parseError for the caller that gets null back and wants to know why.
+    CMD.parseError = null;
     for (const def of reg.list()) {
       if (!def.text || typeof def.text.fromLine !== 'function') continue;
       let cmd = null;
-      try { cmd = def.text.fromLine(s); } catch (e) { cmd = null; }
+      try { cmd = def.text.fromLine(s); } catch (e) { if (!CMD.parseError) CMD.parseError = e; cmd = null; }
       if (cmd) return CMD.normalize(cmd);
     }
     const g = CMD.genericFromLine(s);
@@ -10657,7 +10641,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (/^---(\s|$)/.test(it.body)) { problem(it, 'a track (--- …) outside an “At the Same Time”'); cmds.push(rawCmd(it)); pos++; continue; }
         let cmd = null;
         try { cmd = CMD.fromLine(it.body); } catch (e) { cmd = null; problem(it, e && e.message ? e.message : 'could not read this line'); }
-        if (!cmd) { if (!problems.some(p => p.line === it.n)) problem(it, 'could not read this line'); cmds.push(rawCmd(it)); pos++; continue; }
+        if (!cmd) {
+          // The parser that recognised the line and refused it left its reason on CMD.parseError.
+          const why = CMD.parseError && CMD.parseError.message ? CMD.parseError.message : 'could not read this line';
+          if (!problems.some(p => p.line === it.n)) problem(it, why);
+          cmds.push(rawCmd(it)); pos++; continue;
+        }
         pos++;
         const layout = SP.layout(cmd);
         if (layout === 'if') {
@@ -11545,7 +11534,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const C = KIT.conditions;
   const W = KIT.world = KIT.world || {};
 
-  const SLOT_EVENTS = { interact: 'interact', step: 'step', touch: 'touch', enter: 'enter', tick: 'tick', init: 'init' };
 
   /** create({ project, save, ports, rng, events }) -> world */
   W.create = function (opts) {
@@ -11765,6 +11753,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       try {
         const r = await I.run(page.on[slot], ctx, { kind: background ? 'background' : 'main', label: `${key}:${slot}`, path: [key, slot] });
         if (page.once && slot !== 'tick' && slot !== 'init') KIT.commands.state.setSelf(ctx, 'done', true, key);
+        // `interactMissed` is emitted when nothing answers; this is its other half,
+        // documented for as long, and until now emitted by nobody.
+        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r });
         return r;
       } finally {
         if (!background) {
@@ -12731,7 +12722,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       if (method === 'gzip' && zlib.gunzipSync) return asBytes(zlib.gunzipSync(buf));
       if (method === 'zlib' && zlib.inflateSync) return asBytes(zlib.inflateSync(buf));
       if (method === 'zstd' && zlib.zstdDecompressSync) return asBytes(zlib.zstdDecompressSync(buf));
-    } catch (e) { return null; }
+    } catch (e) { return { error: String(e && e.message || e) }; }   // corrupt data, not a missing decoder
     return null;
   }
   function gidsFromBytes(bytes) {                    // unsigned 32-bit little-endian
@@ -12752,8 +12743,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     let bytes = base64Bytes(data);
     if (compression) {
       const out = inflate(bytes, compression, st.opts);
-      if (!out) {
-        once(st, 'compressed-unsupported', compression, 'error',
+      if (!out || out.error) {
+        if (out && out.error) problem(st.res, 'error', 'bad-layer-data', `${label}: '${compression}' compressed layer data could not be decoded: ${out.error}`, where);
+        else once(st, 'compressed-unsupported', compression, 'error',
           `${label}: '${compression}' compressed layer data cannot be decoded here — call KIT.import.tiled.prepare(json) first, or pass opts.inflate(bytes, method)`, where);
         return null;
       }
@@ -12784,6 +12776,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     for (const job of jobs) {
       const bytes = base64Bytes(job.holder.data);
       let plain = inflate(bytes, job.layer.compression, opts);
+      if (plain && plain.error) { (KIT.log || console).warn(`[tiled] layer data could not be decoded: ${plain.error}`); plain = null; }   // the browser's decoder below may still manage
       if (!plain && typeof DecompressionStream === 'function' && (job.layer.compression === 'gzip' || job.layer.compression === 'zlib')) {
         const format = job.layer.compression === 'gzip' ? 'gzip' : 'deflate';
         const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
@@ -13041,7 +13034,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
       def.art = art;
 
-      if (meta.probability != null) def.probability = num(meta.probability, 1);
       const cls = meta.type || meta.class;
       if (cls && FLAG_NAMES.includes(FLAG_ALIASES[normKey(cls)])) def[FLAG_ALIASES[normKey(cls)]] = true;
 
@@ -13069,7 +13061,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         } else if (canon === 'terrainTag' || canon === 'animMs') {
           def[canon] = int(value, 0);
         } else if (canon === 'probability') {
-          def.probability = num(value, 1);
+          // Tiled's terrain-brush weighting. The kit's autotiles pick evenly; nothing here reads it.
         } else {
           def[canon] = truthy(value);
         }
@@ -13177,10 +13169,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       if (!isObj(entry)) continue;
       const firstgid = int(entry.firstgid, 1) || 1;
       if (entry.source) {
+        st.externalError = null;
         const external = externalFile(entry.source, st, 'tilesets', 'tileset');
         if (!external) {
           const id = withPrefix(KIT.slug(stem(entry.source)), st.opts);
-          problem(res, 'warn', 'external-tileset-missing', `external tileset '${entry.source}' was not supplied (opts.tilesets) — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
+          if (st.externalError) problem(res, 'warn', 'external-tileset-bad', `external tileset '${entry.source}' could not be read: ${st.externalError} — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
+          else problem(res, 'warn', 'external-tileset-missing', `external tileset '${entry.source}' was not supplied (opts.tilesets) — its tiles are referenced as '${id}:<n>' with no art or flags`, {});
           sets.push({ id, name: stem(entry.source), firstgid, tileIds: new Map(), tilecount: 0, objectalignment: '', stub: true });
           continue;
         }
@@ -13628,7 +13622,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (raw === undefined) raw = table[baseName(source)];
     if (raw === undefined && typeof st.opts[fnKey] === 'function') raw = st.opts[fnKey](source);
     if (raw === undefined || raw === null) return null;
-    try { return toJson(raw, st.res); } catch (e) { return null; }
+    try { return toJson(raw, st.res); } catch (e) { st.externalError = String(e && e.message || e); return null; }   // supplied, but unreadable: the caller says which
   }
 
   /** tileset(json, opts) -> Result with the tileset's image(s), tile definitions and terrains. */
@@ -14859,7 +14853,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         art: art ? art.art : null,
         solid: flags.solid, passage: flags.passage, bush: flags.bush, counter: flags.counter,
         ledge: null, warpLook: false, encounter: false, terrainTag: flags.terrainTag,
-        probability: 1, animMs: 500, note: notes.join(' '),
+        animMs: 500, note: notes.join(' '),
         props: Object.assign({ mvTileId: tileId, mvTileset: tilesetId, mvSheet: SHEET_NAMES[setNumber] }, flags.props),
       };
       tileDefs.set(id, def);
@@ -15362,7 +15356,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         }
       } catch (e) { /* fall through */ }
     }
-    try { return zinflate(bytes); } catch (e) { return null; }
+    try { return zinflate(bytes); } catch (e) { return { error: String(e && e.message || e) }; }   // a decoder that RAN and failed is not a missing decoder
   }
 
   // ---- directions and tag names ----------------------------------------------
@@ -15908,8 +15902,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       } else {
         const raw = r.bytes(end - r.pos);
         const out = inflate(raw, st.opts);
-        if (!out) {
-          problem(st.res, 'error', 'compressed-unsupported', `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed here — pass opts.inflate(bytes) -> Uint8Array`, st.where);
+        if (!out || out.error) {
+          problem(st.res, 'error', out && out.error ? 'bad-frame' : 'compressed-unsupported', out && out.error
+            ? `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed: ${out.error}`
+            : `the zlib cel on layer ${layerIndex} of frame ${frame.index} could not be decompressed here — pass opts.inflate(bytes) -> Uint8Array`, st.where);
         } else if (out.length < need) {
           problem(st.res, 'warn', 'bad-frame', `the cel on layer ${layerIndex} of frame ${frame.index} decompressed to ${out.length} bytes, ${need} were expected; it was skipped`, st.where);
         } else {
@@ -27276,8 +27272,7 @@ PKMN.TILES.register([
   O.newCommonEvent = function (doc, o) {
     const id = o.id || KIT.slug(o.label || 'new-script');
     const scripts = doc.get(['scripts']) || {};
-    let unique = id, n = 2;
-    while (scripts[unique]) unique = `${id}-${n++}`;
+    const unique = uniqueKey(scripts, id);
     doc.set(['scripts', unique], { label: o.label || 'New script', trigger: o.trigger || 'call', when: null, params: o.params || [], body: o.body || [], note: '' }, { label: 'New common event' });
     return unique;
   };
@@ -29013,27 +29008,6 @@ PKMN.TILES.register([
     T.byId[tool.id] = reg.add(tool) || reg.get(tool.id);
   }
 
-  // ---------------------------------------------------------------------------
-  // One grid for the map and the overlay (a hook the shell does not have).
-  //
-  // The shell draws the map with KIT.renderer — which chooses its own zoom from
-  // the canvas size — and draws the grid, the cursor and every tool ghost at
-  // `tileSize * ED.state.view.scale`. When those disagree the ghost sits a few
-  // pixels away from the square it is about to paint, which makes every tool in
-  // this file unusable. The shell is frozen, so we take the hook here: remember
-  // the renderer Creator Mode builds, then give its canvas element a CSS size
-  // that makes one drawn tile exactly `tileSize * view.scale` screen pixels.
-  // (Reported: the shell should own this — renderer.setScale(view.scale).)
-  // ---------------------------------------------------------------------------
-  if (KIT.renderer && KIT.renderer.create && !KIT.renderer.__editorScaleHook) {
-    const create = KIT.renderer.create;
-    KIT.renderer.create = function (opts) {
-      const r = create.apply(this, arguments);
-      if (opts && opts.editor) ED.renderer = r;
-      return r;
-    };
-    KIT.renderer.__editorScaleHook = true;
-  }
   /** Zoom to a chosen scale (the shell and the renderer agree on it: tileSize * scale CSS pixels a tile). */
   T.lockScale = function (scale) { ED.set({ view: { scale: KIT.clamp(Math.round(scale) || 1, 1, 8) } }); };
 
@@ -29129,9 +29103,10 @@ PKMN.TILES.register([
   INS.enumOptions = function (field, ctx) {
     let opts = field.options;
     if (!opts && field.optionsFrom) {
-      if (KIT.registry.exists(field.optionsFrom)) opts = KIT.registry(field.optionsFrom).list().map(d => ({ value: d.id, label: KIT.labelOf(d, ctx, d.id) }));
-      else if (ctx && ctx.options && ctx.options[field.optionsFrom]) opts = ctx.options[field.optionsFrom];
-      else opts = [];
+      // The schema decides what the options ARE (and that an empty registry means
+      // "unknown", not "none"); this only puts labels on them.
+      const reg = KIT.registry.exists(field.optionsFrom) ? KIT.registry(field.optionsFrom) : null;
+      opts = (KIT.schema.enumOptions(field, ctx) || []).map(id => ({ value: id, label: reg && reg.get(id) ? KIT.labelOf(reg.get(id), ctx, id) : titleCase(id) }));
     }
     return (opts || []).map(o => (o !== null && typeof o === 'object') ? { value: o.value, label: o.label || titleCase(o.value) } : { value: o, label: titleCase(o) });
   };
@@ -31677,7 +31652,7 @@ PKMN.TILES.register([
     }
     renderPresetForm();
     el.add.appendChild(make('div.ed-hint', { text: 'Pick one, then tap the map where it goes.' }));
-    const presets = KIT.registry('presets').list().filter(p => (p.kind || 'object') === 'object');
+    const presets = KIT.registry('presets').list();
     const chips = make('div.ed-chips');
     for (const p of presets) {
       const c = make('button.ed-chip.is-preset', { text: `＋ ${p.name || titleCase(p.id)}` });
@@ -35212,10 +35187,7 @@ PKMN.TILES.register([
   const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
   /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
   function freshId(table, name, fallback) {
-    const base = KIT.slug(name || '') || fallback;
-    let id = base, n = 2;
-    while (table[id]) id = `${base}-${n++}`;
-    return id;
+    return ED.ops.uniqueKey(table, KIT.slug(name || '') || fallback);
   }
 
   KIT.registry('editorPanels').add({
@@ -39493,7 +39465,7 @@ PKMN.TILES.register([
   };
   const legacyTable = (project, mapId) => M.legacyEncounters(project, mapId);
   function registerMapSection() {
-    if (!KIT.registry.exists('mapSections')) return;
+    if (!KIT.registry.exists('mapSections')) { (KIT.log || console).error('[mons] no mapSections registry; the legacy encounter section will not appear'); return; }
     KIT.registry('mapSections').add({
       id: 'mons-legacy-encounters', label: 'Wild encounters (from the old format)', order: 20, replace: true,
       when(project, mapId) { return !!legacyTable(project, mapId); },
@@ -39733,11 +39705,7 @@ PKMN.TILES.register([
   H.contentDefaults = function () {
     return { tuning: H.tuningDefaults(), giftItems: ['berry'], giftSpot: null, workers: 'auto' };
   };
-  H.tuningDefaults = function () {
-    const t = {};
-    for (const f of H.TUNING) t[f.key] = f.default;
-    return t;
-  };
+  H.tuningDefaults = () => KIT.schema.defaults(H.TUNING);
   /**
    * pack(project) -> packs.home with every default filled in (never mutates the
    * project). normalize() has usually written this already; this still fills it
@@ -40539,7 +40507,7 @@ PKMN.TILES.register([
     // --- object type: job board ---------------------------------------------------
     KIT.registry('objectTypes').add({
       id: 'job-board', name: 'Job board', doc: 'A board of errands your friends can run. Fill in the list; the game does the rest.',
-      tags: ['furniture'], icon: 'sign', toc: true,
+      tags: ['furniture'], icon: 'sign',
       fields: [
         { key: 'look', type: 'tile', nullable: true, default: 'sign', doc: 'The tile drawn where the board stands' },
         { key: 'title', type: 'string', default: 'Job board', doc: 'The heading on the screen' },

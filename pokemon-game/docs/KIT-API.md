@@ -93,8 +93,8 @@ Problem: `{ severity:'error'|'warn', code, message, where:{ map, object, page, s
 Project v3 shape: see §5 — `version meta modules settings strings heroes start vars items scripts fragments testStates autotiles terrains world maps packs rules facts cast languages assets` (`settings` also carries `language languageName voice clock`).
 
 ## world/tiles — stable
-`KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, probability, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
-Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', warpLook, encounter, terrainTag, probability, animMs }`.
+`KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
+Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', warpLook, encounter, terrainTag, animMs }`.
 
 ## world/blueprints — stable
 A whole game to start from. `presets` makes one object, `importers` read one

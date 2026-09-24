@@ -771,3 +771,15 @@ test('mons: a game writes its own species, and one of its own beats the built-in
   M.registerSpecies((globalThis.PKMN && globalThis.PKMN.POKEMON) || []);
   assert.equal(M.species('venusaur').base.hp, before.base.hp);
 });
+
+
+test('mons: the registry the map panel asks and this module answers exists', () => {
+  // Three places named `mapSections` — the docs, the Map panel, this module —
+  // and none defined it, so both consumers guarded on it and the legacy
+  // encounter section never appeared. The existence is the test; the shape of
+  // the code was already asserted and proved nothing.
+  assert.ok(KIT.registry.exists('mapSections'));
+  const def = { id: 'test-section', label: 'Test', order: 1, when: () => true, render: () => {} };
+  KIT.registry('mapSections').add(def);
+  try { assert.ok(KIT.registry('mapSections').has('test-section')); } finally { KIT.registry('mapSections').remove('test-section'); }
+});

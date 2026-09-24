@@ -5,7 +5,7 @@
   const registries = new Map();
 
   /**
-   * defineRegistry(name, { fields, onAdd, onRemove, doc }) -> registry
+   * defineRegistry(name, { fields, doc }) -> registry
    * `fields` is a schema (see schema.js) that every definition is validated against
    * (only when KIT.schema is loaded). Idempotent: defining twice returns the same registry.
    */
@@ -24,9 +24,8 @@
           if (errs.length) throw new Error(`registry '${name}': invalid '${def.id}': ` + errs.map(e => e.path.join('.') + ': ' + e.message).join('; '));
         }
         const existed = items.has(def.id);
-        if (existed && !def.replace && !opts.silentReplace) (KIT.log || console).warn(`registry '${name}': replacing '${def.id}'`);
+        if (existed && !def.replace) (KIT.log || console).warn(`registry '${name}': replacing '${def.id}'`);
         items.set(def.id, def);
-        if (opts.onAdd) opts.onAdd(def, reg, existed);
         for (const fn of listeners.add.slice()) fn(def, existed);
         return def;
       },
@@ -41,7 +40,6 @@
         const d = items.get(id);
         if (!d) return false;
         items.delete(id);
-        if (opts.onRemove) opts.onRemove(d, reg);
         for (const fn of listeners.remove.slice()) fn(d);
         return true;
       },
@@ -75,7 +73,6 @@
   };
   KIT.registry.exists = (name) => registries.has(name);
   KIT.registry.names = () => Array.from(registries.keys());
-  KIT.registry.reset = () => registries.clear(); // tests only
   KIT.reg = KIT.registry;
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

@@ -248,7 +248,7 @@ Image art: `{ image:'assets/heroes.png' | dataURI, frame:{ x, y, w, h }, frames:
 ```js
 { id:'tall-grass', name, group:'nature', art|frames, solid:false, passage:{ n:true, s:true, e:true, w:true },
   bush:true /* hero legs hidden */, counter:false /* interact across */, ledge:null|'down', warpLook:false,
-  encounter:true, terrainTag:0, probability:1, animMs:500, note:'' }
+  encounter:true, terrainTag:0, animMs:500, note:'' }
 ```
 Existing `js/art/tiles-*.js` register via `PKMN.TILES.register` — the first
 foundation task renames this to `KIT.registry('tiles').addAll` (sed in art files;

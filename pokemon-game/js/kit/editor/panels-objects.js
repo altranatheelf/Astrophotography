@@ -255,7 +255,7 @@
     }
     renderPresetForm();
     el.add.appendChild(make('div.ed-hint', { text: 'Pick one, then tap the map where it goes.' }));
-    const presets = KIT.registry('presets').list().filter(p => (p.kind || 'object') === 'object');
+    const presets = KIT.registry('presets').list();
     const chips = make('div.ed-chips');
     for (const p of presets) {
       const c = make('button.ed-chip.is-preset', { text: `＋ ${p.name || titleCase(p.id)}` });

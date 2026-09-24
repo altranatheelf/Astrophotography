@@ -192,7 +192,7 @@ test('migration project-2-to-3 converts the flat shape', () => {
   const { project: p, problems } = P.normalize(old);
   assert.equal(p.version, 3);
   assert.equal(p.meta.title, "Mom's Adventure"); assert.equal(p.meta.id, 'moms-adventure');
-  assert.equal(p.settings.textSpeed, 'fast'); assert.equal(p.settings.coop.enabled, true); assert.equal(p.settings.encounterRate, 20);
+  assert.equal(p.settings.textSpeed, 'fast'); assert.equal(p.settings.coop.enabled, true);
   assert.deepEqual(p.modules, ['mons']); assert.equal(p.packs.mons.garden, 'garden'); assert.deepEqual(Object.keys(p.packs.mons.encounters), ['town']);
   assert.deepEqual(Object.keys(p.world.maps), ['town', 'home']);                              // mapOrder
   assert.ok(p.world.maps.home.x > p.world.maps.town.x);

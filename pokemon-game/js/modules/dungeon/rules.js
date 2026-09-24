@@ -84,11 +84,7 @@
     { key: 'gateSound', type: 'ref:sound', nullable: true, default: 'door' },
   ];
   /** contentDefaults() -> project.packs.dungeon when the author has not touched it. */
-  D.contentDefaults = function () {
-    const out = {};
-    for (const f of D.TUNING) out[f.key] = f.default;
-    return out;
-  };
+  D.contentDefaults = () => KIT.schema.defaults(D.TUNING);
   /** tuning(project) -> the pack, with every default filled in. */
   D.tuning = function (project) {
     if (KIT.modules && KIT.modules.get && KIT.modules.get('dungeon')) {

@@ -28,7 +28,7 @@ test('every js/art/*.js registers through the kit registries without errors', ()
   assert.ok(tiles.stamps.length >= 5 && PKMN.TILES.stamps === tiles.stamps);
   // registry defaults were filled without touching the pixel data
   const grass = tiles.get('grass');
-  assert.equal(grass.solid, false); assert.equal(grass.encounter, false); assert.equal(grass.animMs, 500); assert.equal(grass.probability, 1);
+  assert.equal(grass.solid, false); assert.equal(grass.encounter, false); assert.equal(grass.animMs, 500);
   assert.equal(grass.rows.length, 16); assert.equal(grass.rows[0].length, 16); assert.equal(grass.w, 16);
   assert.equal(tiles.get('water').solid, true);
   // every tile's art validates; tiles with frames are animated

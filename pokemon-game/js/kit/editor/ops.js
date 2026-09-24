@@ -262,8 +262,7 @@
   O.newCommonEvent = function (doc, o) {
     const id = o.id || KIT.slug(o.label || 'new-script');
     const scripts = doc.get(['scripts']) || {};
-    let unique = id, n = 2;
-    while (scripts[unique]) unique = `${id}-${n++}`;
+    const unique = uniqueKey(scripts, id);
     doc.set(['scripts', unique], { label: o.label || 'New script', trigger: o.trigger || 'call', when: null, params: o.params || [], body: o.body || [], note: '' }, { label: 'New common event' });
     return unique;
   };
