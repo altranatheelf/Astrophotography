@@ -79,6 +79,9 @@
       duckBus = ctx.createGain(); duckBus.gain.value = 1; duckBus.connect(master);
       musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(duckBus);
     } catch (e) {
+      // No AudioContext is a legitimate probe result; a context that could not
+      // be BUILT is a silent game for the rest of the session, and deserves a line.
+      (KIT.log || console).warn('[audio] could not start; the game will be silent', e);
       ctx = null;
     }
     return ctx;

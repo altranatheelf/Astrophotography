@@ -156,3 +156,38 @@ test('editor ops: ＋ New twice makes two items and two rules, never one over th
   assert.notEqual(r1, r2);
   assert.equal(Object.keys(doc.get(['rules'])).length, 2);
 });
+
+
+test('editor: a validator that throws is reported as a problem, not as a clean bill of health', () => {
+  // The inspector used to carry its own copy of the validate-and-record step,
+  // and its copy caught the validator's own exception as "no problems" — which
+  // then got saved. There is one path now, and this is the case it exists for.
+  require(path.join(__dirname, '..', '..', 'js/kit/editor/editor.js'));
+  const ED = KIT.editor;
+  assert.equal(typeof ED.validateNow, 'function');
+  ED.state.project = KIT.project.blank();          // before the swap: blank() validates as it normalizes
+  const real = KIT.project.validate;
+  KIT.project.validate = () => { throw new Error('the validator itself fell over'); };
+  try {
+    const problems = ED.validateNow();
+    assert.equal(problems.length, 1);
+    assert.equal(problems[0].severity, 'error');
+    assert.equal(problems[0].code, 'validator');
+    assert.match(problems[0].message, /fell over/);
+    assert.equal(ED.state.problems, problems, 'and it is what the editor now shows');
+  } finally { KIT.project.validate = real; }
+});
+
+
+test('ops: one "where -> selection", and slot 0 is a slot', () => {
+  const O = KIT.editor.ops;
+  assert.deepEqual(O.whereSelection({ script: 'intro' }), { kind: 'script', path: ['scripts', 'intro'] });
+  assert.deepEqual(O.whereSelection({ map: 'town', object: 'mom', page: 1, slot: 'interact' }), { kind: 'slot', map: 'town', id: 'mom', page: 1, slot: 'interact' });
+  assert.deepEqual(O.whereSelection({ map: 'town', object: 'mom', slot: 0 }), { kind: 'slot', map: 'town', id: 'mom', page: 0, slot: 0 }, 'slot 0 used to fall through to the object');
+  assert.deepEqual(O.whereSelection({ map: 'town', object: 'mom' }), { kind: 'object', map: 'town', id: 'mom' });
+  assert.deepEqual(O.whereSelection({ map: 'town' }), { kind: 'map', id: 'town' });
+  assert.deepEqual(O.whereSelection({ item: 'key' }), { kind: 'item', id: 'key' });
+  assert.deepEqual(O.whereSelection({ fragment: 'greeting' }), { kind: 'fragment', id: 'greeting' });
+  assert.deepEqual(O.whereSelection({}), { kind: 'project' });
+  assert.deepEqual(O.whereSelection(null), { kind: 'project' });
+});

@@ -82,6 +82,32 @@ test('storage: a store that throws on write never breaks a save', async () => {
   assert.equal(await S.saveGame('1', { version: 2 }), true);
 });
 
+test('storage: a draft that could not be READ is not a draft that gets overwritten', async () => {
+  // A failed read and an empty read both come back null, and every caller
+  // wants that — except this one. If the built-in game boots because the draft
+  // was unreadable, the editor's next autosave would write the built-in game
+  // over the draft. So a failed draft read blocks drafts for the session.
+  const ls = fakeLocalStorage();
+  const realGet = ls.getItem.bind(ls);
+  ls.getItem = (k) => { if (/\.draft$/.test(k)) throw new Error('the disk is on fire'); return realGet(k); };
+  globalThis.localStorage = ls;
+  S._reset();
+  S.forceAdapter = 'localStorage';
+  await S.ready();
+  const { source } = await S.loadProject();
+  assert.notEqual(source, 'draft', 'the built-in game boots');
+  assert.match(String(S.warning || ''), /could not be read/, 'and the page says why');
+  assert.equal(await S.saveDraft({ meta: { id: 'x' } }, { now: true }), false, 'and nothing is written over the draft we could not read');
+  // A store that merely has no draft is not blocked.
+  globalThis.localStorage = fakeLocalStorage();
+  S._reset();
+  S.forceAdapter = 'localStorage';
+  await S.ready();
+  await S.loadProject();
+  assert.equal(S.warning, null);
+  assert.notEqual(await S.saveDraft({ meta: { id: 'x' } }, { now: true }), false, 'a missing draft is just a first run');
+});
+
 test('storage: settings and meta are cached and survive a reload', async () => {
   globalThis.localStorage = fakeLocalStorage();
   S._reset();

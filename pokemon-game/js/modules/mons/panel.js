@@ -7,7 +7,7 @@
 //   · a validator, so an encounter table that names a species nobody has heard
 //     of shows up in Problems instead of failing quietly at play time.
 //
-// Every edit goes through KIT.editor.commit + KIT.editor.afterEdit, so undo
+// Every edit goes through KIT.editor.commit, so undo
 // covers it like anything else (docs/EDITOR-CONTRACT.md).
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
@@ -121,8 +121,7 @@
   }
   function afterSpecies(ed, list) {
     M.registerSpecies(list || []);                 // the picker, the card and the map see it at once
-    if (typeof ed.afterEdit === 'function') ed.afterEdit();
-    if (typeof ed.refresh === 'function') ed.refresh();
+    if (typeof ed.refresh === 'function') ed.refresh();   // again: the commit's own repaint ran before the registry changed
   }
   function paintSpecies(panel, ed) {
     const el = panel._el;
@@ -133,18 +132,16 @@
     if (sig === panel._sig) return;
     const active = document.activeElement;
     const inSearch = !!(active && el.contains(active) && active.classList.contains('ed-obj-search'));
-    if (!inSearch && active && el.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { panel._stale = true; return; }
+    if (!inSearch && KIT.editor.inspector.typingIn(el)) { panel._stale = true; return; }
     const caret = inSearch ? active.selectionStart : 0;
     panel._sig = sig; panel._stale = false;
-    for (const f of panel._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+    KIT.editor.inspector.destroyForms(panel._forms);
     panel._forms = [];
     UI.clear(el);
     el.appendChild(make('div.ed-hint', { text: 'Everybody who can be met, caught and walked with. The ones that came with the engine are a worked example: rename one, restat it, or write your own — a species of yours with the same id wins.' }));
 
     const head = make('div.ed-row.ed-obj-head');
-    const search = make('input.ed-obj-search');
-    search.type = 'search';
-    search.placeholder = 'Find a species…';
+    const search = KIT.editor.inspector.searchBox('Find a species…');
     search.value = speciesState.query;
     search.oninput = () => { speciesState.query = search.value; panel._sig = ''; paintSpecies(panel, ed); };
     head.appendChild(search);
@@ -347,8 +344,6 @@
     const table = tableOf(ed.state.project, mapId);
     fn(table);
     ed.commit('Encounters', (doc, O) => O.setField(doc, ['maps', mapId, 'props', 'encounters'], table, 'Encounters'));
-    if (typeof ed.afterEdit === 'function') ed.afterEdit();
-    if (typeof ed.refresh === 'function') ed.refresh();
   }
 
   // ---- the validator ---------------------------------------------------------
@@ -431,7 +426,6 @@
   }
   function set(ctx, i, key, value) {
     ctx.ed.commit(`Encounter ${key}`, (doc, O) => O.setField(doc, ['packs', 'mons', 'encounters', ctx.mapId, 'table', i, key], value, `Encounter ${key}`));
-    if (KIT.editor.afterEdit) KIT.editor.afterEdit();
   }
 
   /** registerEditor() — the panel, the widget and the validator, when there is a page. */

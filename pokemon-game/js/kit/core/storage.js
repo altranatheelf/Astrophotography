@@ -105,6 +105,7 @@
   // current id instead lost work: open a game whose meta.id differs (or start a
   // blank one), and every autosave after that went to a key boot never reads.
   let draftKey = null;
+  let draftBlocked = false;                // a draft we could not read is not one we overwrite
   let settingsCache = null;
   let metaCache = null;
   let draftTimer = null;
@@ -216,7 +217,7 @@
     return readyPromise;
   };
   /** _reset() — tests only: forget the adapter and the caches. */
-  S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
+  S._reset = function () { draftKey = null; draftBlocked = false; readFailures = 0; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
   S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning, blocked: S.blocked || [] });
 
   // ---- a zip of text files, built here ------------------------------------------
@@ -285,8 +286,14 @@
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
   // ---- raw access (every call is safe) -----------------------------------------
+  // A read that FAILS answers null, the same as a read that found nothing —
+  // every caller wants that. The one place it matters is counted: loadProject
+  // compares this before and after reading the draft, because "no draft" boots
+  // the built-in game and the editor's next autosave would then write that
+  // over the draft the read could not reach.
+  let readFailures = 0;
   S.get = async function (k) {
-    try { if (!adapter) await S.ready(); return await adapter.get(k); } catch (e) { return null; }
+    try { if (!adapter) await S.ready(); return await adapter.get(k); } catch (e) { readFailures++; return null; }
   };
   S.set = async function (k, v) {
     try { if (!adapter) await S.ready(); return await adapter.set(k, v); } catch (e) { S.warning = 'Could not save (storage is full or blocked).'; return false; }
@@ -355,8 +362,17 @@
     metaCache = Object.assign({}, DEFAULT_META, (await S.get(key('meta'))) || {});
 
     if (opts.draft !== false) {
+      const failuresBefore = readFailures;
       const draft = await S.get(draftKey);
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
+      else if (readFailures > failuresBefore) {
+        // The draft may well be there; we could not read it. Boot the built-in
+        // game to have something on screen, and refuse to write drafts for the
+        // rest of the session so that game does not land on top of it.
+        draftBlocked = true;
+        S.warning = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+        (KIT.log || console).error('[storage] the draft could not be read; drafts are blocked this session');
+      }
     }
     let project = base, problems = [];
     // Last chance to teach the registries what this project is made of, while it
@@ -384,6 +400,7 @@
 
   /** saveDraft(project) — debounced 500 ms (the editor calls it on every edit). */
   S.saveDraft = function (project, opts) {
+    if (draftBlocked) return Promise.resolve(false);
     draftPending = project;
     if (draftTimer) clearTimeout(draftTimer);
     const flush = () => {

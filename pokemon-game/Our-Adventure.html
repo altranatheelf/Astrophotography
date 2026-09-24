@@ -2064,7 +2064,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     try {
       const d = typeof decl.defaults === 'function' ? decl.defaults() : decl.defaults;
       return (d && typeof d === 'object') ? d : {};
-    } catch (e) { return {}; }
+    } catch (e) { (KIT.log || console).error(`[module ${decl && decl.key ? decl.key : '?'}] defaults() threw; using {}`, e); return {}; }
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
@@ -3120,6 +3120,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       duckBus = ctx.createGain(); duckBus.gain.value = 1; duckBus.connect(master);
       musicBus = ctx.createGain(); musicBus.gain.value = volumes.music; musicBus.connect(duckBus);
     } catch (e) {
+      // No AudioContext is a legitimate probe result; a context that could not
+      // be BUILT is a silent game for the rest of the session, and deserves a line.
+      (KIT.log || console).warn('[audio] could not start; the game will be silent', e);
       ctx = null;
     }
     return ctx;
@@ -4123,6 +4126,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // current id instead lost work: open a game whose meta.id differs (or start a
   // blank one), and every autosave after that went to a key boot never reads.
   let draftKey = null;
+  let draftBlocked = false;                // a draft we could not read is not one we overwrite
   let settingsCache = null;
   let metaCache = null;
   let draftTimer = null;
@@ -4234,7 +4238,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return readyPromise;
   };
   /** _reset() — tests only: forget the adapter and the caches. */
-  S._reset = function () { draftKey = null; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
+  S._reset = function () { draftKey = null; draftBlocked = false; readFailures = 0; adapter = null; readyPromise = null; settingsCache = null; metaCache = null; projectId = 'kit'; S.warning = null; return S; };
   S.info = () => ({ adapter: adapter ? adapter.name : null, projectId, warning: S.warning, blocked: S.blocked || [] });
 
   // ---- a zip of text files, built here ------------------------------------------
@@ -4303,8 +4307,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   S.projectId = (id) => { if (id) projectId = id; return projectId; };
 
   // ---- raw access (every call is safe) -----------------------------------------
+  // A read that FAILS answers null, the same as a read that found nothing —
+  // every caller wants that. The one place it matters is counted: loadProject
+  // compares this before and after reading the draft, because "no draft" boots
+  // the built-in game and the editor's next autosave would then write that
+  // over the draft the read could not reach.
+  let readFailures = 0;
   S.get = async function (k) {
-    try { if (!adapter) await S.ready(); return await adapter.get(k); } catch (e) { return null; }
+    try { if (!adapter) await S.ready(); return await adapter.get(k); } catch (e) { readFailures++; return null; }
   };
   S.set = async function (k, v) {
     try { if (!adapter) await S.ready(); return await adapter.set(k, v); } catch (e) { S.warning = 'Could not save (storage is full or blocked).'; return false; }
@@ -4373,8 +4383,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     metaCache = Object.assign({}, DEFAULT_META, (await S.get(key('meta'))) || {});
 
     if (opts.draft !== false) {
+      const failuresBefore = readFailures;
       const draft = await S.get(draftKey);
       if (draft && draft.project) { base = draft.project; source = 'draft'; }
+      else if (readFailures > failuresBefore) {
+        // The draft may well be there; we could not read it. Boot the built-in
+        // game to have something on screen, and refuse to write drafts for the
+        // rest of the session so that game does not land on top of it.
+        draftBlocked = true;
+        S.warning = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+        (KIT.log || console).error('[storage] the draft could not be read; drafts are blocked this session');
+      }
     }
     let project = base, problems = [];
     // Last chance to teach the registries what this project is made of, while it
@@ -4402,6 +4421,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   /** saveDraft(project) — debounced 500 ms (the editor calls it on every edit). */
   S.saveDraft = function (project, opts) {
+    if (draftBlocked) return Promise.resolve(false);
     draftPending = project;
     if (draftTimer) clearTimeout(draftTimer);
     const flush = () => {
@@ -18785,11 +18805,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       }
 
       /**
-       * The sound of somebody talking: one blip every few letters, at a pitch
-       * that wanders a little so it is a person and not a printer. Punctuation
-       * and spaces stay silent, which is what stops it sounding like Morse.
-       */
-      /**
        * reveal(unit, n) — show the first n letters. A plain run grows its
        * textContent; a run with a per-letter effect already holds every letter
        * and just stops hiding them, so the animation does not jump as the line
@@ -18810,6 +18825,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         } else u.el.textContent = u.text.slice(0, n);
       }
 
+      /**
+       * The sound of somebody talking: one blip every few letters, at a pitch
+       * that wanders a little so it is a person and not a printer. Punctuation
+       * and spaces stay silent, which is what stops it sounding like Morse.
+       */
       function speak(chars, v) {
         const voice = v;
         if (!voice || !voice.sound || !chars) return;
@@ -27013,6 +27033,24 @@ PKMN.TILES.register([
   const inMap = (m, x, y) => x >= 0 && y >= 0 && x < m.width && y < m.height;
   const getMap = (doc, map) => { const m = doc.get(mapPath(map)); if (!m) throw new Error(`editor: unknown map '${map}'`); return m; };
 
+  /**
+   * whereSelection(where) -> the editor selection a `where` record points at.
+   * `where` is what KIT.project.collect and the validator hand out: { script }
+   * or { map, object, page, slot } or { map } or { item } or { fragment }.
+   * Three panels had their own copy of this and two had drifted: one dropped
+   * slot 0 because it tested truthiness, one could not point at an item.
+   */
+  O.whereSelection = function (where) {
+    const w = where || {};
+    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
+    if (w.map && w.object && w.slot != null) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
+    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
+    if (w.map) return { kind: 'map', id: w.map };
+    if (w.item) return { kind: 'item', id: w.item };
+    if (w.fragment) return { kind: 'fragment', id: w.fragment };
+    return { kind: 'project' };
+  };
+
   /** The tile an eraser leaves behind: nothing on deco/above, the map's base ground on ground. */
   O.eraseValue = function (m, layer) {
     if (layer === 'ground') return P.GROUND_BY_KIND[m.kind] || 'grass';
@@ -27480,14 +27518,23 @@ PKMN.TILES.register([
     emit('document', { kind });
   }
 
+  /**
+   * validateNow() — run the validator and record what it said, INCLUDING when
+   * the validator itself is what broke. A crashed validator used to come out of
+   * the inspector's copy of this as "no problems", which then got saved.
+   */
+  ED.validateNow = function () {
+    try { state.problems = KIT.project.validate(state.project) || []; }
+    catch (e) { state.problems = [{ severity: 'error', code: 'validator', message: String(e.message || e), where: {} }]; }
+    emit('problems', state.problems);
+    return state.problems;
+  };
   let validateTimer = null;
   function scheduleValidate() {
     if (validateTimer) clearTimeout(validateTimer);
     validateTimer = setTimeout(() => {
       validateTimer = null;
-      try { state.problems = KIT.project.validate(state.project) || []; }
-      catch (e) { state.problems = [{ severity: 'error', code: 'validator', message: String(e.message || e), where: {} }]; }
-      emit('problems', state.problems);
+      ED.validateNow();
       refreshPanels();
       updateStatus();
     }, 250);
@@ -29238,37 +29285,70 @@ PKMN.TILES.register([
   INS.scalarText = (v) => (v === null ? 'null' : String(v));
 
   /**
-   * afterEdit() — the shell runs validate + autosave only after a pointer stroke
-   * (`afterDocument` is private), so a panel that commits calls this instead.
+   * afterEdit() — a panel that wrote the document some other way than
+   * ED.commit (an import merge, a paste) says so. ED.commit already does this;
+   * a panel that commits need not call it, and five used to, which ran the
+   * refresh, the validation and the save twice each per edit.
    */
-  let validateTimer = null;
-  INS.afterEdit = function () {
-    if (!ED.state || !ED.state.doc) return;
-    if (ED.refresh) ED.refresh();
-    if (validateTimer) clearTimeout(validateTimer);
-    validateTimer = setTimeout(() => {
-      validateTimer = null;
-      let problems = [];
-      try { problems = KIT.project.validate(ED.state.project) || []; } catch (e) { problems = []; }
-      if (ED.set) ED.set({ problems });
-      if (ED.updateStatus) ED.updateStatus();
-      if (ED.saveNow) ED.saveNow();
-    }, 400);
-  };
+  INS.afterEdit = function () { if (ED.afterEdit) ED.afterEdit(); };
 
   // =================================================================================
   // Everything below needs a browser.
   // =================================================================================
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
+  /**
+   * btn(label, title, fn, cls) — the editor's button. The title is also the
+   * aria-label, and a click stops at the button: four panels had grown their
+   * own copy with exactly those two improvements while this one, the shared
+   * one, lacked them — so the one panel using the shared one was the one whose
+   * buttons had no accessible name and needed a stopPropagation workaround.
+   */
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';
-    if (title) b.title = title;
-    b.onclick = (e) => { e.preventDefault(); fn(e); };
+    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
     return b;
   }
   INS.btn = btn;
+  /**
+   * typingIn(host) — is the caret in a field inside this element? A panel that
+   * redraws while somebody is typing takes the box away mid-word, so every
+   * panel asks this before rebuilding. Six had asked it in their own words, and
+   * two of the six had forgotten a tag.
+   */
+  INS.typingIn = function (host) {
+    const a = document.activeElement;
+    return !!(a && host && host.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
+  };
+  /**
+   * section(host, title, open, build, remember) -> { box, body } — a collapsible
+   * <details> section. `remember` is a state object kept outside the panel; when
+   * given, the section writes `remember.open` on every toggle, so a redraw puts
+   * it back the way it was. Three sections hand-wired that listener and a fourth
+   * forgot, which snapped it shut the moment a person had typed into it.
+   */
+  INS.section = function (host, title, open, build, remember) {
+    const box = make('details.ed-sec');
+    box.open = open !== false;
+    box.appendChild(make('summary', { text: title }));
+    const body = make('div.ed-sec-body');
+    box.appendChild(body);
+    host.appendChild(box);
+    if (remember) box.addEventListener('toggle', () => { remember.open = box.open; });
+    if (typeof build === 'function') build(body);
+    return { box, body };
+  };
+  /** searchBox(placeholder) -> the editor's search field. The caller wires `value` and `oninput`; this is the three lines ten panels had copied. */
+  INS.searchBox = function (placeholder) {
+    const box = make('input.ed-obj-search');
+    box.type = 'search';
+    box.placeholder = placeholder || '';
+    return box;
+  };
+  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
+  INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
   INS.spriteCanvas = function (id, scale) {
@@ -30418,17 +30498,8 @@ PKMN.TILES.register([
     return d;
   }
 
-  /**
-   * Every panel edit runs through here: one undo step, then the shell's
-   * after-an-edit pass (repaint + validate + save the draft), which lives on
-   * ED.afterEdit so every panel does exactly the same thing.
-   */
-  function edit(label, fn) {
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    else { ED.refresh(); if (ED.saveNow) ED.saveNow(); }
-    return out;
-  }
+  /** Every panel edit is one undo step; ED.commit repaints, validates and saves the draft after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   ED.panelEdit = edit;      // the Map panel and the Tiles panel share it
 
   /**
@@ -31396,7 +31467,9 @@ PKMN.TILES.register([
       out.push({ path: path.slice(), form: (typeof cur === 'string' && cur.slice(0, 4) === 'obj:') ? 'target' : 'id' });
     };
     let refs = [];
-    try { refs = (P.collect(project) || {}).refs || []; } catch (e) { refs = []; }
+    // An answer of "nowhere" from a collector that THREW is the one an author
+    // deletes an object on. Say so, at least in the console.
+    try { refs = (P.collect(project) || {}).refs || []; } catch (e) { (KIT.log || console).error('[objects] collect threw; references unknown', e); refs = []; }
     // collect() moves the document path onto `where`; be happy with either shape.
     for (const r of refs) {
       if (r.kind !== 'object' || r.id !== id) continue;
@@ -31546,7 +31619,7 @@ PKMN.TILES.register([
     const list = ED.problemsFor({ kind: 'object', map: mapId(), id, page }) || [];
     return list;
   }
-  function commit(label, fn) { const r = ED.commit(label, fn); INS.afterEdit(); return r; }
+  const commit = (label, fn) => ED.commit(label, fn);
   function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label)); }
 
   KIT.registry('editorPanels').add({
@@ -31559,9 +31632,7 @@ PKMN.TILES.register([
       // --- list view
       el.listView = make('div.ed-obj-listview');
       const head = make('div.ed-row.ed-obj-head');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find an event…';
+      el.search = ED.inspector.searchBox('Find an event…');
       el.search.oninput = () => { search = el.search.value.toLowerCase(); listSig = ''; render(); };
       head.appendChild(el.search);
       el.addBtn = btn('＋ Add', 'Add an event to this map', () => { addOpen = !addOpen; renderAdd(); }, 'primary');
@@ -31800,7 +31871,7 @@ PKMN.TILES.register([
     buildDetail(obj);
     if (other && ED.el && ED.el.panel) ED.el.panel.scrollTop = 0;
   }
-  function destroyForms() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } forms = []; }
+  function destroyForms() { ED.inspector.destroyForms(forms); forms.length = 0; }
   function refreshForms() {
     const obj = selectedObject();
     if (!obj) return;
@@ -32407,20 +32478,10 @@ PKMN.TILES.register([
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector || {};
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
   const keyOf = (path) => (path || []).join('/');
 
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const commit = (label, fn) => ED.commit(label, fn);
 
   // The editor instance mounted in the Script panel (there is only ever one).
   let view = 'cards';
@@ -32520,10 +32581,7 @@ PKMN.TILES.register([
     // Rebuilding while a field has focus would steal the caret; wait for the blur.
     host.addEventListener('focusout', () => { if (deferred) setTimeout(() => { if (!hasFocus()) { deferred = false; render(true); } }, 0); });
 
-    function hasFocus() {
-      const a = document.activeElement;
-      return !!(a && host.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
-    }
+    const hasFocus = () => ED.inspector.typingIn(host);
     function project() { return ed.state.project; }
     function ctx() { return { project: project(), map: ed.state.map, mapId: ed.state.mapId }; }
     function commands() { return target ? SE.commandsAt(project(), target.path) : []; }
@@ -32600,7 +32658,7 @@ PKMN.TILES.register([
         liveParse();
         return;
       }
-      for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(forms);
       forms = [];
       clear(el.cards);
       renderList(el.cards, cmds, target.path, 0);
@@ -32991,15 +33049,7 @@ PKMN.TILES.register([
   };
 
   /** selectionFor(entry) -> what ED.select() should be given to jump to a row. */
-  W.selectionFor = function (entry) {
-    const w = (entry && entry.where) || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot != null) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.item) return { kind: 'item', id: w.item };
-    if (w.fragment) return { kind: 'fragment', id: w.fragment };
-    return { kind: 'project' };
-  };
+  W.selectionFor = (entry) => ED.ops.whereSelection(entry && entry.where);
 
   // =================================================================================
   // Pure: what a problem code means
@@ -33051,14 +33101,7 @@ PKMN.TILES.register([
   };
 
   /** Turn a validator problem into a selection to jump to. */
-  W.problemSelection = function (p) {
-    const w = (p && p.where) || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.map) return { kind: 'map', id: w.map };
-    return { kind: 'project' };
-  };
+  W.problemSelection = (p) => ED.ops.whereSelection(p && p.where);
 
   // =================================================================================
   // Pure: fragments
@@ -33103,18 +33146,8 @@ PKMN.TILES.register([
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector;
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const commit = (label, fn) => ED.commit(label, fn);
   const project = () => ED.state.project;
   function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
   /** A textarea that grows with its text and only writes after a pause. */
@@ -33135,10 +33168,7 @@ PKMN.TILES.register([
    * everything, and rebuilding a field under a caret is horrible — so a panel
    * that holds text waits until the field is left alone.
    */
-  function typingIn(el) {
-    const a = document.activeElement;
-    return !!(a && el && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
-  }
+  const typingIn = (el) => ED.inspector.typingIn(el);
 
   // ---------------------------------------------------------------- Scripts ----------
   KIT.registry('editorPanels').add({
@@ -33147,9 +33177,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a Common Event…';
+      el.search = ED.inspector.searchBox('Find a Common Event…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'A new Common Event', () => {
@@ -33213,8 +33241,7 @@ PKMN.TILES.register([
     if (sig === panel._detailSig) return;
     // The label field's own commit changes this signature; rebuilding then would
     // take the box away mid-word. A form with the caret keeps it until the blur.
-    const active = document.activeElement;
-    if (active && el.detail.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    if (typingIn(el.detail)) return;
     panel._detailSig = sig;
     if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
     clear(el.detail);
@@ -33256,9 +33283,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Search your notes…';
+      el.search = ED.inspector.searchBox('Search your notes…');
       el.search.value = fragState.query;
       el.search.oninput = () => { fragState.query = el.search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -33400,9 +33425,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Search every line in the game…';
+      el.search = ED.inspector.searchBox('Search every line in the game…');
       el.search.value = dlgState.query;
       el.search.oninput = () => { dlgState.query = el.search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -33465,6 +33488,9 @@ PKMN.TILES.register([
     if (r.speaker) tags.appendChild(make('span.ed-badge.ed-speaker', { text: r.speaker }));
     head.appendChild(btn('→', 'Go to it', () => {
       const sel = W.selectionFor(r);
+      // The third hand-written "jump to a thing", and the only one that forgot
+      // this: a selection on another map is invisible until that map is open.
+      if (sel.map && ED.state.mapId !== sel.map && ED.state.project.maps[sel.map]) ED.openMap(sel.map);
       ED.select(sel);
       if (sel.kind === 'slot' || sel.kind === 'script') ED.scriptEditor.open({ path: KIT.editor.scriptEditor.pathForSelection(project(), sel), label: KIT.editor.scriptEditor.labelForSelection(project(), sel), selection: sel });
       else if (sel.kind === 'object') ED.set({ panel: 'objects' });
@@ -33635,14 +33661,7 @@ PKMN.TILES.register([
   PP.defaultFor = (type) => (type === 'bool' ? false : type === 'string' ? '' : 0);
 
   /** Where a usage points, as a selection. */
-  PP.usageSelection = function (where) {
-    const w = where || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.map) return { kind: 'map', id: w.map };
-    return { kind: 'project' };
-  };
+  PP.usageSelection = (where) => ED.ops.whereSelection(where);
   /** A short "where is this used" line. */
   PP.usageLabel = function (project, where) {
     const w = where || {};
@@ -33797,31 +33816,27 @@ PKMN.TILES.register([
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector;
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const commit = (label, fn) => ED.commit(label, fn);        // refresh, validate and save are its job
   const project = () => ED.state.project;
-  function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
-  function section(host, title, openByDefault, build) {
-    const box = make('details.ed-sec');
-    box.open = openByDefault !== false;
-    const sum = make('summary', { text: title });
-    box.appendChild(sum);
-    const body = make('div.ed-sec-body');
-    box.appendChild(body);
-    host.appendChild(box);
-    build(body);
-    return body;
+  /**
+   * statusLine(state) -> { el, say(text, ok) } — the line a section uses to
+   * answer ("Saved as x", "Nothing pasted yet"). The act it reports on usually
+   * rebuilds the panel, which would throw the answer away, so what was said
+   * lives on `state.said` outside the panel and is put back on redraw.
+   */
+  function statusLine(state) {
+    const el = make('div.ed-hint');
+    const say = (text, ok) => {
+      state.said = text ? { text, ok } : null;
+      el.textContent = text || '';
+      el.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+    };
+    if (state.said) say(state.said.text, state.said.ok);
+    return { el, say };
   }
+  function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
+  const section = (host, title, open, build, remember) => ED.inspector.section(host, title, open, build, remember).body;
 
   // What the “Start a new game” box holds, kept across redraws like moveState.
   const newState = { open: false, name: '' };
@@ -33863,10 +33878,9 @@ PKMN.TILES.register([
       const p = ed.state.project;
       const sig = JSON.stringify([p.meta, p.heroes, p.start, p.settings, p.modules, Object.keys(p.maps)]);
       if (sig === this._sig) return;
-      const active = document.activeElement;
-      if (active && host.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (ED.inspector.typingIn(host)) return;
       this._sig = sig;
-      for (const f of this._forms) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(this._forms);
       this._forms = [];
       clear(host);
       const forms = this._forms;
@@ -33951,7 +33965,7 @@ PKMN.TILES.register([
       // browser — so without this, work done on the phone stays on the phone.
       // There is no server and no account: the bridge is a file you send to
       // yourself however you already send things.
-      const moveBody = section(host, 'This game, on your other device', moveState.open === true, (body) => {
+      section(host, 'This game, on your other device', moveState.open === true, (body) => {
         body.appendChild(make('div.ed-hint', {
           text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
         }));
@@ -33959,13 +33973,7 @@ PKMN.TILES.register([
         // Opening a game rebuilds this whole panel (the project changed), which
         // would throw the answer away the moment it is given. So the last thing
         // said lives outside the panel and is put back when it redraws.
-        const status = make('div.ed-hint');
-        const say = (text, ok) => {
-          moveState.said = text ? { text, ok } : null;
-          status.textContent = text || '';
-          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
-        };
-        if (moveState.said) say(moveState.said.text, moveState.said.ok);
+        const { el: status, say } = statusLine(moveState);
 
         const out = make('div.ed-row');
         out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
@@ -34065,16 +34073,8 @@ PKMN.TILES.register([
         body.appendChild(make('div.ed-sub', {
           text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
         }));
-      });
-      const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
-      if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
+      }, moveState);
 
-      // ---- languages ---------------------------------------------------------
-      // RPG Maker's answer to this is "ship a second copy of your game", which is
-      // why so few of its games exist in more than one language. Here a
-      // translation is one text file beside the project, keyed on the lines
-      // themselves, and the editor's whole job is to hand that file out and take
-      // it back.
       // ---- starting over ----------------------------------------------------------
       // The demo is a worked example, not a cage. A person who wants THEIR game
       // needs a blank map with their title on it, from the phone, without a CLI.
@@ -34119,18 +34119,20 @@ PKMN.TILES.register([
           body.appendChild(row);
           if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
         }
-      });
+      }, newState);
 
-      const langBody = section(host, 'Languages', langState.open === true, (body) => {
+      // ---- languages ---------------------------------------------------------
+      // RPG Maker's answer to this is "ship a second copy of your game", which is
+      // why so few of its games exist in more than one language. Here a
+      // translation is one text file beside the project, keyed on the lines
+      // themselves, and the editor's whole job is to hand that file out and take
+      // it back.
+
+      section(host, 'Languages', langState.open === true, (body) => {
         const L = KIT.lang;
         if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
 
-        const status = make('div.ed-hint');
-        const say = (text, ok) => {
-          langState.said = text ? { text, ok } : null;
-          status.textContent = text || '';
-          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
-        };
+        const { el: status, say } = statusLine(langState);   // and it now comes back after a redraw, like the other one
 
         const src = (p.settings && p.settings.language) || 'en';
         const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
@@ -34239,9 +34241,7 @@ PKMN.TILES.register([
         }
         if (langState.said) say(langState.said.text, langState.said.ok);
         body.appendChild(status);
-      });
-      const langBox = langBody.parentNode;
-      if (langBox) langBox.addEventListener('toggle', () => { langState.open = langBox.open; });
+      }, langState);
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
@@ -34282,9 +34282,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a Switch/Variable…';
+      el.search = ED.inspector.searchBox('Find a Switch/Variable…');
       el.search.value = varState.query;
       el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -34307,8 +34305,7 @@ PKMN.TILES.register([
     refresh(ed) {
       const el = this._el;
       if (!el) return;
-      const active = document.activeElement;
-      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+      if (ED.inspector.typingIn(el.list)) return;
       // Cheap gate first. varIndex() walks every command in the project
       // (P.collect), and this refresh runs after EVERY commit anywhere in the
       // editor — so a keystroke in a dialogue line used to re-index the whole
@@ -34460,9 +34457,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a rule…';
+      el.search = ED.inspector.searchBox('Find a rule…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Add a rule of the world', () => {
@@ -34534,9 +34529,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find an item…';
+      el.search = ED.inspector.searchBox('Find an item…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Add an item', () => {
@@ -34604,9 +34597,7 @@ PKMN.TILES.register([
       clear(host);
       const el = this._el = {};
       host.appendChild(make('div.ed-hint', { text: 'Terms are the words the engine says on its own: “Got {count} {item}!”, “New Game”, “Save”. Change one and every message that uses it changes.' }));
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a term…';
+      el.search = ED.inspector.searchBox('Find a term…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       host.appendChild(el.search);
       el.list = make('div.ed-terms');
@@ -35102,8 +35093,16 @@ PKMN.TILES.register([
         result = found.kind === 'tileset' ? KIT.import.tiled.tileset(found.main.text, o) : KIT.import.tiled.map(found.main.text, o);
       } else if (found.tool === 'rpgmaker') {
         const data = {};
-        for (const f of found.files) { try { data[base(f.name)] = JSON.parse(f.text); } catch (e) { /* not a data file */ } }
+        const unreadable = [];
+        // found.files is already only the .json files, so one that will not
+        // parse is a corrupt data file, and the importer must not run as though
+        // that map or those events had never existed.
+        for (const f of found.files) {
+          try { data[base(f.name)] = JSON.parse(f.text); }
+          catch (e) { unreadable.push({ severity: 'warn', code: 'bad-json', message: `${f.name} is not valid JSON and was left out (${e && e.message ? e.message : e})` }); }
+        }
         result = KIT.import.rpgmaker.project(data, { asset: assets.asset, prefix });
+        if (unreadable.length) result.problems = unreadable.concat(result.problems || []);
       } else {
         const o = { asset: assets.asset, prefix, name: base(found.main.name), id: KIT.slug(base(found.main.name).replace(/\.[A-Za-z0-9]+$/, '')), kind: 'sprite', inflate, encodePng };
         result = found.kind === 'file' ? KIT.import.aseprite.file(found.main.bytes, o) : KIT.import.aseprite.sheet(found.main.text, o);
@@ -35192,23 +35191,8 @@ PKMN.TILES.register([
   const clear = (el) => KIT.ui.clear(el);
   const titleCase = KIT.titleCase;
 
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function section(host, title, open, build) {
-    const box = make('details.ed-sec');
-    box.open = open !== false;
-    box.appendChild(make('summary', { text: title }));
-    const body = make('div.ed-sec-body');
-    box.appendChild(body);
-    host.appendChild(box);
-    build(body);
-    return box;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const section = (host, title, open, build) => ED.inspector.section(host, title, open, build).box;
 
   /**
    * The save to read. A running game's, when there is one: then the panel is a
@@ -35224,11 +35208,7 @@ PKMN.TILES.register([
   const state = { view: 'people', query: '', open: {}, adding: false, draft: '' };
   const P = () => KIT.project;
   const INS = () => ED.inspector;
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (INS() && INS().afterEdit) INS().afterEdit();
-    return r;
-  }
+  const commit = (label, fn) => ED.commit(label, fn);
   const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
   /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
   function freshId(table, name, fallback) {
@@ -35261,11 +35241,11 @@ PKMN.TILES.register([
       // waits for the blur; the search box is rebuilt and given the caret back.
       const active = document.activeElement;
       const inSearch = !!(active && host.contains(active) && active.classList.contains('ed-obj-search'));
-      if (!inSearch && active && host.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { this._stale = true; return; }
+      if (!inSearch && ED.inspector.typingIn(host)) { this._stale = true; return; }
       const caret = inSearch ? active.selectionStart : 0;
       this._sig = sig;
       this._stale = false;
-      for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(this._forms);
       this._forms = [];
       clear(host);
       if (inSearch) setTimeout(() => { const box = host.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
@@ -35285,9 +35265,7 @@ PKMN.TILES.register([
       host.appendChild(tabs);
 
       const head = make('div.ed-row.ed-obj-head');
-      const search = make('input.ed-obj-search');
-      search.type = 'search';
-      search.placeholder = state.view === 'people' ? 'Find somebody' : 'Find something known';
+      const search = ED.inspector.searchBox(state.view === 'people' ? 'Find somebody' : 'Find something known');
       search.value = state.query;
       search.oninput = () => { state.query = search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(search);
@@ -35473,7 +35451,6 @@ PKMN.TILES.register([
   // The shell runs validate + autosave only after a pointer stroke (afterDocument is
   // private). Every panel that commits calls this instead; it is the same debounce the
   // inspector already had, now in one place.
-  ED.afterEdit = function () { if (INS.afterEdit) INS.afterEdit(); else if (ED.refresh) ED.refresh(); };
 
   // ---- 2. panel.onSelect ------------------------------------------------------------
   // The shell delivers onSelect(sel, ed) to every mounted panel from ED.select. This
@@ -36944,7 +36921,7 @@ PKMN.TILES.register([
     const payload = Object.assign({ module: 'mons' }, what || {});
     if (ctx && typeof ctx.emit === 'function') ctx.emit('monsChanged', payload);
     else if (ctx && ctx.world && ctx.world.events) ctx.world.events.emit('monsChanged', payload);
-    if (KIT.bus) { try { KIT.bus.emit('monsChanged', payload); } catch (e) { /* a listener threw; not our problem */ } }
+    if (KIT.bus) KIT.bus.emit('monsChanged', payload);          // the bus catches and logs a listener that throws
   };
 
   /**
@@ -37093,12 +37070,12 @@ PKMN.TILES.register([
      * up after the script that pushed it has ended.
      */
     const grantWhenQuiet = async (justChosen) => {
-      try { await KIT.interpreter.whenIdle(); } catch (e) { /* nothing was running */ }
+      if (KIT.interpreter) await KIT.interpreter.whenIdle();      // resolves at once when nothing is running
       const onScreen = () => (world && world.busy) ||
         (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
       for (let tries = 0; onScreen() && tries < 600; tries++) {
         await new Promise(r => setTimeout(r, 100));               // a minute, then say it anyway
-        try { await KIT.interpreter.whenIdle(); } catch (e) { /* ditto */ }
+        if (KIT.interpreter) await KIT.interpreter.whenIdle();
       }
       grantIfNeeded(justChosen);
     };
@@ -37934,7 +37911,6 @@ PKMN.TILES.register([
     }
 
     async function finishCaught() {
-      const section = M.sectionOf(ctx);
       const name = M.speciesName(state.species);
       await message(pline('gotcha', { name }));
       const r = await M.grant(ctx, {
@@ -39132,7 +39108,7 @@ PKMN.TILES.register([
 //   · a validator, so an encounter table that names a species nobody has heard
 //     of shows up in Problems instead of failing quietly at play time.
 //
-// Every edit goes through KIT.editor.commit + KIT.editor.afterEdit, so undo
+// Every edit goes through KIT.editor.commit, so undo
 // covers it like anything else (docs/EDITOR-CONTRACT.md).
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
@@ -39246,8 +39222,7 @@ PKMN.TILES.register([
   }
   function afterSpecies(ed, list) {
     M.registerSpecies(list || []);                 // the picker, the card and the map see it at once
-    if (typeof ed.afterEdit === 'function') ed.afterEdit();
-    if (typeof ed.refresh === 'function') ed.refresh();
+    if (typeof ed.refresh === 'function') ed.refresh();   // again: the commit's own repaint ran before the registry changed
   }
   function paintSpecies(panel, ed) {
     const el = panel._el;
@@ -39258,18 +39233,16 @@ PKMN.TILES.register([
     if (sig === panel._sig) return;
     const active = document.activeElement;
     const inSearch = !!(active && el.contains(active) && active.classList.contains('ed-obj-search'));
-    if (!inSearch && active && el.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { panel._stale = true; return; }
+    if (!inSearch && KIT.editor.inspector.typingIn(el)) { panel._stale = true; return; }
     const caret = inSearch ? active.selectionStart : 0;
     panel._sig = sig; panel._stale = false;
-    for (const f of panel._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+    KIT.editor.inspector.destroyForms(panel._forms);
     panel._forms = [];
     UI.clear(el);
     el.appendChild(make('div.ed-hint', { text: 'Everybody who can be met, caught and walked with. The ones that came with the engine are a worked example: rename one, restat it, or write your own — a species of yours with the same id wins.' }));
 
     const head = make('div.ed-row.ed-obj-head');
-    const search = make('input.ed-obj-search');
-    search.type = 'search';
-    search.placeholder = 'Find a species…';
+    const search = KIT.editor.inspector.searchBox('Find a species…');
     search.value = speciesState.query;
     search.oninput = () => { speciesState.query = search.value; panel._sig = ''; paintSpecies(panel, ed); };
     head.appendChild(search);
@@ -39472,8 +39445,6 @@ PKMN.TILES.register([
     const table = tableOf(ed.state.project, mapId);
     fn(table);
     ed.commit('Encounters', (doc, O) => O.setField(doc, ['maps', mapId, 'props', 'encounters'], table, 'Encounters'));
-    if (typeof ed.afterEdit === 'function') ed.afterEdit();
-    if (typeof ed.refresh === 'function') ed.refresh();
   }
 
   // ---- the validator ---------------------------------------------------------
@@ -39556,7 +39527,6 @@ PKMN.TILES.register([
   }
   function set(ctx, i, key, value) {
     ctx.ed.commit(`Encounter ${key}`, (doc, O) => O.setField(doc, ['packs', 'mons', 'encounters', ctx.mapId, 'table', i, key], value, `Encounter ${key}`));
-    if (KIT.editor.afterEdit) KIT.editor.afterEdit();
   }
 
   /** registerEditor() — the panel, the widget and the validator, when there is a page. */
@@ -41542,7 +41512,7 @@ PKMN.TILES.register([
 // module. Contract: docs/EDITOR-CONTRACT.md.
 //
 // Nothing here writes to the project directly: every change goes through
-// KIT.editor.panelEdit (commit + refresh + autosave), so undo covers all of it.
+// KIT.editor.commit (refresh + validate + autosave follow it), so undo covers all of it.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
@@ -41553,12 +41523,8 @@ PKMN.TILES.register([
   const make = UI.make;
   const num = KIT.num;
 
-  function edit(label, fn) {
-    if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    return out;
-  }
+  /** One undo step; ED.commit repaints, validates and saves after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   function button(label, onTap, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';

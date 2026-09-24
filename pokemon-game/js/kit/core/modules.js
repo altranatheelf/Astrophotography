@@ -236,7 +236,7 @@
     try {
       const d = typeof decl.defaults === 'function' ? decl.defaults() : decl.defaults;
       return (d && typeof d === 'object') ? d : {};
-    } catch (e) { return {}; }
+    } catch (e) { (KIT.log || console).error(`[module ${decl && decl.key ? decl.key : '?'}] defaults() threw; using {}`, e); return {}; }
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

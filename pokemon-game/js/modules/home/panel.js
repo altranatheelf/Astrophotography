@@ -3,7 +3,7 @@
 // module. Contract: docs/EDITOR-CONTRACT.md.
 //
 // Nothing here writes to the project directly: every change goes through
-// KIT.editor.panelEdit (commit + refresh + autosave), so undo covers all of it.
+// KIT.editor.commit (refresh + validate + autosave follow it), so undo covers all of it.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
@@ -14,12 +14,8 @@
   const make = UI.make;
   const num = KIT.num;
 
-  function edit(label, fn) {
-    if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    return out;
-  }
+  /** One undo step; ED.commit repaints, validates and saves after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   function button(label, onTap, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';

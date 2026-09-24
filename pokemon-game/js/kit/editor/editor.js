@@ -188,14 +188,23 @@
     emit('document', { kind });
   }
 
+  /**
+   * validateNow() — run the validator and record what it said, INCLUDING when
+   * the validator itself is what broke. A crashed validator used to come out of
+   * the inspector's copy of this as "no problems", which then got saved.
+   */
+  ED.validateNow = function () {
+    try { state.problems = KIT.project.validate(state.project) || []; }
+    catch (e) { state.problems = [{ severity: 'error', code: 'validator', message: String(e.message || e), where: {} }]; }
+    emit('problems', state.problems);
+    return state.problems;
+  };
   let validateTimer = null;
   function scheduleValidate() {
     if (validateTimer) clearTimeout(validateTimer);
     validateTimer = setTimeout(() => {
       validateTimer = null;
-      try { state.problems = KIT.project.validate(state.project) || []; }
-      catch (e) { state.problems = [{ severity: 'error', code: 'validator', message: String(e.message || e), where: {} }]; }
-      emit('problems', state.problems);
+      ED.validateNow();
       refreshPanels();
       updateStatus();
     }, 250);

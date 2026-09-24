@@ -41,7 +41,7 @@
     const payload = Object.assign({ module: 'mons' }, what || {});
     if (ctx && typeof ctx.emit === 'function') ctx.emit('monsChanged', payload);
     else if (ctx && ctx.world && ctx.world.events) ctx.world.events.emit('monsChanged', payload);
-    if (KIT.bus) { try { KIT.bus.emit('monsChanged', payload); } catch (e) { /* a listener threw; not our problem */ } }
+    if (KIT.bus) KIT.bus.emit('monsChanged', payload);          // the bus catches and logs a listener that throws
   };
 
   /**
@@ -190,12 +190,12 @@
      * up after the script that pushed it has ended.
      */
     const grantWhenQuiet = async (justChosen) => {
-      try { await KIT.interpreter.whenIdle(); } catch (e) { /* nothing was running */ }
+      if (KIT.interpreter) await KIT.interpreter.whenIdle();      // resolves at once when nothing is running
       const onScreen = () => (world && world.busy) ||
         (KIT.scenes && KIT.scenes.ids && KIT.scenes.ids().some(id => id === 'dialogue' || id === 'choice' || id === 'chapter'));
       for (let tries = 0; onScreen() && tries < 600; tries++) {
         await new Promise(r => setTimeout(r, 100));               // a minute, then say it anyway
-        try { await KIT.interpreter.whenIdle(); } catch (e) { /* ditto */ }
+        if (KIT.interpreter) await KIT.interpreter.whenIdle();
       }
       grantIfNeeded(justChosen);
     };

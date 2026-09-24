@@ -45,7 +45,9 @@
       out.push({ path: path.slice(), form: (typeof cur === 'string' && cur.slice(0, 4) === 'obj:') ? 'target' : 'id' });
     };
     let refs = [];
-    try { refs = (P.collect(project) || {}).refs || []; } catch (e) { refs = []; }
+    // An answer of "nowhere" from a collector that THREW is the one an author
+    // deletes an object on. Say so, at least in the console.
+    try { refs = (P.collect(project) || {}).refs || []; } catch (e) { (KIT.log || console).error('[objects] collect threw; references unknown', e); refs = []; }
     // collect() moves the document path onto `where`; be happy with either shape.
     for (const r of refs) {
       if (r.kind !== 'object' || r.id !== id) continue;
@@ -195,7 +197,7 @@
     const list = ED.problemsFor({ kind: 'object', map: mapId(), id, page }) || [];
     return list;
   }
-  function commit(label, fn) { const r = ED.commit(label, fn); INS.afterEdit(); return r; }
+  const commit = (label, fn) => ED.commit(label, fn);
   function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label)); }
 
   KIT.registry('editorPanels').add({
@@ -208,9 +210,7 @@
       // --- list view
       el.listView = make('div.ed-obj-listview');
       const head = make('div.ed-row.ed-obj-head');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find an event…';
+      el.search = ED.inspector.searchBox('Find an event…');
       el.search.oninput = () => { search = el.search.value.toLowerCase(); listSig = ''; render(); };
       head.appendChild(el.search);
       el.addBtn = btn('＋ Add', 'Add an event to this map', () => { addOpen = !addOpen; renderAdd(); }, 'primary');
@@ -449,7 +449,7 @@
     buildDetail(obj);
     if (other && ED.el && ED.el.panel) ED.el.panel.scrollTop = 0;
   }
-  function destroyForms() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } forms = []; }
+  function destroyForms() { ED.inspector.destroyForms(forms); forms.length = 0; }
   function refreshForms() {
     const obj = selectedObject();
     if (!obj) return;

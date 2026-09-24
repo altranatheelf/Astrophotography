@@ -93,15 +93,7 @@
   };
 
   /** selectionFor(entry) -> what ED.select() should be given to jump to a row. */
-  W.selectionFor = function (entry) {
-    const w = (entry && entry.where) || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot != null) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.item) return { kind: 'item', id: w.item };
-    if (w.fragment) return { kind: 'fragment', id: w.fragment };
-    return { kind: 'project' };
-  };
+  W.selectionFor = (entry) => ED.ops.whereSelection(entry && entry.where);
 
   // =================================================================================
   // Pure: what a problem code means
@@ -153,14 +145,7 @@
   };
 
   /** Turn a validator problem into a selection to jump to. */
-  W.problemSelection = function (p) {
-    const w = (p && p.where) || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.map) return { kind: 'map', id: w.map };
-    return { kind: 'project' };
-  };
+  W.problemSelection = (p) => ED.ops.whereSelection(p && p.where);
 
   // =================================================================================
   // Pure: fragments
@@ -205,18 +190,8 @@
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector;
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const commit = (label, fn) => ED.commit(label, fn);
   const project = () => ED.state.project;
   function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
   /** A textarea that grows with its text and only writes after a pause. */
@@ -237,10 +212,7 @@
    * everything, and rebuilding a field under a caret is horrible — so a panel
    * that holds text waits until the field is left alone.
    */
-  function typingIn(el) {
-    const a = document.activeElement;
-    return !!(a && el && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
-  }
+  const typingIn = (el) => ED.inspector.typingIn(el);
 
   // ---------------------------------------------------------------- Scripts ----------
   KIT.registry('editorPanels').add({
@@ -249,9 +221,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a Common Event…';
+      el.search = ED.inspector.searchBox('Find a Common Event…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'A new Common Event', () => {
@@ -315,8 +285,7 @@
     if (sig === panel._detailSig) return;
     // The label field's own commit changes this signature; rebuilding then would
     // take the box away mid-word. A form with the caret keeps it until the blur.
-    const active = document.activeElement;
-    if (active && el.detail.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    if (typingIn(el.detail)) return;
     panel._detailSig = sig;
     if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
     clear(el.detail);
@@ -358,9 +327,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Search your notes…';
+      el.search = ED.inspector.searchBox('Search your notes…');
       el.search.value = fragState.query;
       el.search.oninput = () => { fragState.query = el.search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -502,9 +469,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Search every line in the game…';
+      el.search = ED.inspector.searchBox('Search every line in the game…');
       el.search.value = dlgState.query;
       el.search.oninput = () => { dlgState.query = el.search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -567,6 +532,9 @@
     if (r.speaker) tags.appendChild(make('span.ed-badge.ed-speaker', { text: r.speaker }));
     head.appendChild(btn('→', 'Go to it', () => {
       const sel = W.selectionFor(r);
+      // The third hand-written "jump to a thing", and the only one that forgot
+      // this: a selection on another map is invisible until that map is open.
+      if (sel.map && ED.state.mapId !== sel.map && ED.state.project.maps[sel.map]) ED.openMap(sel.map);
       ED.select(sel);
       if (sel.kind === 'slot' || sel.kind === 'script') ED.scriptEditor.open({ path: KIT.editor.scriptEditor.pathForSelection(project(), sel), label: KIT.editor.scriptEditor.labelForSelection(project(), sel), selection: sel });
       else if (sel.kind === 'object') ED.set({ panel: 'objects' });

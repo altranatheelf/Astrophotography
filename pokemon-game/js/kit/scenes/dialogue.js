@@ -184,11 +184,6 @@
       }
 
       /**
-       * The sound of somebody talking: one blip every few letters, at a pitch
-       * that wanders a little so it is a person and not a printer. Punctuation
-       * and spaces stay silent, which is what stops it sounding like Morse.
-       */
-      /**
        * reveal(unit, n) — show the first n letters. A plain run grows its
        * textContent; a run with a per-letter effect already holds every letter
        * and just stops hiding them, so the animation does not jump as the line
@@ -209,6 +204,11 @@
         } else u.el.textContent = u.text.slice(0, n);
       }
 
+      /**
+       * The sound of somebody talking: one blip every few letters, at a pitch
+       * that wanders a little so it is a person and not a printer. Punctuation
+       * and spaces stay silent, which is what stops it sounding like Morse.
+       */
       function speak(chars, v) {
         const voice = v;
         if (!voice || !voice.sound || !chars) return;

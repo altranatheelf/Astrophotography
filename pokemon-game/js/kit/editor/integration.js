@@ -23,7 +23,6 @@
   // The shell runs validate + autosave only after a pointer stroke (afterDocument is
   // private). Every panel that commits calls this instead; it is the same debounce the
   // inspector already had, now in one place.
-  ED.afterEdit = function () { if (INS.afterEdit) INS.afterEdit(); else if (ED.refresh) ED.refresh(); };
 
   // ---- 2. panel.onSelect ------------------------------------------------------------
   // The shell delivers onSelect(sel, ed) to every mounted panel from ED.select. This

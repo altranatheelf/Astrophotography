@@ -264,20 +264,10 @@
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector || {};
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
   const keyOf = (path) => (path || []).join('/');
 
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const commit = (label, fn) => ED.commit(label, fn);
 
   // The editor instance mounted in the Script panel (there is only ever one).
   let view = 'cards';
@@ -377,10 +367,7 @@
     // Rebuilding while a field has focus would steal the caret; wait for the blur.
     host.addEventListener('focusout', () => { if (deferred) setTimeout(() => { if (!hasFocus()) { deferred = false; render(true); } }, 0); });
 
-    function hasFocus() {
-      const a = document.activeElement;
-      return !!(a && host.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
-    }
+    const hasFocus = () => ED.inspector.typingIn(host);
     function project() { return ed.state.project; }
     function ctx() { return { project: project(), map: ed.state.map, mapId: ed.state.mapId }; }
     function commands() { return target ? SE.commandsAt(project(), target.path) : []; }
@@ -457,7 +444,7 @@
         liveParse();
         return;
       }
-      for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(forms);
       forms = [];
       clear(el.cards);
       renderList(el.cards, cmds, target.path, 0);

@@ -240,37 +240,70 @@
   INS.scalarText = (v) => (v === null ? 'null' : String(v));
 
   /**
-   * afterEdit() — the shell runs validate + autosave only after a pointer stroke
-   * (`afterDocument` is private), so a panel that commits calls this instead.
+   * afterEdit() — a panel that wrote the document some other way than
+   * ED.commit (an import merge, a paste) says so. ED.commit already does this;
+   * a panel that commits need not call it, and five used to, which ran the
+   * refresh, the validation and the save twice each per edit.
    */
-  let validateTimer = null;
-  INS.afterEdit = function () {
-    if (!ED.state || !ED.state.doc) return;
-    if (ED.refresh) ED.refresh();
-    if (validateTimer) clearTimeout(validateTimer);
-    validateTimer = setTimeout(() => {
-      validateTimer = null;
-      let problems = [];
-      try { problems = KIT.project.validate(ED.state.project) || []; } catch (e) { problems = []; }
-      if (ED.set) ED.set({ problems });
-      if (ED.updateStatus) ED.updateStatus();
-      if (ED.saveNow) ED.saveNow();
-    }, 400);
-  };
+  INS.afterEdit = function () { if (ED.afterEdit) ED.afterEdit(); };
 
   // =================================================================================
   // Everything below needs a browser.
   // =================================================================================
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
+  /**
+   * btn(label, title, fn, cls) — the editor's button. The title is also the
+   * aria-label, and a click stops at the button: four panels had grown their
+   * own copy with exactly those two improvements while this one, the shared
+   * one, lacked them — so the one panel using the shared one was the one whose
+   * buttons had no accessible name and needed a stopPropagation workaround.
+   */
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';
-    if (title) b.title = title;
-    b.onclick = (e) => { e.preventDefault(); fn(e); };
+    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
     return b;
   }
   INS.btn = btn;
+  /**
+   * typingIn(host) — is the caret in a field inside this element? A panel that
+   * redraws while somebody is typing takes the box away mid-word, so every
+   * panel asks this before rebuilding. Six had asked it in their own words, and
+   * two of the six had forgotten a tag.
+   */
+  INS.typingIn = function (host) {
+    const a = document.activeElement;
+    return !!(a && host && host.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
+  };
+  /**
+   * section(host, title, open, build, remember) -> { box, body } — a collapsible
+   * <details> section. `remember` is a state object kept outside the panel; when
+   * given, the section writes `remember.open` on every toggle, so a redraw puts
+   * it back the way it was. Three sections hand-wired that listener and a fourth
+   * forgot, which snapped it shut the moment a person had typed into it.
+   */
+  INS.section = function (host, title, open, build, remember) {
+    const box = make('details.ed-sec');
+    box.open = open !== false;
+    box.appendChild(make('summary', { text: title }));
+    const body = make('div.ed-sec-body');
+    box.appendChild(body);
+    host.appendChild(box);
+    if (remember) box.addEventListener('toggle', () => { remember.open = box.open; });
+    if (typeof build === 'function') build(body);
+    return { box, body };
+  };
+  /** searchBox(placeholder) -> the editor's search field. The caller wires `value` and `oninput`; this is the three lines ten panels had copied. */
+  INS.searchBox = function (placeholder) {
+    const box = make('input.ed-obj-search');
+    box.type = 'search';
+    box.placeholder = placeholder || '';
+    return box;
+  };
+  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
+  INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
   INS.spriteCanvas = function (id, scale) {

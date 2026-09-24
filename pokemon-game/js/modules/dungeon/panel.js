@@ -3,7 +3,7 @@
 // turns. Contract: docs/EDITOR-CONTRACT.md.
 //
 // Nothing here writes to the project directly: every change goes through
-// KIT.editor.commit (+ afterEdit), so undo covers all of it.
+// KIT.editor.commit, so undo covers all of it.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const D = KIT.dungeon = KIT.dungeon || {};
@@ -13,12 +13,8 @@
 
   const make = UI.make;
 
-  function edit(label, fn) {
-    if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    return out;
-  }
+  /** One undo step; ED.commit repaints, validates and saves after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   function section(title, hint) {
     const box = make('div.ed-sec');
     box.appendChild(make('h4.ed-h4', { text: title }));

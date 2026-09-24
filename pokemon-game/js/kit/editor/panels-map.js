@@ -120,17 +120,8 @@
     return d;
   }
 
-  /**
-   * Every panel edit runs through here: one undo step, then the shell's
-   * after-an-edit pass (repaint + validate + save the draft), which lives on
-   * ED.afterEdit so every panel does exactly the same thing.
-   */
-  function edit(label, fn) {
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    else { ED.refresh(); if (ED.saveNow) ED.saveNow(); }
-    return out;
-  }
+  /** Every panel edit is one undo step; ED.commit repaints, validates and saves the draft after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   ED.panelEdit = edit;      // the Map panel and the Tiles panel share it
 
   /**

@@ -66,14 +66,7 @@
   PP.defaultFor = (type) => (type === 'bool' ? false : type === 'string' ? '' : 0);
 
   /** Where a usage points, as a selection. */
-  PP.usageSelection = function (where) {
-    const w = where || {};
-    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
-    if (w.map && w.object && w.slot) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
-    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
-    if (w.map) return { kind: 'map', id: w.map };
-    return { kind: 'project' };
-  };
+  PP.usageSelection = (where) => ED.ops.whereSelection(where);
   /** A short "where is this used" line. */
   PP.usageLabel = function (project, where) {
     const w = where || {};
@@ -228,31 +221,27 @@
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
   const INS = () => ED.inspector;
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-    return r;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const commit = (label, fn) => ED.commit(label, fn);        // refresh, validate and save are its job
   const project = () => ED.state.project;
-  function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
-  function section(host, title, openByDefault, build) {
-    const box = make('details.ed-sec');
-    box.open = openByDefault !== false;
-    const sum = make('summary', { text: title });
-    box.appendChild(sum);
-    const body = make('div.ed-sec-body');
-    box.appendChild(body);
-    host.appendChild(box);
-    build(body);
-    return body;
+  /**
+   * statusLine(state) -> { el, say(text, ok) } — the line a section uses to
+   * answer ("Saved as x", "Nothing pasted yet"). The act it reports on usually
+   * rebuilds the panel, which would throw the answer away, so what was said
+   * lives on `state.said` outside the panel and is put back on redraw.
+   */
+  function statusLine(state) {
+    const el = make('div.ed-hint');
+    const say = (text, ok) => {
+      state.said = text ? { text, ok } : null;
+      el.textContent = text || '';
+      el.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
+    };
+    if (state.said) say(state.said.text, state.said.ok);
+    return { el, say };
   }
+  function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
+  const section = (host, title, open, build, remember) => ED.inspector.section(host, title, open, build, remember).body;
 
   // What the “Start a new game” box holds, kept across redraws like moveState.
   const newState = { open: false, name: '' };
@@ -294,10 +283,9 @@
       const p = ed.state.project;
       const sig = JSON.stringify([p.meta, p.heroes, p.start, p.settings, p.modules, Object.keys(p.maps)]);
       if (sig === this._sig) return;
-      const active = document.activeElement;
-      if (active && host.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (ED.inspector.typingIn(host)) return;
       this._sig = sig;
-      for (const f of this._forms) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(this._forms);
       this._forms = [];
       clear(host);
       const forms = this._forms;
@@ -382,7 +370,7 @@
       // browser — so without this, work done on the phone stays on the phone.
       // There is no server and no account: the bridge is a file you send to
       // yourself however you already send things.
-      const moveBody = section(host, 'This game, on your other device', moveState.open === true, (body) => {
+      section(host, 'This game, on your other device', moveState.open === true, (body) => {
         body.appendChild(make('div.ed-hint', {
           text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
         }));
@@ -390,13 +378,7 @@
         // Opening a game rebuilds this whole panel (the project changed), which
         // would throw the answer away the moment it is given. So the last thing
         // said lives outside the panel and is put back when it redraws.
-        const status = make('div.ed-hint');
-        const say = (text, ok) => {
-          moveState.said = text ? { text, ok } : null;
-          status.textContent = text || '';
-          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
-        };
-        if (moveState.said) say(moveState.said.text, moveState.said.ok);
+        const { el: status, say } = statusLine(moveState);
 
         const out = make('div.ed-row');
         out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
@@ -496,16 +478,8 @@
         body.appendChild(make('div.ed-sub', {
           text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
         }));
-      });
-      const moveBox = moveBody.parentNode;      // section() hands back the body; the <details> is its parent
-      if (moveBox) moveBox.addEventListener('toggle', () => { moveState.open = moveBox.open; });
+      }, moveState);
 
-      // ---- languages ---------------------------------------------------------
-      // RPG Maker's answer to this is "ship a second copy of your game", which is
-      // why so few of its games exist in more than one language. Here a
-      // translation is one text file beside the project, keyed on the lines
-      // themselves, and the editor's whole job is to hand that file out and take
-      // it back.
       // ---- starting over ----------------------------------------------------------
       // The demo is a worked example, not a cage. A person who wants THEIR game
       // needs a blank map with their title on it, from the phone, without a CLI.
@@ -550,18 +524,20 @@
           body.appendChild(row);
           if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
         }
-      });
+      }, newState);
 
-      const langBody = section(host, 'Languages', langState.open === true, (body) => {
+      // ---- languages ---------------------------------------------------------
+      // RPG Maker's answer to this is "ship a second copy of your game", which is
+      // why so few of its games exist in more than one language. Here a
+      // translation is one text file beside the project, keyed on the lines
+      // themselves, and the editor's whole job is to hand that file out and take
+      // it back.
+
+      section(host, 'Languages', langState.open === true, (body) => {
         const L = KIT.lang;
         if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
 
-        const status = make('div.ed-hint');
-        const say = (text, ok) => {
-          langState.said = text ? { text, ok } : null;
-          status.textContent = text || '';
-          status.className = 'ed-hint ' + (ok === false ? 'ed-warn' : ok ? 'ed-ok' : '');
-        };
+        const { el: status, say } = statusLine(langState);   // and it now comes back after a redraw, like the other one
 
         const src = (p.settings && p.settings.language) || 'en';
         const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
@@ -670,9 +646,7 @@
         }
         if (langState.said) say(langState.said.text, langState.said.ok);
         body.appendChild(status);
-      });
-      const langBox = langBody.parentNode;
-      if (langBox) langBox.addEventListener('toggle', () => { langState.open = langBox.open; });
+      }, langState);
 
       section(host, 'Modules', false, (body) => {
         body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
@@ -713,9 +687,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a Switch/Variable…';
+      el.search = ED.inspector.searchBox('Find a Switch/Variable…');
       el.search.value = varState.query;
       el.search.oninput = () => { varState.query = el.search.value; this._sig = ''; this._version = ''; this.refresh(ED); };
       head.appendChild(el.search);
@@ -738,8 +710,7 @@
     refresh(ed) {
       const el = this._el;
       if (!el) return;
-      const active = document.activeElement;
-      if (active && el.list.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+      if (ED.inspector.typingIn(el.list)) return;
       // Cheap gate first. varIndex() walks every command in the project
       // (P.collect), and this refresh runs after EVERY commit anywhere in the
       // editor — so a keystroke in a dialogue line used to re-index the whole
@@ -891,9 +862,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a rule…';
+      el.search = ED.inspector.searchBox('Find a rule…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Add a rule of the world', () => {
@@ -965,9 +934,7 @@
       clear(host);
       const el = this._el = {};
       const head = make('div.ed-row');
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find an item…';
+      el.search = ED.inspector.searchBox('Find an item…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       head.appendChild(el.search);
       head.appendChild(btn('＋ New', 'Add an item', () => {
@@ -1035,9 +1002,7 @@
       clear(host);
       const el = this._el = {};
       host.appendChild(make('div.ed-hint', { text: 'Terms are the words the engine says on its own: “Got {count} {item}!”, “New Game”, “Save”. Change one and every message that uses it changes.' }));
-      el.search = make('input.ed-obj-search');
-      el.search.type = 'search';
-      el.search.placeholder = 'Find a term…';
+      el.search = ED.inspector.searchBox('Find a term…');
       el.search.oninput = () => { this._sig = ''; this.refresh(ED); };
       host.appendChild(el.search);
       el.list = make('div.ed-terms');
@@ -1533,8 +1498,16 @@
         result = found.kind === 'tileset' ? KIT.import.tiled.tileset(found.main.text, o) : KIT.import.tiled.map(found.main.text, o);
       } else if (found.tool === 'rpgmaker') {
         const data = {};
-        for (const f of found.files) { try { data[base(f.name)] = JSON.parse(f.text); } catch (e) { /* not a data file */ } }
+        const unreadable = [];
+        // found.files is already only the .json files, so one that will not
+        // parse is a corrupt data file, and the importer must not run as though
+        // that map or those events had never existed.
+        for (const f of found.files) {
+          try { data[base(f.name)] = JSON.parse(f.text); }
+          catch (e) { unreadable.push({ severity: 'warn', code: 'bad-json', message: `${f.name} is not valid JSON and was left out (${e && e.message ? e.message : e})` }); }
+        }
         result = KIT.import.rpgmaker.project(data, { asset: assets.asset, prefix });
+        if (unreadable.length) result.problems = unreadable.concat(result.problems || []);
       } else {
         const o = { asset: assets.asset, prefix, name: base(found.main.name), id: KIT.slug(base(found.main.name).replace(/\.[A-Za-z0-9]+$/, '')), kind: 'sprite', inflate, encodePng };
         result = found.kind === 'file' ? KIT.import.aseprite.file(found.main.bytes, o) : KIT.import.aseprite.sheet(found.main.text, o);

@@ -17,23 +17,8 @@
   const clear = (el) => KIT.ui.clear(el);
   const titleCase = KIT.titleCase;
 
-  function btn(label, title, fn, cls) {
-    const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
-    b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
-    b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
-    return b;
-  }
-  function section(host, title, open, build) {
-    const box = make('details.ed-sec');
-    box.open = open !== false;
-    box.appendChild(make('summary', { text: title }));
-    const body = make('div.ed-sec-body');
-    box.appendChild(body);
-    host.appendChild(box);
-    build(body);
-    return box;
-  }
+  const btn = (...args) => ED.inspector.btn(...args);
+  const section = (host, title, open, build) => ED.inspector.section(host, title, open, build).box;
 
   /**
    * The save to read. A running game's, when there is one: then the panel is a
@@ -49,11 +34,7 @@
   const state = { view: 'people', query: '', open: {}, adding: false, draft: '' };
   const P = () => KIT.project;
   const INS = () => ED.inspector;
-  function commit(label, fn) {
-    const r = ED.commit(label, fn);
-    if (INS() && INS().afterEdit) INS().afterEdit();
-    return r;
-  }
+  const commit = (label, fn) => ED.commit(label, fn);
   const setAt = (path, v, label) => commit(label, (doc) => doc.set(path, v));
   /** A fresh id from a name: 'Old Mira' -> 'old-mira', and '-2' if that is taken. */
   function freshId(table, name, fallback) {
@@ -86,11 +67,11 @@
       // waits for the blur; the search box is rebuilt and given the caret back.
       const active = document.activeElement;
       const inSearch = !!(active && host.contains(active) && active.classList.contains('ed-obj-search'));
-      if (!inSearch && active && host.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { this._stale = true; return; }
+      if (!inSearch && ED.inspector.typingIn(host)) { this._stale = true; return; }
       const caret = inSearch ? active.selectionStart : 0;
       this._sig = sig;
       this._stale = false;
-      for (const f of this._forms || []) { try { f.destroy(); } catch (e) { /* ignore */ } }
+      ED.inspector.destroyForms(this._forms);
       this._forms = [];
       clear(host);
       if (inSearch) setTimeout(() => { const box = host.querySelector('.ed-obj-search'); if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } } }, 0);
@@ -110,9 +91,7 @@
       host.appendChild(tabs);
 
       const head = make('div.ed-row.ed-obj-head');
-      const search = make('input.ed-obj-search');
-      search.type = 'search';
-      search.placeholder = state.view === 'people' ? 'Find somebody' : 'Find something known';
+      const search = ED.inspector.searchBox(state.view === 'people' ? 'Find somebody' : 'Find something known');
       search.value = state.query;
       search.oninput = () => { state.query = search.value; this._sig = ''; this.refresh(ED); };
       head.appendChild(search);

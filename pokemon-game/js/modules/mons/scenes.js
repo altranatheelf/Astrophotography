@@ -344,7 +344,6 @@
     }
 
     async function finishCaught() {
-      const section = M.sectionOf(ctx);
       const name = M.speciesName(state.species);
       await message(pline('gotcha', { name }));
       const r = await M.grant(ctx, {

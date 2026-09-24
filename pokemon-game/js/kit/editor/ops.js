@@ -19,6 +19,24 @@
   const inMap = (m, x, y) => x >= 0 && y >= 0 && x < m.width && y < m.height;
   const getMap = (doc, map) => { const m = doc.get(mapPath(map)); if (!m) throw new Error(`editor: unknown map '${map}'`); return m; };
 
+  /**
+   * whereSelection(where) -> the editor selection a `where` record points at.
+   * `where` is what KIT.project.collect and the validator hand out: { script }
+   * or { map, object, page, slot } or { map } or { item } or { fragment }.
+   * Three panels had their own copy of this and two had drifted: one dropped
+   * slot 0 because it tested truthiness, one could not point at an item.
+   */
+  O.whereSelection = function (where) {
+    const w = where || {};
+    if (w.script) return { kind: 'script', path: ['scripts', w.script] };
+    if (w.map && w.object && w.slot != null) return { kind: 'slot', map: w.map, id: w.object, page: w.page || 0, slot: w.slot };
+    if (w.map && w.object) return { kind: 'object', map: w.map, id: w.object };
+    if (w.map) return { kind: 'map', id: w.map };
+    if (w.item) return { kind: 'item', id: w.item };
+    if (w.fragment) return { kind: 'fragment', id: w.fragment };
+    return { kind: 'project' };
+  };
+
   /** The tile an eraser leaves behind: nothing on deco/above, the map's base ground on ground. */
   O.eraseValue = function (m, layer) {
     if (layer === 'ground') return P.GROUND_BY_KIND[m.kind] || 'grass';
