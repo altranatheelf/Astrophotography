@@ -1,4 +1,4 @@
-// KIT.modules (§6.9): the module system.
+// KIT.modules: the module system (docs/MODULES.md).
 //
 // A module is a folder of ordinary kit code that declares itself once:
 //

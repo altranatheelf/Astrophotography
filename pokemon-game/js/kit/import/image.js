@@ -1,4 +1,4 @@
-// KIT.import.image — a picture on its own -> Kit content.
+// KIT.import.image — a picture (or a sound) on its own -> Kit content.
 //
 // The most common thing a person finds online is not a Tiled map or an Aseprite
 // export: it is a PNG. A tileset sheet, or a character's walk cycle in a grid.
@@ -9,6 +9,8 @@
 //   tileset({ name, w, h, tile, margin, spacing, skip, prefix, id, asset })
 //   sprite({ name, w, h, columns, rows, order, fps, prefix, id, asset })
 //   guessTile(w, h, prefer) / guessGrid(w, h)   what a sheet of that size probably is
+//   audio({ name, kind, src, loop, prefix, id })  a dropped .ogg/.mp3/.wav as a sound or a track
+//   guessAudio(name, bytes)                      'music' or 'sound' (long things loop)
 //
 // A tileset goes through the Tiled importer as a synthetic tileset, so it gets
 // exactly what a .tsx gets (ids, the sheet asset, a palette group). A character
@@ -112,7 +114,7 @@
   // A game needs music, and a page opened from a file cannot fetch the .ogg next
   // to it — so an imported track is embedded like every imported picture.
   I.AUDIO_EXT = /\.(ogg|mp3|wav|m4a|aac|flac|opus|webm)$/i;
-  /** guessAudio(name) -> 'music' | 'sound': long things loop, short things are effects. */
+  /** guessAudio(name, bytes) -> 'music' | 'sound': long things loop, short things are effects. */
   I.guessAudio = function (name, bytes) {
     const n = String(name || '').toLowerCase();
     if (/\b(bgm|music|theme|track|song|loop)\b|^bgm|^music/.test(n)) return 'music';

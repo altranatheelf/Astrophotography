@@ -298,7 +298,7 @@ function panelJs(v) {
 // Contract: docs/EDITOR-CONTRACT.md.
 //
 // Nothing here writes to the project directly: every change goes through
-// KIT.editor.commit (+ afterEdit), so undo covers all of it.
+// KIT.editor.commit (refresh + validate + autosave follow it), so undo covers all of it.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.${v.camel} = KIT.${v.camel} || {};
@@ -307,12 +307,8 @@ function panelJs(v) {
   if (!UI || typeof document === 'undefined') return;            // headless: nothing to mount
 
   const make = UI.make;
-  function edit(label, fn) {
-    if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);
-    const out = ED.commit(label, fn);
-    if (ED.afterEdit) ED.afterEdit();
-    return out;
-  }
+  /** One undo step; ED.commit repaints, validates and saves after it. */
+  const edit = (label, fn) => ED.commit(label, fn);
   function section(title, hint) {
     const box = make('div.ed-sec');
     box.appendChild(make('h4.ed-h4', { text: title }));
@@ -334,6 +330,7 @@ function panelJs(v) {
       this.root.appendChild(this.tuneSec);
       this.root.appendChild(this.useSec);
       el.appendChild(this.root);
+      this._tune = null;
       this.refresh(ed);
     },
 
@@ -348,18 +345,15 @@ function panelJs(v) {
     },
 
     renderTuning(st) {
-      const body = UI.clear(this.tuneSec.body);
       const insp = ED.inspector;
-      const value = (st.project.packs && st.project.packs.${v.camel}) || M.contentDefaults();
-      if (!insp || typeof insp.mount !== 'function') {
-        body.appendChild(make('p.ed-hint', { text: 'The inspector is not loaded. The numbers live in project.packs.${v.id}.' }));
+      if (!insp || typeof insp.packForm !== 'function') {
+        UI.clear(this.tuneSec.body).appendChild(make('p.ed-hint', { text: 'The inspector is not loaded. The numbers live in project.packs.${v.id}.' }));
         return;
       }
-      insp.mount(body, {
-        fields: M.TUNING,
-        value,
-        ctx: { project: st.project },
-        onChange: (next) => edit('${v.label} numbers', (doc) => doc.set(['packs', '${v.camel}'], next)),
+      this._tune = insp.packForm(this.tuneSec.body, this._tune, {
+        project: st.project, fields: M.TUNING,
+        value: Object.assign(M.contentDefaults(), st.project.packs && st.project.packs.${v.camel}),
+        at: ['packs', '${v.camel}'], label: '${v.label} numbers',
       });
     },
 

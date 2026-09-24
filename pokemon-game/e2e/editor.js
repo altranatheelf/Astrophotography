@@ -526,6 +526,31 @@ async function run(browser, label, size, opts) {
   });
   check(overflow <= 2, `nothing sticks out of the side panel (${overflow}px)`);
 
+  // --- 9c. a module's own numbers: one edit changes one number -------------------------
+  // The Dungeon form used to hand the inspector's field PATH to doc.set as the
+  // whole pack, so the first number anyone changed replaced packs.dungeon with
+  // ['torchRadius']. It rebuilt the form on every refresh too, so the second
+  // key typed went nowhere. Home's hand-built inputs let 5 through as a chance.
+  if (label === 'wide') {
+    const typeInto = async (sel, text) => {
+      await page.click(sel, { clickCount: 3 });
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.type(text, { delay: 60 });
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(250);
+    };
+    await openPanel(page, 'home');
+    const homeRest = () => page.evaluate(() => { const h = Object.assign({}, KIT.editor.state.project.packs.home || {}); delete h.tuning; return JSON.stringify(h); });
+    const before = await homeRest();
+    const dial = (key) => `.ed-panel-body[data-panel="home"] .ed-f[data-key="${key}"] input[type="number"]`;
+    await typeInto(dial('maxGifts'), '12');
+    await typeInto(dial('giftChance'), '5');
+    const tuning = await page.evaluate(() => KIT.editor.state.project.packs.home.tuning);
+    check(tuning && !Array.isArray(tuning) && tuning.maxGifts === 12, `Home: "12" typed a key at a time is 12, not 1 (${JSON.stringify(tuning)})`);
+    check(tuning && tuning.giftChance === 1, 'Home: a chance typed as 5 is held at its most, 1');
+    check(await homeRest() === before, 'Home: the jobs, furniture and presents are untouched by a tuning edit');
+  }
+
   // --- 10. reload: the draft is still there --------------------------------------------
   await page.evaluate(() => KIT.editor.saveNow());
   await page.waitForTimeout(400);
@@ -566,11 +591,64 @@ async function run(browser, label, size, opts) {
   await context.close();
 }
 
+/**
+ * The Dungeon module's numbers, in a game made the way an author makes one:
+ * tools/new-game.js --modules dungeon (the demo page does not load Dungeon).
+ * Its form used to hand the inspector's field PATH to doc.set as the whole
+ * pack, so the first number anyone changed replaced packs.dungeon with
+ * ['torchRadius'], and it rebuilt itself on every refresh, so the second key
+ * typed went nowhere. tools/new-module.js wrote the same code into every new
+ * module; both now call the one ED.inspector.packForm this checks.
+ */
+async function dungeonNumbers(browser) {
+  log('\n=== a game made with --modules dungeon ===');
+  const fs = require('fs');
+  const os = require('os');
+  const { execFileSync } = require('child_process');
+  const into = fs.mkdtempSync(path.join(os.tmpdir(), 'kit-dungeon-'));
+  execFileSync(process.execPath, [path.join(ROOT, 'tools', 'new-game.js'), 'The Deep', '--modules', 'dungeon', '--into', into, '--quiet']);
+  const game = fs.readdirSync(into).map(d => path.join(into, d)).find(d => fs.existsSync(path.join(d, 'index.html')));
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const problems = [];
+  page.on('pageerror', (e) => problems.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.test(m.text())) problems.push(m.text()); });
+  try {
+    await page.goto('file://' + path.join(game, 'index.html') + '?edit=1');
+    await page.waitForFunction(() => window.KIT && KIT.editor && KIT.editor.isOpen && KIT.editor.isOpen(), undefined, { timeout: 15000 });
+    await page.waitForTimeout(400);
+    await openPanel(page, 'dungeon');
+    const dial = (key) => `.ed-panel-body[data-panel="dungeon"] .ed-f[data-key="${key}"] input[type="number"]`;
+    check(await page.isVisible(dial('torchRadius')), 'the Dungeon panel shows its numbers');
+    for (const [key, text] of [['torchRadius', '12'], ['darkness', '0.5']]) {
+      await page.click(dial(key), { clickCount: 3 });
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.type(text, { delay: 60 });
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(250);
+    }
+    const pack = await page.evaluate(() => KIT.editor.state.project.packs.dungeon);
+    check(!!pack && !Array.isArray(pack) && typeof pack === 'object', `Dungeon: the pack is still an object after an edit (${JSON.stringify(pack)})`);
+    check(!!pack && pack.torchRadius === 12 && pack.darkness === 0.5, 'Dungeon: two numbers typed one after the other are both kept, every key of them');
+    check(await page.evaluate(() => KIT.dungeon.tuning(KIT.editor.state.project).torchColor === '#ffc887'), 'Dungeon: the numbers nobody touched keep their defaults');
+    await page.evaluate(() => KIT.editor.undo());
+    await page.waitForTimeout(250);
+    const undone = await page.evaluate(() => KIT.editor.state.project.packs.dungeon);
+    check(!!undone && undone.torchRadius === 12 && undone.darkness !== 0.5, `Dungeon: undo takes back only the last number (${JSON.stringify(undone)})`);
+    await shot(page, 'wide', '15-dungeon-numbers');
+    check(problems.length === 0, 'no console errors or page errors in the dungeon game' + (problems.length ? ':\n     ' + problems.slice(0, 6).join('\n     ') : ''));
+  } finally {
+    await context.close();
+    fs.rmSync(into, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   const browser = await chromium.launch();
   try {
     await run(browser, 'wide', { width: 1280, height: 800 }, { touch: false });
     await run(browser, 'phone', { width: 390, height: 844 }, { touch: true, dpr: 2 });
+    await dungeonNumbers(browser);
   } catch (e) {
     failures++;
     console.log('\nUNCAUGHT: ' + (e && e.stack ? e.stack : e));

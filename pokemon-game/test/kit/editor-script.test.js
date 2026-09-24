@@ -180,7 +180,7 @@ test('script editor: a selection names the command list it opens', () => {
     ['maps', mapId, 'objects', 0, 'pages', 0, 'on', 'interact']);
   assert.deepEqual(SE.pathForSelection(project, { kind: 'script', path: ['scripts', 'intro'] }), ['scripts', 'intro', 'body']);
   assert.equal(SE.pathForSelection(project, { kind: 'map', id: mapId }), null);
-  assert.match(SE.labelForSelection(project, { kind: 'slot', map: mapId, id: 'mom', page: 0, slot: 'interact' }), /^Mom · Interact$/);
+  assert.match(SE.labelForSelection(project, { kind: 'slot', map: mapId, id: 'mom', page: 0, slot: 'interact' }), /^Mom · On Interact$/, 'what its docstring promises, and what every other panel calls the slot');
   assert.equal(SE.labelForSelection(project, { kind: 'script', path: ['scripts', 'intro'] }), 'Common Event: Intro');
 });
 
@@ -284,6 +284,7 @@ test('variables index: reads and writes are told apart', () => {
   assert.deepEqual(PP.undeclared(project).map(v => v.name), ['ready']);
   assert.equal(index[0].declared, true, 'declared variables come first');
   assert.match(PP.usageLabel(project, byName.chapter.writes[0]), /Intro/);
+  assert.match(PP.usageLabel(project, { map: mapId, object: 'mom', slot: 'interact' }), / · On Interact$/, 'the Variables panel names a slot the way the Script editor does');
   assert.deepEqual(PP.usageSelection(byName.chapter.reads[0]), { kind: 'slot', map: mapId, id: 'mom', page: 0, slot: 'interact' });
   assert.equal(PP.guessType('introDone'), 'bool');
   assert.equal(PP.guessType('chapter'), 'number');

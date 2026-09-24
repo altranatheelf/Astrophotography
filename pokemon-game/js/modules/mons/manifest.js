@@ -1,7 +1,7 @@
 // mons — the Pokémon side of the game: befriending instead of fighting.
 //
 // Load order (index.html): rules, strings, art, actions, script, systems,
-// scenes, panel, manifest. Everything above defines; this file registers.
+// scenes, essentials, region, panel, manifest. Everything above defines; this file registers.
 //
 // What it owns:
 //   save   save.modules.mons = { version, party, box, dex:{seen,caught}, follower, steps, lastSeenAt, petted }

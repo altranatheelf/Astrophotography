@@ -17,7 +17,6 @@
   const S = KIT.schema;
 
   const titleCase = KIT.titleCase;
-  const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
 
   // =================================================================================
   // Pure: the dialogue index
@@ -54,7 +53,7 @@
       const obj = (map.objects || []).find(o => o.id === where.object) || {};
       const bits = [map.name || where.map, obj.name || where.object];
       if (where.page != null) bits.push(`page ${where.page + 1}`);
-      if (where.slot) bits.push(SLOT_LABELS[where.slot] || titleCase(where.slot));
+      if (where.slot) bits.push(KIT.project.slotLabel(where.slot));
       return bits.filter(Boolean).join(' · ');
     };
 
@@ -287,7 +286,7 @@
     // take the box away mid-word. A form with the caret keeps it until the blur.
     if (typingIn(el.detail)) return;
     panel._detailSig = sig;
-    if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
+    if (panel._form) { panel._form.destroy(); panel._form = null; }
     clear(el.detail);
     if (!sc) return;
     const head = make('div.ed-row');
@@ -606,7 +605,7 @@
             if (w.map) bits.push(`map ${w.map}`);
             if (w.object) bits.push(`event ${w.object}`);
             if (w.page != null) bits.push(`page ${w.page + 1}`);
-            if (w.slot) bits.push(SLOT_LABELS[w.slot] || w.slot);
+            if (w.slot) bits.push(KIT.project.slotLabel(w.slot));
             if (w.script) bits.push(`script ${w.script}`);
             if (!bits.length && Array.isArray(w.path) && w.path.length) bits.push(w.path.join('.'));
             if (bits.length) item.appendChild(make('div.ed-sub', { text: bits.join(' · ') }));

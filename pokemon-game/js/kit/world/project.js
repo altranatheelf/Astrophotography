@@ -27,6 +27,11 @@
 
   P.VERSION = 3;
   P.SLOTS = ['interact', 'step', 'touch', 'enter', 'tick', 'init'];
+  // What the editor calls each slot. Four panels used to name them, two ways:
+  // "Mom · Interact" in one list and "On Interact" in the next.
+  const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
+  /** slotLabel(slot) -> 'On Interact' … (an unknown slot is title-cased). */
+  P.slotLabel = (slot) => SLOT_LABELS[slot] || KIT.titleCase(String(slot || ''));
   P.LAYERS = ['terrain', 'ground', 'deco', 'above', 'regions'];
   P.GROUND_BY_KIND = { outdoor: 'grass', garden: 'grass', indoor: 'floor-wood', cave: 'cave-floor' };
   P.MAP_KINDS = ['outdoor', 'indoor', 'cave', 'garden'];
@@ -1051,9 +1056,9 @@
     return out;
   };
   /**
-   * registerContent(project) -> { assets, tiles, sprites, faces, icons }
+   * registerContent(project) -> { assets, tiles, sprites, faces, icons, sounds, music, modules } (counts)
    * A project may carry content of its own — the tables an import writes
-   * (KIT.import.merge): `assets`, `tiles`, `sprites`, `faces`, `icons`, each a
+   * (KIT.import.merge): `assets`, `tiles`, `sprites`, `faces`, `icons`, `sounds`, `music`, each a
    * table keyed by id. Art drawn here lives in `js/art/*.js` and registers
    * itself at load time; imported art has no such file, so the project IS the
    * file and this puts it into the registries. Called before the project is

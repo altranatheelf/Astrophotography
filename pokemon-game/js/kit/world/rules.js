@@ -18,11 +18,9 @@
 //
 // WHAT MAKES IT AN ENTITY RATHER THAN A CALLBACK
 //
-// A rule can be turned off, rewritten, and EATEN. It can have a carrier — a
-// scroll, a tablet, a tome somebody is holding — and destroying the carrier
-// takes the rule out of the world. `@eat doors-need-keys` is a verb a story can
-// use, and after it the doors do not need keys, because the rule that said so
-// is gone.
+// A rule can be turned off, rewritten, and EATEN. `@rule eat doors-need-keys`
+// is a verb a story can use, and after it the doors do not need keys, because
+// the rule that said so is gone.
 //
 // CONFLICT
 //

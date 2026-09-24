@@ -1825,7 +1825,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 </script>
 <script>
 // ---- js/kit/core/modules.js ----
-// KIT.modules (§6.9): the module system.
+// KIT.modules: the module system (docs/MODULES.md).
 //
 // A module is a folder of ordinary kit code that declares itself once:
 //
@@ -2079,10 +2079,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 // validate() / downscale() / silhouette() / rowsOf() / dims() are pure and
 // also work in Node, so tests can require() this file.
 //
-// This file used to live at js/core/pixels.js under the Pokémon namespace; the
-// art registry files (js/art/tiles.js) keep that old name as an alias so the
-// art tools keep working. Nothing here depends on any art file (icons.js may
-// not exist yet) and nothing here references content or modules.
+// Nothing here references content or modules.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -4459,8 +4456,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     ]);
   }
 
-  /** download(name, text) -> true when the file left the page one way or another. */
-  /** download(name, data, mime) — `data` is text, or bytes for something like a zip. */
+  /** download(name, data, mime) -> true when the file left the page one way or another. `data` is text, or bytes for something like a zip. */
   S.download = async function (name, text, mime) {
     const cap = capability('downloadFile') || capability('download');
     if (cap && typeof text === 'string') {
@@ -4886,6 +4882,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   P.VERSION = 3;
   P.SLOTS = ['interact', 'step', 'touch', 'enter', 'tick', 'init'];
+  // What the editor calls each slot. Four panels used to name them, two ways:
+  // "Mom · Interact" in one list and "On Interact" in the next.
+  const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
+  /** slotLabel(slot) -> 'On Interact' … (an unknown slot is title-cased). */
+  P.slotLabel = (slot) => SLOT_LABELS[slot] || KIT.titleCase(String(slot || ''));
   P.LAYERS = ['terrain', 'ground', 'deco', 'above', 'regions'];
   P.GROUND_BY_KIND = { outdoor: 'grass', garden: 'grass', indoor: 'floor-wood', cave: 'cave-floor' };
   P.MAP_KINDS = ['outdoor', 'indoor', 'cave', 'garden'];
@@ -5910,9 +5911,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return out;
   };
   /**
-   * registerContent(project) -> { assets, tiles, sprites, faces, icons }
+   * registerContent(project) -> { assets, tiles, sprites, faces, icons, sounds, music, modules } (counts)
    * A project may carry content of its own — the tables an import writes
-   * (KIT.import.merge): `assets`, `tiles`, `sprites`, `faces`, `icons`, each a
+   * (KIT.import.merge): `assets`, `tiles`, `sprites`, `faces`, `icons`, `sounds`, `music`, each a
    * table keyed by id. Art drawn here lives in `js/art/*.js` and registers
    * itself at load time; imported art has no such file, so the project IS the
    * file and this puts it into the registries. Called before the project is
@@ -6524,7 +6525,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 </script>
 <script>
 // ---- js/kit/world/cast.js ----
-// KIT.cast (§8.7): the people in the story, what they know, and what they feel
+// KIT.cast (docs/ARCHITECTURE.md §6.2b): the people in the story, what they know, and what they feel
 // about each other.
 //
 // Switches do not scale to this. "Mira mentions the orchard, but only if she has
@@ -7036,11 +7037,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //
 // WHAT MAKES IT AN ENTITY RATHER THAN A CALLBACK
 //
-// A rule can be turned off, rewritten, and EATEN. It can have a carrier — a
-// scroll, a tablet, a tome somebody is holding — and destroying the carrier
-// takes the rule out of the world. `@eat doors-need-keys` is a verb a story can
-// use, and after it the doors do not need keys, because the rule that said so
-// is gone.
+// A rule can be turned off, rewritten, and EATEN. `@rule eat doors-need-keys`
+// is a verb a story can use, and after it the doors do not need keys, because
+// the rule that said so is gone.
 //
 // CONFLICT
 //
@@ -11038,11 +11037,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const EMPTY_LIST = Object.freeze([]);
 
   /**
-   * mapView(project, save, mapId) -> view
+   * mapView(project, save, mapId, opts) -> view — the map as the runtime sees it.
    * `save` may be null (editor preview): then there is no overlay and no object state.
-   */
-  /**
-   * mapView(project, save, mapId, opts) — the map as the runtime sees it.
    * opts.dimension names a layer of reality declared on the map (map.dimensions):
    * the same place, otherwise. A dimension changes tiles, hides or reveals objects,
    * and can bring its own light and music; everything else about the map is shared,
@@ -14166,6 +14162,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       while (i < src.length && int(src[i].code, 0) === code) { out.push(String((src[i].parameters || [])[0] == null ? '' : src[i].parameters[0])); i++; }
       return out;
     }
+    /** eat(code, indent) — step over the closing command (Else, End, Repeat Above) of this block, if it is next. */
+    function eat(code, indent) {
+      if (i < src.length && int(src[i].code, 0) === code && int(src[i].indent, 0) === indent) { i++; return true; }
+      return false;
+    }
 
     function condition(params) {
       const p = params || [];
@@ -14269,14 +14270,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           }
           const then = parseBlock(indent + 1);
           let els = [];
-          if (i < src.length && int(src[i].code, 0) === 411 && int(src[i].indent, 0) === indent) { i++; els = parseBlock(indent + 1); }
-          if (i < src.length && int(src[i].code, 0) === 412 && int(src[i].indent, 0) === indent) i++;
+          if (eat(411, indent)) els = parseBlock(indent + 1);    // Else
+          eat(412, indent);                                      // End
           if (when) ctx.stats.translated++; else ctx.stats.unsupported++;
           return lead.concat([{ t: 'if', when: when || null, then, else: els }]);
         }
         case 112: {                                           // Loop (+413 Repeat Above)
           const body = parseBlock(indent + 1);
-          if (i < src.length && int(src[i].code, 0) === 413 && int(src[i].indent, 0) === indent) i++;
+          eat(413, indent);                                      // Repeat Above
           return ok({ t: 'loop', body });
         }
         case 113: return ok({ t: 'break' });
@@ -14476,10 +14477,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * Kit mirrors `left` to draw `right`, but MV sheets have a real right row, so
    * one is produced. KIT.entities.frame already honours `def.frames.right`
    * (it only mirrors when that key is missing) — nothing to change there.
-   * The renderer is a different matter: js/kit/render/renderer.js artForFrame()
-   * builds a pixel-string art out of `frame.rows`, which for an image-backed
-   * sprite is the source RECT, so these sprites do not draw yet. See the note
-   * in the import report; the fix belongs in renderer.js, not here.
+   * For an image-backed sprite `frame.rows` is the source rectangle, and
+   * renderer.js artForFrame() reads it as one.
    */
   RM.characters = function (imageName, opts) {
     const o = opts || {};
@@ -16342,7 +16341,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 </script>
 <script>
 // ---- js/kit/import/image.js ----
-// KIT.import.image — a picture on its own -> Kit content.
+// KIT.import.image — a picture (or a sound) on its own -> Kit content.
 //
 // The most common thing a person finds online is not a Tiled map or an Aseprite
 // export: it is a PNG. A tileset sheet, or a character's walk cycle in a grid.
@@ -16353,6 +16352,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   tileset({ name, w, h, tile, margin, spacing, skip, prefix, id, asset })
 //   sprite({ name, w, h, columns, rows, order, fps, prefix, id, asset })
 //   guessTile(w, h, prefer) / guessGrid(w, h)   what a sheet of that size probably is
+//   audio({ name, kind, src, loop, prefix, id })  a dropped .ogg/.mp3/.wav as a sound or a track
+//   guessAudio(name, bytes)                      'music' or 'sound' (long things loop)
 //
 // A tileset goes through the Tiled importer as a synthetic tileset, so it gets
 // exactly what a .tsx gets (ids, the sheet asset, a palette group). A character
@@ -16456,7 +16457,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // A game needs music, and a page opened from a file cannot fetch the .ogg next
   // to it — so an imported track is embedded like every imported picture.
   I.AUDIO_EXT = /\.(ogg|mp3|wav|m4a|aac|flac|opus|webm)$/i;
-  /** guessAudio(name) -> 'music' | 'sound': long things loop, short things are effects. */
+  /** guessAudio(name, bytes) -> 'music' | 'sound': long things loop, short things are effects. */
   I.guessAudio = function (name, bytes) {
     const n = String(name || '').toLowerCase();
     if (/\b(bgm|music|theme|track|song|loop)\b|^bgm|^music/.test(n)) return 'music';
@@ -17909,7 +17910,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
 
     /**
-     * Markers (§8.4): things drawn on the map that are not IN the world.
+     * Markers (docs/ENGINE-HOOKS.md #7): things drawn on the map that are not IN the world.
      *
      *   world.markers.push({ x, y, tile:'rug', opacity: 0.6, pulse: 400, tint: '#7fd' })
      *
@@ -18483,7 +18484,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   /**
-   * suspend / resume (§8.6): the mirror of enter/exit for being COVERED rather
+   * suspend / resume (docs/ENGINE-HOOKS.md #15): the mirror of enter/exit for being COVERED rather
    * than closed.
    *
    *   enter   → you exist and you are on top
@@ -19252,6 +19253,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           activate.call(self);
         });
       };
+      /** show(self, m) — switch to another screen of the menu, at its first row. */
+      const show = (self, m) => { mode = m; index = 0; build(self); };
 
       /** The next row in that direction that can actually be chosen. */
       function step(from, dir) {
@@ -19305,11 +19308,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           // The pad is a phone thing; on a laptop it is a quarter of the screen of
           // buttons nobody presses. Auto guesses from the device, on/off overrule it.
           { label: t('buttons'), value: t('buttons-' + (BUTTONS.includes(s.buttons) ? s.buttons : 'auto')), action: 'cycle:buttons' },
-          // The Game Accessibility Guidelines' Basic tier opens with "allow
-          // controls to be remapped", and this engine had the whole API — bind,
-          // setKeymap, resetKeymap, keymaps, saved in settings.keys — with no
-          // screen, for weeks. `test/kit/reachable.test.js` carried it as a
-          // written admission in NOT_IN_MENU. This row is that admission paid.
+          // Remap controls: the Game Accessibility Guidelines' Basic tier.
           { label: t('controls'), value: t(s.keys ? 'keys-custom' : 'keys-default'), action: 'keys' },
           { label: t('back'), action: 'back' },
         ]);
@@ -19365,7 +19364,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           // Back from a screen the menu was opened ON (Settings from the title) is
           // out, not "to the pause menu of a game that is not running".
           if (mode === entered) { this.finish('close'); return; }
-          mode = 'pause'; index = 0; build(this); return;
+          show(this, 'pause'); return;
         }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
@@ -19373,7 +19372,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const ok = await game.save(slot);
           await KIT.toast(KIT.strings.get(game.project, ok ? 'saved' : 'save-failed'));
           if (ok) KIT.audio.play('save');
-          mode = 'pause'; index = 0; build(this);
+          show(this, 'pause');
           return;
         }
         if (action === 'keys') {
@@ -19393,11 +19392,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (action.startsWith('menu:')) {
           const def = menus.get(action.slice(5));
           if (!def) return;
-          if (def.id === 'settings') { mode = 'settings'; index = 0; build(this); return; }
-          if (def.id === 'moments') { mode = 'moments'; index = 0; build(this); return; }
+          if (def.id === 'settings') { show(this, 'settings'); return; }
+          if (def.id === 'moments') { show(this, 'moments'); return; }
           if (def.id === 'save') {
             this._saveRows = await saveRows(game);
-            mode = 'save'; index = 0; build(this);
+            show(this, 'save');
             return;
           }
           const result = await def.open(game, this);
@@ -19467,11 +19466,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         id: 'menu', transparent: true, pausesWorld: true,
         enter(params) {
           game = (params && params.game) || KIT.game;
-          mode = (params && params.mode) || 'pause';
-          entered = mode;                // Settings from the title has no pause menu to go back to
-          index = 0;
+          entered = (params && params.mode) || 'pause';   // Settings from the title has no pause menu to go back to
           this._saveRows = null;
-          build(this);
+          show(this, entered);
         },
         exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
         /**
@@ -19495,7 +19492,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (ev.key === 'a') { activate.call(this); return true; }
           if (ev.key === 'b' || ev.key === 'menu') {
             KIT.audio.play('back');
-            if (mode !== 'pause') { mode = 'pause'; index = 0; build(this); return true; }
+            if (mode !== 'pause') { show(this, 'pause'); return true; }
             this.finish('close');
             return true;
           }
@@ -19540,10 +19537,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   ]);
 
   // ---- the keys ----------------------------------------------------------------------
-  // Remapping was a complete API with no screen: bind, setKeymap, resetKeymap,
-  // keymaps, and `settings.keys` saved and restored at boot. Every piece worked
-  // and no player could reach any of it, which is the defect this repo keeps
-  // shipping (ADR-0010). This is the screen.
+  // Settings › Controls: bind, setKeymap, resetKeymap and `settings.keys`, in
+  // reach of a player (ADR-0010).
   //
   // It reads RAW keydown rather than the mapped buttons, because the whole point
   // is to catch a key that does not mean anything yet. That listener is only
@@ -20100,8 +20095,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 // ---- js/kit/game.js ----
 // KIT.game — boot, the loop, saves, and the ctx ports.
 //
-// Everything the script language can ask for (§9.1 "The ctx ports") is
-// implemented here in terms of the scenes, KIT.fx, KIT.audio and the world:
+// Everything the script language can ask for (the RunCtx port typedefs at the
+// top of js/kit/script/commands.js) is implemented here in terms of the scenes, KIT.fx, KIT.audio and the world:
 // `io` opens scenes, `screen` drives KIT.fx, `map` moves characters and
 // transfers between maps, `game` opens the menu and saves. The world itself
 // stays headless — swap these ports for fakes and the same story runs in Node.
@@ -29159,8 +29154,7 @@ PKMN.TILES.register([
   /** createRef(kind, id) -> the id that now exists (ops may have made it unique), or null. */
   INS.createRef = function (kind, id) {
     if (!CREATORS[kind] || !id) return null;
-    const made = CREATORS[kind](id);
-    INS.afterEdit();
+    const made = CREATORS[kind](id);                  // ED.commit refreshes, validates and saves
     return made || id;
   };
 
@@ -29259,14 +29253,6 @@ PKMN.TILES.register([
   };
   INS.scalarText = (v) => (v === null ? 'null' : String(v));
 
-  /**
-   * afterEdit() — a panel that wrote the document some other way than
-   * ED.commit (an import merge, a paste) says so. ED.commit already does this;
-   * a panel that commits need not call it, and five used to, which ran the
-   * refresh, the validation and the save twice each per edit.
-   */
-  INS.afterEdit = function () { if (ED.afterEdit) ED.afterEdit(); };
-
   // =================================================================================
   // Everything below needs a browser.
   // =================================================================================
@@ -29323,6 +29309,24 @@ PKMN.TILES.register([
     return box;
   };
   /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
+  /**
+   * packForm(host, prev, { project, fields, value, at, label }) -> handle
+   * A module's own settings as a schema form (the Dungeon numbers, Home's
+   * tuning). Every change is one undo step that writes the ONE field that
+   * changed, under `at` (['packs', 'dungeon']), so no edit can replace the
+   * whole pack. Pass back the handle it returned last time: the form is built
+   * once per project and only re-read after that, so the number being typed
+   * keeps its caret through the refresh its own commit causes.
+   */
+  INS.packForm = function (host, prev, o) {
+    if (prev && prev.host === host && prev.project === o.project) { prev.form.refresh(o.value); return prev; }
+    if (prev) prev.form.destroy();
+    const form = INS.mount(host, {
+      fields: o.fields, value: o.value, ctx: { project: o.project },
+      onChange: (path, v) => ED.commit(o.label, (doc) => doc.set(o.at.concat(path), v)),
+    });
+    return { host, project: o.project, form };
+  };
   INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
@@ -29654,15 +29658,21 @@ PKMN.TILES.register([
         if (f.max != null) v = Math.min(f.max, v);
         return v;
       };
-      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); onChange(v); };
+      // Typing "0.5" used to be four undo steps (0, 0, 0.5 and the same 0.5 again
+      // on leaving the field). A number now waits for a pause like text does, and
+      // nothing is recorded when the value did not actually change.
+      let last = value;
+      const commit = (v) => { if (v !== last) { last = v; onChange(v); } };
+      const t = typed(commit);
+      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); commit(v); };
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
-      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) onChange(f.integer ? Math.round(n) : n); };
-      input.onblur = () => { const v = clampV(input.value); input.value = String(v); onChange(v); };
+      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(f.integer ? Math.round(n) : n); };
+      input.onblur = () => { const v = clampV(input.value); input.value = String(v); t.push(v); t.flush(); };
       el.appendChild(wrap);
       if (f.min != null && f.max != null) el.appendChild(make('div.ed-sub', { text: `${f.min} to ${f.max}` }));
-      return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
+      return { set(v) { last = v; const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
     },
   });
 
@@ -31413,14 +31423,15 @@ PKMN.TILES.register([
   const OBJ = ED.objects = ED.objects || {};
 
   const titleCase = KIT.titleCase;
-  const SLOTS = [
-    { id: 'interact', label: 'On Interact', doc: 'The player presses A while facing it.' },
-    { id: 'step', label: 'On Step', doc: 'The player steps onto this tile.' },
-    { id: 'touch', label: 'On Touch', doc: 'The player walks into it (or it walks into the player).' },
-    { id: 'enter', label: 'On Enter', doc: 'The map is entered.' },
-    { id: 'tick', label: 'Every Tick', doc: 'Runs in the background, over and over.' },
-    { id: 'init', label: 'On Init', doc: 'Once, when the map is built.' },
-  ];
+  const SLOT_DOCS = {
+    interact: 'The player presses A while facing it.',
+    step: 'The player steps onto this tile.',
+    touch: 'The player walks into it (or it walks into the player).',
+    enter: 'The map is entered.',
+    tick: 'Runs in the background, over and over.',
+    init: 'Once, when the map is built.',
+  };
+  const SLOTS = KIT.project.SLOTS.map((id) => ({ id, label: KIT.project.slotLabel(id), doc: SLOT_DOCS[id] }));
 
   // =================================================================================
   // Pure parts (no DOM) — test/kit/editor-inspector.test.js drives these.
@@ -32347,7 +32358,7 @@ PKMN.TILES.register([
     if (sel.kind === 'slot') {
       const map = project.maps && project.maps[sel.map];
       const obj = map && (map.objects || []).find(o => o.id === sel.id);
-      return `${(obj && (obj.name || obj.id)) || sel.id} · ${titleCase(sel.slot)}`;
+      return `${(obj && (obj.name || obj.id)) || sel.id} · ${KIT.project.slotLabel(sel.slot)}`;
     }
     return 'Script';
   };
@@ -32815,7 +32826,9 @@ PKMN.TILES.register([
     function renderFields(cmd, path, def) {
       const box = make('div.ed-cmd-fields');
       if (cmd && cmd.t === 'raw') {
-        const f = { key: 'line', type: 'string', label: 'Raw line', doc: 'Screenplay could not read this line. Fix it here and it becomes a command again.' };
+        // Not an inspector field on purpose: the inspector's text widget commits on
+        // a typing pause, and this commit re-parses the line and rebuilds the card,
+        // which would take the input away mid-word. It commits when you leave it.
         const holder = make('div.ed-f');
         holder.appendChild(make('div.ed-f-label', { text: 'Raw line' }));
         const input = make('input');
@@ -32828,7 +32841,7 @@ PKMN.TILES.register([
           render(true);
         };
         holder.appendChild(input);
-        holder.appendChild(make('div.ed-hint', { text: f.doc }));
+        holder.appendChild(make('div.ed-hint', { text: 'Screenplay could not read this line. Fix it here and it becomes a command again.' }));
         box.appendChild(holder);
         return box;
       }
@@ -32902,7 +32915,7 @@ PKMN.TILES.register([
       handle.addEventListener('pointercancel', end);
     }
 
-    const api = { el: el.root, refresh: () => render(false), rerender: () => render(true), destroy() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } clear(host); } };
+    const api = { el: el.root, refresh: () => render(false), rerender: () => render(true), destroy() { ED.inspector.destroyForms(forms); clear(host); } };
     render(true);
     return api;
   }
@@ -32948,7 +32961,6 @@ PKMN.TILES.register([
   const S = KIT.schema;
 
   const titleCase = KIT.titleCase;
-  const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
 
   // =================================================================================
   // Pure: the dialogue index
@@ -32985,7 +32997,7 @@ PKMN.TILES.register([
       const obj = (map.objects || []).find(o => o.id === where.object) || {};
       const bits = [map.name || where.map, obj.name || where.object];
       if (where.page != null) bits.push(`page ${where.page + 1}`);
-      if (where.slot) bits.push(SLOT_LABELS[where.slot] || titleCase(where.slot));
+      if (where.slot) bits.push(KIT.project.slotLabel(where.slot));
       return bits.filter(Boolean).join(' · ');
     };
 
@@ -33218,7 +33230,7 @@ PKMN.TILES.register([
     // take the box away mid-word. A form with the caret keeps it until the blur.
     if (typingIn(el.detail)) return;
     panel._detailSig = sig;
-    if (panel._form) { try { panel._form.destroy(); } catch (e) { /* ignore */ } panel._form = null; }
+    if (panel._form) { panel._form.destroy(); panel._form = null; }
     clear(el.detail);
     if (!sc) return;
     const head = make('div.ed-row');
@@ -33537,7 +33549,7 @@ PKMN.TILES.register([
             if (w.map) bits.push(`map ${w.map}`);
             if (w.object) bits.push(`event ${w.object}`);
             if (w.page != null) bits.push(`page ${w.page + 1}`);
-            if (w.slot) bits.push(SLOT_LABELS[w.slot] || w.slot);
+            if (w.slot) bits.push(KIT.project.slotLabel(w.slot));
             if (w.script) bits.push(`script ${w.script}`);
             if (!bits.length && Array.isArray(w.path) && w.path.length) bits.push(w.path.join('.'));
             if (bits.length) item.appendChild(make('div.ed-sub', { text: bits.join(' · ') }));
@@ -33573,10 +33585,12 @@ PKMN.TILES.register([
 //   Project    title, pitch, heroes, where the game starts, settings, modules
 //   Variables  the declared Switches/Variables, the ones the scripts use without
 //              asking, and every read and write with a way to jump to it
+//   Rules      the rules of the world: when, what, and whether one is switched off
 //   Items      the item table
 //   Strings    the Terms table (every word the engine says on its own)
 //   Data       the raw JSON of the selection (or the whole project), checked before it applies
-//   Import     drop a Tiled map, an RPG Maker MV folder or an Aseprite file in here
+//   Import     drop a Tiled map, an RPG Maker MV/MZ folder, Aseprite art, a PNG, a sound,
+//              or anything a registered importer reads, in here
 //
 // Every edit goes through KIT.editor.ops / ED.commit, and an import is one undo step.
 // The indexes and the import dispatch at the top are pure (test/kit/editor-script.test.js).
@@ -33648,7 +33662,7 @@ PKMN.TILES.register([
         const o = (m.objects || []).find(x => x.id === w.object);
         bits.push((o && (o.name || o.id)) || w.object);
       }
-      if (w.slot) bits.push(titleCase(w.slot));
+      if (w.slot) bits.push(P.slotLabel(w.slot));
       return bits.join(' · ');
     }
     if (Array.isArray(w.path) && w.path.length) return w.path.join('.');
@@ -33810,6 +33824,39 @@ PKMN.TILES.register([
     if (state.said) say(state.said.text, state.said.ok);
     return { el, say };
   }
+  /**
+   * textIntake(body, { accept, placeholder, button, title }, onText, say) — a
+   * file picker and a paste box, the two ways a phone can hand over a text
+   * file. onText(text, name) gets the file's name, or no name for a paste.
+   */
+  function textIntake(body, o, onText, say) {
+    const inRow = make('div.ed-row');
+    const file = make('input');
+    file.type = 'file';
+    file.accept = o.accept;
+    file.className = 'ed-file';
+    file.onchange = () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => onText(String(r.result || ''), f.name);
+      r.onerror = () => say('That file could not be read.', false);
+      r.readAsText(f);
+    };
+    inRow.appendChild(file);
+    body.appendChild(inRow);
+    const pasteRow = make('div.ed-row');
+    const paste = make('textarea.ed-json.ed-paste');
+    paste.placeholder = o.placeholder;
+    paste.spellcheck = false;
+    paste.rows = 3;
+    pasteRow.appendChild(paste);
+    body.appendChild(pasteRow);
+    body.appendChild(btn(o.button, o.title, () => {
+      if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
+      onText(paste.value);
+    }));
+  }
   function setAt(path, value, label) { commit(label || 'Edit', (doc, O) => O.setField(doc, path, value, label || 'Edit')); }
   const section = (host, title, open, build, remember) => ED.inspector.section(host, title, open, build, remember).body;
 
@@ -33838,6 +33885,338 @@ PKMN.TILES.register([
     ];
   }
 
+  // ---- the Project panel's sections, one function each ------------------------
+
+  function gameSection(body, p, forms) {
+    const box = make('div');
+    body.appendChild(box);
+    forms.push(INS().mount(box, {
+      fields: metaFields(),
+      value: p.meta,
+      ctx: { project: p },
+      onChange(path, v) { setAt(['meta'].concat(path), v, 'Edit project'); },
+    }));
+    if (!String((p.meta && p.meta.pitch) || '').trim()) body.appendChild(make('div.ed-hint.ed-warn', { text: 'The pitch is the two sentences you will read back in six months: who the hero is, and what they want. Everything else follows it.' }));
+  }
+
+  function heroesSection(body, p) {
+    (p.heroes || []).forEach((h, i) => {
+      const card = make('div.ed-card');
+      const row = make('div.ed-row');
+      const name = make('input.ed-half');
+      name.type = 'text';
+      name.value = h.name || '';
+      name.placeholder = 'Name';
+      name.onchange = () => setAt(['heroes', i, 'name'], name.value, 'Rename hero');
+      row.appendChild(name);
+      row.appendChild(make('span.ed-badge', { text: h.id }));
+      if ((p.heroes || []).length > 1) {
+        row.appendChild(btn('✕', 'Remove this hero', async () => {
+          if (!(await ED.confirm(`Remove ${h.name || h.id}?`))) return;
+          commit('Remove hero', (doc) => doc.splice(['heroes'], i, 1, []));
+        }, 'danger'));
+      }
+      card.appendChild(row);
+      const sprite = make('div');
+      card.appendChild(make('div.ed-label', { text: 'Sprite' }));
+      card.appendChild(sprite);
+      INS().field(sprite, { key: 'sprite', type: 'ref:sprite' }, h.sprite, (v) => setAt(['heroes', i, 'sprite'], v, 'Hero sprite'), { project: p });
+      card.appendChild(make('div.ed-label', { text: 'Recolour (palette letter → colour)' }));
+      const recolor = make('div');
+      card.appendChild(recolor);
+      INS().field(recolor, { key: 'recolor', type: 'strings' }, h.recolor || {}, (v) => setAt(['heroes', i, 'recolor'], v, 'Recolour hero'), { project: p });
+      body.appendChild(card);
+    });
+    body.appendChild(btn('＋ Add a hero', 'Another playable character (co-op uses the second one)', () => {
+      const n = (p.heroes || []).length + 1;
+      commit('Add hero', (doc) => doc.push(['heroes'], { id: `p${n}`, name: `Player ${n}`, sprite: null, recolor: {} }));
+    }, 'wide'));
+  }
+
+  function startPointSection(body, p, forms) {
+    const box = make('div');
+    body.appendChild(box);
+    forms.push(INS().mount(box, {
+      fields: P.fields.start || [],
+      value: p.start,
+      ctx: { project: p },
+      onChange(path, v) { setAt(['start'].concat(path), v, 'Start position'); },
+    }));
+    body.appendChild(btn('✛ Pick the start on the map', 'Tap a square on the map', () => {
+      INS().pickOnMap({
+        hint: 'Tap where the game should start',
+        onPick(pt) { commit('Start position', (doc, O) => { O.setField(doc, ['start', 'map'], pt.map); O.setField(doc, ['start', 'x'], pt.x); O.setField(doc, ['start', 'y'], pt.y); }); },
+      });
+    }, 'wide'));
+  }
+
+  function settingsSection(body, p, forms) {
+    const box = make('div');
+    body.appendChild(box);
+    forms.push(INS().mount(box, {
+      fields: P.fields.settings || [],
+      value: p.settings,
+      ctx: { project: p },
+      onChange(path, v) { setAt(['settings'].concat(path), v, 'Setting'); },
+    }));
+  }
+
+  // ---- moving the game between devices -----------------------------------
+  // The one thing the editor could not do: get a game OUT. Creator Mode runs
+  // on a phone and on a laptop, and each one keeps its own draft in its own
+  // browser — so without this, work done on the phone stays on the phone.
+  // There is no server and no account: the bridge is a file you send to
+  // yourself however you already send things.
+  function otherDeviceSection(body, p) {
+    body.appendChild(make('div.ed-hint', {
+      text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
+    }));
+    const S = KIT.storage;
+    // Opening a game rebuilds this whole panel (the project changed), which
+    // would throw the answer away the moment it is given. So the last thing
+    // said lives outside the panel and is put back when it redraws.
+    const { el: status, say } = statusLine(moveState);
+
+    const out = make('div.ed-row');
+    out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
+      const name = S.fileName(p);
+      const done = await S.saveToFile(p);
+      say(done ? `Saved as ${name}. Send it to your other device and open it there.`
+        : 'This browser would not save a file. Try Copy instead — it puts the same thing on the clipboard.', done);
+    }, 'primary'));
+    out.appendChild(btn('Copy', 'Put the whole game on the clipboard (easier on a phone)', async () => {
+      const done = await S.copyToClipboard(S.toFile(p));
+      say(done ? 'Copied. Paste it into a message to yourself, then use Paste on the other device.'
+        : 'The clipboard is not available here. Use Save a copy instead.', done);
+    }));
+    body.appendChild(out);
+
+    // The version-control way out.
+    //
+    // The project format is already mergeable by construction — one file per
+    // map, sorted keys, one short line per row, no minified blobs — which is
+    // the single clearest thing this engine has over RPG Maker, where a map
+    // is one line of JSON that git cannot merge even when two people edit
+    // different corners of it.
+    const gitRow = make('div.ed-row');
+    const canFolder = typeof root.showDirectoryPicker === 'function';
+    gitRow.appendChild(btn(canFolder ? '↓ Save as files (for git)' : '↓ Save as files',
+      'One file per map, the way version control wants it', async () => {
+        const files = KIT.project.exportFiles(p);
+        const names = Object.keys(files);
+        if (canFolder) {
+          try {
+            const dir = await root.showDirectoryPicker({ mode: 'readwrite' });
+            for (const name of names) {
+              const parts = name.split('/');
+              let here = dir;
+              for (let i = 0; i < parts.length - 1; i++) here = await here.getDirectoryHandle(parts[i], { create: true });
+              const fh = await here.getFileHandle(parts[parts.length - 1], { create: true });
+              const w = await fh.createWritable();
+              await w.write(files[name]);
+              await w.close();
+            }
+            say(`Wrote ${names.length} file${names.length === 1 ? '' : 's'}. That folder is a git repository waiting to happen.`, true);
+          } catch (e) {
+            say(e && e.name === 'AbortError' ? 'Nothing written.' : 'That folder could not be written to.', e && e.name !== 'AbortError' ? false : undefined);
+          }
+          return;
+        }
+        // No directory picker (Firefox, Safari, every phone): one zip, which
+        // every browser will download and every computer can open. N
+        // downloads only ever delivered the first outside Chrome, and the
+        // old code could not tell, so it said it had saved them all.
+        const zip = KIT.storage.zip(files);
+        const zipName = `${(p.meta && p.meta.id) || 'game'}-files.zip`;
+        const ok = await KIT.storage.download(zipName, zip, 'application/zip');
+        say(ok
+          ? `Saved ${zipName} — ${names.length} file${names.length === 1 ? '' : 's'} inside, one per map. Unzip it into your game folder; that folder is a git repository waiting to happen.`
+          : 'This browser would not save the file.', !!ok);
+      }));
+    body.appendChild(gitRow);
+    body.appendChild(make('div.ed-sub', {
+      text: canFolder
+        ? 'One file per map, sorted and readable, so git can merge two people editing different rooms. RPG Maker writes each map as a single minified line, which it cannot.'
+        : 'Saving a folder needs Chrome or Edge on a computer. On a phone, “Save a copy” above is the one that works.',
+    }));
+
+    textIntake(body, { accept: '.json,.kitgame.json,application/json', placeholder: 'or paste a game here', button: 'Open what is pasted', title: 'Replace this game with the pasted one' },
+      (text, name) => openGame(text, name || 'the pasted game', say), say);
+    body.appendChild(status);
+    body.appendChild(make('div.ed-sub', {
+      text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
+    }));
+  }
+
+  // ---- starting over ----------------------------------------------------------
+  // The demo is a worked example, not a cage. A person who wants THEIR game
+  // needs a blank map with their title on it, from the phone, without a CLI.
+  function newGameSection(body, p) {
+    body.appendChild(make('div.ed-hint', { text: 'A game of your own, in place of this one. Undo (↶) brings this one back, and “Save a copy” above keeps it for good.' }));
+    const name = make('input.ed-newgame-name');
+    name.type = 'text';
+    name.placeholder = 'What is it called?';
+    name.value = newState.name || '';
+    name.setAttribute('aria-label', 'The new game’s title');
+    name.oninput = () => { newState.name = name.value; };
+    body.appendChild(name);
+    // One button per blueprint, same list as the title screen's door — so a
+    // person already inside Creator Mode does not have to leave it to get
+    // the thing the front page offers.
+    const blueprints = (KIT.blueprints && KIT.blueprints.list()) || [];
+    if (!blueprints.length) { body.appendChild(make('div.ed-sub', { text: 'No starting points are loaded in this build.' })); return; }
+    for (const bp of blueprints) {
+      const row = make('div.ed-row');
+      row.appendChild(btn(`✦ ${KIT.labelOf ? KIT.labelOf(bp) : (bp.label || bp.id)}`, bp.describe || '', async () => {
+        const title = (name.value || '').trim() || KIT.blueprints.titleFor(bp.id);
+        const was = (p.meta && p.meta.title) || 'this game';
+        if (!(await ED.confirm(`Replace “${was}” with “${title}”? Undo (↶) brings “${was}” back.`, { yes: 'Start over' }))) return;
+        let fresh;
+        try {
+          fresh = KIT.blueprints.build(bp.id, { title, keepModules: p.modules || [] }).project;
+        } catch (e) {
+          (KIT.log || console).error('[editor] that blueprint did not build', e);
+          ED.toast('That would not start. Nothing has changed.');
+          return;
+        }
+        try { KIT.modules.activate(fresh); } catch (e) { (KIT.log || console).warn('[editor] modules', e); }
+        newState.open = false; newState.name = '';
+        commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
+        try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[editor] content', e); }
+        ED.select(null);
+        ED.refresh({ drop: true });
+        ED.openMap(fresh.start.map);
+        ED.set({ panel: 'tiles' });
+        ED.toast(`“${title}” is yours. Paint something.`);
+      }, 'primary'));
+      body.appendChild(row);
+      if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
+    }
+  }
+
+  // ---- languages ---------------------------------------------------------
+  // RPG Maker's answer to this is "ship a second copy of your game", which is
+  // why so few of its games exist in more than one language. Here a
+  // translation is one text file beside the project, keyed on the lines
+  // themselves, and the editor's whole job is to hand that file out and take
+  // it back.
+  function languagesSection(body, p) {
+    const L = KIT.lang;
+    if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
+
+    const { el: status, say } = statusLine(langState);   // and it now comes back after a redraw, like the other one
+
+    const src = (p.settings && p.settings.language) || 'en';
+    const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
+    if (!langState.code) langState.code = others[0] || '';
+
+    body.appendChild(make('div.ed-hint', {
+      text: `This game is written in ${(p.settings && p.settings.languageName) || src}. A translation is one file: every line the game can say, with room underneath for your version. Lines are matched on the words themselves, so moving a scene around keeps its translation, and rewording a line correctly asks for it again.`,
+    }));
+
+    const total = L.extract(p).length;
+    body.appendChild(make('div.ed-sub', { text: `${total} line${total === 1 ? '' : 's'} a player can read.` }));
+
+    // which language this row is about
+    const pick = make('div.ed-row');
+    const sel = make('select');
+    for (const c of others) sel.appendChild(make('option', { text: `${(p.languages[c] && p.languages[c].name) || c} (${c})`, attrs: { value: c } }));
+    sel.appendChild(make('option', { text: others.length ? '+ another language…' : '+ add a language…', attrs: { value: '' } }));
+    sel.value = langState.code;
+    sel.onchange = () => {
+      if (!sel.value) {
+        const code = (root.prompt && root.prompt('Language code — two letters, the way a browser writes it: ja, fr, pt-BR')) || '';
+        const clean = String(code).trim();
+        if (!clean || clean === src) { sel.value = langState.code; return; }
+        const name = (root.prompt && root.prompt(`What is ${clean} called, in ${clean}?`, clean)) || clean;
+        langState.code = clean;
+        langState.said = { text: `Added ${name}. Save the file below, translate it, and bring it back.`, ok: true };
+        commit('Add a language', (doc) => doc.set(['languages', clean], { name: String(name).trim() || clean, lines: {} }, { label: 'Add a language' }));
+        return;
+      }
+      langState.code = sel.value;
+      ED.refresh();
+    };
+    pick.appendChild(sel);
+    body.appendChild(pick);
+
+    const code = langState.code;
+    if (code && p.languages && p.languages[code]) {
+      const cov = L.coverage(p, code);
+      const pct = cov.total ? Math.round((cov.translated / cov.total) * 100) : 100;
+      body.appendChild(make('div.ed-sub', { text: `${cov.translated} of ${cov.total} translated (${pct}%).` }));
+
+      const row = make('div.ed-row');
+      row.appendChild(btn('↓ Save the file', 'Every line, with your translations already in it', async () => {
+        const name = `${(p.meta && p.meta.id) || 'game'}.${code}.txt`;
+        const done = await KIT.storage.download(name, L.toText(p, code));
+        say(done ? `Saved as ${name}.` : 'This browser would not save a file — use Copy instead.', done);
+      }, 'primary'));
+      row.appendChild(btn('Copy', 'Put the file on the clipboard (easier on a phone)', async () => {
+        const done = await KIT.storage.copyToClipboard(L.toText(p, code));
+        say(done ? 'Copied. Paste it wherever you translate.' : 'The clipboard is not available here.', done);
+      }));
+      body.appendChild(row);
+
+      const take = (text, whence) => {
+        const r = L.fromText(text);
+        const n = Object.keys(r.lines).filter((k) => r.lines[k]).length;
+        if (!n && !r.problems.length) { say(`${whence} had no translations in it.`, false); return; }
+        const total = L.extract(p).length;
+        const bad = r.problems.length ? ` ${r.problems.length} line(s) could not be read (first at line ${r.problems[0].line}).` : '';
+        langState.said = { text: `${n} of ${total} lines translated.${bad}`, ok: !r.problems.length };
+        commit('Take a translation', (doc) => doc.set(['languages', code, 'lines'], r.lines, { label: 'Take a translation' }));
+      };
+
+      textIntake(body, { accept: '.txt,text/plain', placeholder: 'or paste a translated file here', button: 'Take what is pasted', title: 'Read the translations out of it' },
+        (text, name) => take(text, name || 'What you pasted'), say);
+
+      if (cov.missing.length) {
+        const det = make('details.ed-sub');
+        det.appendChild(make('summary', { text: `${cov.missing.length} still in ${src}` }));
+        for (const m of cov.missing.slice(0, 40)) det.appendChild(make('div.ed-sub', { text: '· ' + m.text.replace(/\n/g, ' ').slice(0, 80) }));
+        if (cov.missing.length > 40) det.appendChild(make('div.ed-sub', { text: `…and ${cov.missing.length - 40} more` }));
+        body.appendChild(det);
+      }
+
+      body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
+        if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Undo (↶) puts it back.`)) return;
+        langState.code = '';
+        langState.said = { text: 'Removed.', ok: true };
+        commit('Remove a language', (doc) => doc.del(['languages', code]));
+      }));
+    }
+    body.appendChild(status);
+  }
+
+  function modulesSection(body, p) {
+    body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
+    // Every module the page has LOADED, so one can be switched on as well as
+    // off — plus any this project names that did not load, which is worth
+    // seeing rather than hiding. The engine knows no module's name.
+    const loaded = (KIT.modules && KIT.modules.all) ? KIT.modules.all() : [];
+    const byId = new Map(loaded.map(d => [d.id, d]));
+    const known = Array.from(new Set(loaded.map(d => d.id).concat(p.modules || []))).sort();
+    const chips = make('div.ed-chips');
+    for (const id of known) {
+      const def = byId.get(id) || null;
+      const on = (p.modules || []).includes(id);
+      const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${KIT.labelOf(def, ED, titleCase(id))}` });
+      c.type = 'button';
+      c.setAttribute('aria-pressed', String(on));
+      if (!def) { c.classList.add('ed-chip-warn'); c.title = `This project asks for “${id}”, but it is not on the page.`; }
+      else if (def.describe) c.title = def.describe;
+      c.onclick = () => {
+        const list = (p.modules || []).slice();
+        const i = list.indexOf(id);
+        if (i >= 0) list.splice(i, 1); else list.push(id);
+        setAt(['modules'], list, on ? 'Switch module off' : 'Switch module on');
+      };
+      chips.appendChild(c);
+    }
+    if (!known.length) body.appendChild(make('div.ed-hint', { text: 'No modules are loaded. tools/new-module.js writes one.' }));
+    body.appendChild(chips);
+  }
   KIT.registry('editorPanels').add({
     id: 'project', label: 'Project', icon: 'book', order: 50,
     mount(host) {
@@ -33860,392 +34239,14 @@ PKMN.TILES.register([
       clear(host);
       const forms = this._forms;
 
-      section(host, 'The game', true, (body) => {
-        const box = make('div');
-        body.appendChild(box);
-        forms.push(INS().mount(box, {
-          fields: metaFields(),
-          value: p.meta,
-          ctx: { project: p },
-          onChange(path, v) { setAt(['meta'].concat(path), v, 'Edit project'); },
-        }));
-        if (!String((p.meta && p.meta.pitch) || '').trim()) body.appendChild(make('div.ed-hint.ed-warn', { text: 'The pitch is the two sentences you will read back in six months: who the hero is, and what they want. Everything else follows it.' }));
-      });
-
-      section(host, 'Heroes', true, (body) => {
-        (p.heroes || []).forEach((h, i) => {
-          const card = make('div.ed-card');
-          const row = make('div.ed-row');
-          const name = make('input.ed-half');
-          name.type = 'text';
-          name.value = h.name || '';
-          name.placeholder = 'Name';
-          name.onchange = () => setAt(['heroes', i, 'name'], name.value, 'Rename hero');
-          row.appendChild(name);
-          row.appendChild(make('span.ed-badge', { text: h.id }));
-          if ((p.heroes || []).length > 1) {
-            row.appendChild(btn('✕', 'Remove this hero', async () => {
-              if (!(await ED.confirm(`Remove ${h.name || h.id}?`))) return;
-              commit('Remove hero', (doc) => doc.splice(['heroes'], i, 1, []));
-            }, 'danger'));
-          }
-          card.appendChild(row);
-          const sprite = make('div');
-          card.appendChild(make('div.ed-label', { text: 'Sprite' }));
-          card.appendChild(sprite);
-          INS().field(sprite, { key: 'sprite', type: 'ref:sprite' }, h.sprite, (v) => setAt(['heroes', i, 'sprite'], v, 'Hero sprite'), { project: p });
-          card.appendChild(make('div.ed-label', { text: 'Recolour (palette letter → colour)' }));
-          const recolor = make('div');
-          card.appendChild(recolor);
-          INS().field(recolor, { key: 'recolor', type: 'strings' }, h.recolor || {}, (v) => setAt(['heroes', i, 'recolor'], v, 'Recolour hero'), { project: p });
-          body.appendChild(card);
-        });
-        body.appendChild(btn('＋ Add a hero', 'Another playable character (co-op uses the second one)', () => {
-          const n = (p.heroes || []).length + 1;
-          commit('Add hero', (doc) => doc.push(['heroes'], { id: `p${n}`, name: `Player ${n}`, sprite: null, recolor: {} }));
-        }, 'wide'));
-      });
-
-      section(host, 'Where the game starts', true, (body) => {
-        const box = make('div');
-        body.appendChild(box);
-        forms.push(INS().mount(box, {
-          fields: P.fields.start || [],
-          value: p.start,
-          ctx: { project: p },
-          onChange(path, v) { setAt(['start'].concat(path), v, 'Start position'); },
-        }));
-        body.appendChild(btn('✛ Pick the start on the map', 'Tap a square on the map', () => {
-          INS().pickOnMap({
-            hint: 'Tap where the game should start',
-            onPick(pt) { commit('Start position', (doc, O) => { O.setField(doc, ['start', 'map'], pt.map); O.setField(doc, ['start', 'x'], pt.x); O.setField(doc, ['start', 'y'], pt.y); }); },
-          });
-        }, 'wide'));
-      });
-
-      section(host, 'Settings', false, (body) => {
-        const box = make('div');
-        body.appendChild(box);
-        forms.push(INS().mount(box, {
-          fields: P.fields.settings || [],
-          value: p.settings,
-          ctx: { project: p },
-          onChange(path, v) { setAt(['settings'].concat(path), v, 'Setting'); },
-        }));
-      });
-
-      // ---- moving the game between devices -----------------------------------
-      // The one thing the editor could not do: get a game OUT. Creator Mode runs
-      // on a phone and on a laptop, and each one keeps its own draft in its own
-      // browser — so without this, work done on the phone stays on the phone.
-      // There is no server and no account: the bridge is a file you send to
-      // yourself however you already send things.
-      section(host, 'This game, on your other device', moveState.open === true, (body) => {
-        body.appendChild(make('div.ed-hint', {
-          text: 'Everything — maps, people, scripts, art — as one file. Save it here, send it to yourself, and open it there. It works the same both ways round, and nothing goes through anybody else’s computer.',
-        }));
-        const S = KIT.storage;
-        // Opening a game rebuilds this whole panel (the project changed), which
-        // would throw the answer away the moment it is given. So the last thing
-        // said lives outside the panel and is put back when it redraws.
-        const { el: status, say } = statusLine(moveState);
-
-        const out = make('div.ed-row');
-        out.appendChild(btn('↓ Save a copy', 'Download the whole game as one file', async () => {
-          const name = S.fileName(p);
-          const done = await S.saveToFile(p);
-          say(done ? `Saved as ${name}. Send it to your other device and open it there.`
-            : 'This browser would not save a file. Try Copy instead — it puts the same thing on the clipboard.', done);
-        }, 'primary'));
-        out.appendChild(btn('Copy', 'Put the whole game on the clipboard (easier on a phone)', async () => {
-          const done = await S.copyToClipboard(S.toFile(p));
-          say(done ? 'Copied. Paste it into a message to yourself, then use Paste on the other device.'
-            : 'The clipboard is not available here. Use Save a copy instead.', done);
-        }));
-        body.appendChild(out);
-
-        // The version-control way out.
-        //
-        // The project format is already mergeable by construction — one file per
-        // map, sorted keys, one short line per row, no minified blobs — which is
-        // the single clearest thing this engine has over RPG Maker, where a map
-        // is one line of JSON that git cannot merge even when two people edit
-        // different corners of it.
-        //
-        // And until now there was NO WAY TO PRODUCE IT from the editor.
-        // `KIT.project.exportFiles` had zero callers outside the build script,
-        // so the differentiator existed and nobody could reach it.
-        const gitRow = make('div.ed-row');
-        const canFolder = typeof root.showDirectoryPicker === 'function';
-        gitRow.appendChild(btn(canFolder ? '↓ Save as files (for git)' : '↓ Save as files',
-          'One file per map, the way version control wants it', async () => {
-            const files = KIT.project.exportFiles(p);
-            const names = Object.keys(files);
-            if (canFolder) {
-              try {
-                const dir = await root.showDirectoryPicker({ mode: 'readwrite' });
-                for (const name of names) {
-                  const parts = name.split('/');
-                  let here = dir;
-                  for (let i = 0; i < parts.length - 1; i++) here = await here.getDirectoryHandle(parts[i], { create: true });
-                  const fh = await here.getFileHandle(parts[parts.length - 1], { create: true });
-                  const w = await fh.createWritable();
-                  await w.write(files[name]);
-                  await w.close();
-                }
-                say(`Wrote ${names.length} file${names.length === 1 ? '' : 's'}. That folder is a git repository waiting to happen.`, true);
-              } catch (e) {
-                say(e && e.name === 'AbortError' ? 'Nothing written.' : 'That folder could not be written to.', e && e.name !== 'AbortError' ? false : undefined);
-              }
-              return;
-            }
-            // No directory picker (Firefox, Safari, every phone): one zip, which
-            // every browser will download and every computer can open. N
-            // downloads only ever delivered the first outside Chrome, and the
-            // old code could not tell, so it said it had saved them all.
-            const zip = KIT.storage.zip(files);
-            const zipName = `${(p.meta && p.meta.id) || 'game'}-files.zip`;
-            const ok = await KIT.storage.download(zipName, zip, 'application/zip');
-            say(ok
-              ? `Saved ${zipName} — ${names.length} file${names.length === 1 ? '' : 's'} inside, one per map. Unzip it into your game folder; that folder is a git repository waiting to happen.`
-              : 'This browser would not save the file.', !!ok);
-          }));
-        body.appendChild(gitRow);
-        body.appendChild(make('div.ed-sub', {
-          text: canFolder
-            ? 'One file per map, sorted and readable, so git can merge two people editing different rooms. RPG Maker writes each map as a single minified line, which it cannot.'
-            : 'Saving a folder needs Chrome or Edge on a computer. On a phone, “Save a copy” above is the one that works.',
-        }));
-
-        const inRow = make('div.ed-row');
-        const file = make('input');
-        file.type = 'file';
-        file.accept = '.json,.kitgame.json,application/json';
-        file.className = 'ed-file';
-        file.onchange = () => {
-          const f = file.files && file.files[0];
-          if (!f) return;
-          const r = new FileReader();
-          r.onload = () => openGame(String(r.result || ''), f.name, say);
-          r.onerror = () => say('That file could not be read.', false);
-          r.readAsText(f);
-        };
-        inRow.appendChild(file);
-        body.appendChild(inRow);
-
-        const pasteRow = make('div.ed-row');
-        const paste = make('textarea.ed-json.ed-paste');
-        paste.placeholder = 'or paste a game here';
-        paste.spellcheck = false;
-        paste.rows = 3;
-        pasteRow.appendChild(paste);
-        body.appendChild(pasteRow);
-        body.appendChild(btn('Open what is pasted', 'Replace this game with the pasted one', () => {
-          if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
-          openGame(paste.value, 'the pasted game', say);
-        }));
-        body.appendChild(status);
-        body.appendChild(make('div.ed-sub', {
-          text: 'Opening a game REPLACES the one you are editing. Undo (↶) puts it back, and the one you replaced is still in the file you saved.',
-        }));
-      }, moveState);
-
-      // ---- starting over ----------------------------------------------------------
-      // The demo is a worked example, not a cage. A person who wants THEIR game
-      // needs a blank map with their title on it, from the phone, without a CLI.
-      section(host, 'Start a new game', newState.open === true, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'A game of your own, in place of this one. Undo (↶) brings this one back, and “Save a copy” above keeps it for good.' }));
-        const name = make('input.ed-newgame-name');
-        name.type = 'text';
-        name.placeholder = 'What is it called?';
-        name.value = newState.name || '';
-        name.setAttribute('aria-label', 'The new game’s title');
-        name.oninput = () => { newState.name = name.value; };
-        body.appendChild(name);
-        // One button per blueprint, same list as the title screen's door — so a
-        // person already inside Creator Mode does not have to leave it to get
-        // the thing the front page offers.
-        const blueprints = (KIT.blueprints && KIT.blueprints.list()) || [];
-        if (!blueprints.length) { body.appendChild(make('div.ed-sub', { text: 'No starting points are loaded in this build.' })); return; }
-        for (const bp of blueprints) {
-          const row = make('div.ed-row');
-          row.appendChild(btn(`✦ ${KIT.labelOf ? KIT.labelOf(bp) : (bp.label || bp.id)}`, bp.describe || '', async () => {
-            const title = (name.value || '').trim() || KIT.blueprints.titleFor(bp.id);
-            const was = (p.meta && p.meta.title) || 'this game';
-            if (!(await ED.confirm(`Replace “${was}” with “${title}”? Undo (↶) brings “${was}” back.`, { yes: 'Start over' }))) return;
-            let fresh;
-            try {
-              fresh = KIT.blueprints.build(bp.id, { title, keepModules: p.modules || [] }).project;
-            } catch (e) {
-              (KIT.log || console).error('[editor] that blueprint did not build', e);
-              ED.toast('That would not start. Nothing has changed.');
-              return;
-            }
-            try { KIT.modules.activate(fresh); } catch (e) { (KIT.log || console).warn('[editor] modules', e); }
-            newState.open = false; newState.name = '';
-            commit('New game', (doc) => doc.replace(fresh, { label: 'New game' }));
-            try { KIT.modules.registerContent(ED.state.project); } catch (e) { (KIT.log || console).warn('[editor] content', e); }
-            ED.select(null);
-            ED.refresh({ drop: true });
-            ED.openMap(fresh.start.map);
-            ED.set({ panel: 'tiles' });
-            ED.toast(`“${title}” is yours. Paint something.`);
-          }, 'primary'));
-          body.appendChild(row);
-          if (bp.describe) body.appendChild(make('div.ed-sub', { text: bp.describe }));
-        }
-      }, newState);
-
-      // ---- languages ---------------------------------------------------------
-      // RPG Maker's answer to this is "ship a second copy of your game", which is
-      // why so few of its games exist in more than one language. Here a
-      // translation is one text file beside the project, keyed on the lines
-      // themselves, and the editor's whole job is to hand that file out and take
-      // it back.
-
-      section(host, 'Languages', langState.open === true, (body) => {
-        const L = KIT.lang;
-        if (!L) { body.appendChild(make('div.ed-hint', { text: 'Languages are not loaded in this build.' })); return; }
-
-        const { el: status, say } = statusLine(langState);   // and it now comes back after a redraw, like the other one
-
-        const src = (p.settings && p.settings.language) || 'en';
-        const others = Object.keys(p.languages || {}).filter((c) => c !== src).sort();
-        if (!langState.code) langState.code = others[0] || '';
-
-        body.appendChild(make('div.ed-hint', {
-          text: `This game is written in ${(p.settings && p.settings.languageName) || src}. A translation is one file: every line the game can say, with room underneath for your version. Lines are matched on the words themselves, so moving a scene around keeps its translation, and rewording a line correctly asks for it again.`,
-        }));
-
-        const total = L.extract(p).length;
-        body.appendChild(make('div.ed-sub', { text: `${total} line${total === 1 ? '' : 's'} a player can read.` }));
-
-        // which language this row is about
-        const pick = make('div.ed-row');
-        const sel = make('select');
-        for (const c of others) sel.appendChild(make('option', { text: `${(p.languages[c] && p.languages[c].name) || c} (${c})`, attrs: { value: c } }));
-        sel.appendChild(make('option', { text: others.length ? '+ another language…' : '+ add a language…', attrs: { value: '' } }));
-        sel.value = langState.code;
-        sel.onchange = () => {
-          if (!sel.value) {
-            const code = (root.prompt && root.prompt('Language code — two letters, the way a browser writes it: ja, fr, pt-BR')) || '';
-            const clean = String(code).trim();
-            if (!clean || clean === src) { sel.value = langState.code; return; }
-            const name = (root.prompt && root.prompt(`What is ${clean} called, in ${clean}?`, clean)) || clean;
-            langState.code = clean;
-            langState.said = { text: `Added ${name}. Save the file below, translate it, and bring it back.`, ok: true };
-            commit('Add a language', (doc) => doc.set(['languages', clean], { name: String(name).trim() || clean, lines: {} }, { label: 'Add a language' }));
-            return;
-          }
-          langState.code = sel.value;
-          ED.refresh();
-        };
-        pick.appendChild(sel);
-        body.appendChild(pick);
-
-        const code = langState.code;
-        if (code && p.languages && p.languages[code]) {
-          const cov = L.coverage(p, code);
-          const pct = cov.total ? Math.round((cov.translated / cov.total) * 100) : 100;
-          body.appendChild(make('div.ed-sub', { text: `${cov.translated} of ${cov.total} translated (${pct}%).` }));
-
-          const row = make('div.ed-row');
-          row.appendChild(btn('↓ Save the file', 'Every line, with your translations already in it', async () => {
-            const name = `${(p.meta && p.meta.id) || 'game'}.${code}.txt`;
-            const done = await KIT.storage.download(name, L.toText(p, code));
-            say(done ? `Saved as ${name}.` : 'This browser would not save a file — use Copy instead.', done);
-          }, 'primary'));
-          row.appendChild(btn('Copy', 'Put the file on the clipboard (easier on a phone)', async () => {
-            const done = await KIT.storage.copyToClipboard(L.toText(p, code));
-            say(done ? 'Copied. Paste it wherever you translate.' : 'The clipboard is not available here.', done);
-          }));
-          body.appendChild(row);
-
-          const take = (text, whence) => {
-            const r = L.fromText(text);
-            const n = Object.keys(r.lines).filter((k) => r.lines[k]).length;
-            if (!n && !r.problems.length) { say(`${whence} had no translations in it.`, false); return; }
-            const total = L.extract(p).length;
-            const bad = r.problems.length ? ` ${r.problems.length} line(s) could not be read (first at line ${r.problems[0].line}).` : '';
-            langState.said = { text: `${n} of ${total} lines translated.${bad}`, ok: !r.problems.length };
-            commit('Take a translation', (doc) => doc.set(['languages', code, 'lines'], r.lines, { label: 'Take a translation' }));
-          };
-
-          const inRow = make('div.ed-row');
-          const file = make('input');
-          file.type = 'file';
-          file.accept = '.txt,text/plain';
-          file.className = 'ed-file';
-          file.onchange = () => {
-            const f = file.files && file.files[0];
-            if (!f) return;
-            const rd = new FileReader();
-            rd.onload = () => take(String(rd.result || ''), f.name);
-            rd.onerror = () => say('That file could not be read.', false);
-            rd.readAsText(f);
-          };
-          inRow.appendChild(file);
-          body.appendChild(inRow);
-
-          const pasteRow = make('div.ed-row');
-          const paste = make('textarea.ed-json.ed-paste');
-          paste.placeholder = 'or paste a translated file here';
-          paste.spellcheck = false;
-          paste.rows = 3;
-          pasteRow.appendChild(paste);
-          body.appendChild(pasteRow);
-          body.appendChild(btn('Take what is pasted', 'Read the translations out of it', () => {
-            if (!paste.value.trim()) { say('Nothing pasted yet.', false); return; }
-            take(paste.value, 'What you pasted');
-          }));
-
-          if (cov.missing.length) {
-            const det = make('details.ed-sub');
-            det.appendChild(make('summary', { text: `${cov.missing.length} still in ${src}` }));
-            for (const m of cov.missing.slice(0, 40)) det.appendChild(make('div.ed-sub', { text: '· ' + m.text.replace(/\n/g, ' ').slice(0, 80) }));
-            if (cov.missing.length > 40) det.appendChild(make('div.ed-sub', { text: `…and ${cov.missing.length - 40} more` }));
-            body.appendChild(det);
-          }
-
-          body.appendChild(btn('Remove this language', 'Deletes its translations from the project', () => {
-            if (root.confirm && !root.confirm(`Delete the ${p.languages[code].name} translation? Undo (↶) puts it back.`)) return;
-            langState.code = '';
-            langState.said = { text: 'Removed.', ok: true };
-            commit('Remove a language', (doc) => doc.del(['languages', code]));
-          }));
-        }
-        if (langState.said) say(langState.said.text, langState.said.ok);
-        body.appendChild(status);
-      }, langState);
-
-      section(host, 'Modules', false, (body) => {
-        body.appendChild(make('div.ed-hint', { text: 'Modules add commands, object types and panels of their own. Switching one off leaves its data in the project, so you can switch it back on. Switching one on takes effect when the game reloads.' }));
-        // Every module the page has LOADED, so one can be switched on as well as
-        // off — plus any this project names that did not load, which is worth
-        // seeing rather than hiding. The engine knows no module's name.
-        const loaded = (KIT.modules && KIT.modules.all) ? KIT.modules.all() : [];
-        const byId = new Map(loaded.map(d => [d.id, d]));
-        const known = Array.from(new Set(loaded.map(d => d.id).concat(p.modules || []))).sort();
-        const chips = make('div.ed-chips');
-        for (const id of known) {
-          const def = byId.get(id) || null;
-          const on = (p.modules || []).includes(id);
-          const c = make('button.ed-chip', { text: `${on ? '✓ ' : ''}${KIT.labelOf(def, ED, titleCase(id))}` });
-          c.type = 'button';
-          c.setAttribute('aria-pressed', String(on));
-          if (!def) { c.classList.add('ed-chip-warn'); c.title = `This project asks for “${id}”, but it is not on the page.`; }
-          else if (def.describe) c.title = def.describe;
-          c.onclick = () => {
-            const list = (p.modules || []).slice();
-            const i = list.indexOf(id);
-            if (i >= 0) list.splice(i, 1); else list.push(id);
-            setAt(['modules'], list, on ? 'Switch module off' : 'Switch module on');
-          };
-          chips.appendChild(c);
-        }
-        if (!known.length) body.appendChild(make('div.ed-hint', { text: 'No modules are loaded. tools/new-module.js writes one.' }));
-        body.appendChild(chips);
-      });
+      section(host, 'The game', true, (body) => gameSection(body, p, forms));
+      section(host, 'Heroes', true, (body) => heroesSection(body, p));
+      section(host, 'Where the game starts', true, (body) => startPointSection(body, p, forms));
+      section(host, 'Settings', false, (body) => settingsSection(body, p, forms));
+      section(host, 'This game, on your other device', moveState.open === true, (body) => otherDeviceSection(body, p), moveState);
+      section(host, 'Start a new game', newState.open === true, (body) => newGameSection(body, p), newState);
+      section(host, 'Languages', langState.open === true, (body) => languagesSection(body, p), langState);
+      section(host, 'Modules', false, (body) => modulesSection(body, p));
     },
   });
 
@@ -34475,7 +34476,7 @@ PKMN.TILES.register([
         el.list.appendChild(item);
       }
       if (!ids.length) el.list.appendChild(ED.emptyState({ icon: '📜', text: 'No rules yet', hint: 'Try one: on bump, if the door is locked, say “it needs a key”. Then let the player eat it.' }));
-      if (this._form) { try { this._form.destroy(); } catch (e) { /* ignore */ } this._form = null; }
+      if (this._form) { this._form.destroy(); this._form = null; }
       clear(el.detail);
       if (!selId || !p.rules[selId]) return;
       const r = p.rules[selId];
@@ -34544,7 +34545,7 @@ PKMN.TILES.register([
         el.list.appendChild(item);
       }
       if (!ids.length) el.list.appendChild(ED.emptyState({ icon: '🎒', text: 'No items yet', hint: 'Items are what an “Item on ground” Event gives, and what conditions ask about.' }));
-      if (this._form) { try { this._form.destroy(); } catch (e) { /* ignore */ } this._form = null; }
+      if (this._form) { this._form.destroy(); this._form = null; }
       clear(el.detail);
       if (!selId || !p.items[selId]) return;
       const it = p.items[selId];
@@ -34722,6 +34723,11 @@ PKMN.TILES.register([
     mount(host) {
       clear(host);
       const el = this._el = {};
+      // Picked or dropped, the files go the same way, and a failure says so the same way.
+      const takeFiles = (files) => Promise.resolve(read(this, files)).catch((err) => {
+        clear(el.report);
+        el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` }));
+      });
       host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — or music and sound effects (.ogg, .mp3, .wav). Everything is embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
@@ -34732,7 +34738,7 @@ PKMN.TILES.register([
       el.file.type = 'file';
       el.file.multiple = true;
       el.file.style.display = 'none';
-      el.file.onchange = () => { if (el.file.files && el.file.files.length) Promise.resolve(read(this, Array.from(el.file.files))).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); }); };
+      el.file.onchange = () => { if (el.file.files && el.file.files.length) takeFiles(Array.from(el.file.files)); };
       pick.onclick = () => el.file.click();
       el.drop.appendChild(pick);
       el.drop.appendChild(el.file);
@@ -34742,7 +34748,7 @@ PKMN.TILES.register([
         e.preventDefault();
         el.drop.classList.remove('is-over');
         const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-        if (files.length) Promise.resolve(read(this, files)).catch((err) => { clear(el.report); el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` })); });
+        if (files.length) takeFiles(files);
       });
       host.appendChild(el.drop);
       host.appendChild(make('div.ed-label', { text: 'Before you import' }));
@@ -35127,8 +35133,7 @@ PKMN.TILES.register([
     const bar = make('div.ed-row');
     const apply = btn(errs.length ? 'Import anyway' : '✓ Import it', 'Merge this into the project as one undo step', () => {
       const rep = KIT.import.merge(ED.state.doc, result, { overwrite: el.overwrite.getAttribute('aria-pressed') === 'true', source: found.label });
-      if (ED.inspector && ED.inspector.afterEdit) ED.inspector.afterEdit();
-      ED.refresh();
+      ED.afterEdit();                                         // merge wrote the document itself: refresh, validate, save
       ED.toast(`Imported · ${countLine(rep.added)}`);
       clear(el.report);
       el.report.appendChild(make('div.ed-hint.ed-ok', { text: `Imported: ${countLine(rep.added)}. Undo (↶) undoes the whole thing.` }));
@@ -35400,14 +35405,14 @@ PKMN.TILES.register([
 // ---- js/kit/editor/integration.js ----
 // Creator Mode — the joins between the shell, the panels and the running game.
 //
-// The shell (js/kit/editor/editor.js) is frozen, so the few hooks it does not
-// have live here, each one written so the shell could adopt it later:
+// What lives here rather than in the shell (js/kit/editor/editor.js):
 //
-//   ED.afterEdit()      a panel changed the document (refresh + validate + save)
-//   panel.onSelect()    the shell delivers it from select(); nothing here doubles it
-//   ED.close()          hands the player back to the game, not to the title
+//   Delete              with a page selected, deletes the event the page belongs to
 //   play mode           Escape (and a visible bar) come back to editing
+//   ED.close()          hands the player back to the game, not to the title
 //   re-open             the panels the shell mounted are kept across close/open
+//   ED.fitMap()         a map opens at a zoom that shows all of it
+//   the tab strip       the four groups and their chips
 //
 // Nothing here writes to the project: it only moves the author between the game
 // and Creator Mode, and keeps the panels in step.
@@ -35417,19 +35422,7 @@ PKMN.TILES.register([
   const UI = KIT.ui;
   if (typeof document === 'undefined' || !UI) return;                 // headless: nothing to join
 
-  const INS = ED.inspector || {};
-
-  // ---- 1. "a panel changed the document" ------------------------------------------
-  // The shell runs validate + autosave only after a pointer stroke (afterDocument is
-  // private). Every panel that commits calls this instead; it is the same debounce the
-  // inspector already had, now in one place.
-
-  // ---- 2. panel.onSelect ------------------------------------------------------------
-  // The shell delivers onSelect(sel, ed) to every mounted panel from ED.select. This
-  // file used to deliver it AGAIN on the `selection` event, so the Script panel
-  // rebuilt every card twice per tap. Once is the contract.
-
-  // ---- 2b. Delete with a page selected ------------------------------------------------
+  // ---- 1. Delete with a page selected ------------------------------------------------
   // Tapping a page tab in the Events panel selects `{ kind:'page', id }`; the shell's
   // deleteSelection only knows `object`, so the Delete key (and the panel's 🗑,
   // which asks the shell) did nothing until the event was picked again. A page
@@ -35441,7 +35434,7 @@ PKMN.TILES.register([
     return deleteSelection.call(ED);
   };
 
-  // ---- 3. play mode: a way back ------------------------------------------------------
+  // ---- 2. play mode: a way back ------------------------------------------------------
   // playHere() hides the editor's middle, but the host is opaque and the shell's key
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
@@ -35513,7 +35506,7 @@ PKMN.TILES.register([
     ED.toast('Back in Creator Mode');
   };
 
-  // ---- 4. open / close ------------------------------------------------------------------
+  // ---- 3. open / close ------------------------------------------------------------------
   // The shell leaves the host visible on close (an opaque panel over the game) and
   // forgets that its panels are already mounted, so a second open shows empty tabs.
   // Keep the mounted bodies aside and put them back.
@@ -35550,7 +35543,7 @@ PKMN.TILES.register([
     if (game && resume && game.resumeFromEditor) await game.resumeFromEditor(ED.state.project);
   };
 
-  // ---- 5. "you can see the whole map" ------------------------------------------------
+  // ---- 4. "you can see the whole map" ------------------------------------------------
   // The renderer picks its own zoom from the canvas size, which on a phone shows eight
   // squares of a twelve-square map. When a map opens, start at a zoom that fits it.
   ED.fitMap = function () {
@@ -35582,7 +35575,7 @@ PKMN.TILES.register([
   }
   ED.on('change', (patch) => { if (patch && (patch.open || patch.mapId)) fitSoon(); });
 
-  // ---- 6. the tab strip ------------------------------------------------------------------
+  // ---- 5. the tab strip ------------------------------------------------------------------
   // Fourteen panels do not fit across a phone. The strip scrolls; this keeps the tab
   // you are on in view after every change, so it never scrolls off on its own.
   function showActiveTab() {
@@ -37768,7 +37761,7 @@ PKMN.TILES.register([
 
       scene._off = UI.onAction(el, (action) => {
         if (action === 'ring-tap') { doTap(); return; }
-        if (action === 'continue') { const w = waiting; waiting = null; if (w) w(); return; }
+        if (action === 'continue') { continueNow(); return; }
         if (action.slice(0, 4) === 'act:') { actIndex = acts.findIndex(a => a.id === action.slice(4)); runAction(acts[actIndex]); }
       });
     }
@@ -37855,7 +37848,7 @@ PKMN.TILES.register([
         ball.remove();
         if (nodes.portrait) nodes.portrait.style.opacity = '1';
         await message(pline(event.reason === 'no-balls' ? 'noBalls' : 'noItem'));
-        phase = 'menu'; paintActions();
+        toMenu();
         return;
       }
       spend(act.item, 1);
@@ -37878,8 +37871,7 @@ PKMN.TILES.register([
       if (nodes.portrait) nodes.portrait.style.opacity = '1';
       await message(pline('broke'));
       if (event.fled) { await fleeAway(); return; }
-      phase = 'menu';
-      paintActions();
+      toMenu();
     }
 
     async function finishCaught() {
@@ -37901,6 +37893,13 @@ PKMN.TILES.register([
       scene.finish({ caught: false, fled: true, species: state.species });
     }
 
+    // Every message() puts the scene in phase 'message', where input only
+    // continues; each road out of one has to come back through here, or the
+    // scene is left with nothing to press.
+    function toMenu() { phase = 'menu'; paintActions(); }
+    /** The player pressed on past a message. */
+    function continueNow() { const w = waiting; waiting = null; if (w) w(); }
+
     /** message(text) — show it and wait for the player (or a beat, when instant). */
     function message(text) {
       say(text);
@@ -37914,12 +37913,12 @@ PKMN.TILES.register([
     async function runAction(a) {
       if (!a || phase !== 'menu') return;
       if (a.kind === 'throw') {
-        if (itemCount(a.item) < 1) { await message(pline('noBalls')); phase = 'menu'; paintActions(); return; }
+        if (itemCount(a.item) < 1) { await message(pline('noBalls')); toMenu(); return; }
         showRing();
         return;
       }
       const event = M.applyAction(state, a, { rng: (ctx && ctx.rng) || Math.random, items: (M.saveOf(ctx).inventory) || {} });
-      if (event.kind === 'blocked') { await message(pline('noItem')); phase = 'menu'; paintActions(); return; }
+      if (event.kind === 'blocked') { await message(pline('noItem')); toMenu(); return; }
       if (event.kind === 'leave') { scene.finish({ caught: false, left: true, species: state.species }); return; }
       if (event.kind === 'calm') {
         spend(a.item, 1);
@@ -37929,8 +37928,7 @@ PKMN.TILES.register([
         KIT.audio.play('blip');
         await message(pline(event.became ? 'curious' : 'talk', { name: M.speciesName(state.species) }));
       }
-      phase = 'menu';
-      paintActions();
+      toMenu();
     }
 
     scene = {
@@ -37944,9 +37942,8 @@ PKMN.TILES.register([
         const section = M.sectionOf(ctx || { world: game && game.world, project });
         M.see(section, state.species);
         build();
-        phase = 'menu';
         say(pline(params.isNew ? 'appearedNew' : 'appeared', { name: M.speciesName(state.species) }));
-        paintActions();
+        toMenu();
       },
       exit() { clearRing(); close(); if (scene._off) scene._off(); },
       update(dt) {
@@ -37961,7 +37958,7 @@ PKMN.TILES.register([
       },
       input(ev) {
         if (phase === 'ring') { if (ev.key === 'a' || ev.key === 'b') doTap(); return true; }
-        if (phase === 'message') { if (ev.key === 'a' || ev.key === 'b') { const w = waiting; waiting = null; if (w) w(); } return true; }
+        if (phase === 'message') { if (ev.key === 'a' || ev.key === 'b') continueNow(); return true; }
         if (phase !== 'menu') return true;
         if (['up', 'down', 'left', 'right'].includes(ev.key)) {
           actIndex = listNav(acts, actIndex, ev.key, 2);
@@ -39519,7 +39516,7 @@ PKMN.TILES.register([
 // mons — the Pokémon side of the game: befriending instead of fighting.
 //
 // Load order (index.html): rules, strings, art, actions, script, systems,
-// scenes, panel, manifest. Everything above defines; this file registers.
+// scenes, essentials, region, panel, manifest. Everything above defines; this file registers.
 //
 // What it owns:
 //   save   save.modules.mons = { version, party, box, dex:{seen,caught}, follower, steps, lastSeenAt, petted }
@@ -41034,13 +41031,17 @@ PKMN.TILES.register([
         y = view.height <= vp.h ? (view.height - vp.h) / 2 : KIT.clamp(y, 0, view.height - vp.h);
         world.camera.x = x; world.camera.y = y;
       }
-      function moveCursor(dx, dy) {
-        if (!world.map) return;
-        cx = KIT.clamp(cx + dx, 0, world.map.width - 1);
-        cy = KIT.clamp(cy + dy, 0, world.map.height - 1);
+      /** cursorTo(x, y) — put the cursor on a square of this map, and redraw what it shows. */
+      function cursorTo(x, y) {
+        cx = KIT.clamp(x, 0, world.map.width - 1);
+        cy = KIT.clamp(y, 0, world.map.height - 1);
         buildGhosts();
         follow();
         build();
+      }
+      function moveCursor(dx, dy) {
+        if (!world.map) return;
+        cursorTo(cx + dx, cy + dy);
       }
       /** The overlay changed: rebuild the entities it made and repaint. */
       function syncWorld() {
@@ -41115,11 +41116,12 @@ PKMN.TILES.register([
         mode = 'place';
         const hero = world.hero();
         const facing = hero ? KIT.entities.facingTile(hero) : { x: 0, y: 0 };
-        cx = KIT.clamp(facing.x, 0, world.map.width - 1);
-        cy = KIT.clamp(facing.y, 0, world.map.height - 1);
-        buildGhosts();
-        follow();
-        build();
+        cursorTo(facing.x, facing.y);
+      }
+      function startTaking() {
+        mode = 'take';
+        const h = world.hero();
+        cursorTo(h ? h.x : 0, h ? h.y : 0);
       }
 
       function putDown() {
@@ -41160,7 +41162,7 @@ PKMN.TILES.register([
       function act(action) {
         if (!action || action === 'none') return;
         if (action.startsWith('pick:')) { KIT.audio.play('select'); startPlacing(action.slice(5)); return; }
-        if (action === 'take') { KIT.audio.play('select'); mode = 'take'; const h = world.hero(); cx = h ? h.x : 0; cy = h ? h.y : 0; buildGhosts(); follow(); build(); return; }
+        if (action === 'take') { KIT.audio.play('select'); startTaking(); return; }
         if (action === 'rotate') { const vs = H.variants(itemDef()); variant = (variant + 1) % vs.length; KIT.audio.play('blip'); buildGhosts(); build(); return; }
         if (action === 'put') { if (mode === 'place') putDown(); else if (mode === 'take') pickUp(); return; }
         if (action === 'back') {
@@ -41193,8 +41195,7 @@ PKMN.TILES.register([
               const rect = canvas.getBoundingClientRect();
               const pt = r.screenToTile(ev.clientX - rect.left, ev.clientY - rect.top, world);
               if (!world.map || pt.x < 0 || pt.y < 0 || pt.x >= world.map.width || pt.y >= world.map.height) return;
-              cx = pt.x; cy = pt.y;
-              buildGhosts(); follow(); build();
+              cursorTo(pt.x, pt.y);
             };
             canvas.addEventListener('pointerdown', onCanvas);
           }
@@ -41556,6 +41557,7 @@ PKMN.TILES.register([
       this.root.appendChild(this.giftSec);
       this.root.appendChild(this.tuneSec);
       el.appendChild(this.root);
+      this._tune = null;
       this.refresh(ed);
     },
 
@@ -41725,19 +41727,21 @@ PKMN.TILES.register([
     },
 
     // ---- the tuning numbers ----------------------------------------------------------
+    // The inspector's number widget keeps each dial inside its min and max; the
+    // hand-built inputs this replaced let a chance of 5 or a speed of 0 through.
     renderTuning(st) {
       const body = this.tuneSec.body;
-      UI.clear(body);
-      const tuning = H.tuning(st.project);
-      for (const f of H.TUNING) {
-        const path = ['packs', 'home', 'tuning', f.key];
-        const value = tuning[f.key];
-        const widget = f.type === 'bool'
-          ? checkbox(value, (v) => edit('Tune Home', (doc) => doc.set(path, v)))
-          : input('number', value, (v) => edit('Tune Home', (doc) => doc.set(path, num(v, f.default))));
-        body.appendChild(field(f.label || f.key, widget, f.doc));
+      if (!this._tune) {
+        UI.clear(body);
+        const host = make('div');
+        body.appendChild(host);
+        body.appendChild(button('Back to the defaults', () => edit('Reset Home numbers', (doc) => doc.set(['packs', 'home', 'tuning'], H.tuningDefaults()))));
+        this._tune = { host };
       }
-      body.appendChild(button('Back to the defaults', () => edit('Reset Home numbers', (doc) => doc.set(['packs', 'home', 'tuning'], H.tuningDefaults()))));
+      this._tune = ED.inspector.packForm(this._tune.host, this._tune.form ? this._tune : null, {
+        project: st.project, fields: H.TUNING, value: H.tuning(st.project),
+        at: ['packs', 'home', 'tuning'], label: 'Tune Home',
+      });
     },
   };
 
@@ -41997,9 +42001,9 @@ PKMN.TILES.register([
 // ---- js/modules/bullet/register.js ----
 // The live half: the art, the scene, the command that starts a fight.
 //
-// Everything here is written against the engine's PUBLIC API only — no changes
-// to js/kit. Where that was awkward, the workaround is commented with WORKAROUND
-// and collected in README.md, because that list is the actual finding.
+// Everything here is written against the engine's PUBLIC API only. What that
+// cost (the one thing js/kit grew for it, a scene that draws, and the one thing
+// still done by hand, world.busy) is in README.md, "What it cost".
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};

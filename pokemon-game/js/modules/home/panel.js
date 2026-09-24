@@ -79,6 +79,7 @@
       this.root.appendChild(this.giftSec);
       this.root.appendChild(this.tuneSec);
       el.appendChild(this.root);
+      this._tune = null;
       this.refresh(ed);
     },
 
@@ -248,19 +249,21 @@
     },
 
     // ---- the tuning numbers ----------------------------------------------------------
+    // The inspector's number widget keeps each dial inside its min and max; the
+    // hand-built inputs this replaced let a chance of 5 or a speed of 0 through.
     renderTuning(st) {
       const body = this.tuneSec.body;
-      UI.clear(body);
-      const tuning = H.tuning(st.project);
-      for (const f of H.TUNING) {
-        const path = ['packs', 'home', 'tuning', f.key];
-        const value = tuning[f.key];
-        const widget = f.type === 'bool'
-          ? checkbox(value, (v) => edit('Tune Home', (doc) => doc.set(path, v)))
-          : input('number', value, (v) => edit('Tune Home', (doc) => doc.set(path, num(v, f.default))));
-        body.appendChild(field(f.label || f.key, widget, f.doc));
+      if (!this._tune) {
+        UI.clear(body);
+        const host = make('div');
+        body.appendChild(host);
+        body.appendChild(button('Back to the defaults', () => edit('Reset Home numbers', (doc) => doc.set(['packs', 'home', 'tuning'], H.tuningDefaults()))));
+        this._tune = { host };
       }
-      body.appendChild(button('Back to the defaults', () => edit('Reset Home numbers', (doc) => doc.set(['packs', 'home', 'tuning'], H.tuningDefaults()))));
+      this._tune = ED.inspector.packForm(this._tune.host, this._tune.form ? this._tune : null, {
+        project: st.project, fields: H.TUNING, value: H.tuning(st.project),
+        at: ['packs', 'home', 'tuning'], label: 'Tune Home',
+      });
     },
   };
 

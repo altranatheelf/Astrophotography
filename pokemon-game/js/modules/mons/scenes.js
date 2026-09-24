@@ -229,7 +229,7 @@
 
       scene._off = UI.onAction(el, (action) => {
         if (action === 'ring-tap') { doTap(); return; }
-        if (action === 'continue') { const w = waiting; waiting = null; if (w) w(); return; }
+        if (action === 'continue') { continueNow(); return; }
         if (action.slice(0, 4) === 'act:') { actIndex = acts.findIndex(a => a.id === action.slice(4)); runAction(acts[actIndex]); }
       });
     }
@@ -316,7 +316,7 @@
         ball.remove();
         if (nodes.portrait) nodes.portrait.style.opacity = '1';
         await message(pline(event.reason === 'no-balls' ? 'noBalls' : 'noItem'));
-        phase = 'menu'; paintActions();
+        toMenu();
         return;
       }
       spend(act.item, 1);
@@ -339,8 +339,7 @@
       if (nodes.portrait) nodes.portrait.style.opacity = '1';
       await message(pline('broke'));
       if (event.fled) { await fleeAway(); return; }
-      phase = 'menu';
-      paintActions();
+      toMenu();
     }
 
     async function finishCaught() {
@@ -362,6 +361,13 @@
       scene.finish({ caught: false, fled: true, species: state.species });
     }
 
+    // Every message() puts the scene in phase 'message', where input only
+    // continues; each road out of one has to come back through here, or the
+    // scene is left with nothing to press.
+    function toMenu() { phase = 'menu'; paintActions(); }
+    /** The player pressed on past a message. */
+    function continueNow() { const w = waiting; waiting = null; if (w) w(); }
+
     /** message(text) — show it and wait for the player (or a beat, when instant). */
     function message(text) {
       say(text);
@@ -375,12 +381,12 @@
     async function runAction(a) {
       if (!a || phase !== 'menu') return;
       if (a.kind === 'throw') {
-        if (itemCount(a.item) < 1) { await message(pline('noBalls')); phase = 'menu'; paintActions(); return; }
+        if (itemCount(a.item) < 1) { await message(pline('noBalls')); toMenu(); return; }
         showRing();
         return;
       }
       const event = M.applyAction(state, a, { rng: (ctx && ctx.rng) || Math.random, items: (M.saveOf(ctx).inventory) || {} });
-      if (event.kind === 'blocked') { await message(pline('noItem')); phase = 'menu'; paintActions(); return; }
+      if (event.kind === 'blocked') { await message(pline('noItem')); toMenu(); return; }
       if (event.kind === 'leave') { scene.finish({ caught: false, left: true, species: state.species }); return; }
       if (event.kind === 'calm') {
         spend(a.item, 1);
@@ -390,8 +396,7 @@
         KIT.audio.play('blip');
         await message(pline(event.became ? 'curious' : 'talk', { name: M.speciesName(state.species) }));
       }
-      phase = 'menu';
-      paintActions();
+      toMenu();
     }
 
     scene = {
@@ -405,9 +410,8 @@
         const section = M.sectionOf(ctx || { world: game && game.world, project });
         M.see(section, state.species);
         build();
-        phase = 'menu';
         say(pline(params.isNew ? 'appearedNew' : 'appeared', { name: M.speciesName(state.species) }));
-        paintActions();
+        toMenu();
       },
       exit() { clearRing(); close(); if (scene._off) scene._off(); },
       update(dt) {
@@ -422,7 +426,7 @@
       },
       input(ev) {
         if (phase === 'ring') { if (ev.key === 'a' || ev.key === 'b') doTap(); return true; }
-        if (phase === 'message') { if (ev.key === 'a' || ev.key === 'b') { const w = waiting; waiting = null; if (w) w(); } return true; }
+        if (phase === 'message') { if (ev.key === 'a' || ev.key === 'b') continueNow(); return true; }
         if (phase !== 'menu') return true;
         if (['up', 'down', 'left', 'right'].includes(ev.key)) {
           actIndex = listNav(acts, actIndex, ev.key, 2);

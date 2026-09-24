@@ -214,7 +214,7 @@
   }
 
   /**
-   * suspend / resume (§8.6): the mirror of enter/exit for being COVERED rather
+   * suspend / resume (docs/ENGINE-HOOKS.md #15): the mirror of enter/exit for being COVERED rather
    * than closed.
    *
    *   enter   → you exist and you are on top

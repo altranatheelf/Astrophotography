@@ -8,10 +8,7 @@
 // validate() / downscale() / silhouette() / rowsOf() / dims() are pure and
 // also work in Node, so tests can require() this file.
 //
-// This file used to live at js/core/pixels.js under the Pokémon namespace; the
-// art registry files (js/art/tiles.js) keep that old name as an alias so the
-// art tools keep working. Nothing here depends on any art file (icons.js may
-// not exist yet) and nothing here references content or modules.
+// Nothing here references content or modules.
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 

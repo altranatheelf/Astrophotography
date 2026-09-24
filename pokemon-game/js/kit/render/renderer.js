@@ -330,7 +330,7 @@
     }
 
     /**
-     * Markers (§8.4): things drawn on the map that are not IN the world.
+     * Markers (docs/ENGINE-HOOKS.md #7): things drawn on the map that are not IN the world.
      *
      *   world.markers.push({ x, y, tile:'rug', opacity: 0.6, pulse: 400, tint: '#7fd' })
      *

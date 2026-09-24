@@ -70,6 +70,8 @@
           activate.call(self);
         });
       };
+      /** show(self, m) — switch to another screen of the menu, at its first row. */
+      const show = (self, m) => { mode = m; index = 0; build(self); };
 
       /** The next row in that direction that can actually be chosen. */
       function step(from, dir) {
@@ -123,11 +125,7 @@
           // The pad is a phone thing; on a laptop it is a quarter of the screen of
           // buttons nobody presses. Auto guesses from the device, on/off overrule it.
           { label: t('buttons'), value: t('buttons-' + (BUTTONS.includes(s.buttons) ? s.buttons : 'auto')), action: 'cycle:buttons' },
-          // The Game Accessibility Guidelines' Basic tier opens with "allow
-          // controls to be remapped", and this engine had the whole API — bind,
-          // setKeymap, resetKeymap, keymaps, saved in settings.keys — with no
-          // screen, for weeks. `test/kit/reachable.test.js` carried it as a
-          // written admission in NOT_IN_MENU. This row is that admission paid.
+          // Remap controls: the Game Accessibility Guidelines' Basic tier.
           { label: t('controls'), value: t(s.keys ? 'keys-custom' : 'keys-default'), action: 'keys' },
           { label: t('back'), action: 'back' },
         ]);
@@ -183,7 +181,7 @@
           // Back from a screen the menu was opened ON (Settings from the title) is
           // out, not "to the pause menu of a game that is not running".
           if (mode === entered) { this.finish('close'); return; }
-          mode = 'pause'; index = 0; build(this); return;
+          show(this, 'pause'); return;
         }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
@@ -191,7 +189,7 @@
           const ok = await game.save(slot);
           await KIT.toast(KIT.strings.get(game.project, ok ? 'saved' : 'save-failed'));
           if (ok) KIT.audio.play('save');
-          mode = 'pause'; index = 0; build(this);
+          show(this, 'pause');
           return;
         }
         if (action === 'keys') {
@@ -211,11 +209,11 @@
         if (action.startsWith('menu:')) {
           const def = menus.get(action.slice(5));
           if (!def) return;
-          if (def.id === 'settings') { mode = 'settings'; index = 0; build(this); return; }
-          if (def.id === 'moments') { mode = 'moments'; index = 0; build(this); return; }
+          if (def.id === 'settings') { show(this, 'settings'); return; }
+          if (def.id === 'moments') { show(this, 'moments'); return; }
           if (def.id === 'save') {
             this._saveRows = await saveRows(game);
-            mode = 'save'; index = 0; build(this);
+            show(this, 'save');
             return;
           }
           const result = await def.open(game, this);
@@ -285,11 +283,9 @@
         id: 'menu', transparent: true, pausesWorld: true,
         enter(params) {
           game = (params && params.game) || KIT.game;
-          mode = (params && params.mode) || 'pause';
-          entered = mode;                // Settings from the title has no pause menu to go back to
-          index = 0;
+          entered = (params && params.mode) || 'pause';   // Settings from the title has no pause menu to go back to
           this._saveRows = null;
-          build(this);
+          show(this, entered);
         },
         exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
         /**
@@ -313,7 +309,7 @@
           if (ev.key === 'a') { activate.call(this); return true; }
           if (ev.key === 'b' || ev.key === 'menu') {
             KIT.audio.play('back');
-            if (mode !== 'pause') { mode = 'pause'; index = 0; build(this); return true; }
+            if (mode !== 'pause') { show(this, 'pause'); return true; }
             this.finish('close');
             return true;
           }
@@ -358,10 +354,8 @@
   ]);
 
   // ---- the keys ----------------------------------------------------------------------
-  // Remapping was a complete API with no screen: bind, setKeymap, resetKeymap,
-  // keymaps, and `settings.keys` saved and restored at boot. Every piece worked
-  // and no player could reach any of it, which is the defect this repo keeps
-  // shipping (ADR-0010). This is the screen.
+  // Settings › Controls: bind, setKeymap, resetKeymap and `settings.keys`, in
+  // reach of a player (ADR-0010).
   //
   // It reads RAW keydown rather than the mapped buttons, because the whole point
   // is to catch a key that does not mean anything yet. That listener is only

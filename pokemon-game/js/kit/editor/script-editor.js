@@ -158,7 +158,7 @@
     if (sel.kind === 'slot') {
       const map = project.maps && project.maps[sel.map];
       const obj = map && (map.objects || []).find(o => o.id === sel.id);
-      return `${(obj && (obj.name || obj.id)) || sel.id} · ${titleCase(sel.slot)}`;
+      return `${(obj && (obj.name || obj.id)) || sel.id} · ${KIT.project.slotLabel(sel.slot)}`;
     }
     return 'Script';
   };
@@ -626,7 +626,9 @@
     function renderFields(cmd, path, def) {
       const box = make('div.ed-cmd-fields');
       if (cmd && cmd.t === 'raw') {
-        const f = { key: 'line', type: 'string', label: 'Raw line', doc: 'Screenplay could not read this line. Fix it here and it becomes a command again.' };
+        // Not an inspector field on purpose: the inspector's text widget commits on
+        // a typing pause, and this commit re-parses the line and rebuilds the card,
+        // which would take the input away mid-word. It commits when you leave it.
         const holder = make('div.ed-f');
         holder.appendChild(make('div.ed-f-label', { text: 'Raw line' }));
         const input = make('input');
@@ -639,7 +641,7 @@
           render(true);
         };
         holder.appendChild(input);
-        holder.appendChild(make('div.ed-hint', { text: f.doc }));
+        holder.appendChild(make('div.ed-hint', { text: 'Screenplay could not read this line. Fix it here and it becomes a command again.' }));
         box.appendChild(holder);
         return box;
       }
@@ -713,7 +715,7 @@
       handle.addEventListener('pointercancel', end);
     }
 
-    const api = { el: el.root, refresh: () => render(false), rerender: () => render(true), destroy() { for (const f of forms) { try { f.destroy(); } catch (e) { /* ignore */ } } clear(host); } };
+    const api = { el: el.root, refresh: () => render(false), rerender: () => render(true), destroy() { ED.inspector.destroyForms(forms); clear(host); } };
     render(true);
     return api;
   }

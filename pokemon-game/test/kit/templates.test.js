@@ -224,6 +224,14 @@ test('new-module scaffolds a module whose own test passes', () => {
     assert.ok(exists(path.join(dir, f)), f + ' is there');
   }
   assert.ok(exists(path.join(game, 'test', 'errands.test.js')), 'and a test beside it');
+  // Its numbers form goes through the one ED.inspector.packForm. The copy it
+  // used to write handed the inspector's field PATH to doc.set as the whole
+  // pack, so the first number an author changed replaced packs.errands with
+  // ['someKey']. Headless, panel.js returns before it builds anything, so the
+  // source is the only handle a unit test has; e2e/editor.js drives the form.
+  const panelSrc = read(path.join(dir, 'panel.js'));
+  assert.match(panelSrc, /inspector\.packForm\(|insp\.packForm\(/, 'the scaffolded panel uses the shared pack form');
+  assert.doesNotMatch(panelSrc, /onChange:\s*\(next\)/, 'and not a change handler that takes the path for the pack');
 
   // the test it shipped with passes, as a real test run
   let out = '';

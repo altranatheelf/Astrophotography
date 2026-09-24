@@ -23,11 +23,8 @@
   const EMPTY_LIST = Object.freeze([]);
 
   /**
-   * mapView(project, save, mapId) -> view
+   * mapView(project, save, mapId, opts) -> view — the map as the runtime sees it.
    * `save` may be null (editor preview): then there is no overlay and no object state.
-   */
-  /**
-   * mapView(project, save, mapId, opts) — the map as the runtime sees it.
    * opts.dimension names a layer of reality declared on the map (map.dimensions):
    * the same place, otherwise. A dimension changes tiles, hides or reveals objects,
    * and can bring its own light and music; everything else about the map is shared,

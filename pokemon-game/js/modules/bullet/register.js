@@ -1,8 +1,8 @@
 // The live half: the art, the scene, the command that starts a fight.
 //
-// Everything here is written against the engine's PUBLIC API only — no changes
-// to js/kit. Where that was awkward, the workaround is commented with WORKAROUND
-// and collected in README.md, because that list is the actual finding.
+// Everything here is written against the engine's PUBLIC API only. What that
+// cost (the one thing js/kit grew for it, a scene that draws, and the one thing
+// still done by hand, world.busy) is in README.md, "What it cost".
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};

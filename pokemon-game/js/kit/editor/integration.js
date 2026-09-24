@@ -1,13 +1,13 @@
 // Creator Mode — the joins between the shell, the panels and the running game.
 //
-// The shell (js/kit/editor/editor.js) is frozen, so the few hooks it does not
-// have live here, each one written so the shell could adopt it later:
+// What lives here rather than in the shell (js/kit/editor/editor.js):
 //
-//   ED.afterEdit()      a panel changed the document (refresh + validate + save)
-//   panel.onSelect()    the shell delivers it from select(); nothing here doubles it
-//   ED.close()          hands the player back to the game, not to the title
+//   Delete              with a page selected, deletes the event the page belongs to
 //   play mode           Escape (and a visible bar) come back to editing
+//   ED.close()          hands the player back to the game, not to the title
 //   re-open             the panels the shell mounted are kept across close/open
+//   ED.fitMap()         a map opens at a zoom that shows all of it
+//   the tab strip       the four groups and their chips
 //
 // Nothing here writes to the project: it only moves the author between the game
 // and Creator Mode, and keeps the panels in step.
@@ -17,19 +17,7 @@
   const UI = KIT.ui;
   if (typeof document === 'undefined' || !UI) return;                 // headless: nothing to join
 
-  const INS = ED.inspector || {};
-
-  // ---- 1. "a panel changed the document" ------------------------------------------
-  // The shell runs validate + autosave only after a pointer stroke (afterDocument is
-  // private). Every panel that commits calls this instead; it is the same debounce the
-  // inspector already had, now in one place.
-
-  // ---- 2. panel.onSelect ------------------------------------------------------------
-  // The shell delivers onSelect(sel, ed) to every mounted panel from ED.select. This
-  // file used to deliver it AGAIN on the `selection` event, so the Script panel
-  // rebuilt every card twice per tap. Once is the contract.
-
-  // ---- 2b. Delete with a page selected ------------------------------------------------
+  // ---- 1. Delete with a page selected ------------------------------------------------
   // Tapping a page tab in the Events panel selects `{ kind:'page', id }`; the shell's
   // deleteSelection only knows `object`, so the Delete key (and the panel's 🗑,
   // which asks the shell) did nothing until the event was picked again. A page
@@ -41,7 +29,7 @@
     return deleteSelection.call(ED);
   };
 
-  // ---- 3. play mode: a way back ------------------------------------------------------
+  // ---- 2. play mode: a way back ------------------------------------------------------
   // playHere() hides the editor's middle, but the host is opaque and the shell's key
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
@@ -113,7 +101,7 @@
     ED.toast('Back in Creator Mode');
   };
 
-  // ---- 4. open / close ------------------------------------------------------------------
+  // ---- 3. open / close ------------------------------------------------------------------
   // The shell leaves the host visible on close (an opaque panel over the game) and
   // forgets that its panels are already mounted, so a second open shows empty tabs.
   // Keep the mounted bodies aside and put them back.
@@ -150,7 +138,7 @@
     if (game && resume && game.resumeFromEditor) await game.resumeFromEditor(ED.state.project);
   };
 
-  // ---- 5. "you can see the whole map" ------------------------------------------------
+  // ---- 4. "you can see the whole map" ------------------------------------------------
   // The renderer picks its own zoom from the canvas size, which on a phone shows eight
   // squares of a twelve-square map. When a map opens, start at a zoom that fits it.
   ED.fitMap = function () {
@@ -182,7 +170,7 @@
   }
   ED.on('change', (patch) => { if (patch && (patch.open || patch.mapId)) fitSoon(); });
 
-  // ---- 6. the tab strip ------------------------------------------------------------------
+  // ---- 5. the tab strip ------------------------------------------------------------------
   // Fourteen panels do not fit across a phone. The strip scrolls; this keeps the tab
   // you are on in view after every change, so it never scrolls off on its own.
   function showActiveTab() {

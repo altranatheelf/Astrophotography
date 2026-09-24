@@ -44,6 +44,7 @@
       this.root.appendChild(this.switchSec);
       this.root.appendChild(this.tuneSec);
       el.appendChild(this.root);
+      this._tune = null;
       this.refresh(ed);
     },
 
@@ -108,18 +109,14 @@
 
     // ---- the numbers, straight from the schema ---------------------------------------
     renderTuning(st) {
-      const body = UI.clear(this.tuneSec.body);
       const insp = ED.inspector;
-      const value = (st.project.packs && st.project.packs.dungeon) || D.contentDefaults();
-      if (!insp || typeof insp.mount !== 'function') {
-        body.appendChild(make('p.ed-hint', { text: 'The inspector is not loaded, so the numbers cannot be shown here. They live in project.packs.dungeon.' }));
+      if (!insp || typeof insp.packForm !== 'function') {
+        UI.clear(this.tuneSec.body).appendChild(make('p.ed-hint', { text: 'The inspector is not loaded, so the numbers cannot be shown here. They live in project.packs.dungeon.' }));
         return;
       }
-      insp.mount(body, {
-        fields: D.TUNING,
-        value,
-        ctx: { project: st.project },
-        onChange: (next) => edit('Dungeon numbers', (doc) => doc.set(['packs', 'dungeon'], next)),
+      this._tune = insp.packForm(this.tuneSec.body, this._tune, {
+        project: st.project, fields: D.TUNING, value: D.tuning(st.project),
+        at: ['packs', 'dungeon'], label: 'Dungeon numbers',
       });
     },
   };

@@ -206,13 +206,17 @@
         y = view.height <= vp.h ? (view.height - vp.h) / 2 : KIT.clamp(y, 0, view.height - vp.h);
         world.camera.x = x; world.camera.y = y;
       }
-      function moveCursor(dx, dy) {
-        if (!world.map) return;
-        cx = KIT.clamp(cx + dx, 0, world.map.width - 1);
-        cy = KIT.clamp(cy + dy, 0, world.map.height - 1);
+      /** cursorTo(x, y) — put the cursor on a square of this map, and redraw what it shows. */
+      function cursorTo(x, y) {
+        cx = KIT.clamp(x, 0, world.map.width - 1);
+        cy = KIT.clamp(y, 0, world.map.height - 1);
         buildGhosts();
         follow();
         build();
+      }
+      function moveCursor(dx, dy) {
+        if (!world.map) return;
+        cursorTo(cx + dx, cy + dy);
       }
       /** The overlay changed: rebuild the entities it made and repaint. */
       function syncWorld() {
@@ -287,11 +291,12 @@
         mode = 'place';
         const hero = world.hero();
         const facing = hero ? KIT.entities.facingTile(hero) : { x: 0, y: 0 };
-        cx = KIT.clamp(facing.x, 0, world.map.width - 1);
-        cy = KIT.clamp(facing.y, 0, world.map.height - 1);
-        buildGhosts();
-        follow();
-        build();
+        cursorTo(facing.x, facing.y);
+      }
+      function startTaking() {
+        mode = 'take';
+        const h = world.hero();
+        cursorTo(h ? h.x : 0, h ? h.y : 0);
       }
 
       function putDown() {
@@ -332,7 +337,7 @@
       function act(action) {
         if (!action || action === 'none') return;
         if (action.startsWith('pick:')) { KIT.audio.play('select'); startPlacing(action.slice(5)); return; }
-        if (action === 'take') { KIT.audio.play('select'); mode = 'take'; const h = world.hero(); cx = h ? h.x : 0; cy = h ? h.y : 0; buildGhosts(); follow(); build(); return; }
+        if (action === 'take') { KIT.audio.play('select'); startTaking(); return; }
         if (action === 'rotate') { const vs = H.variants(itemDef()); variant = (variant + 1) % vs.length; KIT.audio.play('blip'); buildGhosts(); build(); return; }
         if (action === 'put') { if (mode === 'place') putDown(); else if (mode === 'take') pickUp(); return; }
         if (action === 'back') {
@@ -365,8 +370,7 @@
               const rect = canvas.getBoundingClientRect();
               const pt = r.screenToTile(ev.clientX - rect.left, ev.clientY - rect.top, world);
               if (!world.map || pt.x < 0 || pt.y < 0 || pt.x >= world.map.width || pt.y >= world.map.height) return;
-              cx = pt.x; cy = pt.y;
-              buildGhosts(); follow(); build();
+              cursorTo(pt.x, pt.y);
             };
             canvas.addEventListener('pointerdown', onCanvas);
           }

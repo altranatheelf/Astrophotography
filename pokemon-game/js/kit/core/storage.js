@@ -442,8 +442,7 @@
     ]);
   }
 
-  /** download(name, text) -> true when the file left the page one way or another. */
-  /** download(name, data, mime) — `data` is text, or bytes for something like a zip. */
+  /** download(name, data, mime) -> true when the file left the page one way or another. `data` is text, or bytes for something like a zip. */
   S.download = async function (name, text, mime) {
     const cap = capability('downloadFile') || capability('download');
     if (cap && typeof text === 'string') {

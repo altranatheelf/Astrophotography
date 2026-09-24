@@ -1,7 +1,7 @@
 // KIT.game — boot, the loop, saves, and the ctx ports.
 //
-// Everything the script language can ask for (§9.1 "The ctx ports") is
-// implemented here in terms of the scenes, KIT.fx, KIT.audio and the world:
+// Everything the script language can ask for (the RunCtx port typedefs at the
+// top of js/kit/script/commands.js) is implemented here in terms of the scenes, KIT.fx, KIT.audio and the world:
 // `io` opens scenes, `screen` drives KIT.fx, `map` moves characters and
 // transfers between maps, `game` opens the menu and saves. The world itself
 // stays headless — swap these ports for fakes and the same story runs in Node.

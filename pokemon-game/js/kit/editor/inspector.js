@@ -140,8 +140,7 @@
   /** createRef(kind, id) -> the id that now exists (ops may have made it unique), or null. */
   INS.createRef = function (kind, id) {
     if (!CREATORS[kind] || !id) return null;
-    const made = CREATORS[kind](id);
-    INS.afterEdit();
+    const made = CREATORS[kind](id);                  // ED.commit refreshes, validates and saves
     return made || id;
   };
 
@@ -240,14 +239,6 @@
   };
   INS.scalarText = (v) => (v === null ? 'null' : String(v));
 
-  /**
-   * afterEdit() — a panel that wrote the document some other way than
-   * ED.commit (an import merge, a paste) says so. ED.commit already does this;
-   * a panel that commits need not call it, and five used to, which ran the
-   * refresh, the validation and the save twice each per edit.
-   */
-  INS.afterEdit = function () { if (ED.afterEdit) ED.afterEdit(); };
-
   // =================================================================================
   // Everything below needs a browser.
   // =================================================================================
@@ -304,6 +295,24 @@
     return box;
   };
   /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
+  /**
+   * packForm(host, prev, { project, fields, value, at, label }) -> handle
+   * A module's own settings as a schema form (the Dungeon numbers, Home's
+   * tuning). Every change is one undo step that writes the ONE field that
+   * changed, under `at` (['packs', 'dungeon']), so no edit can replace the
+   * whole pack. Pass back the handle it returned last time: the form is built
+   * once per project and only re-read after that, so the number being typed
+   * keeps its caret through the refresh its own commit causes.
+   */
+  INS.packForm = function (host, prev, o) {
+    if (prev && prev.host === host && prev.project === o.project) { prev.form.refresh(o.value); return prev; }
+    if (prev) prev.form.destroy();
+    const form = INS.mount(host, {
+      fields: o.fields, value: o.value, ctx: { project: o.project },
+      onChange: (path, v) => ED.commit(o.label, (doc) => doc.set(o.at.concat(path), v)),
+    });
+    return { host, project: o.project, form };
+  };
   INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
@@ -635,15 +644,21 @@
         if (f.max != null) v = Math.min(f.max, v);
         return v;
       };
-      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); onChange(v); };
+      // Typing "0.5" used to be four undo steps (0, 0, 0.5 and the same 0.5 again
+      // on leaving the field). A number now waits for a pause like text does, and
+      // nothing is recorded when the value did not actually change.
+      let last = value;
+      const commit = (v) => { if (v !== last) { last = v; onChange(v); } };
+      const t = typed(commit);
+      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); commit(v); };
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
-      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) onChange(f.integer ? Math.round(n) : n); };
-      input.onblur = () => { const v = clampV(input.value); input.value = String(v); onChange(v); };
+      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(f.integer ? Math.round(n) : n); };
+      input.onblur = () => { const v = clampV(input.value); input.value = String(v); t.push(v); t.flush(); };
       el.appendChild(wrap);
       if (f.min != null && f.max != null) el.appendChild(make('div.ed-sub', { text: `${f.min} to ${f.max}` }));
-      return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
+      return { set(v) { last = v; const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
     },
   });
 

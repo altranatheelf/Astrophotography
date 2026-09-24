@@ -306,8 +306,8 @@ world, scene stack; `KIT.game.newGame({ names, testState })`, `continueGame(slot
 await KIT.scenes.run(scene, params) -> result     // push, wait for scene.finish(result), pop
 KIT.scenes.top(), .stack, .replace(scene)
 ```
-Kit scenes: `title map dialogue choice nameEntry inputNumber chapter menu transition
-debug picture`. Modules add scenes (`catch`).
+Kit scenes: `title start map dialogue choice nameEntry inputNumber scrollText chapter
+menu keys debug`. Modules add their own (`mons-catch`, `bullet-fight`).
 
 ### 8.2 World and entities
 `KIT.world` = `{ project, save, map (current MapView), entities, events, clock, rng }`.
@@ -369,8 +369,9 @@ KIT.registry('commands').add({
 ```
 Six ports (the RunCtx typedefs at the top of `js/kit/script/commands.js`): `ctx.io`
 (`say chapter choice inputNumber nameEntry scrollText toast wait`), `ctx.screen`
-(`fade tint flash shake weather`), `ctx.pictures`, `ctx.audio`, `ctx.map`, `ctx.game`,
-`menu`, `wait(ms)` — all promise-returning scene calls; in tests a fake io answers them.
+(`fadeOut fadeIn tint flash shake weather`), `ctx.pictures`, `ctx.audio`, `ctx.map`,
+`ctx.game` (`menu save title heal debug`) — all promise-returning; in tests
+`KIT.interpreter.fakeCtx()` answers them.
 
 ### 9.2 Baseline commands (id — MV label — fields; semantics)
 Message: `say` (Show Text: who, face, text, position top|middle|bottom, bg window|dim|none), `choice` (Show Choices: prompt, options[{text, when?, then[]}], cancel), `inputNumber` (var, digits), `scrollText`.

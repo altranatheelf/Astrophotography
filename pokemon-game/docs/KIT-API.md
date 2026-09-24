@@ -254,7 +254,7 @@ Collisions: free id → added · same value → unchanged (no problem) · differ
 `Report`: `{ problems, added, replaced, unchanged, skipped, ids:{added,replaced,skipped}, label, project, registered, dryRun }` (each count table has `assets tiles sprites faces icons animations maps objects scripts vars items terrains autotiles`).
 Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewrites references; idempotent) and `KIT.import.merge.registerProject(project)`.
 
-`KIT.project.registerContent(project) -> { assets, tiles, sprites, faces, icons }` (world/project) puts a project's own content tables into the registries — imported art has no `js/art/*.js` file, so the project is the file. Called by `KIT.storage.loadProject` before normalize and by `KIT.game.useAssets`.
+`KIT.project.registerContent(project) -> { assets, tiles, sprites, faces, icons, sounds, music, modules }` (world/project) puts a project's own content tables into the registries — imported art has no `js/art/*.js` file, so the project is the file. Called by `KIT.storage.loadProject` before normalize and by `KIT.game.useAssets`.
 
 `KIT.storage.loadProject({ draft, projectId, before })` — `before(rawProject)` runs once the project is found and **before** it is registered from or validated against, so whatever it registers counts. `js/main.js` passes `KIT.modules.activate`: a module's object types, commands and item kinds must exist before the content that uses them is checked, or a game that works is reported as broken.
 
@@ -299,7 +299,7 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`),
 
 `KIT.editor.tools` — the pure part of the nine map tools: `line rectCells floodCells sameValue COLLISION collisionAt collisionCycle brushFor remember paintCells valueAt gridFor describe drawGhostCell outlineArea terrainColor regionColor lockScale byId`.
 
-`KIT.editor.inspector` — one form builder for any schema field list: `mount(el,{fields,value,onChange,ctx,problems}) -> { refresh, destroy, value }` · `field editorFor knownTypes buildValue defaultFor hasDefault isDefault visibleFields enumOptions` · refs `refList refLabel refExists refMissing canCreateRef createRef` · routes `ROUTE_VERBS routeStepLabel routeSummary` · conditions `conditionKinds newCondition conditionText conditionFromText conditionSays` · `scriptSummary openScript(ref)` · `pickOnMap({hint,onPick,onCancel})` (tap-then-tap on the map) · `spriteCanvas tileCanvas regionColor emptyState btn afterEdit`.
+`KIT.editor.inspector` — one form builder for any schema field list: `mount(el,{fields,value,onChange,ctx,problems}) -> { refresh, destroy, value }` · `field editorFor knownTypes buildValue defaultFor hasDefault isDefault visibleFields enumOptions` · refs `refList refLabel refExists refMissing canCreateRef createRef` · routes `ROUTE_VERBS routeStepLabel routeSummary` · conditions `conditionKinds newCondition conditionText conditionFromText conditionSays` · `scriptSummary openScript(ref)` · `pickOnMap({hint,onPick,onCancel})` (tap-then-tap on the map) · `spriteCanvas tileCanvas regionColor emptyState btn`.
 
 `KIT.editor.objects` — `references(project,id)` `rename(doc,{map,id,to})` (rewrites every reference) `placePreset(doc,{preset,map,x,y,input})` `pageOrder(project,mapView,obj)`.
 
@@ -307,7 +307,7 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`),
 
 `KIT.editor.writing` — `textIndex(project)` `selectionFor explain fragmentTags matchFragment fragmentToSlot firstLine`. `KIT.editor.projectPanels` — `varIndex usageSelection usageLabel dataPath checkData guessType`. `KIT.editor.importPanel` — `dispatch(files)` `imageSize(bytes)`.
 
-`editor/integration.js` — the joins the frozen shell does not have: `ED.afterEdit()` (a panel changed the document: refresh + validate + autosave), `panel.onSelect` delivery, `ED.fitMap()`, `ED.emptyState()` (in inspector.js), Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that. `KIT.game.startOwnGame({ blueprint, title })` is the title screen's door: build the blueprint, keep the modules the current game had on, register its content, save the draft at once, open Creator Mode on its first map.
+`editor/integration.js` — what lives beside the shell: Delete with a page selected deletes its event, `ED.fitMap()`, the tab strip, Play here starting at the cursor with the story state you were playing, Escape/▸ Back out of play mode, and `close()` handing the player back to the game instead of the title. `ED.emptyState()` is in inspector.js; `ED.afterEdit()` is the shell's own, for a panel that wrote the document some other way than `ED.commit`. `KIT.game.openEditor({mapId})` / `KIT.game.resumeFromEditor(project)` are the game's half of that. `KIT.game.startOwnGame({ blueprint, title })` is the title screen's door: build the blueprint, keep the modules the current game had on, register its content, save the draft at once, open Creator Mode on its first map.
 
 ## core/modules.js — the module system
 `KIT.module(def)` registers a manifest (`{ id, version, label, requires, describe, register(KIT), save, content }`; see `docs/MODULES.md`) ·

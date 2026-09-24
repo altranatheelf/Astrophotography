@@ -1,4 +1,4 @@
-// KIT.cast (§8.7): the people in the story, what they know, and what they feel
+// KIT.cast (docs/ARCHITECTURE.md §6.2b): the people in the story, what they know, and what they feel
 // about each other.
 //
 // Switches do not scale to this. "Mira mentions the orchard, but only if she has

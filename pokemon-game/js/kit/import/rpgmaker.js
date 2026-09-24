@@ -501,6 +501,11 @@
       while (i < src.length && int(src[i].code, 0) === code) { out.push(String((src[i].parameters || [])[0] == null ? '' : src[i].parameters[0])); i++; }
       return out;
     }
+    /** eat(code, indent) — step over the closing command (Else, End, Repeat Above) of this block, if it is next. */
+    function eat(code, indent) {
+      if (i < src.length && int(src[i].code, 0) === code && int(src[i].indent, 0) === indent) { i++; return true; }
+      return false;
+    }
 
     function condition(params) {
       const p = params || [];
@@ -604,14 +609,14 @@
           }
           const then = parseBlock(indent + 1);
           let els = [];
-          if (i < src.length && int(src[i].code, 0) === 411 && int(src[i].indent, 0) === indent) { i++; els = parseBlock(indent + 1); }
-          if (i < src.length && int(src[i].code, 0) === 412 && int(src[i].indent, 0) === indent) i++;
+          if (eat(411, indent)) els = parseBlock(indent + 1);    // Else
+          eat(412, indent);                                      // End
           if (when) ctx.stats.translated++; else ctx.stats.unsupported++;
           return lead.concat([{ t: 'if', when: when || null, then, else: els }]);
         }
         case 112: {                                           // Loop (+413 Repeat Above)
           const body = parseBlock(indent + 1);
-          if (i < src.length && int(src[i].code, 0) === 413 && int(src[i].indent, 0) === indent) i++;
+          eat(413, indent);                                      // Repeat Above
           return ok({ t: 'loop', body });
         }
         case 113: return ok({ t: 'break' });
@@ -811,10 +816,8 @@
    * Kit mirrors `left` to draw `right`, but MV sheets have a real right row, so
    * one is produced. KIT.entities.frame already honours `def.frames.right`
    * (it only mirrors when that key is missing) — nothing to change there.
-   * The renderer is a different matter: js/kit/render/renderer.js artForFrame()
-   * builds a pixel-string art out of `frame.rows`, which for an image-backed
-   * sprite is the source RECT, so these sprites do not draw yet. See the note
-   * in the import report; the fix belongs in renderer.js, not here.
+   * For an image-backed sprite `frame.rows` is the source rectangle, and
+   * renderer.js artForFrame() reads it as one.
    */
   RM.characters = function (imageName, opts) {
     const o = opts || {};

@@ -16,14 +16,15 @@
   const OBJ = ED.objects = ED.objects || {};
 
   const titleCase = KIT.titleCase;
-  const SLOTS = [
-    { id: 'interact', label: 'On Interact', doc: 'The player presses A while facing it.' },
-    { id: 'step', label: 'On Step', doc: 'The player steps onto this tile.' },
-    { id: 'touch', label: 'On Touch', doc: 'The player walks into it (or it walks into the player).' },
-    { id: 'enter', label: 'On Enter', doc: 'The map is entered.' },
-    { id: 'tick', label: 'Every Tick', doc: 'Runs in the background, over and over.' },
-    { id: 'init', label: 'On Init', doc: 'Once, when the map is built.' },
-  ];
+  const SLOT_DOCS = {
+    interact: 'The player presses A while facing it.',
+    step: 'The player steps onto this tile.',
+    touch: 'The player walks into it (or it walks into the player).',
+    enter: 'The map is entered.',
+    tick: 'Runs in the background, over and over.',
+    init: 'Once, when the map is built.',
+  };
+  const SLOTS = KIT.project.SLOTS.map((id) => ({ id, label: KIT.project.slotLabel(id), doc: SLOT_DOCS[id] }));
 
   // =================================================================================
   // Pure parts (no DOM) — test/kit/editor-inspector.test.js drives these.
