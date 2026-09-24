@@ -50,6 +50,7 @@ node tools/import.js <file>     # bring in a Tiled map, an RPG Maker project or 
 node tools/build.js             # bundle everything into one shareable .html
 npm run phone                   # serve it on your Wi-Fi, for the phone in your pocket
 npm run icons                   # redraw the home-screen icon and the web app manifest
+npm run slop                    # the numbers that say whether this was assembled or built (docs/SLOP.md)
 ```
 
 Play-throughs in a real browser (they need Playwright):

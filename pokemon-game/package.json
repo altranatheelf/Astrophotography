@@ -11,6 +11,7 @@
     "demo": "node tools/build-demo.js",
     "experiments": "node tools/experiments/validate.js && NODE_PATH=$(npm root -g) node tools/experiments/storage.js && NODE_PATH=$(npm root -g) node tools/experiments/timeline.js && NODE_PATH=$(npm root -g) node tools/experiments/frame.js",
     "phone": "node tools/phone.js",
-    "icons": "node tools/app-icons.js"
+    "icons": "node tools/app-icons.js",
+    "slop": "node tools/slop.js"
   }
 }

@@ -10,24 +10,9 @@
 // may not redefine.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 const KIT = require('./_load.js');
 
-const ROOT = path.join(__dirname, '..', '..');
 const SHARED = ['num', 'has', 'titleCase', 'isObject', 'clamp', 'slug', 'uid', 'deepClone', 'deepEqual'];
-const LOCAL_NAMES = ['num', 'has', 'titleCase', 'isObj', 'isObject', 'clamp', 'slug', 'uid', 'deepClone', 'deepEqual'];
-
-function codeFiles(dir) {
-  const out = [];
-  for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...codeFiles(rel));
-    else if (entry.name.endsWith('.js')) out.push(rel);
-  }
-  return out;
-}
-
 test('util.js provides every shared helper', () => {
   for (const name of SHARED) assert.equal(typeof KIT[name], 'function', 'KIT.' + name);
 });
@@ -59,26 +44,8 @@ test('has / titleCase: the shapes the copies agreed on', () => {
 });
 
 test('no engine or module file defines its own copy of a shared helper', () => {
-  // A definition with a BODY is the smell. `const num = KIT.num;` is an alias
-  // and fine; so is a one-liner that calls the shared one (essentials lowercases
-  // first because PBS writes names in capitals).
-  const defn = new RegExp('^\\s*(?:const|let|var|function)\\s+(' + LOCAL_NAMES.join('|') + ')\\b\\s*(?:=|\\()');
-  const guilty = [];
-  for (const rel of codeFiles('js/kit').concat(codeFiles('js/modules'))) {
-    const lines = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n');
-    lines.forEach((line, i) => {
-      const m = defn.exec(line);
-      if (!m) return;
-      if (/=\s*KIT\.\w+\s*;?\s*(\/\/.*)?$/.test(line)) return;        // an alias
-      if (/KIT\.(num|has|titleCase|isObject|clamp|slug|uid|deepClone|deepEqual)\(/.test(line)) return;  // a wrapper over the shared one
-      if (rel === 'js/kit/core/util.js') return;                        // the one place
-      // Same name, different thing: a field builder called num, a schema lookup called has.
-      if (/=\s*\((?:label|k|key)\b/.test(line)) return;
-      if (/=\s*\/\^/.test(line)) return;                                 // a regex match result
-      if (/=\s*KIT\.[\w.]+\(/.test(line)) return;                        // a value, not a helper
-      if (/=\s*(?:mon|o|m|action|String\()/.test(line) && m[1] === 'uid') return;   // a local variable called uid
-      guilty.push(`${rel}:${i + 1}  ${line.trim().slice(0, 90)}`);
-    });
-  }
-  assert.deepEqual(guilty, [], 'these redefine a helper util.js already provides:\n  ' + guilty.join('\n  '));
+  // One scan, in tools/slop.js; test/kit/slop.test.js holds the line and this
+  // one just says which helper the rule is about.
+  const { measure } = require('../../tools/slop.js');
+  assert.deepEqual(measure().helperCopies, []);
 });
