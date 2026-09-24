@@ -123,15 +123,22 @@ A stroke is one undo step: tools call `ed.beginStroke(label)` / `ed.endStroke()`
 
 ## The joins (`js/kit/editor/integration.js`)
 
-The shell is frozen, so the hooks it turned out to need live in one file beside
-it, each written so the shell could take it over later:
+The shell was frozen for a while, and the hooks it turned out to need were
+written beside it, each so the shell could take it over later. It has: the
+after-edit pass is the shell's now (`ED.commit` runs it), and what is left in
+`integration.js` is the joins that are genuinely between the editor and the
+game.
 
 | | |
 |---|---|
-| `KIT.editor.afterEdit()` | A panel changed the document: refresh, validate, autosave. The shell only does this after a pointer stroke (`afterDocument` is private), so **every panel that commits calls it**. |
+| `KIT.editor.commit(label, fn)` | One undo step, then the after-edit pass: refresh, validate (`ED.validateNow`, which records a crashed validator as a problem), autosave. **A panel calls `commit` and nothing after it.** `KIT.editor.afterEdit()` exists only for a writer that changed the document some other way (an import merge, a paste); calling it after `commit` runs the pass twice, which five panels used to do. |
 | `panel.onSelect(sel, ed)` | Called by the shell from `KIT.editor.select` for every mounted panel, once per selection. (It was delivered twice for a while — once by the shell and once by integration.js — so a panel whose onSelect is a full rerender paid double.) |
 | `KIT.editor.fitMap()` | A map opens at a zoom that shows all of it, with squares no smaller than a thumb (`KIT.editor.tools.fitScale`, tested). |
 | `KIT.editor.emptyState({icon,text,hint,actions})` | In `inspector.js`: one look for “nothing here yet, do this”. |
+| `KIT.editor.inspector.btn(label, title, fn, cls)` | The button. The title is the aria-label and a click stops at the button. Four panels had grown a copy with exactly those improvements while the shared one lacked them; a panel aliases it, never copies it. |
+| `KIT.editor.inspector.section(host, title, open, build, remember)` | A collapsible section that writes `remember.open` on toggle itself, so a redraw puts it back. The one that forgot the listener by hand snapped shut on the first redraw after a person typed into it. |
+| `KIT.editor.inspector.searchBox(placeholder)` · `typingIn(host)` · `destroyForms(list)` | The search field, "is the caret in a field in here?" (ask before rebuilding a panel), and form teardown. Ten, seven and five copies each, before; the seven disagreed. |
+| `KIT.editor.ops.whereSelection(where)` | The one "where → selection" (`js/kit/editor/ops.js`, pure, tested). Three panels had their own and one dropped slot 0. |
 | Play here | Starts on the square under the cursor with the switches and bag the author was playing with (a test state), instead of a new game plus a warp. Escape — or the ‹ Back to Creator Mode bar — comes back. |
 | `KIT.editor.close()` | Hands the player back to the game where they were standing (`KIT.game.openEditor` remembers it, `KIT.game.resumeFromEditor` restores it), hides the host, and keeps the mounted panels so re-opening is instant. |
 
