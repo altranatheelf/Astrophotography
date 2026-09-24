@@ -41,7 +41,7 @@ Selection:
 { kind: 'page', map, id, page }                   // one of its pages
 { kind: 'script', path: ['scripts','meet-mom'] }  // a common event
 { kind: 'slot', map, id, page, slot }             // a page's script slot
-{ kind: 'map', id } | { kind: 'project' } | { kind: 'fragment', id } | { kind: 'item', id } | { kind: 'var', name }
+{ kind: 'map', id } | { kind: 'project' } | { kind: 'fragment', id } | { kind: 'item', id } | { kind: 'var', name } | { kind: 'rule', id }
 ```
 
 Calls every panel and tool uses:

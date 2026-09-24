@@ -12,7 +12,11 @@ core/registries.js  core/pixels.js
 world/document.js  world/project.js  world/tiles.js
 script/text.js  script/conditions.js  script/commands.js  script/screenplay.js  script/interpreter.js
 world/map.js  world/entities.js  world/world.js
-systems/index.js        (then: scenes, render, game — being built)
+systems/index.js
+import/tiled.js  import/rpgmaker.js  import/aseprite.js  import/image.js  import/merge.js
+render/atmosphere.js  render/text-canvas.js  render/renderer.js
+scenes/stack.js  scenes/dialogue.js  scenes/menu.js  scenes/title.js  scenes/start.js  scenes/map.js  game.js
+(the full list, with the art, the editor and main.js, is `templates/_shared/kit-files.js`, and `test/kit/load-order.test.js` keeps every copy of it in step)
 ```
 (`world/world.js` captures `KIT.interpreter` at load time, so `script/*` must
 load before it; `world/project.js` only uses the script schema lazily, so it may
@@ -42,15 +46,15 @@ Every random decision in the kit goes through one of these; same seed, same run.
 ## core/registry + core/registries — stable
 `KIT.defineRegistry(name, { fields, onAdd, onRemove, doc }) -> reg` (idempotent) · `KIT.registry(name)` (throws if undefined) · `KIT.registry.exists(name)`.
 Registry: `add(def)` (fills defaults, validates against `fields`, warns on replace unless `def.replace`), `addAll`, `get`, `require`, `has`, `list`, `ids`, `size`, `remove`, `clear`, `on('add'|'remove')`, `groups(key)`.
-Standard registries: `tiles sprites faces icons sounds music objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors validators presets blueprints migrations strings importers`.
+Standard registries: `tiles sprites faces icons sounds music voices textEffects assets objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors mapSections validators presets blueprints migrations strings importers`.
 `KIT.registry('tiles').stamps` is the multi-tile brush list.
 
 ## core/schema — stable
 One field declaration drives the form, the validator, defaults, and the usage index.
 `{ key, type, label, doc, default, nullable, optional, min, max, integer, pattern, options|optionsFrom, of, fields, array:{min,max}, when:{field,eq|neq|in|truthy}, display, access:'read'|'write', ref:{scope,tag,symmetrical} }`
-Types: `string text note number bool enum color position direction region route script condition strings scalar list group tile face` and `ref:<kind>`.
+Types: `string text note label number numbers bool enum color position direction region route script condition strings scalar list group tile face` and `ref:<kind>`.
 API: `KIT.schema.field(f)` · `fields(list)` (both memoised on the declaration — a schema is static, and normalising it per value was half of validating a project; treat the result as read-only) · `validate(fields, value, ctx) -> [{path,message,code}]` · `validateValue(field, v, ctx)` · `defaults(fields, ctx)` · `defaultFor(field)` · `fill(fields, value, ctx)` · `refs(fields, value, ctx) -> [{kind,id,path,access}]` · `walk(fields, value, fn)` · `visible(field, siblings)` · `defineType(name, handler)` · `refKind(kind, resolver)` · `registryRefKind(kind, registryName)` · `projectRefKind(kind, table)`.
-Ref kinds wired: tile sprite face icon sound music preset map item script var fragment object (+ modules add their own).
+Ref kinds wired: tile sprite face icon sound music voice textEffect asset preset map item script var fragment object cast fact (+ modules add their own).
 
 ## core/input — stable
 Buttons, not keys: `KIT.input.KEYS = ['up','down','left','right','a','b','menu']`, per player (0-based). Keyboard, gamepad, on-screen pad and swipe all arrive as the same seven.
@@ -60,6 +64,18 @@ The keymap is DATA, so it can be changed: `keymap(player) -> { code: button }` �
 For a remapping screen: `keyLabel(code)` turns a `KeyboardEvent.code` (a physical position — `KeyZ` whatever the cap says) into what a person would recognise · `capturable(code)` · `NOT_CAPTURABLE = ['Escape']` — the one key the screen cannot take, because it is how a player gets out of it.
 
 Player-facing: **Settings → Controls** (`js/kit/scenes/menu.js`, the `keys` scene; rows from `KIT.keysScreen.rows(project, players)`). Saved in `settings.keys`, a device preference like language, restored at boot.
+
+## core/assets — stable
+Image-backed art (imported PNGs; the built-in art is pixel strings and needs none of this). `KIT.assets.define(def)` · `get(id)` `has(id)` `ids()` · `image(id)` (the loaded element or null) · `isImageArt(art)` · `tileArt(id)` `animArt(id)` `grid(...)` `size(id)` · `load(id) -> Promise` `loadAll() -> Promise` · `fromProject(project)` (registers what a project carries) · `state()` `clear()`.
+
+## core/audio — stable
+`KIT.audio.unlock()` (the first tap; browsers require it) · `play(id, { volume })` `playAt(id, { map, x, y })` (fades with distance from `setListener`) · `music(id|null, { fade, volume })` `setMusic` `stop(what)` `current()` `isMusic(id)` · `jingle(id)` `replay()` `save()` · `layer(id, on)` `layers()` `layerGain` `layersOf(music)` (music with parts that come and go) · `duck(by)` `unduck(by)` `duckedBy()` (a voice turns the music down and gives the player's level back) · `setVolume(bus, v)` `volumes()` `setEnabled(on)` `isEnabled()` · `loaded(id)` `freq(note)` `context()` `init()`.
+
+## core/lang — stable
+Translations keyed on the source line (ADR-0006). `KIT.lang.use(project, code)` `current()` · `t(project, text, vars)` · `known(project)` `coverage(project, code) -> { total, translated, missing }` · `extract(project) -> [line]` (every line a player can read) · `toText(project, code)` / `fromText(text) -> { lines, problems }` (the one-file format the Languages panel hands out and takes back) · `bind(el, ...)` `put` `missing` `shown` `translating` `source` `SOURCE` `guess` `nameOf`.
+
+## core/storage — stable
+Adapters IndexedDB → localStorage → memory (`ready() -> { adapter }`, `info()`, `adapters`, `durability()`, `warning`). Keys are `kit.<projectId>.<what>`: `loadProject({ draft, projectId, before, validate })` (a draft that could not be *read* blocks draft writes for the session rather than being overwritten) · `saveDraft(project, { now })` `hasDraft()` `discardDraft()` `draftKey()` · `saveGame(slot, save)` `loadGame(slot)` `deleteGame(slot)` `listGames()` `SLOTS` · `settings()` `saveSettings(patch)` (global) · `meta()` `saveMeta(patch)` (per player, survives New Game) · `persist()` · raw `get(k) set(k, v) del(k) keys()` (never throw) · files: `toFile(project)` `fromFile(text)` `fileName(project)` `saveToFile` `download(name, data, mime)` `zip(files)` `copyToClipboard(text)` `exportGame exportText importGame importText` · `captureHtml()` `publish()` `canPublish()` `onDownload` · `projectId()` `key(what)` `writerId()`.
 
 ## core/pixels — stable
 Art is `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows,...]`, or image-backed `{ image, frame:{x,y,w,h} }`.
@@ -74,7 +90,7 @@ Ops: `{op:'set',path,value}` `{op:'del',path}` `{op:'splice',path,index,remove,i
 `KIT.project.VERSION=3` · `SLOTS=['interact','step','touch','enter','tick','init']` · `LAYERS=['terrain','ground','deco','above','regions']` · `GROUND_BY_KIND` · `MAP_KINDS`.
 `normalize(project, ctx) -> { project, problems }` (migrate chain → fill every default → validate; never mutates the input) · `validate(project, ctx) -> Problem[]` · `migrate(project)` · `fillMap/fillObject/fillPage/fillItem/fillVar` · `newMap({id,name,width,height,kind})` · `newObject` · `resize(map,w,h)` · `blank()` · `clone(p)` · `uniqueObjectId(map, base)` · `buildPreset(presetOrId, ctx)` · `walkScripts(project, fn)` · `walkCommands(project, fn)` · `collect(project) -> { vars:{name:{reads,writes,declared}}, refs }` · `known(kind,id,project)` · `cellSolid(map,x,y)` · `stringify(value,opts)` · `exportFiles(project) -> { 'project.js', 'maps/<id>.js' }` · `importFiles(files)` · `fromContent(projectId)` · `parseFile(text)`.
 Problem: `{ severity:'error'|'warn', code, message, where:{ map, object, page, slot, script, path } }`.
-Project v3 shape: see §5 — `version meta modules settings strings heroes start vars items scripts fragments testStates autotiles terrains world maps packs`.
+Project v3 shape: see §5 — `version meta modules settings strings heroes start vars items scripts fragments testStates autotiles terrains world maps packs rules facts cast languages assets` (`settings` also carries `language languageName voice clock`).
 
 ## world/tiles — stable
 `KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, probability, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
@@ -151,6 +167,8 @@ Scripts: `@moment <label>` (a named point, never pruned). Conditions: `elsewhere
 `objects objectsAt(x,y) objectKey(obj) -> 'map:id'` · `objectState(obj)` · `isHidden(obj)` · `positionOf(obj)` · `activePage(obj, ctx) -> { page, index }` (**the LAST page whose `when` passes**) · `setBlockers(list)` · `overlayCells()`.
 `KIT.DIRS` `KIT.OPPOSITE` `KIT.delta(dir)`.
 
+**Dimensions** — a map may declare `map.dimensions[name] = { tiles, objects, music, atmosphere }`, a layer of reality over the same place. `KIT.mapView(project, save, mapId, { dimension })` pins one; otherwise the view reads `save.dimension` live. The `@shift` command moves the player between them, the `dimension` condition kind asks which one is current, and the world emits `dimensionChanged`.
+
 ## world/entities — stable
 `KIT.entities.create(spec) -> entity`: `{ id kind objectKey pageIndex x y dir px py sprite art look layer through solid visible dirFix stepAnim opacity speed behaviour home mover walkFrame stepCount data }`.
 `tryMove(e, dir, view, { turnOnly, ignoreBlocked }) -> passable result` (turns, then starts the move; ledge hops covered) · `update(e, dt) -> 'arrived'|null` (interpolates `px/py`, arcs hops, advances the 4-step walk cycle) · `frame(e) -> { rows, palette, mirror, w, h }|null` (null = draw a silhouette) · `facingTile` · `at` · `adjacent` · `dirToward(from,to)` · `faceToward(e,target)` ·
@@ -170,6 +188,7 @@ Events emitted: `mapEnter mapLeave step interact interactMissed activeHero needs
 `interactMissed { hero, x, y, dir }` is the mirror of `step`: A was pressed, and nothing — no object, no extra target — answered. It is how an object type can react without a page.
 
 ## systems/index — stable
+`KIT.clock` (the one clock, kept in `save.clock`): `stamp(save)` `resume(save, now)` `add(save, minutes)` `of(save)` `gap(save)` `settings(project)`.
 Registered systems, in order: `movement(10)` (interpolation, arrivals, NPC touch) · `behaviours(20)` (`none look wander route approach` in the `behaviours` registry) · `triggers(30)` (background `tick` slots, one at a time per object) · `companions(40)` · `clock(50)` · `camera(90)`.
 
 `KIT.clock` — the game's one clock, and there should never be a second.
@@ -184,13 +203,14 @@ Add your own: `KIT.registry('systems').add({ id, order, update(world, dt), onMap
 `KIT.script.values`: `format(v,{bare})` `parseBare` `scan(str,i,stops)` `tokenize(str,{separators})` `pairs` `BARE WORD NUMBER`.
 
 ## script/conditions — stable
-Kinds: `var self item facing button timer region tile meta clock coop all any not` (+ module kinds).
+Kinds: `var self item facing button timer region tile meta clock coop dimension all any not` (+ module kinds).
 `KIT.conditions.test(cond, ctx) -> bool` · `describe(cond, ctx)` · `normalize` · `validate` · `refs` · `toText(cond)` / `parseText(str)` / `tryParseText` (the `when:` text syntax: `chapter >= 2 and not item.berry >= 1`, `self.opened == true`, `meta.runs > 0`, `kind(key=value)`, `always`/`never`) · helpers `getVar getSelf count target targetLabel heroId heroIndex compare objectKey withDefaults`.
 ctx for conditions: `{ world:{ save }, project, self:'map:obj', hero:'p1', coop }`.
 
 ## script/commands — stable
 `KIT.commands`: `exec(ctx, cmd)` · `summary(cmd, ctx)` · `validateScript(cmds, ctx)` · `refs(cmds, ctx)` · `walk(cmds, fn)` · `nested(cmd)` · `blockFields(def)` · `normalize(cmd)` / `normalizeAll` · `toLine/fromLine` · `genericToLine/genericFromLine` · `option.toLine/fromLine` · `keysFor` · `state.{getVar,setVar,getSelf,setSelf,count,give,heroName,setHeroName}` (every write emits its event) · `get/list/ids`.
 Commands (id — MV label): say choice inputNumber scrollText · setVar setSelf timer · if loop break label jump exit call comment wait group · give take nameEntry · transfer setLocation moveRoute scrollMap follow · transparency animation balloon erase · fadeOut fadeIn tint flash shake weather · pictureShow pictureMove pictureErase · music sound stopSound saveMusic replayMusic jingle · menu save title chapter heal debug.
+Also in the registry, kit-only (no MV label): `meanwhile` (tracks that run at the same time), `atmosphere light layer` (lights and weather on a map), `camera` (pan and follow), `shift` (move to another dimension of the map — see world/map).
 Definition: `{ id, label, mv, group, icon, fields, blocking, background, control, editor:{favourite}, run(ctx,cmd), summary(cmd,ctx), text:{toLine,fromLine,endLine,elseLine} }`. `background:false` = needs the main thread.
 
 ### The ctx ports (what the runtime must implement)
@@ -215,7 +235,7 @@ Thread: `{ id, kind, background, breakpoints:Set('2/then/0'), pause(), resume(),
 
 ## import/* — the importers (docs/IMPORT-CONTRACT.md, docs/IMPORTING.md)
 Pure: each takes already-read data plus resolvers and returns a `Result`; no fs, no DOM, no network.
-Load after `world/*` and `script/*` (they use `KIT.project`, `KIT.screenplay`, `KIT.tiles`); `index.html` loads all four.
+Load after `world/*` and `script/*` (they use `KIT.project`, `KIT.screenplay`, `KIT.tiles`); `index.html` loads all five (`image.js` is the bare-PNG and audio importer).
 
 `KIT.import.tiled` — `map(json, opts)` · `tileset(json, opts)` · `any(input, opts)` · `detect(input) -> 'map'|'tileset'|null` · `gid(n)` · `fromXml(text)` · `prepare(json, opts)` · `blank()`.
 `opts`: `asset(src)->{id,src,w,h}` `tilesets{}`/`tileset(src)` `templates{}`/`template(src)` `inflate(bytes,method)` `prefix` `id`/`name`/`title` `mapId(name)->id`.
@@ -240,6 +260,12 @@ Also `KIT.import.merge.prefix(result, name) -> result` (namespaces ids and rewri
 
 The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--prefix name] [--overwrite] [--dry-run] [--inline] [--tile-size n] [--kind k] [--quiet]`; it detects the format, reads the files, copies images to `<into>/assets/<id>.png`, merges, writes with `KIT.project.exportFiles` and prints the report. `docs/IMPORTING.md` is the author's guide.
 
+## render/atmosphere — stable
+Lights and weather over a map, drawn after the world. `KIT.atmosphere.set(spec)` `state()` `update(dt)` `draw(ctx, world, view)` · `lights` `lightDetail` `goal` `reset()` `useMap(map)` `rgba(...)` `BLANK` `LAYERED_DARKNESS`. `tools/experiments/frame.js` holds the frame budget for 128 lights.
+
+## render/text-canvas — stable
+Text drawn on the canvas rather than in the DOM (ADR-0007 keeps dialogue in the DOM; this is for names over heads and the like). `KIT.textCanvas.draw(ctx, text, x, y, opts)` `layout(text, opts)` `measurer()` `offsetFor(...)` `writer(...)`.
+
 ## render/renderer — stable
 `KIT.renderer.create({ canvas, project, editor }) -> r`: `render(world)` · `resize()` · `invalidate(mapId, x, y)` (one baked cell; `invalidate(mapId)` drops that map, `invalidate()` drops all) · `clearCaches()` · `cacheStats() -> { maps, bytes, budget }` · `screenToTile` / `tileToScreen` / `viewTiles` · `setScale` · `setProject`. Baked tile layers per map, byte-accounted and evicted LRU under `KIT.renderer.cacheBudget` (192MB).
 
@@ -256,15 +282,20 @@ A scene is `{ id, transparent, opaque, background, enter(params), exit(result), 
 
 **`opaque: true`** says the world underneath need not be drawn: the renderer clears to `background` (default black) and hands the frame straight to the scene. That is a battle screen, a title card, a minigame — and it is *cheaper* than a map, because the whole world pass is skipped. `js/modules/bullet` is a worked example: an Undertale-style fight, 334 live bullets at 60fps.
 
+`KIT.ui` (the DOM helpers every scene and panel uses: `el(id)` `make('div.class', { text, html, attrs })` `button(action, label, cls)` `onAction(root, fn)` `select(list, index)` `clear` `show` `hide` `artCanvas(art, scale)`) · `KIT.fx` (screen effects and pictures: `fadeIn fadeOut tint flash shake weather` `show move erase pictures` `instant reset state update`) · `KIT.toast(text, ms)`.
+
+## game.js — the game
+`KIT.game`: `boot({ mount, project })` `booted` · `newGame(opts)` `continueGame()` `enterSave(save, where)` `gotoMoment(id)` (saves are a tree, ADR-0013) · `loadProject(project)` `useAssets(project)` `useAtmosphere` · `openEditor({ mapId })` `resumeFromEditor(project)` `startOwnGame({ blueprint, title })` (the title-screen door) `openMenu()` `toTitle()` · `warp(map, x, y, dir)` · `project` `world` `scene()` `renderer` `ports` (the six RunCtx ports, implemented over the scenes, `KIT.fx`, `KIT.audio` and the world) · `press(key, player, ms)` `hold(key, player, down)` `tick(ms)` `rngOverride` (the testability API `e2e/*` drives) · `flags` (`?fast=1 ?edit=1 ?test=<id> ?debug=1`) · `fault(text)` `faults` `guard(fn)` · `setCoop(on)` `swapHero()` `save()` `resize()` `applyButtons()` `wantsButtons()`.
+
 ## editor/* — Creator Mode (docs/EDITOR-CONTRACT.md, docs/CREATOR-MODE.md)
-Load order (after the game): `editor/ops.js  editor/editor.js  editor/tools.js  editor/inspector.js  editor/panels-map.js  editor/panels-objects.js  editor/script-editor.js  editor/panels-writing.js  editor/panels-project.js  editor/integration.js`.
+Load order (after the game): `editor/ops.js  editor/editor.js  editor/tools.js  editor/inspector.js  editor/panels-map.js  editor/panels-objects.js  editor/script-editor.js  editor/panels-writing.js  editor/panels-project.js  editor/panel-cast.js  editor/integration.js`.
 Everything visible is a registered panel (`editorPanels`), tool (`editorTools`), field widget (`fieldEditors`) or map section (`mapSections`); nothing writes to the project except through `KIT.editor.ops` or `KIT.editor.commit`, so undo covers all of it.
 
 `mapSections` is the Map panel's Props area, for a module that has something to say about one map: `{ id, label, order, when(project, mapId) -> bool, render(body, { project, mapId, ed }) }`. `when` false keeps the section — and the whole Props box, if nothing else is in it — out of the way. A `render` that throws is caught and named, because it is somebody else's code inside the kit's screen. It exists because the kit used to draw `packs.mons.encounters` itself (ADR-0005).
 
 `KIT.editor` — the shell: `open({game,project,mapId})` `close()` `isOpen()` `state` `set(patch)` `select(sel)` `openMap(id)` `on(event,fn)` `refresh()` `groups()` `groupOf(panelId)` `panelsOf(group)` `repaint()` `commit(label,fn)` `beginStroke/endStroke` `undo/redo` `saveNow()` `problemsFor(sel)` `toast/confirm` `playHere({at,testState})` `backToEdit()` `previewWorld()` `tilePixels()` `pointFromEvent(ev)` `zoom(d,at)` `el` `ops`. Events: `change document selection problems mode`.
 
-`KIT.editor.ops` — every project edit as a document transaction: `paint rect fill stamp terrain` (terrain re-bakes the autotiles round the stroke) · `placeObject moveObject deleteObject duplicateObject objectPath setField` · `addPage deletePage movePage` · `newMap deleteMap resizeMap renameMap` · `setScript newCommonEvent declareVar newItem addFragment fragmentToScript` · `eraseValue problems`.
+`KIT.editor.ops` — every project edit as a document transaction: `paint rect fill stamp terrain` (terrain re-bakes the autotiles round the stroke) · `placeObject moveObject deleteObject duplicateObject objectPath setField` · `addPage deletePage movePage` · `newMap deleteMap resizeMap renameMap` · `setScript newCommonEvent declareVar newItem addFragment fragmentToScript` · `newRule deleteRule` · `whereSelection(where)` · `uniqueKey` · `eraseValue problems`.
 
 `KIT.editor.tools` — the pure part of the nine map tools: `line rectCells floodCells sameValue COLLISION collisionAt collisionCycle brushFor remember paintCells valueAt gridFor describe drawGhostCell outlineArea terrainColor regionColor lockScale byId`.
 
@@ -314,7 +345,7 @@ Emits on the world bus: `monsChanged`, `friendCared { uid, what }` (somebody was
 
 ### `KIT.home` — what there is to do afterwards (`js/modules/home/`)
 Save `save.modules.home` · content `project.packs.home`.
-Clock (**the one clock**): `now(save)` `addMinutes(save, n)` `clockText(save)` `durationText(min)` `touch(save)` `resume(save, now, tuning)` — all against the kit's own `save.clock`, and the system only drives it when `project.settings.clock` does not ·
+Clock (**the one clock**): `now(save)` `addMinutes(save, n)` `clockText(save)` `durationText(min)` — all against the kit's own `save.clock` (`KIT.clock.stamp` / `KIT.clock.resume` are the kit's), and the system only drives it when `project.settings.clock` does not ·
 Content/state: `pack(project)` `tuning(project)` `contentDefaults()` `tuningDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` ·
 Who is here: `provideRoster(fn)` `roster(project, save)` `worker(project, save, uid)` `friendshipBand(n)` — the roster comes from `KIT.mons` when it is loaded, the heroes when it is not, and `fn` when a module provides one. Each entry is `{ uid, name, kind, type, types, friendship, sprite }` and `sprite` is a **registered sprite id** ·
 Friendship: `awardFriendship(ctx, uid, amount)` — hands it to whoever owns the friend, through the `friendship` command in the `commands` registry; a quiet no-op when nobody does ·
@@ -327,6 +358,8 @@ Gifts and housekeeping: `rollGifts(save, project, now)` `placeGift(save, project
 Save `save.modules.dungeon` · content `project.packs.dungeon`. Used by the `dungeon` template.
 `tuning(project)` `contentDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` `hasKey` `isOpen` `tryOpen` `blockAt` `setBlock` `canPush` `switchOn` `setSwitch` `plateHeld` `gateOpen` `switchNames` `torchLight` `lightTorch` `putOut` `isDark` `describe` — all pure; `live(world)` `onMapEnter` `tick` `entityFor` `pushEntity` `listen` are the wiring, and `panel.js` is a form. The dark is the kit's own `KIT.atmosphere` (`map.props.atmosphere = { darkness, ambient }`), and the lantern is `hero.data.light`.
 
+`KIT.bullet` — a bullet-hell fight as an add-on (`js/modules/bullet`): `PATTERNS` `pattern(id)` `runPattern` `patternDone` · `spawn` `movers` `steer` `step` · `create(...)` `registerAll()` `MANIFEST` `VERSION`.
+
 ## Still to build
-Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus four browser play-throughs (`e2e/walk.js`, `e2e/import.js`, `e2e/editor.js`, `e2e/vision.js`).
+Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus `npm run e2e`: eighteen browser play-throughs in `e2e/`, every one wired in (`test/kit/docs.test.js` fails on an orphan).
 What the engine still **owes** its modules — seventeen hooks each of them had to work around — is the punch list in `docs/ENGINE-HOOKS.md`.

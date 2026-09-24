@@ -20,8 +20,10 @@ world is **content**. Creator Mode uses RPG Maker MV's words in its UI (see §13
     if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
   })(typeof window !== 'undefined' ? window : globalThis);
   ```
-- Nothing in `js/kit/` may reference `KIT.modules.*`, `PKMN`, or content. Nothing
-  in `js/modules/` may reference content. A test greps for violations.
+- Nothing in `js/kit/` may reference a module's namespace (`KIT.mons`, `KIT.home`, …),
+  `PKMN`, or content. Nothing in `js/modules/` may reference content.
+  `test/kit/purity.test.js` greps for violations. (`KIT.modules` is the kit's own
+  module system, `js/kit/core/modules.js`, and the kit calls it freely.)
 - Every extensible thing goes through a registry (§3.1). Every editable thing
   has a schema (§3.2). Every edit goes through the document (§4). No exceptions,
   no second mechanism.
@@ -38,7 +40,9 @@ js/kit/core/registry.js          KIT.registry, KIT.defineRegistry
 js/kit/core/schema.js            KIT.schema  (field types, validate, defaults, refs, migrate helpers)
 js/kit/core/events.js            KIT.events() bus factory
 js/kit/core/rng.js               KIT.rng(seed), KIT.hash(...)
-js/kit/core/pixels.js            KIT.pixels (exists as js/core/pixels.js — move + rename API per §6.1)
+js/kit/core/pixels.js            KIT.pixels (pixel-string art: draw, downscale, validate)
+js/kit/core/assets.js            KIT.assets (image-backed art: define, load, loadAll)
+js/kit/core/registry.js, registries.js, schema.js, modules.js, lang.js   the registries, the field schema, the module system, languages
 js/kit/core/input.js             KIT.input
 js/kit/core/audio.js             KIT.audio
 js/kit/core/storage.js           KIT.storage
@@ -47,17 +51,19 @@ js/kit/world/project.js          KIT.project  (schema v3, normalize, validate, m
 js/kit/world/tiles.js            tile flags, autotile baking (pure)
 js/kit/world/map.js              map view (content + overlay), passability, regions, connections
 js/kit/world/entities.js         entity model + movement rules (pure)
+js/kit/world/blueprints.js, cast.js, log.js, rules.js, timeline.js, world.js   whole games to start from, the cast, history, rules, saves-as-a-tree, the live world
+js/kit/import/*.js               tiled, rpgmaker, aseprite, image, merge (docs/IMPORTING.md)
 js/kit/script/text.js            templating + text codes + word wrap/pagination (pure)
 js/kit/script/conditions.js      condition registry + baseline kinds
 js/kit/script/commands.js        command registry + baseline commands (definitions; run() uses ctx ports)
 js/kit/script/screenplay.js      Screenplay text format: parse/serialize (pure, lossless)
 js/kit/script/interpreter.js     run(commands, ctx), threads, labels/loops, blocking rules
-js/kit/systems/*.js              movement, behaviours, triggers, companions, clock, inventory, vars, camera
-js/kit/scenes/*.js               stack, map, dialogue, choice, nameEntry, chapter, menu, transition, debug
-js/kit/render/*.js               renderer, layers cache, sprites, overlays, ui widgets (DOM)
+js/kit/systems/index.js          movement, behaviours, triggers, companions, clock, camera
+js/kit/scenes/*.js               stack (KIT.ui, KIT.fx, KIT.toast), dialogue (say/choice/nameEntry/inputNumber/scrollText/chapter), menu (pause, settings, debug), title, start, map
+js/kit/render/*.js               renderer (baked layers, sprites, markers), atmosphere (lights, weather), text-canvas
 js/kit/game.js                   KIT.game: boot, loop, save/load, settings, testability API
 js/kit/editor/*.js               KIT.editor: shell, document glue, tools, inspector, panels, screenplay view, play-here, io
-js/art/tiles.js, tiles-*.js      tile art (exists; format §6.2)   js/art/chars.js, chars-*.js   js/art/icons.js
+js/art/tiles.js, tiles-*.js      tile art (format §6.2)   js/art/chars.js, chars-*.js   character art
 js/data/types.js moves.js pokemon.js   PKMN species data (exists)   js/sprites/*.js  PKMN portraits (exists)
 js/modules/mons/manifest.js + *.js     the Pokémon module (§11)
 js/content/demo/project.js  js/content/demo/maps/*.js     the demo world
@@ -82,7 +88,7 @@ for this world (a module not in the list registers nothing for it).
 
 ```
 KIT.registry(name) / KIT.defineRegistry(name, opts)        §3.1
-KIT.schema.{types, validate, defaults, refs, walk, migrateChain}   §3.2
+KIT.schema.{types, validate, defaults, refs, walk}   §3.2   (migration is KIT.project.migrate)
 KIT.events() -> { on, off, once, emit }                     §8.4
 KIT.rng(seed) -> fn ; KIT.hash(a,b,c) -> uint32              deterministic
 KIT.document(project) -> doc                                 §4
@@ -111,7 +117,7 @@ validators presets` (quick-event presets) `blueprints` (whole games to start fro
 A schema is an array of fields:
 ```js
 { key:'radius', type:'number', label:'Wander radius', doc:'How far from home it roams', default:3, min:0, max:20,
-  nullable:false, parent:'Movement', when:{ field:'kind', eq:'wander' }, display:'radius' }
+  nullable:false, when:{ field:'kind', eq:'wander' }, display:'radius' }
 ```
 Types (closed set; each has a form widget, a validator, a reference extractor):
 `string text note number bool enum color position direction tile region route script
@@ -236,7 +242,7 @@ Pixel-string art: `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows..
 Image art: `{ image:'assets/heroes.png' | dataURI, frame:{ x, y, w, h }, frames:[rects] }`.
 `KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint }) ` (cached),
 `draw(ctx, art, x, y, opts)`, `downscale(art, size)`, `silhouette(w, h, color)`,
-`validate(art)`, `load(image) -> Promise` (for image-backed art). Missing art never throws: `silhouette` is used and a warning logged once.
+`validate(art)`; image-backed art loads through `KIT.assets.load(id) -> Promise` / `loadAll()`. Missing art never throws: `silhouette` is used and a warning logged once.
 
 ### 6.2 Tiles registry entry
 ```js
@@ -270,8 +276,8 @@ declared; the panel marks an undeclared one so you can write it down later.
 Characters: existing format (`frames:{down,up,left}` × 3, right = mirrored),
 registered in `sprites`. Faces: `faces` registry (`{ id, art }`, 48×48 pixel or
 image). Icons: `icons`. Audio: `sounds`/`music` entries are `{ id, kind:'synth', recipe }`
-or `{ id, kind:'file', src }`; `KIT.audio.play(id)`, `startMusic(id)`, `stopMusic()`,
-`playAt(id, { map, x, y })` (diegetic, distance fade). MV sheet importer is Phase 5.
+or `{ id, kind:'file', src }`; `KIT.audio.play(id)`, `music(id|null, { fade, volume })`,
+`stop('music')`, `playAt(id, { map, x, y })` (diegetic, distance fade), `jingle`, `layer`, `setVolume`, `unlock`.
 
 ## 7. Save format v2
 ```js
@@ -296,8 +302,8 @@ migrations are a registry chain like project migrations. Export/import as text.
 world, scene stack; `KIT.game.newGame({ names, testState })`, `continueGame(slot)`,
 `update(dt)` fixed 60 Hz, render on rAF. Scene interface:
 ```js
-{ id, transparent:false, enter(params), exit(), update(dt), render(ctx), input(ev), result }
-await KIT.scenes.run(scene, params) -> result     // push, wait for scene.done(result), pop
+{ id, transparent:false, enter(params), exit(), update(dt), draw(ctx, view), input(ev), suspend(), resume() }
+await KIT.scenes.run(scene, params) -> result     // push, wait for scene.finish(result), pop
 KIT.scenes.top(), .stack, .replace(scene)
 ```
 Kit scenes: `title map dialogue choice nameEntry inputNumber chapter menu transition
@@ -310,7 +316,7 @@ debug picture`. Modules add scenes (`catch`).
 `objectsAt(x, y)`, `connectionAt(x, y)`. Entities are plain objects:
 `{ id, kind:'hero'|'npc'|'object'|'companion', x, y, dir, px, py (interpolated), sprite, art, layer, through, solid, mover:{...}, behaviour, page, visible }`.
 Movement rules (pure, in `entities.js`): grid steps at `speed` tiles/s (default
-~7), turn-in-place on short tap, `passage` flags per tile edge, `collision`
+6, `KIT.entities.DEFAULT_SPEED`), turn-in-place on short tap, `passage` flags per tile edge, `collision`
 overrides, ledges (`ledge:'down'` = hop 2 tiles southward only), `bush` (draw
 legs clipped), `counter` (interact reaches across), `through`, map `connections`
 (walk off an edge into the neighbour at the same offset), heroes cannot enter
@@ -326,7 +332,7 @@ module systems. Each: `{ id, order, update(world, dt) }` and optional
 `varChanged {name,old,value}` `selfChanged {objectKey,key}` `itemChanged {id,delta}`
 `objectStateChanged {objectKey}` `clockTick {minutes}` `sessionResumed {elapsedMs,minutesAdded}`
 `interactMissed {hero,x,y,dir}` (A was pressed and nothing answered)
-`scriptStart/scriptEnd {id}` `sceneChange {id}` + module events. Systems and
+`sceneChange {id}` `dimensionChanged` + module events. Systems and
 modules listen; nothing polls except `tick` slots.
 
 ### 8.5 Renderer, input, audio, clock
@@ -361,8 +367,9 @@ KIT.registry('commands').add({
   text:{ toLine(cmd) -> '@give berry 3', fromLine(line) -> cmd|null },   // optional Screenplay sugar; generic form always works
   blocking:true, editor:{ favourite:true } })
 ```
-`ctx.io`: `say(opts)`, `choice(opts)`, `nameEntry`, `inputNumber`, `toast`,
-`chapter`, `fade`, `tint`, `flash`, `shake`, `weather`, `picture`, `scrollText`,
+Six ports (the RunCtx typedefs at the top of `js/kit/script/commands.js`): `ctx.io`
+(`say chapter choice inputNumber nameEntry scrollText toast wait`), `ctx.screen`
+(`fade tint flash shake weather`), `ctx.pictures`, `ctx.audio`, `ctx.map`, `ctx.game`,
 `menu`, `wait(ms)` — all promise-returning scene calls; in tests a fake io answers them.
 
 ### 9.2 Baseline commands (id — MV label — fields; semantics)
@@ -415,7 +422,7 @@ Mom (face=mom-smile, at=top): The Professor was asking for you.
 @self opened = true          # sugar for @setSelf
 @call meet-mom
 @transfer map=town x=10 y=12 dir=down
-@move target=self steps="up up left" wait=true
+@move self (wait=true): up up left
 @wait 500                    # sugar for @wait ms=500
 @sound sparkle  |  @music town  |  @fade out  |  @shake  |  @balloon target=self kind=!
 # a comment line becomes a comment command
@@ -460,23 +467,19 @@ overlays toggles). Side panel (bottom sheet on phones, tabs scroll):
 - **Problems**: validator output with jump-to. **Data**: raw JSON of the selection/project, editable with validation. **Debug** (PLAYING): running threads, breakpoints, pause-on-var-change, live vars/inventory/self editing, warp-to, give item/mon, step.
 - **Play here**: cursor tile + facing; starting state picker: New game / Current save / Test state; "Back to editor here"; tap a thing while playing (with edit-tap mode) to select it in the inspector. Edits while PLAYING apply to the document immediately (the running map view re-reads); the strip says so.
 Undo is universal (inspector, deletes, paint, scripts). Delete always confirms
-or is undoable, never adjacent to navigation on phones. Keyboard: 1-6 tools, G
-grid, C collision, R regions, [ ] layer, Ctrl+Z/Shift+Z, Ctrl+S export, F5 play.
+or is undoable, never adjacent to navigation on phones. Keyboard: 1-9 tools, G
+grid, C collision, R regions, T terrain, [ ] layer, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y,
+Ctrl+S save the draft now, Delete, F5 or Shift+P play (`docs/CREATOR-MODE.md` has the table).
 Every panel is registered (`editorPanels`), every tool (`editorTools`), every
 field widget (`fieldEditors`), so modules extend the editor without core edits.
 
-## 11. The mons module (Phase 3; contract summary)
-Registries it adds: `species` (from PKMN data), `mon` ref kind, object type
-`pokemon` (wild|friendly, mon, shiny), condition kinds `has`, `dexCount`,
-`friendship`, commands `givePokemon`, `encounter`, `friendship`, item kinds
-`ball`, `berry`, scene `catch` (encounter **profiles** from `packs.mons.profiles`:
-actions `[{ id, label, kind:'throw'|'offer'|'talk'|'wait'|'leave', effects }]`,
-strings, art), systems `encounters` (on `step` by region table), `companion`
-(follower), `garden` (on maps with `kind:'garden'`), save section
-`{ party, box, dex, follower, seen }`, menus Pokémon / Pokédex / Bag, editor panel
-"Wild Pokémon" (per-map tables by region with weights), events `monCaught`,
-`friendshipChanged`. Friendship 0-255, thresholds 50/100/150/200/255, gains:
-walking +1/128 steps, pet +3 (1/visit), berry +10, `sessionResumed` bonus.
+## 11. The mons module
+The engine's first module and the reason the module system exists. What it
+registers (the `monSpecies` registry, the `mon` ref kind, its commands,
+conditions, systems, menus, panels and strings), where it keeps its save and
+content, and what it contributed to the engine are in the module table in
+`docs/MODULES.md` and in `js/modules/mons/README.md`, which `npm test` keeps
+true. A paragraph here used to repeat them and had drifted on the first name.
 
 ## 12. Testability and test plan
 `window.KIT.game` exposes `state`, `project`, `world`, `scene()`, `newGame`,
