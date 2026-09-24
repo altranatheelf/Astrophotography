@@ -10,7 +10,7 @@
   const KIT = root.KIT = root.KIT || {};
   const D = KIT.dungeon = KIT.dungeon || {};
 
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
   const text = (project, key, vars) => KIT.strings.get(project, key, vars || {});
 
   // ---- every line the module can say -------------------------------------------

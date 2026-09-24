@@ -103,10 +103,10 @@
   const RM = IMP.rpgmaker = IMP.rpgmaker || {};
 
   const slug = (s) => KIT.slug(s);
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp = KIT.clamp;
   const frames2ms = (f) => Math.round(num(f, 0) * 1000 / 60);
 
   RM.TOOL = 'rpgmaker-mv';
@@ -165,7 +165,6 @@
   RM.WALL_AUTOTILE_TABLE = WALL_AUTOTILE_TABLE;
   RM.WATERFALL_AUTOTILE_TABLE = WATERFALL_AUTOTILE_TABLE;
 
-  RM.isAutotile = (tileId) => tileId >= TILE_ID_A1;
   RM.autotileKind = (tileId) => Math.floor((tileId - TILE_ID_A1) / 48);
   RM.autotileShape = (tileId) => (tileId - TILE_ID_A1) % 48;
 

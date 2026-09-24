@@ -27,7 +27,7 @@
    */
   /** Control signal is not returned by conditions; see commands.js. */
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
   const save = (ctx) => (ctx && ctx.world && ctx.world.save) || {};
   const OPS = ['==', '!=', '<', '<=', '>', '>='];
   const SYM = { '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥' };

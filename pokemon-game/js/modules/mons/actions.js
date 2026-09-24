@@ -8,8 +8,8 @@
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
 
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
 
   /** saveOf(ctx) -> the save, wherever the ctx keeps it. */
   M.saveOf = function (ctx) { return (ctx && (ctx.save || (ctx.world && ctx.world.save))) || {}; };

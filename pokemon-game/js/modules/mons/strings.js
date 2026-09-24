@@ -123,8 +123,7 @@
 
   /** t(project, id, vars) — a registered line, with {name} style substitution. */
   M.t = function (project, id, vars) { return KIT.strings.get(project, id, vars); };
-  /** tierLabel / moodLabel / rarityLabel — the words for the three derived states. */
-  M.tierLabel = function (project, n) { return M.t(project, M.friendshipTier(n).label); };
+  /** moodLabel / rarityLabel — the words for the two derived states. */
   /** moodLabel(project, mon, opts) -> the words for a mood, wherever it came from. */
   M.moodLabel = function (project, mon, opts) {
     const mood = M.moodFor(mon, opts);

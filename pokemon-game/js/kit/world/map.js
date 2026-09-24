@@ -209,8 +209,18 @@
       const through = !!(who && who.through);
       if (!inBounds(nx, ny)) {
         const conn = connectionAt(x, y, dir);
-        if (conn) return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
-        return { ok: false, reason: 'edge' };
+        if (!conn) return { ok: false, reason: 'edge' };
+        // The step lands on ANOTHER map, and that map has walls too. The
+        // validator warns when two joined edges disagree, but a warning is not a
+        // wall: without this, walking off an edge into a tree on the far side
+        // simply worked, which is what any author gets the first time two maps
+        // are joined a tile out of line.
+        try {
+          const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
+          if (there.solid) return { ok: false, reason: 'tile' };
+          if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
+        } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+        return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
       }
       if (through) return { ok: true, reason: 'through', to: { x: nx, y: ny } };
       const here = flagsAt(x, y), there = flagsAt(nx, ny);

@@ -14,9 +14,9 @@
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const has = KIT.has;
+  const num = KIT.num;
+  const clamp = KIT.clamp;
 
   H.SAVE_VERSION = 1;
   H.DAY = 1440;

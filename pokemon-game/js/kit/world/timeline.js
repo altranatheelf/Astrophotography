@@ -49,7 +49,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const T = KIT.timeline = KIT.timeline || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /**
    * When a node keeps a whole save instead of a delta.
@@ -329,7 +329,6 @@
     built = { id, save: KIT.deepClone(save) };
     return save;
   };
-  T._forgetBuilt = () => { built = null; };
 
   /**
    * record(save, opts) -> nodeId. A moment.

@@ -51,7 +51,7 @@
   const KIT = root.KIT = root.KIT || {};
   const IMP = KIT.import = KIT.import || {};
 
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
   const clone = (v) => KIT.deepClone(v);
   const same = (a, b) => KIT.deepEqual(a, b);
   const sorted = (o) => Object.keys(o || {}).sort();

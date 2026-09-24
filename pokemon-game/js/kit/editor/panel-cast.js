@@ -15,7 +15,7 @@
 
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });

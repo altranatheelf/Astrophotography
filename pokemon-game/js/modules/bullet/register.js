@@ -6,7 +6,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
   const T = () => KIT.text;
 
   let registered = false;

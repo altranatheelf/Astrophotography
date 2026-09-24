@@ -14,7 +14,7 @@
   const M = KIT.mons = KIT.mons || {};
   const UI = KIT.ui;
   const ED = KIT.editor = KIT.editor || {};
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
   function make(spec, opts) { return UI.make(spec, opts); }

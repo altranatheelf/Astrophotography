@@ -37,9 +37,9 @@
   const M = KIT.mons = KIT.mons || {};
   const E = M.essentials = M.essentials || {};
 
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
-  const titleCase = (s) => String(s || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = (s) => KIT.titleCase(String(s || '').toLowerCase());   // PBS writes names in capitals
   const slug = (s) => (KIT.slug ? KIT.slug(String(s || '')) : String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
   const withPrefix = (id, opts) => (opts && opts.prefix ? slug(opts.prefix) + ':' + id : id);
   // BaseStats is written in a different ORDER by the two generations of the format,

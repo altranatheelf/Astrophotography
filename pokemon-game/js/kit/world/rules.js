@@ -34,7 +34,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const R = KIT.rules = KIT.rules || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /**
    * How deep a rule may set off another rule before the engine stops it.

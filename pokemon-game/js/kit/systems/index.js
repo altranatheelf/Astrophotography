@@ -4,7 +4,7 @@
   const KIT = root.KIT = root.KIT || {};
   const E = KIT.entities;
   const reg = KIT.registry('systems');
-  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const num = KIT.num;
 
   // --- 10 movement: interpolation, arrivals, hero touch checks -------------------
   const routePorts = (world) => ({ hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) });

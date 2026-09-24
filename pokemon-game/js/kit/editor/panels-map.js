@@ -1003,7 +1003,7 @@
     return value == null || typeof value === 'string';
   }
 
-  function titleCase(s) { return String(s || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+  const titleCase = KIT.titleCase;
   function opposite(side) { return { n: 's', s: 'n', e: 'w', w: 'e' }[side] || side; }
   function sideLabel(side) { return (SIDES.find(s => s.id === side) || { label: side }).label; }
 

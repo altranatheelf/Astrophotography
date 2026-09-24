@@ -102,6 +102,24 @@ test('mapView: connections walk into the neighbour map', () => {
   assert.equal(v.connectionAt(3, 2, 'down'), null);                 // not at the edge
 });
 
+test('mapView: a connection is not a way through a wall on the other side', () => {
+  // The validator only WARNS when two joined edges disagree. The runtime has to
+  // refuse the step, or the first author to join two maps a tile out of line
+  // walks off the edge into a tree.
+  const project = makeProject();
+  const w = project.maps.route.width;
+  project.maps.route.layers.deco[0 * w + 3] = 'wall';         // the tile a step south from town (3,4) lands on
+  project.maps.route.layers.ground[0 * w + 4] = 'one-way-n';  // and one that will not be entered from the north
+  const v = KIT.mapView(project, { vars: {}, objects: {} }, 'town');
+  assert.equal(v.passable(3, 4, 'down', null).ok, false, 'a wall on the far side of the seam');
+  assert.equal(v.passable(3, 4, 'down', null).reason, 'tile');
+  assert.equal(v.passable(4, 4, 'down', null).reason, 'edge-in', 'a one-way tile on the far side, facing the wrong way');
+  assert.equal(v.passable(2, 4, 'down', null).reason, 'connection', 'and the open tile beside them still is');
+  // A connection to a map that does not exist is an edge, not a crash.
+  project.world.connections.push({ a: 'town', side: 'n', b: 'nowhere', offset: 0 });
+  assert.equal(KIT.mapView(project, {}, 'town').passable(3, 0, 'up', null).reason, 'edge');
+});
+
 test('mapView: objects — last active page wins, state, hidden, interact across a counter', () => {
   const project = makeProject();
   const save = { vars: { chapter: 0 }, objects: {} };

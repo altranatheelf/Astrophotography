@@ -38,7 +38,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const L = KIT.history = KIT.history || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /** How many entries are kept in full. Roughly 40KB of save at the default. */
   L.WINDOW = 400;

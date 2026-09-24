@@ -22,7 +22,7 @@
   const int = (v, d) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : (d || 0));
   const baseName = (p) => String(p == null ? '' : p).split(/[\\/]/).pop();
   const stem = (p) => baseName(p).replace(/\.[A-Za-z0-9]+$/, '');
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const withPrefix = (id, prefix) => (prefix ? KIT.slug(prefix) + ':' + id : id);
   const DIR = { d: 'down', u: 'up', l: 'left', r: 'right' };
 

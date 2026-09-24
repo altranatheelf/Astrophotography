@@ -509,9 +509,9 @@ body { overflow: hidden; }
 .ed-sheet-grip { display: none; }
 @media (max-width: 760px) {
   .ed-main { flex-direction: column; }
-  .ed-side { width: auto; flex: 0 0 46vh; border-left: 0; border-top: 1px solid #263044; }
+  .ed-side { width: auto; flex: 0 0 46dvh; border-left: 0; border-top: 1px solid #263044; }
   /* Off the Map group the sheet is what you are reading, so it gets most of the screen. */
-  .ed-root.is-sheet-tall .ed-side { flex-basis: 74vh; }
+  .ed-root.is-sheet-tall .ed-side { flex-basis: 74dvh; }
   .ed-root.is-sheet-tall .ed-tools { display: none; }   /* no brush needed while reading a script or a form */
   .ed-panel-body[data-panel="tiles"] > p.ed-hint { display: none; }   /* the layer's one-line description: the palette matters more on a short sheet */
   .ed-panel-body[data-panel="tiles"] > .ed-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
@@ -630,7 +630,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-cond-text { display: flex; align-items: center; gap: 6px; }
 .ed-cond-text input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 36px; }
 .ed-add-cond { position: relative; display: inline-block; }
-.ed-add-menu { position: absolute; z-index: 3; left: 0; top: calc(100% + 4px); display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 4px; padding: 6px; background: #1a212d; border: 1px solid #3d4a63; border-radius: 8px; box-shadow: 0 8px 24px #0009; max-height: 46vh; overflow: auto; }
+.ed-add-menu { position: absolute; z-index: 3; left: 0; top: calc(100% + 4px); display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 4px; padding: 6px; background: #1a212d; border: 1px solid #3d4a63; border-radius: 8px; box-shadow: 0 8px 24px #0009; max-height: 46dvh; overflow: auto; }
 
 .ed-script-slot { justify-content: space-between; }
 .ed-slot { align-items: center; gap: 8px; }
@@ -817,7 +817,7 @@ input.ed-half { flex: 1 1 160px; min-width: 0; background: #1a212d; color: #e8ec
 .ed-cmd-picker { margin-top: 6px; }
 .ed-cmd-picker .ed-chips { margin: 2px 0 6px; }
 
-.ed-screenplay { width: 100%; box-sizing: border-box; min-height: 46vh; background: #101728; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 8px; padding: 10px; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; resize: vertical; }
+.ed-screenplay { width: 100%; box-sizing: border-box; min-height: 46dvh; background: #101728; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 8px; padding: 10px; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; resize: vertical; }
 .ed-text-problems { margin: 6px 0; display: flex; flex-direction: column; gap: 3px; }
 .ed-text-problem { font-size: 12px; }
 .ed-text-problem code.ed-raw { display: block; color: #8fa6d8; font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
@@ -866,7 +866,7 @@ input.ed-half { flex: 1 1 160px; min-width: 0; background: #1a212d; color: #e8ec
 .ed-term input { width: 100%; box-sizing: border-box; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; }
 
 /* Data */
-textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; background: #101728; color: #cfe0f5; border: 1px solid #2f3a4f; border-radius: 8px; padding: 10px; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre; overflow-x: auto; resize: vertical; }
+textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40dvh; background: #101728; color: #cfe0f5; border: 1px solid #2f3a4f; border-radius: 8px; padding: 10px; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre; overflow-x: auto; resize: vertical; }
 
 /* Import */
 .ed-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 18px 10px; border: 2px dashed #3d4a63; border-radius: 10px; background: #101728; color: #9fb0c8; text-align: center; margin-bottom: 8px; }
@@ -886,8 +886,8 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40vh; backgr
 
 @media (max-width: 760px) {
   /* on a phone the side panel is short: leave room under the screenplay for its problems */
-  .ed-screenplay { min-height: 30vh; }
-  .ed-json { min-height: 28vh; }
+  .ed-screenplay { min-height: 30dvh; }
+  .ed-json { min-height: 28dvh; }
   .ed-cmd-tools .ed-btn { min-width: 44px; }
 }
 .ed-branch-head.is-option .ed-branch-label { text-transform: none; letter-spacing: 0; color: #cbd6e8; font-size: 12.5px; }
@@ -1047,6 +1047,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   KIT.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   KIT.isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  /**
+   * num(v, d) -> a finite number, or d. Coerces ("3" -> 3); null, undefined,
+   * NaN and anything non-numeric give d, and d itself defaults to 0.
+   *
+   * This lived as a local `const num = ...` in twenty-one files, and the copies
+   * had drifted: one did not coerce strings, several turned a default of null
+   * into 0, and the module ones sent null to the default while the engine ones
+   * sent it to 0 — the same name giving two answers depending on the folder.
+   * There is one now. test/kit/helpers.test.js keeps it that way.
+   */
+  KIT.num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? (d === undefined ? 0 : d) : Number(v));
+  /** has(o, k) -> own property, safe on null and undefined. */
+  KIT.has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  /** titleCase('big-tree_2') -> 'Big Tree 2'. Runs of - and _ become one space. */
+  KIT.titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -3664,7 +3679,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const L = KIT.lang = KIT.lang || {};
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
 
   // ---- state -----------------------------------------------------------------
 
@@ -4009,7 +4024,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 // is wrapped: a blocked or full store never breaks the game, it just falls back
 // (and `KIT.storage.warning` says so, for the UI to show).
 //
-// Keys are `kit.<projectId>.<what>`: draft, editorState, save.<slot>, meta.
+// Keys are `kit.<projectId>.<what>`: draft, save.<slot>, meta.
 // Settings are global (`kit.settings`), not per project.
 //
 //   await KIT.storage.ready()
@@ -4606,10 +4621,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return save;
   };
 
-  // ---- editor state -------------------------------------------------------------
-  S.editorState = () => S.get(key('editorState'));
-  S.saveEditorState = (v) => S.set(key('editorState'), v);
-
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -4881,7 +4892,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // `display: 'readonly'`: an id is the key a thing is stored under. Forms show
   // it and do not offer it — see KIT.editor.inspector.field.
   const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :', display: 'readonly' });
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   // ---- field schemas (§5) --------------------------------------------------
   // Maps, objects, pages and slots are validated by dedicated code below (they
@@ -6540,8 +6551,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const C = KIT.cast = KIT.cast || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const isObj = KIT.isObject;
+  const num = KIT.num;
 
   /** How a feeling is scored. The middle is nothing in particular. */
   C.FEELING_MIN = -100;
@@ -6836,7 +6847,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const L = KIT.history = KIT.history || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /** How many entries are kept in full. Roughly 40KB of save at the default. */
   L.WINDOW = 400;
@@ -7043,7 +7054,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const R = KIT.rules = KIT.rules || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /**
    * How deep a rule may set off another rule before the engine stops it.
@@ -7322,7 +7333,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const T = KIT.timeline = KIT.timeline || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
 
   /**
    * When a node keeps a whole save instead of a delta.
@@ -7602,7 +7613,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     built = { id, save: KIT.deepClone(save) };
     return save;
   };
-  T._forgetBuilt = () => { built = null; };
 
   /**
    * record(save, opts) -> nodeId. A moment.
@@ -7943,7 +7953,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * @property {number} [lines]      lines per page (default 3)
    */
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
 
   // ---- context ---------------------------------------------------------------
 
@@ -8428,7 +8438,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    */
   /** Control signal is not returned by conditions; see commands.js. */
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
   const save = (ctx) => (ctx && ctx.world && ctx.world.save) || {};
   const OPS = ['==', '!=', '<', '<=', '>', '>='];
   const SYM = { '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥' };
@@ -9148,7 +9158,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- helpers ---------------------------------------------------------------
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
   const save = (ctx) => { const w = ctx.world || (ctx.world = {}); return w.save || (w.save = {}); };
   const emit = (ctx, event, payload) => {
     if (typeof ctx.emit === 'function') ctx.emit(event, payload);
@@ -11205,8 +11215,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const through = !!(who && who.through);
       if (!inBounds(nx, ny)) {
         const conn = connectionAt(x, y, dir);
-        if (conn) return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
-        return { ok: false, reason: 'edge' };
+        if (!conn) return { ok: false, reason: 'edge' };
+        // The step lands on ANOTHER map, and that map has walls too. The
+        // validator warns when two joined edges disagree, but a warning is not a
+        // wall: without this, walking off an edge into a tree on the far side
+        // simply worked, which is what any author gets the first time two maps
+        // are joined a tile out of line.
+        try {
+          const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
+          if (there.solid) return { ok: false, reason: 'tile' };
+          if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
+        } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+        return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
       }
       if (through) return { ok: true, reason: 'through', to: { x: nx, y: ny } };
       const here = flagsAt(x, y), there = flagsAt(nx, ny);
@@ -11390,7 +11410,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     return cached;
   };
-  E.clearFrameCache = () => { frameCache = new WeakMap(); sprites = null; };
 
   // ---- move routes (§9.2) -----------------------------------------------------
   /**
@@ -12017,7 +12036,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const KIT = root.KIT = root.KIT || {};
   const E = KIT.entities;
   const reg = KIT.registry('systems');
-  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const num = KIT.num;
 
   // --- 10 movement: interpolation, arrivals, hero touch checks -------------------
   const routePorts = (world) => ({ hero: world.hero(), rng: world.rng, sound: (id) => world.ports.audio && world.ports.audio.play && world.ports.audio.play(id) });
@@ -12351,12 +12370,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const T = IMP.tiled = IMP.tiled || {};
 
   // ---- small helpers ---------------------------------------------------------
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
   const baseName = (p) => String(p == null ? '' : p).split(/[\\/]/).pop();
   const stem = (p) => baseName(p).replace(/\.[A-Za-z0-9]+$/, '');
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const withPrefix = (id, opts) => (opts && opts.prefix ? KIT.slug(opts.prefix) + ':' + id : id);
 
   function blank() {
@@ -13735,10 +13754,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const RM = IMP.rpgmaker = IMP.rpgmaker || {};
 
   const slug = (s) => KIT.slug(s);
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp = KIT.clamp;
   const frames2ms = (f) => Math.round(num(f, 0) * 1000 / 60);
 
   RM.TOOL = 'rpgmaker-mv';
@@ -13797,7 +13816,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   RM.WALL_AUTOTILE_TABLE = WALL_AUTOTILE_TABLE;
   RM.WATERFALL_AUTOTILE_TABLE = WATERFALL_AUTOTILE_TABLE;
 
-  RM.isAutotile = (tileId) => tileId >= TILE_ID_A1;
   RM.autotileKind = (tileId) => Math.floor((tileId - TILE_ID_A1) / 48);
   RM.autotileShape = (tileId) => (tileId - TILE_ID_A1) % 48;
 
@@ -15107,12 +15125,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const A = IMP.aseprite = IMP.aseprite || {};
 
   // ---- small helpers ---------------------------------------------------------
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
   const baseName = (p) => String(p == null ? '' : p).split(/[\\/]/).pop();
   const stem = (p) => baseName(p).replace(/\.[A-Za-z0-9]+$/, '');
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const slug = (s) => KIT.slug(s);
   const withPrefix = (id, opts) => (opts && opts.prefix ? slug(opts.prefix) + ':' + id : id);
 
@@ -16332,7 +16350,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const int = (v, d) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : (d || 0));
   const baseName = (p) => String(p == null ? '' : p).split(/[\\/]/).pop();
   const stem = (p) => baseName(p).replace(/\.[A-Za-z0-9]+$/, '');
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const withPrefix = (id, prefix) => (prefix ? KIT.slug(prefix) + ':' + id : id);
   const DIR = { d: 'down', u: 'up', l: 'left', r: 'right' };
 
@@ -16512,7 +16530,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const KIT = root.KIT = root.KIT || {};
   const IMP = KIT.import = KIT.import || {};
 
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isObj = KIT.isObject;
   const clone = (v) => KIT.deepClone(v);
   const same = (a, b) => KIT.deepEqual(a, b);
   const sorted = (o) => Object.keys(o || {}).sort();
@@ -17120,9 +17138,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     c.fillStyle = g;
     c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
   }
-
-  /** Forget the cached falloffs — after a palette change, or between tests. */
-  A.forgetLightSprites = function () { sprites.clear(); };
 
   A.draw = function (ctx, world, view) {
     const a = current;
@@ -20851,7 +20866,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- runtime controls ----------------------------------------------------------------------
   G.openMenu = function () { return KIT.scenes.run('menu', { game: G }); };
-  G.openDebug = function () { return KIT.scenes.run('debug', { game: G }); };
   G.swapHero = function () {
     const w = G.world;
     if (!w || w.heroes.length < 2) return;
@@ -29005,8 +29019,8 @@ PKMN.TILES.register([
   const S = KIT.schema;
   const INS = ED.inspector = ED.inspector || {};
 
-  const has = (o, k) => Object.prototype.hasOwnProperty.call(o || {}, k);
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const has = KIT.has;
+  const titleCase = KIT.titleCase;
   INS.titleCase = titleCase;
 
   // ---- widgets by type ----------------------------------------------------------
@@ -31287,7 +31301,7 @@ PKMN.TILES.register([
     return value == null || typeof value === 'string';
   }
 
-  function titleCase(s) { return String(s || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+  const titleCase = KIT.titleCase;
   function opposite(side) { return { n: 's', s: 'n', e: 'w', w: 'e' }[side] || side; }
   function sideLabel(side) { return (SIDES.find(s => s.id === side) || { label: side }).label; }
 
@@ -31352,7 +31366,7 @@ PKMN.TILES.register([
   const INS = ED.inspector = ED.inspector || {};
   const OBJ = ED.objects = ED.objects || {};
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const SLOTS = [
     { id: 'interact', label: 'On Interact', doc: 'The player presses A while facing it.' },
     { id: 'step', label: 'On Step', doc: 'The player steps onto this tile.' },
@@ -31438,7 +31452,7 @@ PKMN.TILES.register([
    * it is dropped and the new type (or the schema) decides.
    */
   OBJ.retype = function (doc, o) {
-    const has = (obj, k) => Object.prototype.hasOwnProperty.call(obj || {}, k);
+    const has = KIT.has;
     const path = ['maps', o.map, 'objects', (doc.get(['maps', o.map, 'objects']) || []).findIndex(x => x.id === o.id)];
     if (path[3] < 0) return false;
     const typeOf = (t) => (KIT.registry.exists('objectTypes') && KIT.registry('objectTypes').get(t)) || null;
@@ -32152,7 +32166,7 @@ PKMN.TILES.register([
   const S = KIT.schema;
   const CMD = KIT.commands;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const clone = (v) => KIT.deepClone(v);
 
   // =================================================================================
@@ -32900,7 +32914,7 @@ PKMN.TILES.register([
   const P = KIT.project;
   const S = KIT.schema;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
 
   // =================================================================================
@@ -33572,7 +33586,7 @@ PKMN.TILES.register([
   const IMPP = ED.importPanel = ED.importPanel || {};
   const P = KIT.project;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   // =================================================================================
   // Pure: the variable index
@@ -35176,7 +35190,7 @@ PKMN.TILES.register([
 
   const make = (spec, opts) => KIT.ui.make(spec, opts);
   const clear = (el) => KIT.ui.clear(el);
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
@@ -35662,9 +35676,9 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
 
-  const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-  const num = (v, fallback) => (v == null || !Number.isFinite(Number(v)) ? fallback : Number(v));
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const clamp = KIT.clamp;
+  const num = KIT.num;
+  const isObj = KIT.isObject;
 
   // ---- the species registry ------------------------------------------------
   // One entry per species: the data file (js/data/pokemon.js) is the source,
@@ -36480,14 +36494,6 @@ PKMN.TILES.register([
     return list;
   };
 
-  /** elapsedSince(section, nowMs) -> ms since the last session (0 the first time). */
-  M.elapsedSince = function (s, nowMs) {
-    const last = s && s.lastSeenAt ? Date.parse(s.lastSeenAt) : NaN;
-    const now = num(nowMs, Date.now());
-    if (!Number.isFinite(last)) return 0;
-    return Math.max(0, now - last);
-  };
-
   /** pet(section, uid, { bonus }) -> the friendship gained (0 when already petted this visit). */
   M.pet = function (s, uid, opts) {
     if (!s) return 0;
@@ -36721,8 +36727,7 @@ PKMN.TILES.register([
 
   /** t(project, id, vars) — a registered line, with {name} style substitution. */
   M.t = function (project, id, vars) { return KIT.strings.get(project, id, vars); };
-  /** tierLabel / moodLabel / rarityLabel — the words for the three derived states. */
-  M.tierLabel = function (project, n) { return M.t(project, M.friendshipTier(n).label); };
+  /** moodLabel / rarityLabel — the words for the two derived states. */
   /** moodLabel(project, mon, opts) -> the words for a mood, wherever it came from. */
   M.moodLabel = function (project, mon, opts) {
     const mood = M.moodFor(mon, opts);
@@ -36889,8 +36894,6 @@ PKMN.TILES.register([
   };
   M.typeColor = function (t) { return M.TYPE_COLORS[t] || '#7a7a8a'; };
 
-  /** invalidateArt() — drop the caches (Creator Mode edits art in place). */
-  M.invalidateArt = function () { portraits.clear(); icons.clear(); };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -36908,8 +36911,8 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
 
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
 
   /** saveOf(ctx) -> the save, wherever the ctx keeps it. */
   M.saveOf = function (ctx) { return (ctx && (ctx.save || (ctx.world && ctx.world.save))) || {}; };
@@ -37124,7 +37127,7 @@ PKMN.TILES.register([
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
 
   const OPS = ['==', '!=', '<', '<=', '>', '>='];
   const SYM = { '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥' };
@@ -37335,7 +37338,7 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
   const E = KIT.entities;
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
 
   const HOUR = 3600 * 1000;
 
@@ -37599,7 +37602,7 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
   const UI = KIT.ui;
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
   // ---- the host element -------------------------------------------------------
@@ -38516,9 +38519,9 @@ PKMN.TILES.register([
   const M = KIT.mons = KIT.mons || {};
   const E = M.essentials = M.essentials || {};
 
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
-  const titleCase = (s) => String(s || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = (s) => KIT.titleCase(String(s || '').toLowerCase());   // PBS writes names in capitals
   const slug = (s) => (KIT.slug ? KIT.slug(String(s || '')) : String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
   const withPrefix = (id, opts) => (opts && opts.prefix ? slug(opts.prefix) + ':' + id : id);
   // BaseStats is written in a different ORDER by the two generations of the format,
@@ -39136,7 +39139,7 @@ PKMN.TILES.register([
   const M = KIT.mons = KIT.mons || {};
   const UI = KIT.ui;
   const ED = KIT.editor = KIT.editor || {};
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
   const hasDom = () => typeof document !== 'undefined' && !!document.createElement;
 
   function make(spec, opts) { return UI.make(spec, opts); }
@@ -39673,9 +39676,9 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const has = KIT.has;
+  const num = KIT.num;
+  const clamp = KIT.clamp;
 
   H.SAVE_VERSION = 1;
   H.DAY = 1440;
@@ -40434,7 +40437,7 @@ PKMN.TILES.register([
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
 
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
 
   // ---- strings: every line the module can say ---------------------------------
   H.STRINGS = [
@@ -40899,7 +40902,7 @@ PKMN.TILES.register([
   if (typeof document === 'undefined' || !UI) return;                 // headless: no screens to build
 
   const S = (project, key, vars) => KIT.strings.get(project, key, vars);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
   const defs = [];                       // registered by H.registerScenes(), not at load
 
   // ---- a little style of our own, so the placement panel does not hide the room ----
@@ -41548,7 +41551,7 @@ PKMN.TILES.register([
   if (!UI || typeof document === 'undefined') return;                 // headless: nothing to mount
 
   const make = UI.make;
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
 
   function edit(label, fn) {
     if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);
@@ -41894,7 +41897,7 @@ PKMN.TILES.register([
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
 
   B.VERSION = 1;
 
@@ -42066,7 +42069,7 @@ PKMN.TILES.register([
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const B = KIT.bullet = KIT.bullet || {};
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
   const T = () => KIT.text;
 
   let registered = false;

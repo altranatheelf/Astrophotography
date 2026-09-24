@@ -78,6 +78,21 @@
 
   KIT.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   KIT.isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  /**
+   * num(v, d) -> a finite number, or d. Coerces ("3" -> 3); null, undefined,
+   * NaN and anything non-numeric give d, and d itself defaults to 0.
+   *
+   * This lived as a local `const num = ...` in twenty-one files, and the copies
+   * had drifted: one did not coerce strings, several turned a default of null
+   * into 0, and the module ones sent null to the default while the engine ones
+   * sent it to 0 — the same name giving two answers depending on the folder.
+   * There is one now. test/kit/helpers.test.js keeps it that way.
+   */
+  KIT.num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? (d === undefined ? 0 : d) : Number(v));
+  /** has(o, k) -> own property, safe on null and undefined. */
+  KIT.has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  /** titleCase('big-tree_2') -> 'Big Tree 2'. Runs of - and _ become one space. */
+  KIT.titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

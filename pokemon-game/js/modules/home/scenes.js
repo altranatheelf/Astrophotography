@@ -12,7 +12,7 @@
   if (typeof document === 'undefined' || !UI) return;                 // headless: no screens to build
 
   const S = (project, key, vars) => KIT.strings.get(project, key, vars);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
   const defs = [];                       // registered by H.registerScenes(), not at load
 
   // ---- a little style of our own, so the placement panel does not hide the room ----

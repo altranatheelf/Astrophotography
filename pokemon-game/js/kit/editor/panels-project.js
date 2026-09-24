@@ -17,7 +17,7 @@
   const IMPP = ED.importPanel = ED.importPanel || {};
   const P = KIT.project;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   // =================================================================================
   // Pure: the variable index

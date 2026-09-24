@@ -16,7 +16,7 @@
   const P = KIT.project;
   const S = KIT.schema;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const SLOT_LABELS = { interact: 'On Interact', step: 'On Step', touch: 'On Touch', enter: 'On Enter', tick: 'Every Tick', init: 'On Init' };
 
   // =================================================================================

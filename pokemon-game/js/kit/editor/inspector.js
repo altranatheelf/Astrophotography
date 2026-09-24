@@ -21,8 +21,8 @@
   const S = KIT.schema;
   const INS = ED.inspector = ED.inspector || {};
 
-  const has = (o, k) => Object.prototype.hasOwnProperty.call(o || {}, k);
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const has = KIT.has;
+  const titleCase = KIT.titleCase;
   INS.titleCase = titleCase;
 
   // ---- widgets by type ----------------------------------------------------------

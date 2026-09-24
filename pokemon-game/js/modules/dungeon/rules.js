@@ -16,8 +16,8 @@
   const KIT = root.KIT = root.KIT || {};
   const D = KIT.dungeon = KIT.dungeon || {};
 
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   D.VERSION = 1;
 
   // ---- the save slice ----------------------------------------------------------

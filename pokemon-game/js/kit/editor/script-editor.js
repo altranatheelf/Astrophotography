@@ -23,7 +23,7 @@
   const S = KIT.schema;
   const CMD = KIT.commands;
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const clone = (v) => KIT.deepClone(v);
 
   // =================================================================================

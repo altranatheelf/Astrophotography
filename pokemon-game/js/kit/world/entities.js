@@ -117,7 +117,6 @@
     }
     return cached;
   };
-  E.clearFrameCache = () => { frameCache = new WeakMap(); sprites = null; };
 
   // ---- move routes (§9.2) -----------------------------------------------------
   /**

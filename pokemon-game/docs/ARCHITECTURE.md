@@ -159,7 +159,7 @@ The single-file build embeds `<script id="project-data" type="application/json">
 ### 4.3 Storage
 Adapters tried in order: IndexedDB → localStorage → memory (with a visible
 warning). Keys (all under `kit.<projectId>.`): `draft` (editor autosave, debounced
-500 ms), `editorState`, `save.<slot>` (3 slots + `autosave`), `meta` (survives
+500 ms), `save.<slot>` (3 slots + `autosave`), `meta` (survives
 New Game), `settings` (global, not per project). API:
 ```js
 KIT.storage.ready() ; get/set/del(key) ; loadProject({ before }) -> { project, source:'draft'|'embedded'|'content'|'default', problems }

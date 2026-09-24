@@ -34,7 +34,7 @@
   // `display: 'readonly'`: an id is the key a thing is stored under. Forms show
   // it and do not offer it — see KIT.editor.inspector.field.
   const idField = (key) => ({ key: key || 'id', type: 'string', min: 1, pattern: ID_PATTERN, patternMessage: 'ids are lowercase letters, digits, - _ . :', display: 'readonly' });
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
 
   // ---- field schemas (§5) --------------------------------------------------
   // Maps, objects, pages and slots are validated by dedicated code below (they

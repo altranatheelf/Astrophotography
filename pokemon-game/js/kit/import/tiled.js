@@ -37,12 +37,12 @@
   const T = IMP.tiled = IMP.tiled || {};
 
   // ---- small helpers ---------------------------------------------------------
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : (d || 0));
+  const isObj = KIT.isObject;
+  const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
   const baseName = (p) => String(p == null ? '' : p).split(/[\\/]/).pop();
   const stem = (p) => baseName(p).replace(/\.[A-Za-z0-9]+$/, '');
-  const titleCase = (s) => String(s || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const withPrefix = (id, opts) => (opts && opts.prefix ? KIT.slug(opts.prefix) + ':' + id : id);
 
   function blank() {

@@ -41,7 +41,7 @@
    * @property {number} [lines]      lines per page (default 3)
    */
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
 
   // ---- context ---------------------------------------------------------------
 

@@ -6,7 +6,7 @@
 // is wrapped: a blocked or full store never breaks the game, it just falls back
 // (and `KIT.storage.warning` says so, for the UI to show).
 //
-// Keys are `kit.<projectId>.<what>`: draft, editorState, save.<slot>, meta.
+// Keys are `kit.<projectId>.<what>`: draft, save.<slot>, meta.
 // Settings are global (`kit.settings`), not per project.
 //
 //   await KIT.storage.ready()
@@ -602,10 +602,6 @@
     await S.saveGame(slot || '1', save);
     return save;
   };
-
-  // ---- editor state -------------------------------------------------------------
-  S.editorState = () => S.get(key('editorState'));
-  S.saveEditorState = (v) => S.set(key('editorState'), v);
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

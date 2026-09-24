@@ -23,8 +23,8 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const C = KIT.cast = KIT.cast || {};
-  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const isObj = KIT.isObject;
+  const num = KIT.num;
 
   /** How a feeling is scored. The middle is nothing in particular. */
   C.FEELING_MIN = -100;

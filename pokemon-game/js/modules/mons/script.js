@@ -12,7 +12,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
 
   const OPS = ['==', '!=', '<', '<=', '>', '>='];
   const SYM = { '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥' };

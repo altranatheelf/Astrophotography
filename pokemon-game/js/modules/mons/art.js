@@ -150,8 +150,6 @@
   };
   M.typeColor = function (t) { return M.TYPE_COLORS[t] || '#7a7a8a'; };
 
-  /** invalidateArt() — drop the caches (Creator Mode edits art in place). */
-  M.invalidateArt = function () { portraits.clear(); icons.clear(); };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -10,7 +10,7 @@
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
   const E = KIT.entities;
-  const num = (v, d) => (v == null || !Number.isFinite(Number(v)) ? d : Number(v));
+  const num = KIT.num;
 
   const HOUR = 3600 * 1000;
 

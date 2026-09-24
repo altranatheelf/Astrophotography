@@ -12,7 +12,7 @@
   if (!UI || typeof document === 'undefined') return;                 // headless: nothing to mount
 
   const make = UI.make;
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
 
   function edit(label, fn) {
     if (typeof ED.panelEdit === 'function') return ED.panelEdit(label, fn);

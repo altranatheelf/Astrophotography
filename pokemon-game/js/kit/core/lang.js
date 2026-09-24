@@ -22,7 +22,7 @@
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const L = KIT.lang = KIT.lang || {};
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
 
   // ---- state -----------------------------------------------------------------
 

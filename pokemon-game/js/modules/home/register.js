@@ -9,7 +9,7 @@
   const KIT = root.KIT = root.KIT || {};
   const H = KIT.home = KIT.home || {};
 
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const num = KIT.num;
 
   // ---- strings: every line the module can say ---------------------------------
   H.STRINGS = [

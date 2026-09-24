@@ -190,9 +190,6 @@
     c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
   }
 
-  /** Forget the cached falloffs — after a palette change, or between tests. */
-  A.forgetLightSprites = function () { sprites.clear(); };
-
   A.draw = function (ctx, world, view) {
     const a = current;
     if (!a) return;

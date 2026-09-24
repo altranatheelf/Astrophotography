@@ -95,7 +95,7 @@
 
   // ---- helpers ---------------------------------------------------------------
 
-  const has = (o, k) => o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k);
+  const has = KIT.has;
   const save = (ctx) => { const w = ctx.world || (ctx.world = {}); return w.save || (w.save = {}); };
   const emit = (ctx, event, payload) => {
     if (typeof ctx.emit === 'function') ctx.emit(event, payload);

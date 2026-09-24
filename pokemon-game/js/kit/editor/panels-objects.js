@@ -15,7 +15,7 @@
   const INS = ED.inspector = ED.inspector || {};
   const OBJ = ED.objects = ED.objects || {};
 
-  const titleCase = (id) => String(id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const titleCase = KIT.titleCase;
   const SLOTS = [
     { id: 'interact', label: 'On Interact', doc: 'The player presses A while facing it.' },
     { id: 'step', label: 'On Step', doc: 'The player steps onto this tile.' },
@@ -101,7 +101,7 @@
    * it is dropped and the new type (or the schema) decides.
    */
   OBJ.retype = function (doc, o) {
-    const has = (obj, k) => Object.prototype.hasOwnProperty.call(obj || {}, k);
+    const has = KIT.has;
     const path = ['maps', o.map, 'objects', (doc.get(['maps', o.map, 'objects']) || []).findIndex(x => x.id === o.id)];
     if (path[3] < 0) return false;
     const typeOf = (t) => (KIT.registry.exists('objectTypes') && KIT.registry('objectTypes').get(t)) || null;

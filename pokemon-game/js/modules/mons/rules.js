@@ -14,9 +14,9 @@
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.mons = KIT.mons || {};
 
-  const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-  const num = (v, fallback) => (v == null || !Number.isFinite(Number(v)) ? fallback : Number(v));
-  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const clamp = KIT.clamp;
+  const num = KIT.num;
+  const isObj = KIT.isObject;
 
   // ---- the species registry ------------------------------------------------
   // One entry per species: the data file (js/data/pokemon.js) is the source,
@@ -830,14 +830,6 @@
     const list = M.all(s);
     for (const mon of list) M.addFriendship(mon, bonus);
     return list;
-  };
-
-  /** elapsedSince(section, nowMs) -> ms since the last session (0 the first time). */
-  M.elapsedSince = function (s, nowMs) {
-    const last = s && s.lastSeenAt ? Date.parse(s.lastSeenAt) : NaN;
-    const now = num(nowMs, Date.now());
-    if (!Number.isFinite(last)) return 0;
-    return Math.max(0, now - last);
   };
 
   /** pet(section, uid, { bonus }) -> the friendship gained (0 when already petted this visit). */

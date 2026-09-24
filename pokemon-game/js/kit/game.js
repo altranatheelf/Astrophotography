@@ -782,7 +782,6 @@
 
   // ---- runtime controls ----------------------------------------------------------------------
   G.openMenu = function () { return KIT.scenes.run('menu', { game: G }); };
-  G.openDebug = function () { return KIT.scenes.run('debug', { game: G }); };
   G.swapHero = function () {
     const w = G.world;
     if (!w || w.heroes.length < 2) return;
