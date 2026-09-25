@@ -115,7 +115,7 @@
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         choose(action) {
-          KIT.audio.play('select');
+          KIT.look.sound('confirm');
           if (action === 'back') { this.finish(null); return; }
           if (action === 'list') { asking = null; paintList(); return; }
           if (action.indexOf('make:') === 0) {
@@ -130,7 +130,7 @@
           }
         },
         input(ev) {
-          const step = (d) => { index = (index + d + items.length) % items.length; KIT.audio.play('blip'); refresh(); };
+          const step = (d) => { index = (index + d + items.length) % items.length; KIT.look.sound('move'); refresh(); };
           if (ev.key === 'up' || ev.key === 'left') step(-1);
           else if (ev.key === 'down' || ev.key === 'right') step(1);
           else if (ev.key === 'a') this.choose(items[index].action);

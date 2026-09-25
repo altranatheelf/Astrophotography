@@ -216,6 +216,24 @@
     for (const id of Object.keys(t)) if (t[id] && t[id].name === key) return t[id];
     return null;
   };
+  /**
+   * speaker(project, payload) -> the say payload, with the voice filled in.
+   *
+   * What a line sounds like: the voice it asked for, else the speaker's own
+   * from the cast (found by id or by the name on screen), else the game's
+   * default (KIT.look.voice: the setting, then the look's). The say command
+   * already asked this; a line a module hands straight to the box did not, and
+   * came out in the default voice whoever was talking. A payload that ends up
+   * with no voice is returned as it came, with no `voice` key, so a game with
+   * no cast sends exactly what it always sent.
+   */
+  C.speaker = function (project, payload) {
+    const p = payload || {};
+    if (p.voice) return p;
+    const person = C.person(project, p.who);
+    const voice = (person && person.voice) || KIT.look.voice(project);
+    return voice ? Object.assign({}, p, { voice }) : p;
+  };
   /** nameOf(project, who) -> what to call them on screen. */
   C.nameOf = function (project, who) {
     const p = C.person(project, who);

@@ -79,7 +79,9 @@
             Promise.resolve(world.interact(i)).catch(e => (KIT.log || console).error('[map] interact', e));
             return true;
           }
-          if (ev.key === 'menu') { game.openMenu(); return true; }
+          // Not in the middle of a cutscene: the pause menu's Save would save a
+          // world half way through a script, and its Quit would walk out of one.
+          if (ev.key === 'menu') { if (game.canOpenMenu()) game.openMenu(); return true; }
           if (ev.key === 'swap') { game.swapHero(); return true; }
           return true;
         },

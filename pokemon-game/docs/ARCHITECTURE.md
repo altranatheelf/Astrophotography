@@ -47,6 +47,9 @@ js/kit/core/util.js, registries.js, modules.js, lang.js   helpers (deepClone, cl
 js/kit/core/input.js             KIT.input
 js/kit/core/audio.js             KIT.audio
 js/kit/core/storage.js           KIT.storage
+js/kit/core/look.js              KIT.look: a game's look as data (tokens, part options, sound roles), resolved and compiled to one stylesheet
+js/kit/ui/presets.js             the looks the kit ships (the `looks` registry)
+js/kit/ui/parts.js               KIT.look.apply (the look in the page) and KIT.ui.parts (the built-in screens' markup)
 js/kit/world/document.js         KIT.document(project)  (ops, undo, watch, transactions)
 js/kit/world/project.js          KIT.project  (schema v3, normalize, validate, migrate, helpers)
 js/kit/world/tiles.js            tile flags, autotile baking (pure)

@@ -19,14 +19,7 @@
           const meta = project.meta || {};
           host = UI.el('screen-title');
           if (!host) { this.finish('new-game'); return; }
-          UI.clear(host);
-          host.hidden = false;
 
-          const inner = UI.make('div.kit-title-inner');
-          inner.appendChild(UI.make('h1.kit-title', { text: meta.title || 'Our Adventure' }));
-          if (meta.subtitle) inner.appendChild(UI.make('p.kit-subtitle', { text: meta.subtitle }));
-
-          const list = UI.make('div.kit-menu-list');
           items = [
             { action: 'new-game', label: KIT.strings.get(project, 'new-game') },
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
@@ -43,18 +36,8 @@
             if (canStart) items.push({ action: 'start-own', label: KIT.strings.get(project, 'start-own') });
             items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
           }
-          items.forEach((it, i) => {
-            const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
-            b.type = 'button';
-            b.setAttribute('data-action', it.action);
-            b.setAttribute('data-index', String(i));
-            if (it.disabled) b.disabled = true;
-            list.appendChild(b);
-          });
-          inner.appendChild(list);
-          if (meta.pitch) inner.appendChild(UI.make('p.kit-pitch', { text: meta.pitch }));
-          inner.appendChild(UI.make('p.kit-hint', { text: KIT.input.isTouch() ? 'Tap to choose' : 'Arrows to choose · Z to confirm' }));
-          host.appendChild(inner);
+          const hint = KIT.input.isTouch() ? 'Tap to choose' : 'Arrows to choose · Z to confirm';
+          const list = UI.parts.titleScreen(host, { meta, items, hint }).list;
           index = 0;
           refresh();
 
@@ -78,7 +61,7 @@
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         choose(action) {
-          KIT.audio.play('select');
+          KIT.look.sound('confirm');
           if (action === 'settings') { KIT.scenes.run('menu', { mode: 'settings' }); return; }
           this.finish(action);
         },
@@ -88,7 +71,7 @@
               index = (index + d + items.length) % items.length;
               if (!items[index].disabled) break;
             }
-            KIT.audio.play('blip');
+            KIT.look.sound('move');
             refresh();
           };
           if (ev.key === 'up' || ev.key === 'left') step(-1);

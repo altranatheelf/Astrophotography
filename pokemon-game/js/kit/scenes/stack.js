@@ -27,7 +27,15 @@
 
   // ---- DOM helpers --------------------------------------------------------------
   const UI = KIT.ui = {
-    el(id) { return typeof document === 'undefined' ? null : document.getElementById(id); },
+    /**
+     * el(id, root) -> the element. `root` is the document unless given; a
+     * ShadowRoot works too, which is how a scene draws into a preview's own
+     * copy of the hosts rather than the game's.
+     */
+    el(id, root) {
+      const r = root || (typeof document === 'undefined' ? null : document);
+      return r ? r.getElementById(id) : null;
+    },
     show(el, on) { if (el) el.hidden = on === false; },
     hide(el) { if (el) el.hidden = true; },
     clear(el) { if (el) el.innerHTML = ''; return el; },

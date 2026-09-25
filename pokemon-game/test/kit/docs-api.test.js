@@ -29,7 +29,7 @@ const notLoaded = [];
 for (const f of ['js/kit/world/map.js', 'js/kit/world/entities.js', 'js/kit/world/world.js', 'js/kit/systems/index.js',
   'js/kit/import/tiled.js', 'js/kit/import/rpgmaker.js', 'js/kit/import/aseprite.js', 'js/kit/import/image.js', 'js/kit/import/merge.js',
   'js/kit/render/atmosphere.js', 'js/kit/render/text-canvas.js', 'js/kit/render/renderer.js',
-  'js/kit/scenes/stack.js', 'js/kit/scenes/dialogue.js', 'js/kit/scenes/menu.js', 'js/kit/scenes/title.js', 'js/kit/scenes/start.js', 'js/kit/scenes/map.js', 'js/kit/game.js']) {
+  'js/kit/scenes/stack.js', 'js/kit/ui/parts.js', 'js/kit/scenes/dialogue.js', 'js/kit/scenes/menu.js', 'js/kit/scenes/title.js', 'js/kit/scenes/start.js', 'js/kit/scenes/map.js', 'js/kit/game.js']) {
   try { R(f); } catch (e) { notLoaded.push(f); }
 }
 global.PKMN = global.PKMN || {};

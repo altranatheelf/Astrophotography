@@ -192,7 +192,10 @@ M.clones = [...pairs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k
 const ALL = everything();
 M.deadApi = [];
 for (const f of CODE) {
-  const re = /^[ \t]*([A-Z][A-Za-z]*|KIT)\.(\w{4,})\s*=\s*(?:async\s*)?(?:function|\()/gm;
+  // Three letters and up. At four, a short export (`KIT.look.css`) was never
+  // looked at; one whose name is a common word still counts its uses in prose,
+  // so the check can only ever miss, never cry wolf.
+  const re = /^[ \t]*([A-Z][A-Za-z]*|KIT)\.(\w{3,})\s*=\s*(?:async\s*)?(?:function|\()/gm;
   let m;
   while ((m = re.exec(src[f]))) {
     const name = m[2];

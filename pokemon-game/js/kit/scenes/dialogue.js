@@ -93,29 +93,12 @@
     return (s) => measureCtx.measureText(s).width + letter * s.length;
   }
 
-  /** The dialogue box markup, built once and reused. */
-  function dialogueBox() {
-    const host = UI.el('dialogue');
-    if (!host) return null;
-    if (!host.firstChild) {
-      host.innerHTML = '';
-      const box = UI.make('div.kit-box');
-      box.appendChild(UI.make('div.kit-facebox'));
-      const wrap = UI.make('div.kit-textwrap');
-      wrap.appendChild(UI.make('div.kit-name'));
-      wrap.appendChild(UI.make('div.kit-text'));
-      box.appendChild(wrap);
-      box.appendChild(UI.make('div.kit-next', { text: '▼' }));
-      host.appendChild(box);
-    }
-    return {
-      host,
-      box: host.querySelector('.kit-box'),
-      face: host.querySelector('.kit-facebox'),
-      name: host.querySelector('.kit-name'),
-      text: host.querySelector('.kit-text'),
-      next: host.querySelector('.kit-next'),
-    };
+  /** The little side-to-side shake (`.is-shaking` in css/kit.css), started over if it is already running. */
+  function shake(el) {
+    if (!el) return;
+    el.classList.remove('is-shaking');
+    void el.offsetWidth;
+    el.classList.add('is-shaking');
   }
 
   function faceArt(id) {
@@ -238,12 +221,7 @@
         unitIndex = units.length; charIndex = 0; complete = true; waiting = false; pauseLeft = 0;
         updatePrompt();
       }
-      function shakeBox() {
-        if (!ui.box) return;
-        ui.box.classList.remove('is-shaking');
-        void ui.box.offsetWidth;
-        ui.box.classList.add('is-shaking');
-      }
+      function shakeBox() { shake(ui.box); }
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
@@ -253,7 +231,7 @@
       return {
         id: 'dialogue', transparent: true,
         enter(params) {
-          ui = dialogueBox();
+          ui = UI.parts.dialogueBox(UI.el('dialogue'));
           if (!ui) { this.finish(); return; }
           const p = params || {};
           ui.host.hidden = false;
@@ -357,20 +335,7 @@
           index = 0;
           host = UI.el('choice');
           if (!host) { this.finish(-1); return; }
-          UI.clear(host);
-          host.hidden = false;
-          const panel = UI.make('div.kit-panel');
-          if (p.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.plain(p.prompt, {}) }));
-          const list = UI.make('div.kit-list');
-          options.forEach((o, i) => {
-            const b = UI.make('button.kit-option', { text: KIT.text.plain(o.text, {}) });
-            b.type = 'button';
-            b.setAttribute('data-index', String(i));
-            b.setAttribute('data-action', 'choose');
-            list.appendChild(b);
-          });
-          panel.appendChild(list);
-          host.appendChild(panel);
+          const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
           UI.select(list, index);
           this._list = list;
           this._off = UI.onAction(host, (action, el) => {
@@ -378,18 +343,21 @@
             index = Number(el.getAttribute('data-index')) || 0;
             pick.call(this);
           });
-          const pick = function () { KIT.audio.play('select'); this.finish(index); };
+          const pick = function () { KIT.look.sound('confirm'); this.finish(index); };
           this._pick = pick;
           this._cancel = p.cancel || 'none';
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         input(ev) {
-          if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { this._pick.call(this); return true; }
           if (ev.key === 'b' || ev.key === 'menu') {
-            if (this._cancel === 'none') { KIT.audio.play('back'); return true; }
-            KIT.audio.play('back');
+            // A choice that cannot be cancelled says no with the buzzer, which
+            // the kit leaves silent — so it falls back to the cancel sound it
+            // always made, and a look that has a buzzer gets its own.
+            if (this._cancel === 'none') { KIT.look.sound('buzzer', { or: 'cancel' }); return true; }
+            KIT.look.sound('cancel');
             this.finish(-1);
             return true;
           }
@@ -400,6 +368,36 @@
   });
 
   // ---- a small modal panel shared by nameEntry and inputNumber ----------------------
+  //
+  // OK and Cancel are the author's Terms, like every other word the engine says.
+  // And A is OK and B is Cancel: on a phone the pad is the controller, and a
+  // name that only a tap on OK could confirm left a player with a gamepad, or
+  // one who reached for A out of habit, pressing a button that did nothing.
+  // ☰ is Cancel too. It is "back" everywhere else in the game (a choice, the
+  // pause menu), and on a keyboard it is Escape, which inside the field has
+  // always cancelled — as OK, the same key confirmed or cancelled depending on
+  // where the caret happened to be.
+  // Keys typed INTO the field never arrive here (js/kit/core/input.js ignores a
+  // keydown inside a text field), so typing a Z is still a Z. The field's own
+  // Enter and Escape are read by the field.
+  //
+  // A, ☰ and Enter wait for the box to settle. The field is filled in already
+  // (the hero's name as it is), and the box mostly opens straight after a line
+  // of dialogue, which all three of them page through — so a player going
+  // through the talk met the box mid-rhythm, and their next press took the name
+  // as it stood, or threw the box away, before they could type one: the one
+  // chance to name the hero, or a catch, gone without a sign. Until the player
+  // types, then, those three count only once the box has been up for SETTLE
+  // seconds with none of them pressed. One that comes sooner starts the wait
+  // again, so mashing never gets through; and it says so, with the buzzer and a
+  // shake of the button it would have pressed. Timing alone cannot tell a press
+  // meant for the last line from an impatient one meant for the box, so the
+  // shake is how a player learns which it was taken for, rather than finding a
+  // button that does nothing. Once they have typed, the box is plainly what
+  // they are answering, and nothing waits. Nor do a tap on OK or Cancel, B, or
+  // Escape in the field.
+  const SETTLE = 0.8;
+  const term = (id) => KIT.strings.get(KIT.game && KIT.game.project, id);
   function modalPanel(title) {
     const host = UI.el('choice');
     UI.clear(host);
@@ -410,6 +408,49 @@
     return { host, panel };
   }
 
+  /**
+   * The field, Cancel and OK under the prompt, and every way to answer them.
+   * `done(ok)` finishes the scene with the field's answer, or with null.
+   */
+  function modalField(scene, m, input, done) {
+    m.panel.appendChild(input);
+    const row = UI.make('div.kit-row');
+    const cancel = row.appendChild(UI.button('cancel', term('cancel')));
+    const ok = row.appendChild(UI.button('ok', term('ok'), 'is-primary'));
+    m.panel.appendChild(row);
+    scene._host = m.host;
+    scene._buttons = { ok, cancel };
+    scene._done = done;
+    scene._calm = 0;
+    scene._typed = false;
+    scene._off = UI.onAction(m.host, (a) => done(a === 'ok'));
+    input.addEventListener('input', () => { scene._typed = true; });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      // A held Enter repeats; only the press itself is a press.
+      if (e.key === 'Enter' && !e.repeat && counts(scene, ok)) done(true);
+      if (e.key === 'Escape') done(false);
+    });
+    setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+  }
+
+  /** Whether this A, ☰ or Enter counts yet (see above). One that does not shakes `button`. */
+  function counts(scene, button) {
+    if (scene._typed) return true;
+    const settled = scene._calm >= SETTLE;
+    scene._calm = 0;
+    if (!settled) { KIT.look.sound('buzzer', { or: 'cancel' }); shake(button); }
+    return settled;
+  }
+
+  /** The pad's buttons for a modal's OK and Cancel: A is OK and ☰ is Cancel once the box has settled; B is Cancel at once. */
+  function modalInput(scene, ev) {
+    if (ev.key === 'a') { if (counts(scene, scene._buttons.ok)) scene._done(true); }
+    else if (ev.key === 'menu') { if (counts(scene, scene._buttons.cancel)) scene._done(false); }
+    else if (ev.key === 'b') scene._done(false);
+    return true;
+  }
+
   scenes.add({
     id: 'nameEntry', name: 'Name entry',
     create() {
@@ -417,31 +458,19 @@
         id: 'nameEntry', transparent: true,
         enter(params) {
           const p = params || {};
-          const m = modalPanel(p.prompt || 'What is your name?');
-          this._host = m.host;
+          const m = modalPanel(p.prompt || term('name-prompt'));
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'kit-input';
           input.maxLength = p.maxLength || 8;
           input.value = p.current || '';
           input.setAttribute('data-role', 'name-entry');
-          input.setAttribute('aria-label', p.prompt || 'Name');
-          m.panel.appendChild(input);
-          const row = UI.make('div.kit-row');
-          row.appendChild(UI.button('cancel', KIT.strings.get(null, 'cancel')));
-          row.appendChild(UI.button('ok', KIT.strings.get(null, 'ok'), 'is-primary'));
-          m.panel.appendChild(row);
-          const done = (ok) => this.finish(ok ? (input.value.trim() || p.current || null) : null);
-          this._off = UI.onAction(m.host, (a) => done(a === 'ok'));
-          input.addEventListener('keydown', (e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') done(true);
-            if (e.key === 'Escape') done(false);
-          });
-          setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+          input.setAttribute('aria-label', p.prompt || term('name-prompt'));
+          modalField(this, m, input, (ok) => this.finish(ok ? (input.value.trim() || p.current || null) : null));
         },
         exit() { if (this._host) { this._host.hidden = true; UI.clear(this._host); } if (this._off) this._off(); },
-        input(ev) { if (ev.key === 'b') this.finish(null); return true; },
+        update(dt) { this._calm += dt; },
+        input(ev) { return modalInput(this, ev); },
       };
     },
   });
@@ -454,26 +483,20 @@
         enter(params) {
           const p = params || {};
           const max = Math.pow(10, p.digits || 3) - 1;
-          const m = modalPanel(p.prompt || 'Enter a number');
-          this._host = m.host;
+          const m = modalPanel(p.prompt || term('number-prompt'));
           const input = document.createElement('input');
           input.type = 'number';
           input.className = 'kit-input';
           input.min = '0'; input.max = String(max);
           input.value = String(Math.min(max, p.current || 0));
           input.setAttribute('data-role', 'number-entry');
-          m.panel.appendChild(input);
-          const row = UI.make('div.kit-row');
-          row.appendChild(UI.button('cancel', KIT.strings.get(null, 'cancel')));
-          row.appendChild(UI.button('ok', KIT.strings.get(null, 'ok'), 'is-primary'));
-          m.panel.appendChild(row);
-          const done = (ok) => this.finish(ok ? Math.max(0, Math.min(max, Number(input.value) || 0)) : null);
-          this._off = UI.onAction(m.host, (a) => done(a === 'ok'));
-          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); });
-          setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+          // A field with no name is read out as "spin button, 0" and nothing else.
+          input.setAttribute('aria-label', p.prompt || term('number-prompt'));
+          modalField(this, m, input, (ok) => this.finish(ok ? Math.max(0, Math.min(max, Number(input.value) || 0)) : null));
         },
         exit() { if (this._host) { this._host.hidden = true; UI.clear(this._host); } if (this._off) this._off(); },
-        input(ev) { if (ev.key === 'b') this.finish(null); return true; },
+        update(dt) { this._calm += dt; },
+        input(ev) { return modalInput(this, ev); },
       };
     },
   });
@@ -493,7 +516,8 @@
           host.classList.add('is-scroll');
           UI.clear(host);
           inner = UI.make('div.kit-scroll');
-          inner.textContent = KIT.text.plain(p.text || '', {});
+          // Already substituted by the command that asked; only the codes come out.
+          inner.textContent = KIT.text.strip(p.text || '');
           host.appendChild(inner);
           y = host.clientHeight;
           speed = (p.speed || 2) * 18;
@@ -528,8 +552,8 @@
           host.hidden = false;
           host.classList.add('is-in');
           const card = UI.make('div.kit-card');
-          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.plain(p.title || '', {}) }));
-          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.plain(p.subtitle, {}) }));
+          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(p.title || '') }));
+          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(p.subtitle) }));
           host.appendChild(card);
           left = (KIT.fx && KIT.fx.instant) ? 80 : (p.ms == null ? 2000 : p.ms);
         },
@@ -542,15 +566,17 @@
 
   // ---- toast ------------------------------------------------------------------------
   // A toast does not take input: it shows, the script carries on after a beat,
-  // and the element fades away on its own.
+  // and the element fades away on its own. Its text is a Term or a line a
+  // command already substituted, so it is not translated a second time here.
   let toastTimer = null;
   KIT.toast = function (text, ms) {
     const host = UI.el('toast');
     if (!host) return Promise.resolve();
     UI.clear(host);
-    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.plain(text || '', {}) }));
+    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') }));
     host.hidden = false;
     host.classList.add('is-in');
+    KIT.look.sound('toast');
     if (toastTimer) clearTimeout(toastTimer);
     const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || 1600);
     toastTimer = setTimeout(() => { host.classList.remove('is-in'); host.hidden = true; }, life);

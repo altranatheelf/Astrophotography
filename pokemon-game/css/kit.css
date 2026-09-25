@@ -16,6 +16,15 @@
   --pad: clamp(8px, 2vw, 16px);
 }
 
+/* A game's look is data (`project.ui`), compiled by js/kit/core/look.js into
+   one <style id="kit-look"> of custom properties on #stage. Every colour,
+   width and font below that a look can change is written
+   `var(--kit-something, <the kit's own value>)`: with no look set, nothing
+   defines the property and the value after the comma is the kit exactly as it
+   was. test/kit/look.test.js holds each of those fallbacks to the token table,
+   and e2e/look.js holds the computed result to a snapshot taken before any of
+   them existed. */
+
 * { box-sizing: border-box; }
 /* The overlays set their own display, so `hidden` needs to win over the id rules. */
 [hidden] { display: none !important; }
@@ -62,11 +71,12 @@ body { overflow: hidden; }
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
-  background: #0a0b10;
-  border: 3px solid #2f3450;
+  background: var(--kit-screen-bg, #0a0b10);
+  border: 3px solid var(--kit-screen-frame, #2f3450);
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .55), inset 0 0 0 2px #0a0b10;
   overflow: hidden;
+  font-family: var(--kit-font-text, var(--font-text));
 }
 #game-canvas {
   display: block;
@@ -89,6 +99,18 @@ body { overflow: hidden; }
 #chapter { z-index: 5; }
 #toast { z-index: 6; }
 #toast, #chapter { pointer-events: none; }
+/* The hosts a look's own screens draw into take their places in the same
+   table. Nothing makes them yet — screens and the HUD come later — but where
+   they paint is part of what a module can count on, so it is decided here, with
+   the rest, rather than by whichever change first needs one. A screen of the
+   author's own shares the pause menu's 2 and is raised above it when it opens;
+   the HUD sits directly after the map canvas, under everything, and lets taps
+   through to the map except on its own buttons; the cover a fade can draw over
+   the whole interface is above the lot and never takes a tap. */
+.kit-ui-screen { z-index: 2; }
+#kit-hud { z-index: 1; pointer-events: none; }
+#kit-hud .kit-uibtn { pointer-events: auto; }
+#kit-cover { z-index: 7; pointer-events: none; opacity: 0; }
 /* The pad can shrink to its menu button (a phone with the pad "off" still needs a way to pause). */
 .kit-controls.is-minimal .kit-dpad, .kit-controls.is-minimal .kit-face, .kit-controls.is-minimal .kit-swap { display: none; }
 .kit-controls.is-minimal .kit-pad { grid-template-columns: auto; justify-items: end; }
@@ -102,7 +124,7 @@ body { overflow: hidden; }
 }
 #dialogue[data-position="top"] { align-items: flex-start; }
 #dialogue[data-position="middle"] { align-items: center; }
-#dialogue[data-bg="dim"] { background: rgba(8, 9, 15, .55); }
+#dialogue[data-bg="dim"] { background: var(--kit-dim, rgba(8, 9, 15, .55)); }
 
 .kit-box {
   position: relative;
@@ -112,19 +134,20 @@ body { overflow: hidden; }
   align-items: flex-start;
   background: var(--paper);
   color: var(--ink);
-  border: 3px solid #2b2b3a;
-  border-radius: 10px;
+  border: var(--kit-frame-w, 3px) solid var(--kit-frame, #2b2b3a);
+  border-radius: var(--kit-radius, 10px);
   padding: 10px 14px 12px;
-  box-shadow: inset 0 0 0 2px #dfe3ef, 0 5px 0 rgba(0, 0, 0, .35);
+  box-shadow: inset 0 0 0 2px var(--kit-rim, #dfe3ef), 0 5px 0 var(--kit-drop, rgba(0, 0, 0, .35));
+  text-shadow: var(--kit-text-shadow, none);
 }
 #dialogue[data-bg="none"] .kit-box { background: rgba(10, 11, 16, .75); color: #fff; border-color: transparent; box-shadow: none; }
 
-.kit-facebox { flex: 0 0 auto; line-height: 0; border: 2px solid #2b2b3a; border-radius: 6px; background: #eef1f8; padding: 2px; }
+.kit-facebox { flex: 0 0 auto; line-height: 0; border: 2px solid var(--kit-frame, #2b2b3a); border-radius: 6px; background: var(--kit-face-bg, #eef1f8); padding: 2px; }
 .kit-facebox canvas { image-rendering: pixelated; }
 .kit-textwrap { flex: 1 1 auto; min-width: 0; }
-.kit-name { font-family: var(--font-ui); font-size: clamp(9px, 2.4vw, 11px); color: #3b4b8a; margin-bottom: 6px; }
-.kit-text { font-size: clamp(15px, 3.6vw, 18px); line-height: 1.45; min-height: 3.2em; }
-.kit-line { min-height: 1.45em; white-space: pre-wrap; }
+.kit-name { font-family: var(--kit-font-name, var(--font-ui)); font-size: clamp(9px, 2.4vw, 11px); color: var(--kit-name-ink, var(--kit-accent, #3b4b8a)); margin-bottom: 6px; }
+.kit-text { font-size: var(--kit-text-size, clamp(15px, 3.6vw, 18px)); line-height: var(--kit-line, 1.45); min-height: 3.2em; }
+.kit-line { min-height: calc(var(--kit-line, 1.45) * 1em); white-space: pre-wrap; }
 .kit-text .is-big { font-size: 1.3em; }
 .kit-text .is-small { font-size: 0.82em; }
 
@@ -152,11 +175,13 @@ body { overflow: hidden; }
 .kit-icon { display: inline-block; vertical-align: -2px; line-height: 0; }
 .kit-next {
   position: absolute; right: 10px; bottom: 4px;
-  color: #3b4b8a; opacity: 0; font-size: 14px;
+  color: var(--kit-marker-ink, var(--kit-accent, #3b4b8a)); opacity: 0; font-size: 14px;
 }
 .kit-next.is-ready { opacity: 1; animation: kit-bob .9s infinite; }
 @keyframes kit-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
-.kit-box.is-shaking { animation: kit-shake .32s; }
+/* The message box shakes on {shake}; the OK or Cancel of a name or number box shakes at a press that came
+   too soon to count (js/kit/scenes/dialogue.js). */
+.kit-box.is-shaking, .kit-uibtn.is-shaking { animation: kit-shake .32s; }
 @keyframes kit-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
 #dialogue.is-scroll { align-items: flex-start; overflow: hidden; }
@@ -168,24 +193,35 @@ body { overflow: hidden; }
   align-items: center;
   justify-content: center;
   padding: 14px;
-  background: rgba(8, 9, 15, .5);
+  background: var(--kit-menu-dim, rgba(8, 9, 15, .5));
   pointer-events: auto;
 }
 #choice { align-items: flex-end; justify-content: flex-end; background: none; padding-bottom: 96px; }
+/* Yes/No placed by the message box rather than in the corner, with the question
+   still on screen in a box of its own (.kit-promptbox, which is a .kit-box and
+   so looks like the message box). Only when a look asks for it: the choice
+   scene sets data-place, and without it none of this matches. */
+#choice[data-place] { background: none; padding: 10px; flex-direction: column; align-items: stretch; justify-content: flex-end; }
+#choice[data-place][data-position=top] { justify-content: flex-start; }
+#choice[data-place=above-box] .kit-panel { align-self: flex-end; margin-bottom: 6px; min-width: 0; }
+#choice[data-place=beside-box] { flex-direction: row; align-items: flex-end; gap: 8px; }
+#choice[data-place=beside-box] .kit-promptbox { flex: 1 1 auto; }
+#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; justify-content: space-around; }
 
 .kit-panel {
   background: var(--paper);
   color: var(--ink);
-  border: 3px solid #2b2b3a;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 2px #dfe3ef, 0 6px 0 rgba(0, 0, 0, .35);
+  border: var(--kit-frame-w, 3px) solid var(--kit-frame, #2b2b3a);
+  border-radius: var(--kit-radius, 10px);
+  box-shadow: inset 0 0 0 2px var(--kit-rim, #dfe3ef), 0 6px 0 var(--kit-drop, rgba(0, 0, 0, .35));
+  text-shadow: var(--kit-text-shadow, none);
   padding: 10px;
   min-width: min(260px, 82vw);
   max-width: min(420px, 92vw);
   max-height: 84%;
   overflow: auto;
 }
-.kit-panel-title { font-family: var(--font-ui); font-size: 11px; color: #3b4b8a; padding: 4px 6px 10px; }
+.kit-panel-title { font-family: var(--font-ui); font-size: 11px; color: var(--kit-title-ink, var(--kit-accent, #3b4b8a)); padding: 4px 6px 10px; }
 .kit-prompt { font-size: 16px; padding: 4px 6px 10px; }
 .kit-list, .kit-menu-list { display: flex; flex-direction: column; gap: 4px; }
 /* The pause menu has eleven rows with the modules on; on a phone it must not cut the last one in half. */
@@ -207,46 +243,46 @@ body { overflow: hidden; }
   align-items: center;
   gap: 8px;
 }
-.kit-option::before, .kit-menu-item::before { content: "▶"; opacity: 0; font-size: 11px; color: #3b4b8a; }
-.kit-option.is-selected, .kit-menu-item.is-selected { background: #eaf0ff; border-color: #3b4b8a; }
+.kit-option::before, .kit-menu-item::before { content: "▶"; opacity: 0; font-size: var(--kit-cursor-size, 11px); color: var(--kit-cursor-ink, var(--kit-accent, #3b4b8a)); }
+.kit-option.is-selected, .kit-menu-item.is-selected { background: var(--kit-sel, #eaf0ff); border-color: var(--kit-sel-frame, var(--kit-accent, #3b4b8a)); color: var(--kit-sel-ink, var(--ink)); }
 .kit-option.is-selected::before, .kit-menu-item.is-selected::before { opacity: 1; }
 .kit-uibtn:disabled { opacity: .45; cursor: default; }
-.kit-uibtn.is-primary { background: #3b4b8a; color: #fff; justify-content: center; }
+.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: #fff; justify-content: center; }
 .kit-item-label { flex: 1 1 auto; }
-.kit-item-value { font-family: var(--font-ui); font-size: 10px; color: #3b4b8a; }
+.kit-item-value { font-family: var(--font-ui); font-size: 10px; color: var(--kit-value-ink, var(--kit-accent, #3b4b8a)); }
 .kit-item-note { font-size: 12px; opacity: .6; }
 .kit-row { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
 .kit-row .kit-uibtn { justify-content: center; }
 .kit-input {
   font: inherit; font-size: 18px; width: 100%;
   padding: 10px 12px; margin: 4px 0;
-  border: 2px solid #3b4b8a; border-radius: 8px; background: #fff; color: var(--ink);
+  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: #fff; color: var(--ink);
 }
 .kit-debug-body { font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 
 /* ---- title, chapter card, toast --------------------------------------------- */
 #screen-title {
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%);
+  background: var(--kit-title-bg, linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%));
   pointer-events: auto;
 }
 .kit-title-inner { width: min(420px, 88%); text-align: center; }
-.kit-title { font-family: var(--font-ui); font-size: clamp(16px, 5.2vw, 26px); line-height: 1.5; color: var(--accent); margin: 0 0 10px; text-shadow: 0 3px 0 #7a4a00; }
+.kit-title { font-family: var(--font-ui); font-size: clamp(16px, 5.2vw, 26px); line-height: 1.5; color: var(--accent); margin: 0 0 10px; text-shadow: 0 3px 0 var(--kit-title-shadow, #7a4a00); }
 .kit-subtitle { font-family: var(--font-ui); font-size: clamp(8px, 2.6vw, 11px); color: var(--accent-2); margin: 0 0 22px; }
 .kit-pitch { font-size: 13px; opacity: .72; line-height: 1.5; margin: 18px 0 0; }
 .kit-hint { font-size: 12px; opacity: .55; margin: 12px 0 0; text-align: center; }
 #screen-title .kit-menu-list { gap: 8px; }
 #screen-title .kit-menu-item {
   justify-content: center;
-  background: rgba(255, 255, 255, .06);
-  color: #fff;
+  background: var(--kit-title-button, rgba(255, 255, 255, .06));
+  color: var(--kit-title-button-ink, #fff);
   border-color: rgba(255, 255, 255, .14);
   font-family: var(--font-ui);
   font-size: clamp(10px, 2.8vw, 12px);
   min-height: 52px;
 }
-#screen-title .kit-menu-item.is-selected { background: var(--accent); color: #2a1d00; border-color: #fff; }
-#screen-title .kit-menu-item::before { color: #2a1d00; }
+#screen-title .kit-menu-item.is-selected { background: var(--accent); color: var(--kit-title-pick-ink, #2a1d00); border-color: #fff; }
+#screen-title .kit-menu-item::before { color: var(--kit-title-pick-ink, #2a1d00); }
 
 /* "Start your own game": the same title-screen list, but each item says what it
    is as well as what it is called, because a name alone ("A region to explore")
@@ -274,10 +310,10 @@ body { overflow: hidden; }
 .kit-start-describe { font-family: var(--font-text); font-size: 12px; line-height: 1.45; opacity: .66; white-space: normal; }
 #screen-title .kit-start-item.is-selected .kit-start-describe { opacity: .85; }
 
-#chapter { display: flex; align-items: center; justify-content: center; background: rgba(6, 7, 12, .82); }
+#chapter { display: flex; align-items: center; justify-content: center; background: var(--kit-chapter-bg, rgba(6, 7, 12, .82)); }
 #chapter.is-in .kit-card { animation: kit-fade .5s ease-out; }
 .kit-card { text-align: center; padding: 18px 26px; }
-.kit-chapter-title { font-family: var(--font-ui); font-size: clamp(14px, 4.6vw, 22px); color: #fff; line-height: 1.5; }
+.kit-chapter-title { font-family: var(--font-ui); font-size: clamp(14px, 4.6vw, 22px); color: var(--kit-chapter-ink, #fff); line-height: 1.5; }
 .kit-chapter-sub { font-size: clamp(12px, 3.2vw, 15px); color: var(--accent); margin-top: 12px; }
 @keyframes kit-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -286,12 +322,12 @@ body { overflow: hidden; }
   padding-top: 14px;
 }
 .kit-toast-pill {
-  background: rgba(12, 14, 22, .92);
-  border: 2px solid #3a4160;
-  border-radius: 999px;
+  background: var(--kit-toast-bg, rgba(12, 14, 22, .92));
+  border: 2px solid var(--kit-toast-frame, #3a4160);
+  border-radius: var(--kit-toast-radius, 999px);
   padding: 8px 16px;
   font-size: 15px;
-  color: #fff;
+  color: var(--kit-toast-ink, #fff);
   box-shadow: 0 4px 0 rgba(0, 0, 0, .4);
 }
 #toast.is-in .kit-toast-pill { animation: kit-fade .25s ease-out; }
@@ -339,9 +375,9 @@ body { overflow: hidden; }
   min-width: 56px;
   min-height: 56px;
   border-radius: 12px;
-  border: 2px solid #3a4160;
+  border: 2px solid var(--kit-pad-frame, #3a4160);
   background: linear-gradient(180deg, var(--shell-2), var(--shell));
-  color: #cfd6f5;
+  color: var(--kit-pad-ink, #cfd6f5);
   font-size: 16px;
   box-shadow: 0 3px 0 #0a0c14;
   touch-action: none;
@@ -349,8 +385,8 @@ body { overflow: hidden; }
 }
 .kit-btn:active, .kit-btn.is-down { transform: translateY(2px); box-shadow: 0 1px 0 #0a0c14; background: #2e3450; }
 .kit-face { display: flex; gap: 10px; align-items: center; }
-.kit-a { background: linear-gradient(180deg, #4a6ad8, #32499e); color: #fff; border-color: #6d87e6; border-radius: 50%; }
-.kit-b { background: linear-gradient(180deg, #d85a6a, #9e3244); color: #fff; border-color: #e68191; border-radius: 50%; }
+.kit-a { background: var(--kit-pad-a, linear-gradient(180deg, #4a6ad8, #32499e)); color: #fff; border-color: #6d87e6; border-radius: var(--kit-pad-ab-radius, 50%); }
+.kit-b { background: var(--kit-pad-b, linear-gradient(180deg, #d85a6a, #9e3244)); color: #fff; border-color: #e68191; border-radius: var(--kit-pad-ab-radius, 50%); }
 .kit-extra { display: flex; flex-direction: column; gap: 8px; }
 .kit-menu, .kit-swap { min-width: 56px; min-height: 44px; font-size: 14px; }
 
@@ -383,13 +419,26 @@ body { overflow: hidden; }
   #choice { padding-bottom: 120px; }
 }
 
-/* ---- respect a quieter screen ----------------------------------------------------- */
+/* ---- respect a quieter screen -----------------------------------------------------
+   Two ways to ask, and both have to work. The operating system's setting is the
+   media query; the game's own Settings ▸ Motion is `data-kit-motion` on #stage
+   (js/kit/ui/parts.js keeps it in step). The toast rule named `#toast.is-in`,
+   which has no animation of its own — the pill inside it does. */
 @media (prefers-reduced-motion: reduce) {
   .kit-next.is-ready { animation: none; }
-  .kit-box.is-shaking { animation: none; }
+  .kit-box.is-shaking, .kit-uibtn.is-shaking { animation: none; }
   .kit-fx-wave, .kit-fx-shiver, .kit-fx-drift, .kit-fx-throb, .kit-fx-rainbow { animation: none; }
-  #chapter.is-in .kit-card, #toast.is-in { animation: none; }
+  #chapter.is-in .kit-card, #toast.is-in .kit-toast-pill { animation: none; }
+  /* And whatever a look or a module adds later: nothing in the game moves. */
+  #stage *, #stage *::before, #stage *::after { animation: none !important; transition: none !important; }
 }
+#stage[data-kit-motion="reduce"] .kit-next.is-ready,
+#stage[data-kit-motion="reduce"] .kit-box.is-shaking, #stage[data-kit-motion="reduce"] .kit-uibtn.is-shaking,
+#stage[data-kit-motion="reduce"] .kit-fx-wave, #stage[data-kit-motion="reduce"] .kit-fx-shiver,
+#stage[data-kit-motion="reduce"] .kit-fx-drift, #stage[data-kit-motion="reduce"] .kit-fx-throb,
+#stage[data-kit-motion="reduce"] .kit-fx-rainbow,
+#stage[data-kit-motion="reduce"] #chapter.is-in .kit-card,
+#stage[data-kit-motion="reduce"] #toast.is-in .kit-toast-pill { animation: none; }
 
 /* The bullet fight's HP bar. A module drawing into the shared overlay host. */
 .bullet-hud { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }

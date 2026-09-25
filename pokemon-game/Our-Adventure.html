@@ -38,6 +38,15 @@
   --pad: clamp(8px, 2vw, 16px);
 }
 
+/* A game's look is data (`project.ui`), compiled by js/kit/core/look.js into
+   one <style id="kit-look"> of custom properties on #stage. Every colour,
+   width and font below that a look can change is written
+   `var(--kit-something, <the kit's own value>)`: with no look set, nothing
+   defines the property and the value after the comma is the kit exactly as it
+   was. test/kit/look.test.js holds each of those fallbacks to the token table,
+   and e2e/look.js holds the computed result to a snapshot taken before any of
+   them existed. */
+
 * { box-sizing: border-box; }
 /* The overlays set their own display, so `hidden` needs to win over the id rules. */
 [hidden] { display: none !important; }
@@ -84,11 +93,12 @@ body { overflow: hidden; }
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
-  background: #0a0b10;
-  border: 3px solid #2f3450;
+  background: var(--kit-screen-bg, #0a0b10);
+  border: 3px solid var(--kit-screen-frame, #2f3450);
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .55), inset 0 0 0 2px #0a0b10;
   overflow: hidden;
+  font-family: var(--kit-font-text, var(--font-text));
 }
 #game-canvas {
   display: block;
@@ -111,6 +121,18 @@ body { overflow: hidden; }
 #chapter { z-index: 5; }
 #toast { z-index: 6; }
 #toast, #chapter { pointer-events: none; }
+/* The hosts a look's own screens draw into take their places in the same
+   table. Nothing makes them yet — screens and the HUD come later — but where
+   they paint is part of what a module can count on, so it is decided here, with
+   the rest, rather than by whichever change first needs one. A screen of the
+   author's own shares the pause menu's 2 and is raised above it when it opens;
+   the HUD sits directly after the map canvas, under everything, and lets taps
+   through to the map except on its own buttons; the cover a fade can draw over
+   the whole interface is above the lot and never takes a tap. */
+.kit-ui-screen { z-index: 2; }
+#kit-hud { z-index: 1; pointer-events: none; }
+#kit-hud .kit-uibtn { pointer-events: auto; }
+#kit-cover { z-index: 7; pointer-events: none; opacity: 0; }
 /* The pad can shrink to its menu button (a phone with the pad "off" still needs a way to pause). */
 .kit-controls.is-minimal .kit-dpad, .kit-controls.is-minimal .kit-face, .kit-controls.is-minimal .kit-swap { display: none; }
 .kit-controls.is-minimal .kit-pad { grid-template-columns: auto; justify-items: end; }
@@ -124,7 +146,7 @@ body { overflow: hidden; }
 }
 #dialogue[data-position="top"] { align-items: flex-start; }
 #dialogue[data-position="middle"] { align-items: center; }
-#dialogue[data-bg="dim"] { background: rgba(8, 9, 15, .55); }
+#dialogue[data-bg="dim"] { background: var(--kit-dim, rgba(8, 9, 15, .55)); }
 
 .kit-box {
   position: relative;
@@ -134,19 +156,20 @@ body { overflow: hidden; }
   align-items: flex-start;
   background: var(--paper);
   color: var(--ink);
-  border: 3px solid #2b2b3a;
-  border-radius: 10px;
+  border: var(--kit-frame-w, 3px) solid var(--kit-frame, #2b2b3a);
+  border-radius: var(--kit-radius, 10px);
   padding: 10px 14px 12px;
-  box-shadow: inset 0 0 0 2px #dfe3ef, 0 5px 0 rgba(0, 0, 0, .35);
+  box-shadow: inset 0 0 0 2px var(--kit-rim, #dfe3ef), 0 5px 0 var(--kit-drop, rgba(0, 0, 0, .35));
+  text-shadow: var(--kit-text-shadow, none);
 }
 #dialogue[data-bg="none"] .kit-box { background: rgba(10, 11, 16, .75); color: #fff; border-color: transparent; box-shadow: none; }
 
-.kit-facebox { flex: 0 0 auto; line-height: 0; border: 2px solid #2b2b3a; border-radius: 6px; background: #eef1f8; padding: 2px; }
+.kit-facebox { flex: 0 0 auto; line-height: 0; border: 2px solid var(--kit-frame, #2b2b3a); border-radius: 6px; background: var(--kit-face-bg, #eef1f8); padding: 2px; }
 .kit-facebox canvas { image-rendering: pixelated; }
 .kit-textwrap { flex: 1 1 auto; min-width: 0; }
-.kit-name { font-family: var(--font-ui); font-size: clamp(9px, 2.4vw, 11px); color: #3b4b8a; margin-bottom: 6px; }
-.kit-text { font-size: clamp(15px, 3.6vw, 18px); line-height: 1.45; min-height: 3.2em; }
-.kit-line { min-height: 1.45em; white-space: pre-wrap; }
+.kit-name { font-family: var(--kit-font-name, var(--font-ui)); font-size: clamp(9px, 2.4vw, 11px); color: var(--kit-name-ink, var(--kit-accent, #3b4b8a)); margin-bottom: 6px; }
+.kit-text { font-size: var(--kit-text-size, clamp(15px, 3.6vw, 18px)); line-height: var(--kit-line, 1.45); min-height: 3.2em; }
+.kit-line { min-height: calc(var(--kit-line, 1.45) * 1em); white-space: pre-wrap; }
 .kit-text .is-big { font-size: 1.3em; }
 .kit-text .is-small { font-size: 0.82em; }
 
@@ -174,11 +197,13 @@ body { overflow: hidden; }
 .kit-icon { display: inline-block; vertical-align: -2px; line-height: 0; }
 .kit-next {
   position: absolute; right: 10px; bottom: 4px;
-  color: #3b4b8a; opacity: 0; font-size: 14px;
+  color: var(--kit-marker-ink, var(--kit-accent, #3b4b8a)); opacity: 0; font-size: 14px;
 }
 .kit-next.is-ready { opacity: 1; animation: kit-bob .9s infinite; }
 @keyframes kit-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
-.kit-box.is-shaking { animation: kit-shake .32s; }
+/* The message box shakes on {shake}; the OK or Cancel of a name or number box shakes at a press that came
+   too soon to count (js/kit/scenes/dialogue.js). */
+.kit-box.is-shaking, .kit-uibtn.is-shaking { animation: kit-shake .32s; }
 @keyframes kit-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
 #dialogue.is-scroll { align-items: flex-start; overflow: hidden; }
@@ -190,24 +215,35 @@ body { overflow: hidden; }
   align-items: center;
   justify-content: center;
   padding: 14px;
-  background: rgba(8, 9, 15, .5);
+  background: var(--kit-menu-dim, rgba(8, 9, 15, .5));
   pointer-events: auto;
 }
 #choice { align-items: flex-end; justify-content: flex-end; background: none; padding-bottom: 96px; }
+/* Yes/No placed by the message box rather than in the corner, with the question
+   still on screen in a box of its own (.kit-promptbox, which is a .kit-box and
+   so looks like the message box). Only when a look asks for it: the choice
+   scene sets data-place, and without it none of this matches. */
+#choice[data-place] { background: none; padding: 10px; flex-direction: column; align-items: stretch; justify-content: flex-end; }
+#choice[data-place][data-position=top] { justify-content: flex-start; }
+#choice[data-place=above-box] .kit-panel { align-self: flex-end; margin-bottom: 6px; min-width: 0; }
+#choice[data-place=beside-box] { flex-direction: row; align-items: flex-end; gap: 8px; }
+#choice[data-place=beside-box] .kit-promptbox { flex: 1 1 auto; }
+#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; justify-content: space-around; }
 
 .kit-panel {
   background: var(--paper);
   color: var(--ink);
-  border: 3px solid #2b2b3a;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 2px #dfe3ef, 0 6px 0 rgba(0, 0, 0, .35);
+  border: var(--kit-frame-w, 3px) solid var(--kit-frame, #2b2b3a);
+  border-radius: var(--kit-radius, 10px);
+  box-shadow: inset 0 0 0 2px var(--kit-rim, #dfe3ef), 0 6px 0 var(--kit-drop, rgba(0, 0, 0, .35));
+  text-shadow: var(--kit-text-shadow, none);
   padding: 10px;
   min-width: min(260px, 82vw);
   max-width: min(420px, 92vw);
   max-height: 84%;
   overflow: auto;
 }
-.kit-panel-title { font-family: var(--font-ui); font-size: 11px; color: #3b4b8a; padding: 4px 6px 10px; }
+.kit-panel-title { font-family: var(--font-ui); font-size: 11px; color: var(--kit-title-ink, var(--kit-accent, #3b4b8a)); padding: 4px 6px 10px; }
 .kit-prompt { font-size: 16px; padding: 4px 6px 10px; }
 .kit-list, .kit-menu-list { display: flex; flex-direction: column; gap: 4px; }
 /* The pause menu has eleven rows with the modules on; on a phone it must not cut the last one in half. */
@@ -229,46 +265,46 @@ body { overflow: hidden; }
   align-items: center;
   gap: 8px;
 }
-.kit-option::before, .kit-menu-item::before { content: "▶"; opacity: 0; font-size: 11px; color: #3b4b8a; }
-.kit-option.is-selected, .kit-menu-item.is-selected { background: #eaf0ff; border-color: #3b4b8a; }
+.kit-option::before, .kit-menu-item::before { content: "▶"; opacity: 0; font-size: var(--kit-cursor-size, 11px); color: var(--kit-cursor-ink, var(--kit-accent, #3b4b8a)); }
+.kit-option.is-selected, .kit-menu-item.is-selected { background: var(--kit-sel, #eaf0ff); border-color: var(--kit-sel-frame, var(--kit-accent, #3b4b8a)); color: var(--kit-sel-ink, var(--ink)); }
 .kit-option.is-selected::before, .kit-menu-item.is-selected::before { opacity: 1; }
 .kit-uibtn:disabled { opacity: .45; cursor: default; }
-.kit-uibtn.is-primary { background: #3b4b8a; color: #fff; justify-content: center; }
+.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: #fff; justify-content: center; }
 .kit-item-label { flex: 1 1 auto; }
-.kit-item-value { font-family: var(--font-ui); font-size: 10px; color: #3b4b8a; }
+.kit-item-value { font-family: var(--font-ui); font-size: 10px; color: var(--kit-value-ink, var(--kit-accent, #3b4b8a)); }
 .kit-item-note { font-size: 12px; opacity: .6; }
 .kit-row { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
 .kit-row .kit-uibtn { justify-content: center; }
 .kit-input {
   font: inherit; font-size: 18px; width: 100%;
   padding: 10px 12px; margin: 4px 0;
-  border: 2px solid #3b4b8a; border-radius: 8px; background: #fff; color: var(--ink);
+  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: #fff; color: var(--ink);
 }
 .kit-debug-body { font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 
 /* ---- title, chapter card, toast --------------------------------------------- */
 #screen-title {
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%);
+  background: var(--kit-title-bg, linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%));
   pointer-events: auto;
 }
 .kit-title-inner { width: min(420px, 88%); text-align: center; }
-.kit-title { font-family: var(--font-ui); font-size: clamp(16px, 5.2vw, 26px); line-height: 1.5; color: var(--accent); margin: 0 0 10px; text-shadow: 0 3px 0 #7a4a00; }
+.kit-title { font-family: var(--font-ui); font-size: clamp(16px, 5.2vw, 26px); line-height: 1.5; color: var(--accent); margin: 0 0 10px; text-shadow: 0 3px 0 var(--kit-title-shadow, #7a4a00); }
 .kit-subtitle { font-family: var(--font-ui); font-size: clamp(8px, 2.6vw, 11px); color: var(--accent-2); margin: 0 0 22px; }
 .kit-pitch { font-size: 13px; opacity: .72; line-height: 1.5; margin: 18px 0 0; }
 .kit-hint { font-size: 12px; opacity: .55; margin: 12px 0 0; text-align: center; }
 #screen-title .kit-menu-list { gap: 8px; }
 #screen-title .kit-menu-item {
   justify-content: center;
-  background: rgba(255, 255, 255, .06);
-  color: #fff;
+  background: var(--kit-title-button, rgba(255, 255, 255, .06));
+  color: var(--kit-title-button-ink, #fff);
   border-color: rgba(255, 255, 255, .14);
   font-family: var(--font-ui);
   font-size: clamp(10px, 2.8vw, 12px);
   min-height: 52px;
 }
-#screen-title .kit-menu-item.is-selected { background: var(--accent); color: #2a1d00; border-color: #fff; }
-#screen-title .kit-menu-item::before { color: #2a1d00; }
+#screen-title .kit-menu-item.is-selected { background: var(--accent); color: var(--kit-title-pick-ink, #2a1d00); border-color: #fff; }
+#screen-title .kit-menu-item::before { color: var(--kit-title-pick-ink, #2a1d00); }
 
 /* "Start your own game": the same title-screen list, but each item says what it
    is as well as what it is called, because a name alone ("A region to explore")
@@ -296,10 +332,10 @@ body { overflow: hidden; }
 .kit-start-describe { font-family: var(--font-text); font-size: 12px; line-height: 1.45; opacity: .66; white-space: normal; }
 #screen-title .kit-start-item.is-selected .kit-start-describe { opacity: .85; }
 
-#chapter { display: flex; align-items: center; justify-content: center; background: rgba(6, 7, 12, .82); }
+#chapter { display: flex; align-items: center; justify-content: center; background: var(--kit-chapter-bg, rgba(6, 7, 12, .82)); }
 #chapter.is-in .kit-card { animation: kit-fade .5s ease-out; }
 .kit-card { text-align: center; padding: 18px 26px; }
-.kit-chapter-title { font-family: var(--font-ui); font-size: clamp(14px, 4.6vw, 22px); color: #fff; line-height: 1.5; }
+.kit-chapter-title { font-family: var(--font-ui); font-size: clamp(14px, 4.6vw, 22px); color: var(--kit-chapter-ink, #fff); line-height: 1.5; }
 .kit-chapter-sub { font-size: clamp(12px, 3.2vw, 15px); color: var(--accent); margin-top: 12px; }
 @keyframes kit-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -308,12 +344,12 @@ body { overflow: hidden; }
   padding-top: 14px;
 }
 .kit-toast-pill {
-  background: rgba(12, 14, 22, .92);
-  border: 2px solid #3a4160;
-  border-radius: 999px;
+  background: var(--kit-toast-bg, rgba(12, 14, 22, .92));
+  border: 2px solid var(--kit-toast-frame, #3a4160);
+  border-radius: var(--kit-toast-radius, 999px);
   padding: 8px 16px;
   font-size: 15px;
-  color: #fff;
+  color: var(--kit-toast-ink, #fff);
   box-shadow: 0 4px 0 rgba(0, 0, 0, .4);
 }
 #toast.is-in .kit-toast-pill { animation: kit-fade .25s ease-out; }
@@ -361,9 +397,9 @@ body { overflow: hidden; }
   min-width: 56px;
   min-height: 56px;
   border-radius: 12px;
-  border: 2px solid #3a4160;
+  border: 2px solid var(--kit-pad-frame, #3a4160);
   background: linear-gradient(180deg, var(--shell-2), var(--shell));
-  color: #cfd6f5;
+  color: var(--kit-pad-ink, #cfd6f5);
   font-size: 16px;
   box-shadow: 0 3px 0 #0a0c14;
   touch-action: none;
@@ -371,8 +407,8 @@ body { overflow: hidden; }
 }
 .kit-btn:active, .kit-btn.is-down { transform: translateY(2px); box-shadow: 0 1px 0 #0a0c14; background: #2e3450; }
 .kit-face { display: flex; gap: 10px; align-items: center; }
-.kit-a { background: linear-gradient(180deg, #4a6ad8, #32499e); color: #fff; border-color: #6d87e6; border-radius: 50%; }
-.kit-b { background: linear-gradient(180deg, #d85a6a, #9e3244); color: #fff; border-color: #e68191; border-radius: 50%; }
+.kit-a { background: var(--kit-pad-a, linear-gradient(180deg, #4a6ad8, #32499e)); color: #fff; border-color: #6d87e6; border-radius: var(--kit-pad-ab-radius, 50%); }
+.kit-b { background: var(--kit-pad-b, linear-gradient(180deg, #d85a6a, #9e3244)); color: #fff; border-color: #e68191; border-radius: var(--kit-pad-ab-radius, 50%); }
 .kit-extra { display: flex; flex-direction: column; gap: 8px; }
 .kit-menu, .kit-swap { min-width: 56px; min-height: 44px; font-size: 14px; }
 
@@ -405,13 +441,26 @@ body { overflow: hidden; }
   #choice { padding-bottom: 120px; }
 }
 
-/* ---- respect a quieter screen ----------------------------------------------------- */
+/* ---- respect a quieter screen -----------------------------------------------------
+   Two ways to ask, and both have to work. The operating system's setting is the
+   media query; the game's own Settings ▸ Motion is `data-kit-motion` on #stage
+   (js/kit/ui/parts.js keeps it in step). The toast rule named `#toast.is-in`,
+   which has no animation of its own — the pill inside it does. */
 @media (prefers-reduced-motion: reduce) {
   .kit-next.is-ready { animation: none; }
-  .kit-box.is-shaking { animation: none; }
+  .kit-box.is-shaking, .kit-uibtn.is-shaking { animation: none; }
   .kit-fx-wave, .kit-fx-shiver, .kit-fx-drift, .kit-fx-throb, .kit-fx-rainbow { animation: none; }
-  #chapter.is-in .kit-card, #toast.is-in { animation: none; }
+  #chapter.is-in .kit-card, #toast.is-in .kit-toast-pill { animation: none; }
+  /* And whatever a look or a module adds later: nothing in the game moves. */
+  #stage *, #stage *::before, #stage *::after { animation: none !important; transition: none !important; }
 }
+#stage[data-kit-motion="reduce"] .kit-next.is-ready,
+#stage[data-kit-motion="reduce"] .kit-box.is-shaking, #stage[data-kit-motion="reduce"] .kit-uibtn.is-shaking,
+#stage[data-kit-motion="reduce"] .kit-fx-wave, #stage[data-kit-motion="reduce"] .kit-fx-shiver,
+#stage[data-kit-motion="reduce"] .kit-fx-drift, #stage[data-kit-motion="reduce"] .kit-fx-throb,
+#stage[data-kit-motion="reduce"] .kit-fx-rainbow,
+#stage[data-kit-motion="reduce"] #chapter.is-in .kit-card,
+#stage[data-kit-motion="reduce"] #toast.is-in .kit-toast-pill { animation: none; }
 
 /* The bullet fight's HP bar. A module drawing into the shared overlay host. */
 .bullet-hud { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
@@ -4039,6 +4088,493 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
 </script>
 <script>
+// ---- js/kit/core/look.js ----
+// KIT.look — how the game looks and sounds, as data.
+//
+// A game's look is `project.ui`: a small object of OVERRIDES on top of a look it
+// starts from (`ui.base`, the built-in `kit` when there is none). This file is
+// the headless half. It knows the fields (TOKENS and PARTS), resolves the chain
+// of looks into one filled-in look, and compiles that into a single stylesheet.
+// The DOM half — writing that stylesheet into the page — is js/kit/ui/parts.js.
+//
+//   KIT.look.resolve(project)   -> every field filled in, plus _chain and _problems
+//   KIT.look.compile(look, env) -> CSS; '' for the kit look, so a game that never
+//                                  touched its look ships exactly the stylesheet
+//                                  it always had
+//   KIT.look.sound('confirm')   -> plays what this look says "confirm" sounds like
+//
+// Why tokens and not a stylesheet an author edits: a look travels between games,
+// and a stylesheet can do anything — fetch, hide the pause menu, cover the
+// screen. A token can only be what its field says it is. Every value an author
+// or a file supplies goes through `sanitize` before it reaches CSS, and there is
+// no field for raw CSS at all; `look.css` in a game's folder stays the
+// programmer's escape hatch and never travels with a look.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const S = KIT.schema;
+  const isObj = KIT.isObject;
+  const L = KIT.look = KIT.look || {};
+
+  const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+  const ID = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+  /** The font words a look may use without shipping a font file. */
+  const FONT_WORDS = {
+    pixel: '"Press Start 2P", ui-monospace, "Courier New", monospace',
+    system: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
+    mono: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Courier New", monospace',
+    serif: 'Georgia, "Times New Roman", serif',
+    rounded: 'ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif',
+  };
+  const TEXT_SIZES = { small: 'clamp(13px,3.2vw,15px)', large: 'clamp(17px,4.2vw,21px)', huge: 'clamp(20px,5vw,26px)' };
+
+  // ---- the fields ---------------------------------------------------------------
+  //
+  // TOKENS are the look's colours, widths and fonts. Each one is a schema field
+  // plus where it lands: `css` is the custom property css/kit.css reads, and
+  // `fallback` is the literal css/kit.css writes after the comma —
+  // `var(--kit-frame, #2b2b3a)`. test/kit/look.test.js holds the two files to
+  // each other, so the defaults here and the stylesheet cannot drift apart.
+  //
+  // `form` says how a value becomes CSS (see tokenCss). A nullable token either
+  // has `none` — what "no colour" means for it (`transparent`, `none`) — or has
+  // no `none`, and then null means "follow the fallback": the eight inks that
+  // default to the accent are null until somebody picks one of their own.
+  const color = (key, def, css, fallback, group, doc, more) => Object.assign({ key, type: 'color', default: def, css, fallback, group, doc }, more || {});
+  const ink = (key, css, doc) => color(key, null, css, 'var(--kit-accent, #3b4b8a)', 'accent', doc, { nullable: true });
+  L.TOKENS = [
+    color('paper', '#fdfdfb', '--paper', '#fdfdfb', 'box', 'The message box and panel background.'),
+    color('ink', '#23233a', '--ink', '#23233a', 'box', 'Text in the box and panels.'),
+    color('frame', '#2b2b3a', '--kit-frame', '#2b2b3a', 'box', 'The border round the box, the panels and the portrait.'),
+    { key: 'frameWidth', type: 'number', integer: true, min: 0, max: 12, default: 3, css: '--kit-frame-w', fallback: '3px', form: 'px', group: 'box', doc: 'How thick that border is.' },
+    { key: 'radius', type: 'number', integer: true, min: 0, max: 24, default: 10, css: '--kit-radius', fallback: '10px', form: 'px', group: 'box', doc: 'How round the corners are.' },
+    color('rim', '#dfe3ef', '--kit-rim', '#dfe3ef', 'box', 'The thin line just inside the border.', { nullable: true, none: 'transparent' }),
+    color('drop', '#000000', '--kit-drop', 'rgba(0, 0, 0, .35)', 'box', 'The shadow under the box and panels.', { nullable: true, none: 'transparent', form: 'rgba', alpha: 0.35 }),
+    color('shadow', null, '--kit-text-shadow', 'none', 'box', 'A shadow under the letters in the box.', { nullable: true, none: 'none', form: 'textShadow' }),
+    color('accent', '#3b4b8a', '--kit-accent', '#3b4b8a', 'accent', 'The one colour to change first: names, markers, the cursor and the selected row all follow it.'),
+    ink('nameInk', '--kit-name-ink', 'The speaker\'s name.'),
+    ink('markerInk', '--kit-marker-ink', 'The ▼ that says there is more.'),
+    ink('titleInk', '--kit-title-ink', 'Panel titles.'),
+    ink('cursorInk', '--kit-cursor-ink', 'The cursor beside the selected row.'),
+    ink('valueInk', '--kit-value-ink', 'Values in the menus (on, off, 50%).'),
+    ink('selectFrame', '--kit-sel-frame', 'The border of the selected row.'),
+    ink('button', '--kit-button', 'The OK button.'),
+    ink('inputFrame', '--kit-input-frame', 'The border of a name or number field.'),
+    color('select', '#eaf0ff', '--kit-sel', '#eaf0ff', 'accent', 'The background of the selected row.', { nullable: true, none: 'transparent' }),
+    color('selectInk', null, '--kit-sel-ink', 'var(--ink)', 'accent', 'The text of the selected row.', { nullable: true }),
+    color('faceBg', '#eef1f8', '--kit-face-bg', '#eef1f8', 'box', 'Behind a portrait.'),
+    color('dim', '#08090f', '--kit-dim', 'rgba(8, 9, 15, .55)', 'screen', 'What darkens the game behind a message with a dimmed background.', { form: 'rgba', alpha: 'dimAmount' }),
+    { key: 'dimAmount', type: 'number', min: 0, max: 1, default: 0.55, css: null, fallback: '.55', group: 'screen', doc: 'How dark that is.' },
+    { key: 'menuDimAmount', type: 'number', min: 0, max: 1, default: 0.5, css: '--kit-menu-dim', fallback: 'rgba(8, 9, 15, .5)', form: 'rgba', color: 'dim', alpha: 'menuDimAmount', group: 'screen', doc: 'How dark the game goes behind the pause menu and choices.' },
+    { key: 'fontText', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of everything on the game screen.' },
+    { key: 'fontUi', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Names, titles, values, the chapter card and the title buttons.' },
+    { key: 'fontName', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', doc: 'The speaker\'s name only. Empty follows the one above.' },
+    { key: 'textSize', type: 'enum', options: ['small', 'normal', 'large', 'huge'], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big a message is.' },
+    { key: 'lineHeight', type: 'number', min: 1, max: 2.4, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message.' },
+    color('screenBg', '#0a0b10', '--kit-screen-bg', '#0a0b10', 'screen', 'Behind the map, where it does not reach the edge.'),
+    color('screenFrame', '#2f3450', '--kit-screen-frame', '#2f3450', 'screen', 'The bezel round the game screen.'),
+    color('highlight', '#ffcb3d', '--accent', '#ffcb3d', 'title', 'The game\'s name on the title, the chapter subtitle and the chosen title button.'),
+    color('highlight2', '#6fd3ff', '--accent-2', '#6fd3ff', 'title', 'The subtitle on the title screen.'),
+    color('titleBg', null, '--kit-title-bg', 'linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%)', 'title', 'Behind the title screen. Empty keeps the night-sky gradient.', { nullable: true }),
+    color('titleShadow', '#7a4a00', '--kit-title-shadow', '#7a4a00', 'title', 'The shadow under the game\'s name.', { nullable: true, none: 'transparent' }),
+    color('titleButton', null, '--kit-title-button', 'rgba(255, 255, 255, .06)', 'title', 'The title buttons. Empty keeps them see-through.', { nullable: true }),
+    color('titleButtonInk', '#ffffff', '--kit-title-button-ink', '#fff', 'title', 'Their text.'),
+    color('titlePickInk', '#2a1d00', '--kit-title-pick-ink', '#2a1d00', 'title', 'The text of the chosen title button.'),
+    color('toastBg', '#0c0e16', '--kit-toast-bg', 'rgba(12, 14, 22, .92)', 'toast', 'A toast ("Saved.").', { form: 'rgba', alpha: 0.92 }),
+    color('toastFrame', '#3a4160', '--kit-toast-frame', '#3a4160', 'toast', 'Its border.'),
+    color('toastInk', '#ffffff', '--kit-toast-ink', '#fff', 'toast', 'Its text.'),
+    color('chapterBg', '#06070c', '--kit-chapter-bg', 'rgba(6, 7, 12, .82)', 'chapter', 'Behind a chapter card.', { form: 'rgba', alpha: 0.82 }),
+    color('chapterInk', '#ffffff', '--kit-chapter-ink', '#fff', 'chapter', 'The chapter title.'),
+    color('padFrame', '#3a4160', '--kit-pad-frame', '#3a4160', 'pad', 'The border of the on-screen buttons.'),
+    color('padInk', '#cfd6f5', '--kit-pad-ink', '#cfd6f5', 'pad', 'Their arrows and labels.'),
+    color('padA', '#4a6ad8', '--kit-pad-a', 'linear-gradient(180deg, #4a6ad8, #32499e)', 'pad', 'The A button.', { form: 'gradient' }),
+    color('padB', '#d85a6a', '--kit-pad-b', 'linear-gradient(180deg, #d85a6a, #9e3244)', 'pad', 'The B button.', { form: 'gradient' }),
+  ];
+
+  /**
+   * ROLES: what each sound in the interface is FOR, and what the kit plays for
+   * it. The scenes ask for a role — `KIT.look.sound('move')` — and never name a
+   * sound, so a look can make the cursor tick and the menu silent without a
+   * scene knowing. null is silence: the kit has no sound for opening a menu,
+   * and a look may give it one.
+   */
+  L.ROLES = { move: 'blip', confirm: 'select', cancel: 'back', buzzer: null, save: 'save', open: null, close: null, page: null, toast: null };
+
+  /** PARTS: the options of each piece of the interface, as schema field lists. More arrive as they start to work. */
+  L.PARTS = {
+    sounds: Object.keys(L.ROLES).map((role) => ({ key: role, type: 'ref:sound', nullable: true, default: L.ROLES[role] })),
+  };
+
+  /** 'changed' { look } when a look is put in use; 'applied' { css, look } when the page has it. */
+  L.events = L.events || KIT.events('look');
+
+  // A library of looks to start from. Registered by js/kit/ui/presets.js (the
+  // kit's own) and by modules; a game's own library is `project.looks`, which
+  // is read where it is needed and never registered, so one game's looks
+  // cannot leak into the next one opened in the same page.
+  KIT.defineRegistry('looks', { fields: [
+    { key: 'id', type: 'string', min: 1, pattern: ID.source, patternMessage: 'look ids are lower-case letters, digits, . _ : -' },
+    { key: 'label', type: 'string', default: '' },
+    { key: 'describe', type: 'string', optional: true },
+    { key: 'rev', type: 'number', integer: true, min: 1, default: 1 },
+    { key: 'base', type: 'string', nullable: true, default: null },
+  ], doc: 'Looks to start from: { id, label, describe, rev, base, ui }. `ui` is overrides on top of `base` (the kit look when empty).' });
+
+  // ---- sanitising ------------------------------------------------------------------
+
+  /**
+   * clean(field, value) -> { ok, value }. The whole of what a value may be.
+   * Numbers are pulled into range rather than refused — a frame of 99 is a
+   * thick frame, not an attack — and everything else that does not fit is
+   * refused outright, because a colour that is not a colour is the one place
+   * text from a file could turn into CSS.
+   */
+  function clean(f, v) {
+    if (v === null) return { ok: !!f.nullable, value: null };
+    if (v === undefined) return { ok: false };
+    switch (f.type) {
+      case 'color': return { ok: typeof v === 'string' && HEX.test(v), value: v };
+      case 'number': {
+        if (typeof v !== 'number' || !Number.isFinite(v)) return { ok: false };
+        let n = f.integer ? Math.round(v) : v;
+        if (f.min != null) n = Math.max(f.min, n);
+        if (f.max != null) n = Math.min(f.max, n);
+        return { ok: true, value: n };
+      }
+      case 'enum': return { ok: (f.options || []).includes(v), value: v };
+      case 'bool': return { ok: typeof v === 'boolean', value: v };
+      case 'font': return { ok: typeof v === 'string' && (KIT.has(FONT_WORDS, v) || ID.test(v)), value: v };
+      default:
+        // An id of something else — a sound, a voice. Whether it EXISTS is the
+        // validator's question; here it only has to look like an id.
+        if (f.type.startsWith('ref:')) return { ok: typeof v === 'string' && ID.test(v), value: v };
+        return { ok: false };
+    }
+  }
+
+  /** cleanFields(fields, obj, path, dropped) -> a copy holding only what passes. Unknown keys are dropped too. */
+  function cleanFields(fields, obj, path, dropped) {
+    const out = {};
+    if (!isObj(obj)) { if (obj !== undefined) dropped.push({ path, value: obj }); return out; }
+    const byKey = new Map(fields.map(f => [f.key, f]));
+    for (const k of Object.keys(obj)) {
+      const f = byKey.get(k);
+      const r = f ? clean(f, obj[k]) : { ok: false };
+      if (r.ok) out[k] = r.value;
+      else dropped.push({ path: path.concat(k), value: obj[k] });
+    }
+    return out;
+  }
+
+  /**
+   * sanitize(ui) -> { ui, dropped:[{ path, value }] }
+   * Everything that is not a known field with a value it may hold is left out,
+   * and said: `dropped` is what the `ui` validator reports as ui-bad-value.
+   * A part is looked up as PARTS' OWN key: a file's `constructor` or
+   * `__proto__` found the function every object inherits, took it for a part's
+   * field list, and threw — and since every line of dialogue asks the look for
+   * its voice, one bad key in a look stopped the game from booting at all.
+   */
+  L.sanitize = function (ui) {
+    const dropped = [];
+    if (ui === undefined || ui === null) return { ui: {}, dropped };
+    if (!isObj(ui)) return { ui: {}, dropped: [{ path: [], value: ui }] };
+    const out = {};
+    for (const k of Object.keys(ui)) {
+      const v = ui[k];
+      if (k === 'base') { if (typeof v === 'string' && ID.test(v)) out.base = v; else dropped.push({ path: ['base'], value: v }); }
+      else if (k === 'voice') { if (v === null || (typeof v === 'string' && ID.test(v))) out.voice = v; else dropped.push({ path: ['voice'], value: v }); }
+      else if (k === 'tokens') out.tokens = cleanFields(L.TOKENS, v, ['tokens'], dropped);
+      else if (KIT.has(L.PARTS, k)) out[k] = cleanFields(L.PARTS[k], v, [k], dropped);
+      else dropped.push({ path: [k], value: v });
+    }
+    return { ui: out, dropped };
+  };
+
+  // ---- resolving -------------------------------------------------------------------
+
+  /** Plain objects merge key by key; anything else (an array, null, a number) replaces. */
+  function merge(into, from) {
+    for (const k of Object.keys(from)) {
+      const v = from[k];
+      if (isObj(v) && isObj(into[k])) merge(into[k], v);
+      else into[k] = KIT.deepClone(v);
+    }
+    return into;
+  }
+
+  /** lookDef(project, id) -> the look called `id`: the game's own library first, then the registry. */
+  function lookDef(project, id) {
+    const own = project && isObj(project.looks) ? project.looks[id] : null;
+    if (isObj(own)) return own;
+    return KIT.registry('looks').get(id) || null;
+  }
+
+  const MAX_DEPTH = 8;
+  const problem = (severity, code, message, path) => ({ severity, code, message, where: { look: true, path: path || ['ui'] } });
+
+  /**
+   * chainOf(project, base, problems) -> [{ id, ui, path }] from the root down,
+   * not counting `kit`. A base that is missing, a loop, or a chain deeper than
+   * eight each stop the walk where they are found and say so; the look
+   * underneath still works, which is the point — a game must not lose its
+   * whole look because one library entry went missing.
+   */
+  function chainOf(project, base, problems) {
+    const out = [];
+    const seen = new Set();
+    let id = base || 'kit';
+    while (id && id !== 'kit') {
+      if (seen.has(id)) { problems.push(problem('warn', 'ui-base-cycle', `The looks go round in a circle at “${id}”; the loop is cut there.`, ['ui', 'base'])); break; }
+      if (out.length >= MAX_DEPTH) { problems.push(problem('warn', 'ui-base-deep', `The looks are built on each other more than ${MAX_DEPTH} deep; the rest is left out.`, ['ui', 'base'])); break; }
+      const def = lookDef(project, id);
+      if (!def) { problems.push(problem('warn', 'ui-base-missing', `The look “${id}” is not here, so the game uses Kit's look underneath.`, ['ui', 'base'])); break; }
+      seen.add(id);
+      const own = project && isObj(project.looks) && project.looks[id] === def;
+      out.unshift({ id, ui: def.ui, path: own ? ['looks', id, 'ui'] : null });
+      id = def.base || 'kit';
+    }
+    return out;
+  }
+
+  /** The kit's own defaults, once: every field at its schema default. */
+  function defaults() {
+    const out = { tokens: S.defaults(L.TOKENS), voice: null };
+    for (const k of Object.keys(L.PARTS)) out[k] = S.defaults(L.PARTS[k]);
+    return out;
+  }
+
+  /**
+   * resolve(project) -> Look
+   * DEFAULTS, then the kit look, then the chain from the root down, then this
+   * game's own `project.ui`; every layer sanitised on the way in. The result has
+   * every field filled, `_chain` (['kit', …] root first) and `_problems`.
+   * There is no memo: it is cheap, and the editor changes the project in place.
+   */
+  L.resolve = function (project) {
+    const ui = project && isObj(project.ui) ? project.ui : {};
+    const problems = [];
+    const say = (dropped, at) => {
+      for (const d of dropped) problems.push(problem('warn', 'ui-bad-value', `${at.concat(d.path).join('.')} could not be used (${JSON.stringify(d.value)}), so it is left out.`, at.concat(d.path)));
+    };
+    const own = L.sanitize(ui);
+    say(own.dropped, ['ui']);
+    const chain = chainOf(project, own.ui.base, problems);
+    const merged = defaults();
+    const kit = KIT.registry('looks').get('kit');
+    if (kit) merge(merged, L.sanitize(kit.ui).ui);
+    for (const link of chain) {
+      const s = L.sanitize(link.ui);
+      if (link.path) say(s.dropped, link.path);
+      delete s.ui.base;
+      merge(merged, s.ui);
+    }
+    const layer = Object.assign({}, own.ui);
+    delete layer.base;
+    merge(merged, layer);
+    const look = { base: own.ui.base || 'kit', tokens: S.fill(L.TOKENS, merged.tokens), voice: merged.voice == null ? null : merged.voice };
+    for (const k of Object.keys(L.PARTS)) look[k] = S.fill(L.PARTS[k], merged[k]);
+    look._chain = ['kit'].concat(chain.map(c => c.id));
+    look._problems = problems;
+    return look;
+  };
+
+  /** problems(project) -> what the `ui` validator reports: a broken chain of looks, and values that were left out. */
+  L.problems = function (project) { return L.resolve(project)._problems; };
+
+  // ---- compiling ---------------------------------------------------------------------
+
+  function rgb(hex) {
+    let h = hex.slice(1);
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  }
+  const rgba = (hex, a) => `rgba(${rgb(hex).join(',')},${Math.round(a * 1000) / 1000})`;
+  /** A darker shade, for the bottom of a button's gradient. */
+  const darker = (hex, by) => '#' + rgb(hex).map(c => Math.round(c * (1 - by)).toString(16).padStart(2, '0')).join('');
+
+  /**
+   * family(value, fonts) -> a CSS font-family.
+   *   a word (pixel, system, mono, serif, rounded) -> its stack of fonts
+   *   a key of `fonts` (the game's project.fonts)  -> "kitf-<id>", then a stack to
+   *                                                   fall back on while it loads
+   *   anything else                                 -> unchanged, so a family
+   *                                                   somebody wrote out ("Georgia")
+   *                                                   still works
+   * A game's own font is only ever named by its id, which is all letters,
+   * digits and `._:-`, so it cannot close the quotes it is written in.
+   */
+  L.family = function (v, fonts) {
+    if (KIT.has(FONT_WORDS, v)) return FONT_WORDS[v];
+    if (typeof v === 'string' && ID.test(v) && isObj(fonts) && KIT.has(fonts, v)) {
+      const f = fonts[v];
+      return `"kitf-${v}", ${isObj(f) && f.pixel ? FONT_WORDS.mono : FONT_WORDS.system}`;
+    }
+    return v;
+  };
+
+  /**
+   * tokenCss(token, tokens, env) -> the CSS value for one token, or null for
+   * "leave the fallback".
+   *
+   * A font token is a word or the id of one of the game's own fonts. An id the
+   * game has no font for is no font at all: the kit's own is kept, rather than
+   * writing the bare id as a family name nobody has installed — which also threw
+   * away the fallback stack, so the text came out in the browser's default.
+   */
+  function tokenCss(t, tokens, env) {
+    const v = tokens[t.key];
+    if (v === null || v === undefined) return t.none === undefined ? null : t.none;
+    const num = (k, d) => (typeof k === 'number' ? k : (typeof tokens[k] === 'number' ? tokens[k] : d));
+    switch (t.form) {
+      case 'px': return v + 'px';
+      case 'number': return String(v);
+      case 'size': return v === 'normal' ? t.fallback : TEXT_SIZES[v];
+      case 'font': { const fam = L.family(v, env.fonts); return fam === v ? null : fam; }
+      case 'textShadow': return `1px 1px 0 ${v}`;
+      case 'gradient': return `linear-gradient(180deg,${v},${darker(v, 0.3)})`;
+      case 'rgba': {
+        const c = t.color ? tokens[t.color] : v;
+        return HEX.test(c || '') ? rgba(c, num(t.alpha, 1)) : null;
+      }
+      default: return v;
+    }
+  }
+
+  /**
+   * compile(look, env) -> string. Pure and deterministic: the same look gives
+   * the same text, and the kit look gives ''. `env` is what the look may name
+   * that lives in the game rather than in the look: `{ fonts }`, the game's
+   * project.fonts.
+   *
+   * Only what DIFFERS from the kit is written, as custom properties on #stage —
+   * the element the stylesheet's `var(--kit-*, …)` fallbacks sit under — so
+   * nothing here can reach Creator Mode, which lives outside it. Values are
+   * cleaned again here: a look handed in by hand has not been through resolve.
+   */
+  L.compile = function (look, env) {
+    const e = isObj(env) ? env : {};
+    const given = (look && isObj(look.tokens)) ? look.tokens : {};
+    const tokens = {}, kit = S.defaults(L.TOKENS);
+    for (const t of L.TOKENS) {
+      const r = clean(t, given[t.key]);
+      tokens[t.key] = r.ok ? r.value : kit[t.key];
+    }
+    const decls = [];
+    for (const t of L.TOKENS) {
+      if (!t.css) continue;
+      const v = tokenCss(t, tokens, e);
+      if (v !== null && v !== tokenCss(t, kit, e)) decls.push(`${t.css}:${v}`);
+    }
+    return decls.length ? `#stage{${decls.join(';')}}` : '';
+  };
+
+  /** css(project) -> the stylesheet for this game's look: its look compiled against its own fonts. What apply writes into the page. */
+  L.css = function (project) {
+    return L.compile(L.resolve(project), { fonts: project && isObj(project.fonts) ? project.fonts : {} });
+  };
+
+  // ---- the look in use ---------------------------------------------------------------
+  let now = null;
+  /** use(project) -> Look. Resolve and keep it as the one the game reads (no DOM; parts.js's apply writes the page). */
+  L.use = function (project) {
+    now = L.resolve(project);
+    L.events.emit('changed', { look: now });
+    return now;
+  };
+  /** current() -> the look in use; the kit look before anything was used. */
+  L.current = function () { return now || (now = L.resolve(null)); };
+  /** get('dialogue.lines', 3) -> that value of the current look, or the fallback when it has none. */
+  L.get = function (path, fallback) {
+    let v = L.current();
+    for (const k of String(path).split('.')) {
+      if (!isObj(v) || !KIT.has(v, k)) return fallback;
+      v = v[k];
+    }
+    return v === undefined ? fallback : v;
+  };
+
+  /**
+   * sound(role, { or, overrides }) -> the id it played, or null.
+   * `overrides` is a screen's own sounds, which win over the look's; `or` is the
+   * role to fall back to when this one is silent — the buzzer, which is silent
+   * in the kit, falls back to cancel, so B on a choice that cannot be cancelled
+   * still makes the sound it always made.
+   */
+  L.sound = function (role, opts) {
+    const o = opts || {};
+    const look = L.current();
+    const pick = (r) => {
+      if (o.overrides && KIT.has(o.overrides, r)) return o.overrides[r];
+      const s = look.sounds || {};
+      if (KIT.has(s, r)) return s[r];
+      return KIT.has(L.ROLES, r) ? L.ROLES[r] : null;
+    };
+    const id = pick(role) || (o.or ? pick(o.or) : null) || null;
+    if (id && KIT.audio && KIT.audio.play) KIT.audio.play(id);
+    return id;
+  };
+
+  /** voice(project) -> the voice for anyone with none of their own: the game's setting, else the look's, else none. */
+  L.voice = function (project) {
+    const s = (project && project.settings) || {};
+    return s.voice || L.resolve(project).voice || null;
+  };
+
+  /**
+   * menuOrder(entries, cfg) -> ids, in the order the pause menu lists them.
+   * entries are [{ id, order }]; cfg is the look's `menu` (`order`, `hide`).
+   *
+   * `(order || 50)` is kept exactly as the menu always sorted, an order of 0
+   * included: a module that wrote `order: 0` has been sitting at 50 all along,
+   * and moving it now would reshuffle somebody's menu for no reason they chose.
+   * `'*'` in `order` stands for every entry not named, in that sorted order,
+   * and an order without one keeps the unnamed entries at the end — a module
+   * switched on later must not vanish from a menu somebody arranged before it
+   * existed. Settings can never be hidden: it is where a player turns the
+   * sound down, and a game without it is a game somebody cannot play.
+   */
+  L.menuOrder = function (entries, cfg) {
+    const c = cfg || {};
+    const sorted = (entries || []).slice().sort((a, b) => ((a.order || 50) - (b.order || 50)) || 0).map(e => e.id);
+    const order = Array.isArray(c.order) && c.order.length ? c.order.slice() : ['*'];
+    if (!order.includes('*')) order.push('*');
+    const named = new Set(order.filter(id => id !== '*'));
+    const out = [];
+    for (const id of order) {
+      if (id === '*') { for (const r of sorted) if (!named.has(r) && !out.includes(r)) out.push(r); }
+      else if (sorted.includes(id) && !out.includes(id)) out.push(id);
+    }
+    const hide = new Set((Array.isArray(c.hide) ? c.hide : []).filter(id => id !== 'settings'));
+    return out.filter(id => !hide.has(id));
+  };
+
+  // ---- the validator ------------------------------------------------------------------
+  KIT.registry('validators').add({ id: 'ui', label: 'Look', run(project) { return L.problems(project); } });
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/ui/presets.js ----
+// The looks the kit ships, as data: nothing here is art, and nothing here is
+// code that runs. A look is overrides on top of the one it starts from, so the
+// kit's own is empty — it IS the stylesheet in css/kit.css, and compiles to no
+// CSS at all. Every other look is written as the few things it changes.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+
+  KIT.registry('looks').add({
+    id: 'kit', label: 'Kit', rev: 1,
+    describe: 'The engine\'s own: a white box with a dark border, a pixel font for names and menus, and a blue accent.',
+    ui: {},
+  });
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/kit/core/storage.js ----
 // KIT.storage (§4.3): everything that outlives a page load — the editor draft,
 // save slots, settings, the meta record that survives New Game — plus the
@@ -6778,6 +7314,24 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     for (const id of Object.keys(t)) if (t[id] && t[id].name === key) return t[id];
     return null;
   };
+  /**
+   * speaker(project, payload) -> the say payload, with the voice filled in.
+   *
+   * What a line sounds like: the voice it asked for, else the speaker's own
+   * from the cast (found by id or by the name on screen), else the game's
+   * default (KIT.look.voice: the setting, then the look's). The say command
+   * already asked this; a line a module hands straight to the box did not, and
+   * came out in the default voice whoever was talking. A payload that ends up
+   * with no voice is returned as it came, with no `voice` key, so a game with
+   * no cast sends exactly what it always sent.
+   */
+  C.speaker = function (project, payload) {
+    const p = payload || {};
+    if (p.voice) return p;
+    const person = C.person(project, p.who);
+    const voice = (person && person.voice) || KIT.look.voice(project);
+    return voice ? Object.assign({}, p, { voice }) : p;
+  };
   /** nameOf(project, who) -> what to call them on screen. */
   C.nameOf = function (project, who) {
     const p = C.person(project, who);
@@ -9245,16 +9799,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     /**
      * voiceOf(ctx, cmd) -> a voice id, or null for silence.
      * What this line asked for, then the speaker's own from the cast, then the
-     * project's default. A speaker who is nobody in particular gets the default.
+     * game's default. One rule, KIT.cast.speaker's, so a line from a script and
+     * a line from a module cannot sound different.
      */
     voiceOf(ctx, cmd) {
-      if (cmd && cmd.voice) return cmd.voice;
-      const project = ctx && ctx.project;
-      const who = (cmd && cmd.who) || '';
-      const person = (KIT.cast && KIT.cast.person) ? KIT.cast.person(project, who) : null;
-      if (person && person.voice) return person.voice;
-      const s = (project && project.settings) || {};
-      return s.voice || null;
+      const said = KIT.cast.speaker(ctx && ctx.project, { who: (cmd && cmd.who) || '', voice: (cmd && cmd.voice) || null });
+      return said.voice || null;
     },
     heroName(ctx, heroId) {
       const i = C.heroIndex(ctx, heroId);
@@ -18353,7 +18903,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- DOM helpers --------------------------------------------------------------
   const UI = KIT.ui = {
-    el(id) { return typeof document === 'undefined' ? null : document.getElementById(id); },
+    /**
+     * el(id, root) -> the element. `root` is the document unless given; a
+     * ShadowRoot works too, which is how a scene draws into a preview's own
+     * copy of the hosts rather than the game's.
+     */
+    el(id, root) {
+      const r = root || (typeof document === 'undefined' ? null : document);
+      return r ? r.getElementById(id) : null;
+    },
     show(el, on) { if (el) el.hidden = on === false; },
     hide(el) { if (el) el.hidden = true; },
     clear(el) { if (el) el.innerHTML = ''; return el; },
@@ -18671,6 +19229,231 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
 </script>
 <script>
+// ---- js/kit/ui/parts.js ----
+// The DOM half of the look: putting the compiled stylesheet into the page, and
+// the markup of the built-in screens, built in one place.
+//
+// The builders exist so that the message box, a choice, a list panel and the
+// title are drawn by ONE function each, which the scenes call — and which
+// anything else that needs to draw the same thing (a preview of a look, a
+// module's own screen) can call too, into a host of its own, and get markup the
+// look's rules already reach. They build DOM and return the pieces; the input,
+// the timing and the sounds stay in the scenes.
+//
+// Nothing here touches the page when the file loads: it runs headless in the
+// tests, and the DOM is only reached inside the functions.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const UI = KIT.ui;
+  const L = KIT.look;
+
+  /**
+   * host(id, { after, className }) -> the overlay `div#id.overlay` inside
+   * #screen, made the first time it is asked for and found every time after.
+   * `after` is the id of the host it goes directly behind in the page, which is
+   * what decides the paint order between overlays that share a z-index.
+   */
+  UI.host = function (id, opts) {
+    if (typeof document === 'undefined') return null;
+    const have = document.getElementById(id);
+    if (have) return have;
+    const screen = document.getElementById('screen');
+    if (!screen) return null;
+    const o = opts || {};
+    const el = UI.make('div.overlay' + (o.className ? '.' + o.className : ''));
+    el.id = id;
+    el.hidden = true;
+    const prev = o.after ? document.getElementById(o.after) : null;
+    if (prev && prev.parentNode === screen) screen.insertBefore(el, prev.nextSibling);
+    else screen.appendChild(el);
+    return el;
+  };
+
+  UI.parts = {
+    /**
+     * dialogueBox(host) -> { host, box, face, name, text, next }
+     * Built unless the host already holds a message box. It used to be built
+     * only when the host was EMPTY, so anything else left in #dialogue — the
+     * scrolling text's own element, a module's — meant the next message found
+     * no text element and threw.
+     */
+    dialogueBox(host) {
+      if (!host) return null;
+      if (!host.querySelector('.kit-box .kit-text')) {
+        UI.clear(host);
+        const box = UI.make('div.kit-box');
+        box.appendChild(UI.make('div.kit-facebox'));
+        const wrap = UI.make('div.kit-textwrap');
+        wrap.appendChild(UI.make('div.kit-name'));
+        wrap.appendChild(UI.make('div.kit-text'));
+        box.appendChild(wrap);
+        box.appendChild(UI.make('div.kit-next', { text: '▼' }));
+        host.appendChild(box);
+      }
+      return {
+        host,
+        box: host.querySelector('.kit-box'),
+        face: host.querySelector('.kit-facebox'),
+        name: host.querySelector('.kit-name'),
+        text: host.querySelector('.kit-text'),
+        next: host.querySelector('.kit-next'),
+      };
+    },
+
+    /**
+     * listPanel(host, title, rows, { hint }) -> { host, list }
+     * The pause menu's panel, and every list that is drawn like it: rows of
+     * { label, value, note, action, disabled }, each a [data-action] button.
+     */
+    listPanel(host, title, rows, opts) {
+      UI.clear(host);
+      host.hidden = false;
+      const box = UI.make('div.kit-panel.kit-pause');
+      if (title) box.appendChild(UI.make('div.kit-panel-title', { text: title }));
+      const list = UI.make('div.kit-menu-list');
+      (rows || []).forEach((r, i) => {
+        const b = UI.make('button.kit-uibtn.kit-menu-item', {});
+        b.type = 'button';
+        b.setAttribute('data-action', r.action || ('row-' + i));
+        b.setAttribute('data-index', String(i));
+        if (r.disabled) b.disabled = true;
+        b.appendChild(UI.make('span.kit-item-label', { text: r.label }));
+        if (r.value != null) b.appendChild(UI.make('span.kit-item-value', { text: String(r.value) }));
+        if (r.note) b.appendChild(UI.make('span.kit-item-note', { text: r.note }));
+        list.appendChild(b);
+      });
+      box.appendChild(list);
+      if (opts && opts.hint) box.appendChild(UI.make('p.kit-hint', { text: opts.hint }));
+      host.appendChild(box);
+      return { host, list };
+    },
+
+    /**
+     * choicePanel(host, { prompt, options }) -> { host, list, promptBox }
+     * The text arrives already substituted — and so already translated — by
+     * the command that asked, so it only has its codes taken out here.
+     * Substituting again translated it twice: a line whose translation happens
+     * to be another line's English came out as that other line's translation.
+     */
+    choicePanel(host, o) {
+      const opts = o || {};
+      UI.clear(host);
+      host.hidden = false;
+      const panel = UI.make('div.kit-panel');
+      if (opts.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.strip(opts.prompt) }));
+      const list = UI.make('div.kit-list');
+      (opts.options || []).forEach((opt, i) => {
+        const b = UI.make('button.kit-option', { text: KIT.text.strip(opt.text) });
+        b.type = 'button';
+        b.setAttribute('data-index', String(i));
+        b.setAttribute('data-action', 'choose');
+        list.appendChild(b);
+      });
+      panel.appendChild(list);
+      host.appendChild(panel);
+      return { host, list, promptBox: null };
+    },
+
+    /** titleScreen(host, { meta, items, hint }) -> { host, list }. items are { action, label, disabled }. */
+    titleScreen(host, o) {
+      const opts = o || {};
+      const meta = opts.meta || {};
+      UI.clear(host);
+      host.hidden = false;
+      const inner = UI.make('div.kit-title-inner');
+      inner.appendChild(UI.make('h1.kit-title', { text: meta.title || 'Our Adventure' }));
+      if (meta.subtitle) inner.appendChild(UI.make('p.kit-subtitle', { text: meta.subtitle }));
+      const list = UI.make('div.kit-menu-list');
+      (opts.items || []).forEach((it, i) => {
+        const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
+        b.type = 'button';
+        b.setAttribute('data-action', it.action);
+        b.setAttribute('data-index', String(i));
+        if (it.disabled) b.disabled = true;
+        list.appendChild(b);
+      });
+      inner.appendChild(list);
+      if (meta.pitch) inner.appendChild(UI.make('p.kit-pitch', { text: meta.pitch }));
+      if (opts.hint) inner.appendChild(UI.make('p.kit-hint', { text: opts.hint }));
+      host.appendChild(inner);
+      return { host, list };
+    },
+  };
+
+  // ---- the look in the page ----------------------------------------------------------
+  let fonts = {};
+
+  /**
+   * syncMotion() — #stage says whether things may move. `data-kit-motion`
+   * follows the player's own Reduce motion setting, which the stylesheet reads
+   * to stop the ▼, the shake, the text effects, the chapter card and the toast —
+   * the operating system's setting stopped them, the game's own setting did
+   * not. `data-kit-fast` is ?fast=1. Both are on #stage because a preview of a
+   * look has a #stage of its own, and a rule written against the page's <html>
+   * could never reach inside it.
+   */
+  L.syncMotion = function () {
+    const stage = UI.el('stage');
+    if (!stage) return;
+    const s = (KIT.storage && KIT.storage.settings) ? KIT.storage.settings() : {};
+    const motion = s.reduceMotion ? 'reduce' : null;
+    if (stage.getAttribute('data-kit-motion') !== motion) {
+      if (motion) stage.setAttribute('data-kit-motion', motion); else stage.removeAttribute('data-kit-motion');
+    }
+    const fast = !!(KIT.fx && KIT.fx.instant);
+    if (stage.hasAttribute('data-kit-fast') !== fast) {
+      if (fast) stage.setAttribute('data-kit-fast', ''); else stage.removeAttribute('data-kit-fast');
+    }
+  };
+
+  /**
+   * fontsReady(ms) -> Promise — the game's own fonts the look uses have
+   * arrived, or `ms` has passed. A message is wrapped by measuring its letters;
+   * measured in a fallback font, the first page breaks in the wrong places.
+   */
+  L.fontsReady = function (ms) {
+    const t = L.current().tokens || {};
+    const used = [t.fontText, t.fontUi, t.fontName].filter((v, i, a) => v && KIT.has(fonts, v) && a.indexOf(v) === i);
+    if (!used.length || typeof document === 'undefined' || !document.fonts) return Promise.resolve();
+    const late = new Promise((res) => setTimeout(res, ms == null ? 1500 : ms));
+    const loads = Promise.all(used.map(id => document.fonts.load('16px "kitf-' + id + '"')))
+      .catch((e) => (KIT.log || console).warn('[look] a font did not load; the fallback is used', e));
+    return Promise.race([loads, late]);
+  };
+
+  /**
+   * apply(project) -> Promise — put this game's look in use and in the page.
+   * The stylesheet is one <style id="kit-look"> at the end of <head>, made the
+   * first time and rewritten only when its text changes. For the kit look it
+   * is empty, and the page is exactly css/kit.css.
+   */
+  L.apply = function (project) {
+    const look = L.use(project);
+    fonts = (project && KIT.isObject(project.fonts)) ? project.fonts : {};
+    const css = L.css(project);
+    if (typeof document !== 'undefined' && document.head) {
+      let style = document.getElementById('kit-look');
+      if (!style) {
+        style = document.createElement('style');
+        style.id = 'kit-look';
+        document.head.appendChild(style);
+      }
+      if (style.textContent !== css) style.textContent = css;
+    }
+    L.syncMotion();
+    L.events.emit('applied', { css, look });
+    return L.fontsReady();
+  };
+
+  // A setting can change under any scene (Settings from the title, a module's
+  // own screen), and every one of them ends in a scene change.
+  KIT.scenes.events.on('sceneChange', () => L.syncMotion());
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // ---- js/kit/scenes/dialogue.js ----
 // The message scenes: dialogue (Show Text), choice, nameEntry, inputNumber,
 // scrollText, chapter and toast. They are DOM overlays over the canvas (§12),
@@ -18767,29 +19550,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return (s) => measureCtx.measureText(s).width + letter * s.length;
   }
 
-  /** The dialogue box markup, built once and reused. */
-  function dialogueBox() {
-    const host = UI.el('dialogue');
-    if (!host) return null;
-    if (!host.firstChild) {
-      host.innerHTML = '';
-      const box = UI.make('div.kit-box');
-      box.appendChild(UI.make('div.kit-facebox'));
-      const wrap = UI.make('div.kit-textwrap');
-      wrap.appendChild(UI.make('div.kit-name'));
-      wrap.appendChild(UI.make('div.kit-text'));
-      box.appendChild(wrap);
-      box.appendChild(UI.make('div.kit-next', { text: '▼' }));
-      host.appendChild(box);
-    }
-    return {
-      host,
-      box: host.querySelector('.kit-box'),
-      face: host.querySelector('.kit-facebox'),
-      name: host.querySelector('.kit-name'),
-      text: host.querySelector('.kit-text'),
-      next: host.querySelector('.kit-next'),
-    };
+  /** The little side-to-side shake (`.is-shaking` in css/kit.css), started over if it is already running. */
+  function shake(el) {
+    if (!el) return;
+    el.classList.remove('is-shaking');
+    void el.offsetWidth;
+    el.classList.add('is-shaking');
   }
 
   function faceArt(id) {
@@ -18912,12 +19678,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         unitIndex = units.length; charIndex = 0; complete = true; waiting = false; pauseLeft = 0;
         updatePrompt();
       }
-      function shakeBox() {
-        if (!ui.box) return;
-        ui.box.classList.remove('is-shaking');
-        void ui.box.offsetWidth;
-        ui.box.classList.add('is-shaking');
-      }
+      function shakeBox() { shake(ui.box); }
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
@@ -18927,7 +19688,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       return {
         id: 'dialogue', transparent: true,
         enter(params) {
-          ui = dialogueBox();
+          ui = UI.parts.dialogueBox(UI.el('dialogue'));
           if (!ui) { this.finish(); return; }
           const p = params || {};
           ui.host.hidden = false;
@@ -19031,20 +19792,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           index = 0;
           host = UI.el('choice');
           if (!host) { this.finish(-1); return; }
-          UI.clear(host);
-          host.hidden = false;
-          const panel = UI.make('div.kit-panel');
-          if (p.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.plain(p.prompt, {}) }));
-          const list = UI.make('div.kit-list');
-          options.forEach((o, i) => {
-            const b = UI.make('button.kit-option', { text: KIT.text.plain(o.text, {}) });
-            b.type = 'button';
-            b.setAttribute('data-index', String(i));
-            b.setAttribute('data-action', 'choose');
-            list.appendChild(b);
-          });
-          panel.appendChild(list);
-          host.appendChild(panel);
+          const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
           UI.select(list, index);
           this._list = list;
           this._off = UI.onAction(host, (action, el) => {
@@ -19052,18 +19800,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             index = Number(el.getAttribute('data-index')) || 0;
             pick.call(this);
           });
-          const pick = function () { KIT.audio.play('select'); this.finish(index); };
+          const pick = function () { KIT.look.sound('confirm'); this.finish(index); };
           this._pick = pick;
           this._cancel = p.cancel || 'none';
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         input(ev) {
-          if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { this._pick.call(this); return true; }
           if (ev.key === 'b' || ev.key === 'menu') {
-            if (this._cancel === 'none') { KIT.audio.play('back'); return true; }
-            KIT.audio.play('back');
+            // A choice that cannot be cancelled says no with the buzzer, which
+            // the kit leaves silent — so it falls back to the cancel sound it
+            // always made, and a look that has a buzzer gets its own.
+            if (this._cancel === 'none') { KIT.look.sound('buzzer', { or: 'cancel' }); return true; }
+            KIT.look.sound('cancel');
             this.finish(-1);
             return true;
           }
@@ -19074,6 +19825,36 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   });
 
   // ---- a small modal panel shared by nameEntry and inputNumber ----------------------
+  //
+  // OK and Cancel are the author's Terms, like every other word the engine says.
+  // And A is OK and B is Cancel: on a phone the pad is the controller, and a
+  // name that only a tap on OK could confirm left a player with a gamepad, or
+  // one who reached for A out of habit, pressing a button that did nothing.
+  // ☰ is Cancel too. It is "back" everywhere else in the game (a choice, the
+  // pause menu), and on a keyboard it is Escape, which inside the field has
+  // always cancelled — as OK, the same key confirmed or cancelled depending on
+  // where the caret happened to be.
+  // Keys typed INTO the field never arrive here (js/kit/core/input.js ignores a
+  // keydown inside a text field), so typing a Z is still a Z. The field's own
+  // Enter and Escape are read by the field.
+  //
+  // A, ☰ and Enter wait for the box to settle. The field is filled in already
+  // (the hero's name as it is), and the box mostly opens straight after a line
+  // of dialogue, which all three of them page through — so a player going
+  // through the talk met the box mid-rhythm, and their next press took the name
+  // as it stood, or threw the box away, before they could type one: the one
+  // chance to name the hero, or a catch, gone without a sign. Until the player
+  // types, then, those three count only once the box has been up for SETTLE
+  // seconds with none of them pressed. One that comes sooner starts the wait
+  // again, so mashing never gets through; and it says so, with the buzzer and a
+  // shake of the button it would have pressed. Timing alone cannot tell a press
+  // meant for the last line from an impatient one meant for the box, so the
+  // shake is how a player learns which it was taken for, rather than finding a
+  // button that does nothing. Once they have typed, the box is plainly what
+  // they are answering, and nothing waits. Nor do a tap on OK or Cancel, B, or
+  // Escape in the field.
+  const SETTLE = 0.8;
+  const term = (id) => KIT.strings.get(KIT.game && KIT.game.project, id);
   function modalPanel(title) {
     const host = UI.el('choice');
     UI.clear(host);
@@ -19084,6 +19865,49 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return { host, panel };
   }
 
+  /**
+   * The field, Cancel and OK under the prompt, and every way to answer them.
+   * `done(ok)` finishes the scene with the field's answer, or with null.
+   */
+  function modalField(scene, m, input, done) {
+    m.panel.appendChild(input);
+    const row = UI.make('div.kit-row');
+    const cancel = row.appendChild(UI.button('cancel', term('cancel')));
+    const ok = row.appendChild(UI.button('ok', term('ok'), 'is-primary'));
+    m.panel.appendChild(row);
+    scene._host = m.host;
+    scene._buttons = { ok, cancel };
+    scene._done = done;
+    scene._calm = 0;
+    scene._typed = false;
+    scene._off = UI.onAction(m.host, (a) => done(a === 'ok'));
+    input.addEventListener('input', () => { scene._typed = true; });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      // A held Enter repeats; only the press itself is a press.
+      if (e.key === 'Enter' && !e.repeat && counts(scene, ok)) done(true);
+      if (e.key === 'Escape') done(false);
+    });
+    setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+  }
+
+  /** Whether this A, ☰ or Enter counts yet (see above). One that does not shakes `button`. */
+  function counts(scene, button) {
+    if (scene._typed) return true;
+    const settled = scene._calm >= SETTLE;
+    scene._calm = 0;
+    if (!settled) { KIT.look.sound('buzzer', { or: 'cancel' }); shake(button); }
+    return settled;
+  }
+
+  /** The pad's buttons for a modal's OK and Cancel: A is OK and ☰ is Cancel once the box has settled; B is Cancel at once. */
+  function modalInput(scene, ev) {
+    if (ev.key === 'a') { if (counts(scene, scene._buttons.ok)) scene._done(true); }
+    else if (ev.key === 'menu') { if (counts(scene, scene._buttons.cancel)) scene._done(false); }
+    else if (ev.key === 'b') scene._done(false);
+    return true;
+  }
+
   scenes.add({
     id: 'nameEntry', name: 'Name entry',
     create() {
@@ -19091,31 +19915,19 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         id: 'nameEntry', transparent: true,
         enter(params) {
           const p = params || {};
-          const m = modalPanel(p.prompt || 'What is your name?');
-          this._host = m.host;
+          const m = modalPanel(p.prompt || term('name-prompt'));
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'kit-input';
           input.maxLength = p.maxLength || 8;
           input.value = p.current || '';
           input.setAttribute('data-role', 'name-entry');
-          input.setAttribute('aria-label', p.prompt || 'Name');
-          m.panel.appendChild(input);
-          const row = UI.make('div.kit-row');
-          row.appendChild(UI.button('cancel', KIT.strings.get(null, 'cancel')));
-          row.appendChild(UI.button('ok', KIT.strings.get(null, 'ok'), 'is-primary'));
-          m.panel.appendChild(row);
-          const done = (ok) => this.finish(ok ? (input.value.trim() || p.current || null) : null);
-          this._off = UI.onAction(m.host, (a) => done(a === 'ok'));
-          input.addEventListener('keydown', (e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') done(true);
-            if (e.key === 'Escape') done(false);
-          });
-          setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+          input.setAttribute('aria-label', p.prompt || term('name-prompt'));
+          modalField(this, m, input, (ok) => this.finish(ok ? (input.value.trim() || p.current || null) : null));
         },
         exit() { if (this._host) { this._host.hidden = true; UI.clear(this._host); } if (this._off) this._off(); },
-        input(ev) { if (ev.key === 'b') this.finish(null); return true; },
+        update(dt) { this._calm += dt; },
+        input(ev) { return modalInput(this, ev); },
       };
     },
   });
@@ -19128,26 +19940,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         enter(params) {
           const p = params || {};
           const max = Math.pow(10, p.digits || 3) - 1;
-          const m = modalPanel(p.prompt || 'Enter a number');
-          this._host = m.host;
+          const m = modalPanel(p.prompt || term('number-prompt'));
           const input = document.createElement('input');
           input.type = 'number';
           input.className = 'kit-input';
           input.min = '0'; input.max = String(max);
           input.value = String(Math.min(max, p.current || 0));
           input.setAttribute('data-role', 'number-entry');
-          m.panel.appendChild(input);
-          const row = UI.make('div.kit-row');
-          row.appendChild(UI.button('cancel', KIT.strings.get(null, 'cancel')));
-          row.appendChild(UI.button('ok', KIT.strings.get(null, 'ok'), 'is-primary'));
-          m.panel.appendChild(row);
-          const done = (ok) => this.finish(ok ? Math.max(0, Math.min(max, Number(input.value) || 0)) : null);
-          this._off = UI.onAction(m.host, (a) => done(a === 'ok'));
-          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); });
-          setTimeout(() => { try { input.focus(); input.select(); } catch (e) { /* ignore */ } }, 0);
+          // A field with no name is read out as "spin button, 0" and nothing else.
+          input.setAttribute('aria-label', p.prompt || term('number-prompt'));
+          modalField(this, m, input, (ok) => this.finish(ok ? Math.max(0, Math.min(max, Number(input.value) || 0)) : null));
         },
         exit() { if (this._host) { this._host.hidden = true; UI.clear(this._host); } if (this._off) this._off(); },
-        input(ev) { if (ev.key === 'b') this.finish(null); return true; },
+        update(dt) { this._calm += dt; },
+        input(ev) { return modalInput(this, ev); },
       };
     },
   });
@@ -19167,7 +19973,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           host.classList.add('is-scroll');
           UI.clear(host);
           inner = UI.make('div.kit-scroll');
-          inner.textContent = KIT.text.plain(p.text || '', {});
+          // Already substituted by the command that asked; only the codes come out.
+          inner.textContent = KIT.text.strip(p.text || '');
           host.appendChild(inner);
           y = host.clientHeight;
           speed = (p.speed || 2) * 18;
@@ -19202,8 +20009,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           host.hidden = false;
           host.classList.add('is-in');
           const card = UI.make('div.kit-card');
-          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.plain(p.title || '', {}) }));
-          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.plain(p.subtitle, {}) }));
+          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(p.title || '') }));
+          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(p.subtitle) }));
           host.appendChild(card);
           left = (KIT.fx && KIT.fx.instant) ? 80 : (p.ms == null ? 2000 : p.ms);
         },
@@ -19216,15 +20023,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- toast ------------------------------------------------------------------------
   // A toast does not take input: it shows, the script carries on after a beat,
-  // and the element fades away on its own.
+  // and the element fades away on its own. Its text is a Term or a line a
+  // command already substituted, so it is not translated a second time here.
   let toastTimer = null;
   KIT.toast = function (text, ms) {
     const host = UI.el('toast');
     if (!host) return Promise.resolve();
     UI.clear(host);
-    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.plain(text || '', {}) }));
+    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') }));
     host.hidden = false;
     host.classList.add('is-in');
+    KIT.look.sound('toast');
     if (toastTimer) clearTimeout(toastTimer);
     const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || 1600);
     toastTimer = setTimeout(() => { host.classList.remove('is-in'); host.hidden = true; }, life);
@@ -19260,29 +20069,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   function save(patch) { return KIT.storage.saveSettings(patch); }
 
   /** A list panel inside #pause-menu: rows of { label, value, action, disabled }. */
-  function panel(title, rows, opts) {
-    const host = UI.el('pause-menu');
-    UI.clear(host);
-    host.hidden = false;
-    const box = UI.make('div.kit-panel.kit-pause');
-    if (title) box.appendChild(UI.make('div.kit-panel-title', { text: title }));
-    const list = UI.make('div.kit-menu-list');
-    rows.forEach((r, i) => {
-      const b = UI.make('button.kit-uibtn.kit-menu-item', {});
-      b.type = 'button';
-      b.setAttribute('data-action', r.action || ('row-' + i));
-      b.setAttribute('data-index', String(i));
-      if (r.disabled) b.disabled = true;
-      b.appendChild(UI.make('span.kit-item-label', { text: r.label }));
-      if (r.value != null) b.appendChild(UI.make('span.kit-item-value', { text: String(r.value) }));
-      if (r.note) b.appendChild(UI.make('span.kit-item-note', { text: r.note }));
-      list.appendChild(b);
-    });
-    box.appendChild(list);
-    if (opts && opts.hint) box.appendChild(UI.make('p.kit-hint', { text: opts.hint }));
-    host.appendChild(box);
-    return { host, list };
-  }
+  function panel(title, rows, opts) { return UI.parts.listPanel(UI.el('pause-menu'), title, rows, opts); }
 
   /** One scene drives every list: pause, settings and save just supply rows. */
   scenes.add({
@@ -19311,6 +20098,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       };
       /** show(self, m) — switch to another screen of the menu, at its first row. */
       const show = (self, m) => { mode = m; index = 0; build(self); };
+      /**
+       * back(self) — one step out: B, ☰, a Back row, a slot saved into. Out of
+       * the screen the menu was opened ON (Settings from the title, a save list
+       * something opened by itself) is out of the menu, not into the pause
+       * menu of a game that may not be running — B on Settings over the title
+       * used to land on a "Paused" whose Save answered "Could not save.", and
+       * B on a save list a module opened handed the player Quit in the middle
+       * of whatever opened it.
+       */
+      const back = (self) => { if (mode === 'pause' || mode === entered) self.finish('close'); else show(self, 'pause'); };
 
       /** The next row in that direction that can actually be chosen. */
       function step(from, dir) {
@@ -19328,13 +20125,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         return 'Paused';
       }
 
+      /**
+       * Keep playing, then the `menus` registry, in the order the look asks for
+       * (KIT.look.menuOrder — the kit's order is the registry's `order`).
+       */
       function pauseRows() {
-        const out = [{ label: t('keep-playing'), action: 'close' }];
-        for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
-          if (typeof def.when === 'function' && !def.when(game)) continue;
-          out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
-        }
-        return out;
+        const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
+        const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
+        return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
+          if (id === 'keep-playing') return { label: t('keep-playing'), action: 'close' };
+          const def = menus.get(id);
+          return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
+        });
       }
 
       /** The engine's own words, through the Terms table so they translate. */
@@ -19396,10 +20198,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (next < 0) next = 1;
           save({ [key]: next });
           KIT.audio.setVolume(kind, next);
-          if (kind === 'sound') KIT.audio.play('select');
+          if (kind === 'sound') KIT.look.sound('confirm');       // a sample at the new volume
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
-        else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
+        else if (action === 'toggle:reduceMotion') { save({ reduceMotion: !s.reduceMotion }); KIT.look.syncMotion(); }
         else if (action === 'cycle:buttons') {
           const now = BUTTONS.includes(s.buttons) ? s.buttons : 'auto';
           const i = (BUTTONS.indexOf(now) + (dir || 1) + BUTTONS.length) % BUTTONS.length;
@@ -19414,21 +20216,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         const row = rows[index];
         if (!row || row.disabled) return;
         const action = row.action || '';
-        KIT.audio.play('select');
+        KIT.look.sound('confirm');
         if (action === 'close') { this.finish('close'); return; }
-        if (action === 'back') {
-          // Back from a screen the menu was opened ON (Settings from the title) is
-          // out, not "to the pause menu of a game that is not running".
-          if (mode === entered) { this.finish('close'); return; }
-          show(this, 'pause'); return;
-        }
+        if (action === 'back') { back(this); return; }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
           const slot = action.slice(5);
           const ok = await game.save(slot);
           await KIT.toast(KIT.strings.get(game.project, ok ? 'saved' : 'save-failed'));
-          if (ok) KIT.audio.play('save');
-          show(this, 'pause');
+          if (ok) KIT.look.sound('save');
+          // Out of the list — unless the player already went, with a B while
+          // the save was being written or "Saved." was up: that B took them
+          // back a step, and a second step here would close the menu they had
+          // just backed into.
+          if (!this._closed && mode === 'save') back(this);
           return;
         }
         if (action === 'keys') {
@@ -19524,9 +20325,30 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           game = (params && params.game) || KIT.game;
           entered = (params && params.mode) || 'pause';   // Settings from the title has no pause menu to go back to
           this._saveRows = null;
+          this._closed = false;
+          // Here and not in whatever asked for the menu, so every way in — ☰,
+          // a script's @menu, Settings from the title — makes the sound that
+          // exit's `close` answers.
+          KIT.look.sound('open');
           show(this, entered);
+          // Opened straight onto the save list (anything may ask for
+          // `{ mode: 'save' }` — a module's own Save screen, say), the slots
+          // come from storage, which answers a moment later. This said
+          // "Loading…" for good, because only the pause menu's own Save row went
+          // and fetched them. Fetch here too, and draw them when they arrive,
+          // unless the list has closed or something is on top of it by then.
+          if (entered === 'save') {
+            saveRows(game).then((got) => {
+              this._saveRows = got;
+              if (!this._closed && !this.suspended && mode === 'save') build(this);
+            }).catch((e) => (KIT.log || console).error('[menu] could not list the save slots', e));
+          }
         },
-        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
+        exit() {
+          this._closed = true;
+          const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null;
+          KIT.look.sound('close');
+        },
         /**
          * Something opened over us — very likely a module's own screen, drawn
          * into this same `#pause-menu` host, because that is the one overlay the
@@ -19538,20 +20360,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         suspend() { if (this._off) { this._off(); this._off = null; } },
         resume() { const host = UI.el('pause-menu'); if (host) { host.hidden = false; } build(this); },
         input(ev) {
-          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'left' || ev.key === 'right') {
             const row = rows[index];
             if (row && nudge(row.action, ev.key === 'left' ? -1 : 1)) build(this);
             return true;
           }
           if (ev.key === 'a') { activate.call(this); return true; }
-          if (ev.key === 'b' || ev.key === 'menu') {
-            KIT.audio.play('back');
-            if (mode !== 'pause') { show(this, 'pause'); return true; }
-            this.finish('close');
-            return true;
-          }
+          if (ev.key === 'b' || ev.key === 'menu') { KIT.look.sound('cancel'); back(this); return true; }
           return true;
         },
       };
@@ -19681,7 +20498,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           ? t('keys-taken', { key: KIT.input.keyLabel(code), button: t('btn-' + was), now: t('btn-' + w.button) })
           : '';
         stopWaiting();
-        KIT.audio.play('save');
+        KIT.look.sound('save');
       }
 
       function choose() {
@@ -19692,7 +20509,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           KIT.input.resetKeymap();
           save({ keys: null });
           note = '';
-          KIT.audio.play('back');
+          KIT.look.sound('cancel');
           build(this);
           return;
         }
@@ -19700,7 +20517,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         note = '';
         stopWaiting();                 // a second row tapped while one waits must not leave the first listener alive for good
         waiting = { action: row.action, player: row.player, button: row.button };
-        KIT.audio.play('blip');
+        KIT.look.sound('move');
         build(this);
         // Raw, and only while waiting. `capture` so it runs before anything
         // else can treat the key as a button and act on it.
@@ -19739,10 +20556,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           // mapped buttons must not also fire, or pressing the key you are
           // binding would choose the next row with it.
           if (waiting) return true;
-          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { choose.call(this); return true; }
-          if (ev.key === 'b' || ev.key === 'menu') { KIT.audio.play('back'); this.finish('close'); return true; }
+          if (ev.key === 'b' || ev.key === 'menu') { KIT.look.sound('cancel'); this.finish('close'); return true; }
           return true;
         },
       };
@@ -19822,14 +20639,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const meta = project.meta || {};
           host = UI.el('screen-title');
           if (!host) { this.finish('new-game'); return; }
-          UI.clear(host);
-          host.hidden = false;
 
-          const inner = UI.make('div.kit-title-inner');
-          inner.appendChild(UI.make('h1.kit-title', { text: meta.title || 'Our Adventure' }));
-          if (meta.subtitle) inner.appendChild(UI.make('p.kit-subtitle', { text: meta.subtitle }));
-
-          const list = UI.make('div.kit-menu-list');
           items = [
             { action: 'new-game', label: KIT.strings.get(project, 'new-game') },
             { action: 'continue', label: KIT.strings.get(project, 'continue'), disabled: true },
@@ -19846,18 +20656,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             if (canStart) items.push({ action: 'start-own', label: KIT.strings.get(project, 'start-own') });
             items.push({ action: 'creator', label: KIT.strings.get(project, 'creator-mode') });
           }
-          items.forEach((it, i) => {
-            const b = UI.make('button.kit-uibtn.kit-menu-item', { text: it.label });
-            b.type = 'button';
-            b.setAttribute('data-action', it.action);
-            b.setAttribute('data-index', String(i));
-            if (it.disabled) b.disabled = true;
-            list.appendChild(b);
-          });
-          inner.appendChild(list);
-          if (meta.pitch) inner.appendChild(UI.make('p.kit-pitch', { text: meta.pitch }));
-          inner.appendChild(UI.make('p.kit-hint', { text: KIT.input.isTouch() ? 'Tap to choose' : 'Arrows to choose · Z to confirm' }));
-          host.appendChild(inner);
+          const hint = KIT.input.isTouch() ? 'Tap to choose' : 'Arrows to choose · Z to confirm';
+          const list = UI.parts.titleScreen(host, { meta, items, hint }).list;
           index = 0;
           refresh();
 
@@ -19881,7 +20681,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         choose(action) {
-          KIT.audio.play('select');
+          KIT.look.sound('confirm');
           if (action === 'settings') { KIT.scenes.run('menu', { mode: 'settings' }); return; }
           this.finish(action);
         },
@@ -19891,7 +20691,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
               index = (index + d + items.length) % items.length;
               if (!items[index].disabled) break;
             }
-            KIT.audio.play('blip');
+            KIT.look.sound('move');
             refresh();
           };
           if (ev.key === 'up' || ev.key === 'left') step(-1);
@@ -20026,7 +20826,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         choose(action) {
-          KIT.audio.play('select');
+          KIT.look.sound('confirm');
           if (action === 'back') { this.finish(null); return; }
           if (action === 'list') { asking = null; paintList(); return; }
           if (action.indexOf('make:') === 0) {
@@ -20041,7 +20841,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           }
         },
         input(ev) {
-          const step = (d) => { index = (index + d + items.length) % items.length; KIT.audio.play('blip'); refresh(); };
+          const step = (d) => { index = (index + d + items.length) % items.length; KIT.look.sound('move'); refresh(); };
           if (ev.key === 'up' || ev.key === 'left') step(-1);
           else if (ev.key === 'down' || ev.key === 'right') step(1);
           else if (ev.key === 'a') this.choose(items[index].action);
@@ -20139,7 +20939,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             Promise.resolve(world.interact(i)).catch(e => (KIT.log || console).error('[map] interact', e));
             return true;
           }
-          if (ev.key === 'menu') { game.openMenu(); return true; }
+          // Not in the middle of a cutscene: the pause menu's Save would save a
+          // world half way through a script, and its Quit would walk out of one.
+          if (ev.key === 'menu') { if (game.canOpenMenu()) game.openMenu(); return true; }
           if (ev.key === 'swap') { game.swapHero(); return true; }
           return true;
         },
@@ -20264,7 +21066,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // ---- the ports (§9.1) -------------------------------------------------------------
   function buildPorts() {
     const io = {
-      say: (o) => KIT.scenes.run('dialogue', o),
+      // Through the cast, so a line a module says for somebody sounds like them.
+      // The say command resolves the voice itself; this is for everyone else.
+      say: (o) => KIT.scenes.run('dialogue', KIT.cast.speaker(G.project, o)),
       choice: (o) => KIT.scenes.run('choice', o),
       nameEntry: async (o) => {
         const name = await KIT.scenes.run('nameEntry', o);
@@ -20676,6 +21480,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     G.project = opts.project || KIT.project.blank();
     useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
+    // The look goes in before anything is drawn, and is waited for: a message
+    // is wrapped by measuring its letters, and a look's own font measured
+    // before it has loaded breaks the first page in the wrong places.
+    await KIT.look.apply(G.project);
     // The tree of moments is per project and lives beside the save slots, so it
     // is read once here — after the project id is known and before anything can
     // record into it.
@@ -20937,6 +21745,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- runtime controls ----------------------------------------------------------------------
   G.openMenu = function () { return KIT.scenes.run('menu', { game: G }); };
+  /**
+   * canOpenMenu() -> bool — may the player pause right now? Not with no world,
+   * not while a script holds the world (a cutscene, somebody talking), and not
+   * while the story has locked the menu. ☰ during a cutscene opened a menu
+   * whose Save wrote a world half way through a scene.
+   */
+  G.canOpenMenu = function () {
+    const w = G.world;
+    if (!w || w.busy) return false;
+    if (KIT.interpreter && KIT.interpreter.mainBusy()) return false;
+    return !(w.save && w.save.locks && w.save.locks.menu);
+  };
   G.swapHero = function () {
     const w = G.world;
     if (!w || w.heroes.length < 2) return;
@@ -21010,6 +21830,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     G.project = n.project;
     useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
+    KIT.look.apply(G.project);
     if (G.renderer) { G.renderer.setProject(G.project); G.resize(); }
     const top = KIT.scenes.top();
     if (top && top.id === 'title') {           // redraw the title for the new project without ending the title loop
@@ -33668,6 +34489,10 @@ PKMN.TILES.register([
     'no-migration': 'This project is too old to be upgraded automatically.',
     'validator-threw': 'A module’s own validator failed. The project is probably fine; the module is not.',
     'not-an-object': 'The project file could not be read at all.',
+    'ui-base-missing': 'The look this game starts from is not here any more, so the game uses Kit’s look underneath its own changes.',
+    'ui-base-cycle': 'Two looks are each built on the other. The circle is cut where it was found.',
+    'ui-base-deep': 'Looks are built on looks more than eight deep; the ones past eight are left out.',
+    'ui-bad-value': 'A value in the look is not one the engine can use — not a colour, or not one of the choices — so it is left out and the look underneath shows.',
   };
   /** explain(code) -> the "what does this mean" line under a problem. */
   W.explain = function (code) {

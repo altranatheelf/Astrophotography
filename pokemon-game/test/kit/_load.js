@@ -19,6 +19,8 @@ const files = [
   'js/kit/core/input.js',
   'js/kit/core/audio.js',
   'js/kit/core/lang.js',
+  'js/kit/core/look.js',
+  'js/kit/ui/presets.js',
   'js/kit/world/document.js',
   'js/kit/world/project.js',
   'js/kit/world/tiles.js',

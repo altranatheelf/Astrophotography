@@ -109,7 +109,9 @@
   // ---- the ports (§9.1) -------------------------------------------------------------
   function buildPorts() {
     const io = {
-      say: (o) => KIT.scenes.run('dialogue', o),
+      // Through the cast, so a line a module says for somebody sounds like them.
+      // The say command resolves the voice itself; this is for everyone else.
+      say: (o) => KIT.scenes.run('dialogue', KIT.cast.speaker(G.project, o)),
       choice: (o) => KIT.scenes.run('choice', o),
       nameEntry: async (o) => {
         const name = await KIT.scenes.run('nameEntry', o);
@@ -521,6 +523,10 @@
     G.project = opts.project || KIT.project.blank();
     useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
+    // The look goes in before anything is drawn, and is waited for: a message
+    // is wrapped by measuring its letters, and a look's own font measured
+    // before it has loaded breaks the first page in the wrong places.
+    await KIT.look.apply(G.project);
     // The tree of moments is per project and lives beside the save slots, so it
     // is read once here — after the project id is known and before anything can
     // record into it.
@@ -782,6 +788,18 @@
 
   // ---- runtime controls ----------------------------------------------------------------------
   G.openMenu = function () { return KIT.scenes.run('menu', { game: G }); };
+  /**
+   * canOpenMenu() -> bool — may the player pause right now? Not with no world,
+   * not while a script holds the world (a cutscene, somebody talking), and not
+   * while the story has locked the menu. ☰ during a cutscene opened a menu
+   * whose Save wrote a world half way through a scene.
+   */
+  G.canOpenMenu = function () {
+    const w = G.world;
+    if (!w || w.busy) return false;
+    if (KIT.interpreter && KIT.interpreter.mainBusy()) return false;
+    return !(w.save && w.save.locks && w.save.locks.menu);
+  };
   G.swapHero = function () {
     const w = G.world;
     if (!w || w.heroes.length < 2) return;
@@ -855,6 +873,7 @@
     G.project = n.project;
     useAssets(G.project);
     KIT.storage.projectId((G.project.meta && G.project.meta.id) || 'kit');
+    KIT.look.apply(G.project);
     if (G.renderer) { G.renderer.setProject(G.project); G.resize(); }
     const top = KIT.scenes.top();
     if (top && top.id === 'title') {           // redraw the title for the new project without ending the title loop

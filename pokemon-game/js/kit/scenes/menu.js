@@ -21,29 +21,7 @@
   function save(patch) { return KIT.storage.saveSettings(patch); }
 
   /** A list panel inside #pause-menu: rows of { label, value, action, disabled }. */
-  function panel(title, rows, opts) {
-    const host = UI.el('pause-menu');
-    UI.clear(host);
-    host.hidden = false;
-    const box = UI.make('div.kit-panel.kit-pause');
-    if (title) box.appendChild(UI.make('div.kit-panel-title', { text: title }));
-    const list = UI.make('div.kit-menu-list');
-    rows.forEach((r, i) => {
-      const b = UI.make('button.kit-uibtn.kit-menu-item', {});
-      b.type = 'button';
-      b.setAttribute('data-action', r.action || ('row-' + i));
-      b.setAttribute('data-index', String(i));
-      if (r.disabled) b.disabled = true;
-      b.appendChild(UI.make('span.kit-item-label', { text: r.label }));
-      if (r.value != null) b.appendChild(UI.make('span.kit-item-value', { text: String(r.value) }));
-      if (r.note) b.appendChild(UI.make('span.kit-item-note', { text: r.note }));
-      list.appendChild(b);
-    });
-    box.appendChild(list);
-    if (opts && opts.hint) box.appendChild(UI.make('p.kit-hint', { text: opts.hint }));
-    host.appendChild(box);
-    return { host, list };
-  }
+  function panel(title, rows, opts) { return UI.parts.listPanel(UI.el('pause-menu'), title, rows, opts); }
 
   /** One scene drives every list: pause, settings and save just supply rows. */
   scenes.add({
@@ -72,6 +50,16 @@
       };
       /** show(self, m) — switch to another screen of the menu, at its first row. */
       const show = (self, m) => { mode = m; index = 0; build(self); };
+      /**
+       * back(self) — one step out: B, ☰, a Back row, a slot saved into. Out of
+       * the screen the menu was opened ON (Settings from the title, a save list
+       * something opened by itself) is out of the menu, not into the pause
+       * menu of a game that may not be running — B on Settings over the title
+       * used to land on a "Paused" whose Save answered "Could not save.", and
+       * B on a save list a module opened handed the player Quit in the middle
+       * of whatever opened it.
+       */
+      const back = (self) => { if (mode === 'pause' || mode === entered) self.finish('close'); else show(self, 'pause'); };
 
       /** The next row in that direction that can actually be chosen. */
       function step(from, dir) {
@@ -89,13 +77,18 @@
         return 'Paused';
       }
 
+      /**
+       * Keep playing, then the `menus` registry, in the order the look asks for
+       * (KIT.look.menuOrder — the kit's order is the registry's `order`).
+       */
       function pauseRows() {
-        const out = [{ label: t('keep-playing'), action: 'close' }];
-        for (const def of menus.list().slice().sort((a, b) => (a.order || 50) - (b.order || 50))) {
-          if (typeof def.when === 'function' && !def.when(game)) continue;
-          out.push({ label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined });
-        }
-        return out;
+        const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
+        const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
+        return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
+          if (id === 'keep-playing') return { label: t('keep-playing'), action: 'close' };
+          const def = menus.get(id);
+          return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
+        });
       }
 
       /** The engine's own words, through the Terms table so they translate. */
@@ -157,10 +150,10 @@
           if (next < 0) next = 1;
           save({ [key]: next });
           KIT.audio.setVolume(kind, next);
-          if (kind === 'sound') KIT.audio.play('select');
+          if (kind === 'sound') KIT.look.sound('confirm');       // a sample at the new volume
         } else if (action === 'toggle:sound') { save({ sound: !s.sound }); KIT.audio.setEnabled(!s.sound); }
         else if (action === 'toggle:music') { save({ music: !s.music }); KIT.audio.setMusic(!s.music); if (!s.music && KIT.game && KIT.game.world) KIT.audio.music(KIT.game.world.currentMusic || null); }
-        else if (action === 'toggle:reduceMotion') save({ reduceMotion: !s.reduceMotion });
+        else if (action === 'toggle:reduceMotion') { save({ reduceMotion: !s.reduceMotion }); KIT.look.syncMotion(); }
         else if (action === 'cycle:buttons') {
           const now = BUTTONS.includes(s.buttons) ? s.buttons : 'auto';
           const i = (BUTTONS.indexOf(now) + (dir || 1) + BUTTONS.length) % BUTTONS.length;
@@ -175,21 +168,20 @@
         const row = rows[index];
         if (!row || row.disabled) return;
         const action = row.action || '';
-        KIT.audio.play('select');
+        KIT.look.sound('confirm');
         if (action === 'close') { this.finish('close'); return; }
-        if (action === 'back') {
-          // Back from a screen the menu was opened ON (Settings from the title) is
-          // out, not "to the pause menu of a game that is not running".
-          if (mode === entered) { this.finish('close'); return; }
-          show(this, 'pause'); return;
-        }
+        if (action === 'back') { back(this); return; }
         if (action.startsWith('cycle:') || action.startsWith('toggle:')) { nudge(action, 1); build(this); return; }
         if (action.startsWith('slot:')) {
           const slot = action.slice(5);
           const ok = await game.save(slot);
           await KIT.toast(KIT.strings.get(game.project, ok ? 'saved' : 'save-failed'));
-          if (ok) KIT.audio.play('save');
-          show(this, 'pause');
+          if (ok) KIT.look.sound('save');
+          // Out of the list — unless the player already went, with a B while
+          // the save was being written or "Saved." was up: that B took them
+          // back a step, and a second step here would close the menu they had
+          // just backed into.
+          if (!this._closed && mode === 'save') back(this);
           return;
         }
         if (action === 'keys') {
@@ -285,9 +277,30 @@
           game = (params && params.game) || KIT.game;
           entered = (params && params.mode) || 'pause';   // Settings from the title has no pause menu to go back to
           this._saveRows = null;
+          this._closed = false;
+          // Here and not in whatever asked for the menu, so every way in — ☰,
+          // a script's @menu, Settings from the title — makes the sound that
+          // exit's `close` answers.
+          KIT.look.sound('open');
           show(this, entered);
+          // Opened straight onto the save list (anything may ask for
+          // `{ mode: 'save' }` — a module's own Save screen, say), the slots
+          // come from storage, which answers a moment later. This said
+          // "Loading…" for good, because only the pause menu's own Save row went
+          // and fetched them. Fetch here too, and draw them when they arrive,
+          // unless the list has closed or something is on top of it by then.
+          if (entered === 'save') {
+            saveRows(game).then((got) => {
+              this._saveRows = got;
+              if (!this._closed && !this.suspended && mode === 'save') build(this);
+            }).catch((e) => (KIT.log || console).error('[menu] could not list the save slots', e));
+          }
         },
-        exit() { const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null; },
+        exit() {
+          this._closed = true;
+          const host = UI.el('pause-menu'); if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); this._off = null;
+          KIT.look.sound('close');
+        },
         /**
          * Something opened over us — very likely a module's own screen, drawn
          * into this same `#pause-menu` host, because that is the one overlay the
@@ -299,20 +312,15 @@
         suspend() { if (this._off) { this._off(); this._off = null; } },
         resume() { const host = UI.el('pause-menu'); if (host) { host.hidden = false; } build(this); },
         input(ev) {
-          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'left' || ev.key === 'right') {
             const row = rows[index];
             if (row && nudge(row.action, ev.key === 'left' ? -1 : 1)) build(this);
             return true;
           }
           if (ev.key === 'a') { activate.call(this); return true; }
-          if (ev.key === 'b' || ev.key === 'menu') {
-            KIT.audio.play('back');
-            if (mode !== 'pause') { show(this, 'pause'); return true; }
-            this.finish('close');
-            return true;
-          }
+          if (ev.key === 'b' || ev.key === 'menu') { KIT.look.sound('cancel'); back(this); return true; }
           return true;
         },
       };
@@ -442,7 +450,7 @@
           ? t('keys-taken', { key: KIT.input.keyLabel(code), button: t('btn-' + was), now: t('btn-' + w.button) })
           : '';
         stopWaiting();
-        KIT.audio.play('save');
+        KIT.look.sound('save');
       }
 
       function choose() {
@@ -453,7 +461,7 @@
           KIT.input.resetKeymap();
           save({ keys: null });
           note = '';
-          KIT.audio.play('back');
+          KIT.look.sound('cancel');
           build(this);
           return;
         }
@@ -461,7 +469,7 @@
         note = '';
         stopWaiting();                 // a second row tapped while one waits must not leave the first listener alive for good
         waiting = { action: row.action, player: row.player, button: row.button };
-        KIT.audio.play('blip');
+        KIT.look.sound('move');
         build(this);
         // Raw, and only while waiting. `capture` so it runs before anything
         // else can treat the key as a button and act on it.
@@ -500,10 +508,10 @@
           // mapped buttons must not also fire, or pressing the key you are
           // binding would choose the next row with it.
           if (waiting) return true;
-          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
-          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.audio.play('blip'); return true; }
+          if (ev.key === 'up') { index = step(index, -1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
+          if (ev.key === 'down') { index = step(index, 1); UI.select(ui.list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { choose.call(this); return true; }
-          if (ev.key === 'b' || ev.key === 'menu') { KIT.audio.play('back'); this.finish('close'); return true; }
+          if (ev.key === 'b' || ev.key === 'menu') { KIT.look.sound('cancel'); this.finish('close'); return true; }
           return true;
         },
       };

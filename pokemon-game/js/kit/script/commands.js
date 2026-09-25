@@ -148,16 +148,12 @@
     /**
      * voiceOf(ctx, cmd) -> a voice id, or null for silence.
      * What this line asked for, then the speaker's own from the cast, then the
-     * project's default. A speaker who is nobody in particular gets the default.
+     * game's default. One rule, KIT.cast.speaker's, so a line from a script and
+     * a line from a module cannot sound different.
      */
     voiceOf(ctx, cmd) {
-      if (cmd && cmd.voice) return cmd.voice;
-      const project = ctx && ctx.project;
-      const who = (cmd && cmd.who) || '';
-      const person = (KIT.cast && KIT.cast.person) ? KIT.cast.person(project, who) : null;
-      if (person && person.voice) return person.voice;
-      const s = (project && project.settings) || {};
-      return s.voice || null;
+      const said = KIT.cast.speaker(ctx && ctx.project, { who: (cmd && cmd.who) || '', voice: (cmd && cmd.voice) || null });
+      return said.voice || null;
     },
     heroName(ctx, heroId) {
       const i = C.heroIndex(ctx, heroId);

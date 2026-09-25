@@ -135,6 +135,10 @@
     'no-migration': 'This project is too old to be upgraded automatically.',
     'validator-threw': 'A module’s own validator failed. The project is probably fine; the module is not.',
     'not-an-object': 'The project file could not be read at all.',
+    'ui-base-missing': 'The look this game starts from is not here any more, so the game uses Kit’s look underneath its own changes.',
+    'ui-base-cycle': 'Two looks are each built on the other. The circle is cut where it was found.',
+    'ui-base-deep': 'Looks are built on looks more than eight deep; the ones past eight are left out.',
+    'ui-bad-value': 'A value in the look is not one the engine can use — not a colour, or not one of the choices — so it is left out and the look underneath shows.',
   };
   /** explain(code) -> the "what does this mean" line under a problem. */
   W.explain = function (code) {
