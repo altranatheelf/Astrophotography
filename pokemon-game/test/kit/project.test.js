@@ -194,6 +194,7 @@ test('migration project-2-to-3 converts the flat shape', () => {
   assert.equal(p.meta.title, "Mom's Adventure"); assert.equal(p.meta.id, 'moms-adventure');
   assert.equal(p.settings.textSpeed, 'fast'); assert.equal(p.settings.coop.enabled, true);
   assert.deepEqual(p.modules, ['mons']); assert.equal(p.packs.mons.garden, 'garden'); assert.deepEqual(Object.keys(p.packs.mons.encounters), ['town']);
+  assert.equal(p.packs.mons.encounters.town.rate, 20, "v2's rate: null meant the settings default, and the default comes along");
   assert.deepEqual(Object.keys(p.world.maps), ['town', 'home']);                              // mapOrder
   assert.ok(p.world.maps.home.x > p.world.maps.town.x);
   assert.equal(p.scripts.intro.trigger, 'auto'); assert.equal(p.scripts.intro.body.length, 3); assert.deepEqual(p.scripts.intro.body[1], { t: 'setVar', name: 'awake', op: 'set', value: true });

@@ -115,6 +115,10 @@ test('mapView: a connection is not a way through a wall on the other side', () =
   assert.equal(v.passable(3, 4, 'down', null).reason, 'tile');
   assert.equal(v.passable(4, 4, 'down', null).reason, 'edge-in', 'a one-way tile on the far side, facing the wrong way');
   assert.equal(v.passable(2, 4, 'down', null).reason, 'connection', 'and the open tile beside them still is');
+  // A `through` walker (a cutscene's Player Through ON) passes walls inside a
+  // map, so a wall across a seam does not stop it either.
+  assert.equal(v.passable(3, 4, 'down', { through: true }).reason, 'connection', 'through crosses a seam into a wall');
+  assert.equal(v.passable(4, 4, 'down', { through: true }).reason, 'connection', 'and past a one-way tile');
   // A connection to a map that does not exist is an edge, not a crash.
   project.world.connections.push({ a: 'town', side: 'n', b: 'nowhere', offset: 0 });
   assert.equal(KIT.mapView(project, {}, 'town').passable(3, 0, 'up', null).reason, 'edge');

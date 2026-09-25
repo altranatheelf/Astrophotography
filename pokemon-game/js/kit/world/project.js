@@ -357,7 +357,12 @@
       const layers = m.layers || {};
       const map = { id, name: m.name || titleCase(id), width: m.width | 0, height: m.height | 0, kind: m.kind || 'outdoor', music: m.music || null, note: '',
         layers: { terrain: [], ground: layers.ground || [], deco: layers.deco || [], above: layers.above || [], regions: [] }, collision: m.collision || [], objects: (m.objects || []).map(oldObject), props: {} };
-      if (m.encounters && Array.isArray(m.encounters.table) && m.encounters.table.length) { encounters[id] = m.encounters; mons = true; }
+      if (m.encounters && Array.isArray(m.encounters.table) && m.encounters.table.length) {
+        // v2: a map's `rate: null` meant "the settings default". v3 has no global
+        // rate, so the old default is folded into each map that relied on it.
+        encounters[id] = m.encounters.rate == null && typeof s.encounterRate === 'number' ? Object.assign({}, m.encounters, { rate: s.encounterRate }) : m.encounters;
+        mons = true;
+      }
       if (map.objects.some(o => o.type === 'pokemon')) mons = true;
       out.maps[id] = map;
       out.world.maps[id] = { x: wx, y: 0, folder: '' };
@@ -664,7 +669,7 @@
     P.walkScripts(project, (list, where) => list.forEach((cmd, i) => fn(cmd, Object.assign({}, where, { path: where.path.concat(i) }), i)));
   };
 
-  /** Baseline condition refs (§9.3 shapes) — used when the conditions registry / schema handler yields nothing. */
+  /** Condition refs: the `condition` schema handler (conditions.js), else the kind's registered fields; an unknown kind has none. */
   function conditionRefs(cond, path, out) {
     if (!isObj(cond)) return;
     const viaSchema = [];
@@ -676,14 +681,6 @@
       for (const r of refs) out.push(Object.assign({}, r, { path: path.concat(r.path) }));
       S.walk(def.fields, cond, (f, v, p) => { if (f.type === 'condition' && v) conditionRefs(v, path.concat(p), out); });
       return;
-    }
-    switch (cond.kind) {
-      case 'var': if (typeof cond.name === 'string') out.push({ kind: 'var', id: cond.name, path: path.concat('name'), access: 'read' }); if (typeof cond.var === 'string') out.push({ kind: 'var', id: cond.var, path: path.concat('var'), access: 'read' }); break;
-      case 'self': if (typeof cond.key === 'string') out.push({ kind: 'self', id: cond.key, path: path.concat('key'), access: 'read' }); break;
-      case 'item': if (typeof cond.id === 'string') out.push({ kind: 'item', id: cond.id, path: path.concat('id'), access: 'read' }); break;
-      case 'all': case 'any': (Array.isArray(cond.of) ? cond.of : []).forEach((c, i) => conditionRefs(c, path.concat('of', i), out)); break;
-      case 'not': conditionRefs(cond.of, path.concat('of'), out); break;
-      default: break;
     }
   }
   P.conditionRefs = function (cond, path) { const out = []; conditionRefs(cond, path || [], out); return out; };
@@ -720,7 +717,7 @@
     return out;
   }
   P.withoutScripts = withoutScripts;
-  /** Refs of one value against a field list: schema refs, plus the baseline condition walk wherever the schema's condition handler yields nothing. */
+  /** Refs of one value against a field list: schema refs, plus, for a condition field the schema handler finds nothing in, the refs of its registered fields. */
   function fieldRefs(fields, value, path, out) {
     if (!Array.isArray(fields) || !isObj(value)) return;
     for (const r of S.refs(fields, value, {})) out.push(Object.assign({}, r, { path: path.concat(r.path) }));
@@ -736,7 +733,7 @@
   /**
    * collect(project) -> { vars:{ name:{ reads:[where], writes:[where], declared } }, refs:[{ kind, id, access, where }] }
    * Command refs come from the command's registered field schema (nothing is guessed for unregistered commands);
-   * condition refs from the conditions registry / schema handler, falling back to the baseline §9.3 shapes.
+   * condition refs from the conditions registry / schema handler.
    */
   P.collect = function (project) {
     const refs = [];
@@ -786,10 +783,8 @@
   };
 
   // ---- validate -----------------------------------------------------------------
-  const REGISTRY_KINDS = { tile: 'tiles', sprite: 'sprites', face: 'faces', icon: 'icons', sound: 'sounds', music: 'music', preset: 'presets' };
   /** Is `id` a known thing of `kind`? true | false | null (cannot tell: empty registry / undeclared var / no resolver). */
   P.known = function (kind, id, project) {
-    if (REGISTRY_KINDS[kind]) { const rn = REGISTRY_KINDS[kind]; if (!KIT.registry.exists(rn) || KIT.registry(rn).size() === 0) return null; return KIT.registry(rn).has(id); }
     const res = S.refKinds[kind];
     if (!res || !res.has) return null;
     return res.has(id, { project });

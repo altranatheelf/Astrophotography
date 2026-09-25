@@ -130,9 +130,10 @@ declarations:
   `at: 'tuning'` says which object inside the pack the `fields` describe.
 
 The three modules keep their `ensure(save)` / `pack(project)` helpers — they are
-called in eighteen places and they read well — but the bodies now delegate to
-the engine, falling back to doing it themselves only for a bare save with no
-world around it. `tools/new-module.js` scaffolds the declarations, and the test
+called in eighteen places and they read well — but they are now thin names for
+`KIT.modules.saveSection` / `KIT.modules.pack`, which need the module's
+`manifest.js` declared first. That works headless too, with no world around it
+(the module tests load the manifest for exactly that). `tools/new-module.js` scaffolds the declarations, and the test
 it writes proves the engine acts on them.
 
 `test/kit/modules.test.js` checks this against throwaway modules rather than the

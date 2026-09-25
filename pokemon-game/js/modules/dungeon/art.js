@@ -150,12 +150,7 @@
     const icons = KIT.registry('icons');
     for (const i of ICONS) icons.add(Object.assign({ replace: icons.has(i.id) }, i));
     // A three-wide alcove the author can stamp straight into a wall.
-    if (typeof KIT.registry('tiles').stamps !== 'undefined') {
-      const all = tiles.stamps = tiles.stamps || [];
-      const stamp = { id: 'dun-alcove', name: 'Torch alcove', group: 'cave', tiles: [['dun-wall', 'dun-torch', 'dun-wall']] };
-      const i = all.findIndex(s => s.id === stamp.id);
-      if (i >= 0) all[i] = stamp; else all.push(stamp);
-    }
+    tiles.addStamps([{ id: 'dun-alcove', name: 'Torch alcove', group: 'cave', tiles: [['dun-wall', 'dun-torch', 'dun-wall']] }]);
   };
   D.TILE_IDS = TILES.map(t => t.id);
   D.ICON_IDS = ICONS.map(i => i.id);

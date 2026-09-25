@@ -108,6 +108,41 @@ test('storage: a draft that could not be READ is not a draft that gets overwritt
   assert.notEqual(await S.saveDraft({ meta: { id: 'x' } }, { now: true }), false, 'a missing draft is just a first run');
 });
 
+test('storage: the block lifts when the store reads again and there was no draft to protect', async () => {
+  // One failed read used to block every save for the rest of the session, even
+  // on a first run with nothing stored: an author could make a whole game and
+  // lose it on reload. The block now asks again before it refuses.
+  const ls = fakeLocalStorage();
+  const realGet = ls.getItem.bind(ls);
+  let fails = 1;
+  ls.getItem = (k) => { if (/\.draft$/.test(k) && fails > 0) { fails--; throw new Error('busy for a moment'); } return realGet(k); };
+  globalThis.localStorage = ls;
+  S._reset();
+  S.forceAdapter = 'localStorage';
+  await S.ready();
+  await S.loadProject();
+  assert.match(String(S.warning || ''), /could not be read/, 'the failed read is still reported');
+  assert.notEqual(await S.saveDraft({ meta: { id: 'x' } }, { now: true }), false, 'the store reads now and holds no draft: the save goes through');
+  assert.equal(S.warning, null, 'and the warning goes with the block');
+
+  // But a draft that turns out to be THERE stays protected: the game on screen is the built-in one.
+  const draftKey = Array.from(ls._map.keys()).find((k) => /\.draft$/.test(k));
+  assert.ok(draftKey, 'the first half saved a draft, so its key is known');
+  const ls2 = fakeLocalStorage();
+  ls2.setItem(draftKey, JSON.stringify({ project: { meta: { id: 'mine', title: 'Mine' } } }));
+  const realGet2 = ls2.getItem.bind(ls2);
+  let fails2 = 1;
+  ls2.getItem = (k) => { if (/\.draft$/.test(k) && fails2 > 0) { fails2--; throw new Error('busy for a moment'); } return realGet2(k); };
+  globalThis.localStorage = ls2;
+  S._reset();
+  S.forceAdapter = 'localStorage';
+  await S.ready();
+  const loaded = await S.loadProject();
+  assert.notEqual(loaded.source, 'draft', 'the draft could not be read at boot');
+  assert.equal(await S.saveDraft({ meta: { id: 'x' } }, { now: true }), false, 'it reads now, and it is not overwritten by the game that booted without it');
+  assert.match(String(S.warning || ''), /could not be read/, 'and the page still says to reload');
+});
+
 test('storage: settings and meta are cached and survive a reload', async () => {
   globalThis.localStorage = fakeLocalStorage();
   S._reset();

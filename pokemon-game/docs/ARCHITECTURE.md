@@ -294,8 +294,9 @@ meta (separate key, survives New Game): { runs:0, firstPlayed, endingsSeen:[], n
   — plus whatever @remember has written. It is the game's memory of the PLAYER
   rather than of the run, which is why it lives outside every save.
 ```
-Loading a save whose objects/maps no longer exist ignores those entries. Save
-migrations are a registry chain like project migrations. Export/import as text.
+Loading a save whose objects/maps no longer exist ignores those entries. A
+module's save slice migrates through its manifest's `save.migrate` chain;
+`KIT.registry('migrations')` is for projects only. Export/import as text.
 
 ## 8. Runtime
 

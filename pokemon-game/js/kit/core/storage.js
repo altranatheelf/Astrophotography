@@ -370,7 +370,7 @@
         // game to have something on screen, and refuse to write drafts for the
         // rest of the session so that game does not land on top of it.
         draftBlocked = true;
-        S.warning = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+        S.warning = DRAFT_UNREADABLE;
         (KIT.log || console).error('[storage] the draft could not be read; drafts are blocked this session');
       }
     }
@@ -398,9 +398,24 @@
     return { project, source, problems };
   };
 
+  const DRAFT_UNREADABLE = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+  /**
+   * The block protects a draft that could not be read. Ask again before each
+   * refusal: if the store reads now and there is no draft, there was nothing to
+   * protect, and a failure that has passed should not cost a whole session.
+   */
+  async function draftStillBlocked() {
+    const failuresBefore = readFailures;
+    const draft = await S.get(draftKey);
+    if (readFailures > failuresBefore || (draft && draft.project)) return true;
+    draftBlocked = false;
+    if (S.warning === DRAFT_UNREADABLE) S.warning = null;
+    return false;
+  }
+
   /** saveDraft(project) — debounced 500 ms (the editor calls it on every edit). */
   S.saveDraft = function (project, opts) {
-    if (draftBlocked) return Promise.resolve(false);
+    if (draftBlocked) return draftStillBlocked().then((blocked) => (blocked ? false : S.saveDraft(project, opts)));
     draftPending = project;
     if (draftTimer) clearTimeout(draftTimer);
     const flush = () => {

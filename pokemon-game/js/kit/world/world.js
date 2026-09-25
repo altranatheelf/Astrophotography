@@ -229,12 +229,15 @@
           E.faceToward(entity, h);
         }
       }
+      // Where the press happened, taken before the script can move anyone: a door
+      // whose script transfers you must not have its rules checked on the far side.
+      const at = { map: world.map ? world.map.id : null, layer: save.dimension || null };
       try {
         const r = await I.run(page.on[slot], ctx, { kind: background ? 'background' : 'main', label: `${key}:${slot}`, path: [key, slot] });
         if (page.once && slot !== 'tick' && slot !== 'init') KIT.commands.state.setSelf(ctx, 'done', true, key);
-        // `interactMissed` is emitted when nothing answers; this is its other half,
-        // documented for as long, and until now emitted by nobody.
-        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r });
+        // `interactMissed` is emitted when nothing answers; this is its other half.
+        // It comes after the script, so a rule's own lines do not talk over it.
+        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r, where: at });
         return r;
       } finally {
         if (!background) {
@@ -325,7 +328,7 @@
               break;
             }
             const job = ruleQueue.shift();
-            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload);
+            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload, job.where);
           }
         } finally { draining = false; }
       })();
@@ -339,9 +342,14 @@
       events.on('*', (event, payload) => {
         // Asked before queueing, so that the common case — an event no rule
         // watches — costs one lookup and no promise.
-        const where = { map: world.map ? world.map.id : null, layer: save.dimension || null };
+        // Scope is checked against where the event HAPPENED: an event may say so
+        // itself (`interact` does, because its script may have moved the hero),
+        // and otherwise it is here, now. The queue carries it, so a job drained
+        // after a transfer is still judged by the map it came from.
+        const where = (payload && KIT.isObject(payload.where)) ? payload.where
+          : { map: world.map ? world.map.id : null, layer: save.dimension || null };
         if (!KIT.rules.matching(project, save, event, where).length) return;
-        ruleQueue.push({ event, payload });
+        ruleQueue.push({ event, payload, where });
         void drainRules();
       });
     }

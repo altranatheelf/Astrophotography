@@ -1607,10 +1607,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
   };
 
-  /** Helper: a resolver backed by a registry. */
+  /**
+   * Helper: a resolver backed by a registry. An empty or undefined registry
+   * answers null ("cannot tell"): a headless check with no art loaded is not
+   * evidence that every tile is missing.
+   */
   S.registryRefKind = function (kind, registryName) {
     return S.refKind(kind, {
-      has(id) { return KIT.registry.exists(registryName) ? KIT.registry(registryName).has(id) : null; },
+      has(id) {
+        if (!KIT.registry.exists(registryName) || KIT.registry(registryName).size() === 0) return null;
+        return KIT.registry(registryName).has(id);
+      },
       list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: KIT.labelOf(d, null, d.id) })) : []; },
       label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? KIT.labelOf(d, null, id) : id; },
     });
@@ -1656,6 +1663,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
+  /** addStamps(list) — put brushes on .stamps, replacing any with the same id (art files and modules may load twice). */
+  KIT.registry('tiles').addStamps = function (list) {
+    for (const s of list) {
+      const i = this.stamps.findIndex(x => x.id === s.id);
+      if (i >= 0) this.stamps[i] = s; else this.stamps.push(s);
+    }
+  };
   KIT.defineRegistry('sprites', { fields: named, doc: 'Walking character sprites (frames down/up/left × 3).' });
   KIT.defineRegistry('faces', { fields: named, doc: 'Dialogue faces.' });
   KIT.defineRegistry('icons', { fields: named, doc: 'Small UI icons.' });
@@ -4391,7 +4405,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         // game to have something on screen, and refuse to write drafts for the
         // rest of the session so that game does not land on top of it.
         draftBlocked = true;
-        S.warning = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+        S.warning = DRAFT_UNREADABLE;
         (KIT.log || console).error('[storage] the draft could not be read; drafts are blocked this session');
       }
     }
@@ -4419,9 +4433,24 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return { project, source, problems };
   };
 
+  const DRAFT_UNREADABLE = 'Your saved work could not be read from this browser’s storage. Nothing will be saved over it until the page is reloaded.';
+  /**
+   * The block protects a draft that could not be read. Ask again before each
+   * refusal: if the store reads now and there is no draft, there was nothing to
+   * protect, and a failure that has passed should not cost a whole session.
+   */
+  async function draftStillBlocked() {
+    const failuresBefore = readFailures;
+    const draft = await S.get(draftKey);
+    if (readFailures > failuresBefore || (draft && draft.project)) return true;
+    draftBlocked = false;
+    if (S.warning === DRAFT_UNREADABLE) S.warning = null;
+    return false;
+  }
+
   /** saveDraft(project) — debounced 500 ms (the editor calls it on every edit). */
   S.saveDraft = function (project, opts) {
-    if (draftBlocked) return Promise.resolve(false);
+    if (draftBlocked) return draftStillBlocked().then((blocked) => (blocked ? false : S.saveDraft(project, opts)));
     draftPending = project;
     if (draftTimer) clearTimeout(draftTimer);
     const flush = () => {
@@ -5216,7 +5245,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const layers = m.layers || {};
       const map = { id, name: m.name || titleCase(id), width: m.width | 0, height: m.height | 0, kind: m.kind || 'outdoor', music: m.music || null, note: '',
         layers: { terrain: [], ground: layers.ground || [], deco: layers.deco || [], above: layers.above || [], regions: [] }, collision: m.collision || [], objects: (m.objects || []).map(oldObject), props: {} };
-      if (m.encounters && Array.isArray(m.encounters.table) && m.encounters.table.length) { encounters[id] = m.encounters; mons = true; }
+      if (m.encounters && Array.isArray(m.encounters.table) && m.encounters.table.length) {
+        // v2: a map's `rate: null` meant "the settings default". v3 has no global
+        // rate, so the old default is folded into each map that relied on it.
+        encounters[id] = m.encounters.rate == null && typeof s.encounterRate === 'number' ? Object.assign({}, m.encounters, { rate: s.encounterRate }) : m.encounters;
+        mons = true;
+      }
       if (map.objects.some(o => o.type === 'pokemon')) mons = true;
       out.maps[id] = map;
       out.world.maps[id] = { x: wx, y: 0, folder: '' };
@@ -5523,7 +5557,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     P.walkScripts(project, (list, where) => list.forEach((cmd, i) => fn(cmd, Object.assign({}, where, { path: where.path.concat(i) }), i)));
   };
 
-  /** Baseline condition refs (§9.3 shapes) — used when the conditions registry / schema handler yields nothing. */
+  /** Condition refs: the `condition` schema handler (conditions.js), else the kind's registered fields; an unknown kind has none. */
   function conditionRefs(cond, path, out) {
     if (!isObj(cond)) return;
     const viaSchema = [];
@@ -5535,14 +5569,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       for (const r of refs) out.push(Object.assign({}, r, { path: path.concat(r.path) }));
       S.walk(def.fields, cond, (f, v, p) => { if (f.type === 'condition' && v) conditionRefs(v, path.concat(p), out); });
       return;
-    }
-    switch (cond.kind) {
-      case 'var': if (typeof cond.name === 'string') out.push({ kind: 'var', id: cond.name, path: path.concat('name'), access: 'read' }); if (typeof cond.var === 'string') out.push({ kind: 'var', id: cond.var, path: path.concat('var'), access: 'read' }); break;
-      case 'self': if (typeof cond.key === 'string') out.push({ kind: 'self', id: cond.key, path: path.concat('key'), access: 'read' }); break;
-      case 'item': if (typeof cond.id === 'string') out.push({ kind: 'item', id: cond.id, path: path.concat('id'), access: 'read' }); break;
-      case 'all': case 'any': (Array.isArray(cond.of) ? cond.of : []).forEach((c, i) => conditionRefs(c, path.concat('of', i), out)); break;
-      case 'not': conditionRefs(cond.of, path.concat('of'), out); break;
-      default: break;
     }
   }
   P.conditionRefs = function (cond, path) { const out = []; conditionRefs(cond, path || [], out); return out; };
@@ -5579,7 +5605,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return out;
   }
   P.withoutScripts = withoutScripts;
-  /** Refs of one value against a field list: schema refs, plus the baseline condition walk wherever the schema's condition handler yields nothing. */
+  /** Refs of one value against a field list: schema refs, plus, for a condition field the schema handler finds nothing in, the refs of its registered fields. */
   function fieldRefs(fields, value, path, out) {
     if (!Array.isArray(fields) || !isObj(value)) return;
     for (const r of S.refs(fields, value, {})) out.push(Object.assign({}, r, { path: path.concat(r.path) }));
@@ -5595,7 +5621,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /**
    * collect(project) -> { vars:{ name:{ reads:[where], writes:[where], declared } }, refs:[{ kind, id, access, where }] }
    * Command refs come from the command's registered field schema (nothing is guessed for unregistered commands);
-   * condition refs from the conditions registry / schema handler, falling back to the baseline §9.3 shapes.
+   * condition refs from the conditions registry / schema handler.
    */
   P.collect = function (project) {
     const refs = [];
@@ -5645,10 +5671,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
 
   // ---- validate -----------------------------------------------------------------
-  const REGISTRY_KINDS = { tile: 'tiles', sprite: 'sprites', face: 'faces', icon: 'icons', sound: 'sounds', music: 'music', preset: 'presets' };
   /** Is `id` a known thing of `kind`? true | false | null (cannot tell: empty registry / undeclared var / no resolver). */
   P.known = function (kind, id, project) {
-    if (REGISTRY_KINDS[kind]) { const rn = REGISTRY_KINDS[kind]; if (!KIT.registry.exists(rn) || KIT.registry(rn).size() === 0) return null; return KIT.registry(rn).has(id); }
     const res = S.refKinds[kind];
     if (!res || !res.has) return null;
     return res.has(id, { project });
@@ -7221,10 +7245,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * runs through the ordinary interpreter, which is what makes a rule able to do
    * anything an event page can.
    */
-  R.fire = async function (ctx, event, payload) {
+  R.fire = async function (ctx, event, payload, at) {
     if (!ctx || !ctx.project || !ctx.world) return 0;
     const save = ctx.world.save;
-    const where = {
+    // `at` is where the event happened, when the caller knows (the world's
+    // queue does); otherwise it is where the world is now.
+    const where = at || {
       map: (ctx.world.map && ctx.world.map.id) || null,
       layer: (save && save.dimension) || null,
     };
@@ -11229,11 +11255,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         // wall: without this, walking off an edge into a tree on the far side
         // simply worked, which is what any author gets the first time two maps
         // are joined a tile out of line.
-        try {
-          const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
-          if (there.solid) return { ok: false, reason: 'tile' };
-          if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
-        } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+        // A `through` walker passes walls inside a map, so it passes them across a seam too.
+        if (!through) {
+          try {
+            const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
+            if (there.solid) return { ok: false, reason: 'tile' };
+            if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
+          } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+        }
         return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
       }
       if (through) return { ok: true, reason: 'through', to: { x: nx, y: ny } };
@@ -11749,12 +11778,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           E.faceToward(entity, h);
         }
       }
+      // Where the press happened, taken before the script can move anyone: a door
+      // whose script transfers you must not have its rules checked on the far side.
+      const at = { map: world.map ? world.map.id : null, layer: save.dimension || null };
       try {
         const r = await I.run(page.on[slot], ctx, { kind: background ? 'background' : 'main', label: `${key}:${slot}`, path: [key, slot] });
         if (page.once && slot !== 'tick' && slot !== 'init') KIT.commands.state.setSelf(ctx, 'done', true, key);
-        // `interactMissed` is emitted when nothing answers; this is its other half,
-        // documented for as long, and until now emitted by nobody.
-        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r });
+        // `interactMissed` is emitted when nothing answers; this is its other half.
+        // It comes after the script, so a rule's own lines do not talk over it.
+        if (slot === 'interact') events.emit('interact', { object: key, hero: ctx.hero, result: r, where: at });
         return r;
       } finally {
         if (!background) {
@@ -11845,7 +11877,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
               break;
             }
             const job = ruleQueue.shift();
-            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload);
+            await KIT.rules.fire(world.makeCtx(null, world.hero() ? world.hero().id : 'p1'), job.event, job.payload, job.where);
           }
         } finally { draining = false; }
       })();
@@ -11859,9 +11891,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       events.on('*', (event, payload) => {
         // Asked before queueing, so that the common case — an event no rule
         // watches — costs one lookup and no promise.
-        const where = { map: world.map ? world.map.id : null, layer: save.dimension || null };
+        // Scope is checked against where the event HAPPENED: an event may say so
+        // itself (`interact` does, because its script may have moved the hero),
+        // and otherwise it is here, now. The queue carries it, so a job drained
+        // after a transfer is still judged by the map it came from.
+        const where = (payload && KIT.isObject(payload.where)) ? payload.where
+          : { map: world.map ? world.map.id : null, layer: save.dimension || null };
         if (!KIT.rules.matching(project, save, event, where).length) return;
-        ruleQueue.push({ event, payload });
+        ruleQueue.push({ event, payload, where });
         void drainRules();
       });
     }
@@ -16553,6 +16590,16 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const isObj = KIT.isObject;
   const clone = (v) => KIT.deepClone(v);
   const same = (a, b) => KIT.deepEqual(a, b);
+  // Keys the importers once wrote into every tile and no longer do, because
+  // nothing read them. A project imported before they went still carries them,
+  // and that is not a difference worth refusing a re-import over.
+  const RETIRED = { tiles: ['probability', 'warpLook'] };
+  const withoutRetired = (v, table) => {
+    if (!RETIRED[table] || !isObj(v)) return v;
+    const out = Object.assign({}, v);
+    for (const k of RETIRED[table]) delete out[k];
+    return out;
+  };
   const sorted = (o) => Object.keys(o || {}).sort();
 
   // Tables that live directly on the project, in the order they are written.
@@ -16710,7 +16757,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const existing = w.get([t.key, id]);
           let action = 'added';
           if (existing !== undefined) {
-            if (same(existing, value)) action = 'unchanged';
+            if (same(withoutRetired(existing, t.key), withoutRetired(value, t.key))) action = 'unchanged';
             else if (overwrite) action = 'replaced';
             else action = 'skipped';
           }
@@ -21004,13 +21051,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
 
   /** registerStamps(stamps) — upserts into KIT.registry('tiles').stamps ({ id, name, group, tiles:[[ids]] }). */
-  T.registerStamps = function (stamps) {
-    const all = reg.stamps = reg.stamps || [];
-    for (const s of stamps) {
-      const i = all.findIndex(x => x.id === s.id);
-      if (i >= 0) all[i] = s; else all.push(s);
-    }
-  };
+  T.registerStamps = function (stamps) { reg.addStamps(stamps); };
 
   // Legacy views over the registry (the art tools read these).
   Object.defineProperty(T, 'list', { get: () => reg.list() });
@@ -29270,7 +29311,14 @@ PKMN.TILES.register([
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    if (title) {
+      b.title = title;
+      // A button that shows only a glyph (↺ − + ✕) is named by its title. One
+      // with words is named by the words it shows, so the name follows the
+      // label when the label changes, and "click Pick on the map" still finds
+      // it (WCAG 2.5.3, Label in Name); the title stays the tooltip.
+      if (!/[\p{L}\p{N}]/u.test(String(label))) b.setAttribute('aria-label', title);
+    }
     b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
     return b;
   }
@@ -29482,12 +29530,9 @@ PKMN.TILES.register([
     // Shown, never edited: an entity's id is what everything else points at, and a
     // box that changed the inner id while the table key stayed put broke references.
     if (f.display === 'readonly') {
-      const box = make('div.ed-readonly');
-      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
-      show(io.get());
-      body.appendChild(box);
+      const shown = INS.field(body, f, io.get());
       reset.hidden = true;
-      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) show(io.get()); } };
+      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) shown.set(io.get()); } };
     }
 
     const def = INS.editorFor(f);
@@ -31278,8 +31323,7 @@ PKMN.TILES.register([
       const st = ed.state;
       const src = st.project.maps[st.mapId];
       const base = copy ? `${src.name} copy` : 'New map';
-      let id = KIT.slug(base), n = 2;
-      while (st.project.maps[id]) id = `${KIT.slug(base)}-${n++}`;
+      const id = ED.ops.uniqueKey(st.project.maps, KIT.slug(base));
       const layout = (st.project.world && st.project.world.maps && st.project.world.maps[st.mapId]) || { x: 0, y: 0, folder: '' };
       if (copy) {
         const clone = KIT.deepClone(src);
@@ -35592,16 +35636,16 @@ PKMN.TILES.register([
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
-<!-- Modules (docs/MODULES.md). These two are what this demo enables
-     (project.modules); the third the engine ships, `dungeon`, belongs to the
-     dungeon template and is not loaded here. tools/load-modules.js loads the
-     same files in the same order for the demo builder and the Node tests.
+<!-- Modules (docs/MODULES.md). The demo enables mons and home
+     (project.modules); bullet is loaded so a game can switch it on, and
+     dungeon is left to games made with --modules dungeon. tools/load-modules.js
+     loads the same files in the same order for the demo builder and the Node
+     tests.
 
      They load BEFORE main.js so main.js still captures the whole page as
-     KIT.PRISTINE_HTML (publish rebuilds the page from that). KIT.module does
-     not exist yet at this point, so each manifest.js registers on
-     DOMContentLoaded — its listener is added first, so it runs before boot.
-     (docs/ENGINE-HOOKS.md §9 is the fix that would make this ordinary.) -->
+     KIT.PRISTINE_HTML (publish rebuilds the page from that). KIT.module comes
+     from js/kit/core/modules.js, loaded above, so each manifest.js declares
+     its module as it loads; boot activates the ones project.modules names. -->
 <script>
 // ---- js/modules/mons/rules.js ----
 // mons/rules.js — every rule the Pokémon side runs on, as pure functions.
@@ -39212,9 +39256,9 @@ PKMN.TILES.register([
       const done = () => {
         const name = (input.value || '').trim();
         if (!name) { input.focus(); return; }
-        const taken = new Set(speciesRows(project).map(r => r.id));
-        let id = KIT.slug(name) || 'new-one', n = 2;
-        while (taken.has(id)) id = `${KIT.slug(name) || 'new-one'}-${n++}`;
+        const taken = Object.create(null);            // no prototype: a species called 'constructor' is not taken
+        for (const r of speciesRows(project)) taken[r.id] = true;
+        const id = KIT.editor.ops.uniqueKey(taken, KIT.slug(name) || 'new-one');
         speciesState.adding = false; speciesState.draft = '';
         speciesState.open[id] = true;
         input.blur();

@@ -254,7 +254,14 @@
   function btn(label, title, fn, cls) {
     const b = make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label });
     b.type = 'button';
-    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    if (title) {
+      b.title = title;
+      // A button that shows only a glyph (↺ − + ✕) is named by its title. One
+      // with words is named by the words it shows, so the name follows the
+      // label when the label changes, and "click Pick on the map" still finds
+      // it (WCAG 2.5.3, Label in Name); the title stays the tooltip.
+      if (!/[\p{L}\p{N}]/u.test(String(label))) b.setAttribute('aria-label', title);
+    }
     b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
     return b;
   }
@@ -466,12 +473,9 @@
     // Shown, never edited: an entity's id is what everything else points at, and a
     // box that changed the inner id while the table key stayed put broke references.
     if (f.display === 'readonly') {
-      const box = make('div.ed-readonly');
-      const show = (v) => { box.textContent = v == null || v === '' ? '—' : String(v); };
-      show(io.get());
-      body.appendChild(box);
+      const shown = INS.field(body, f, io.get());
       reset.hidden = true;
-      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) show(io.get()); } };
+      return { el: row, update(all) { const visible = S.visible(f, all); row.hidden = !visible; if (visible) shown.set(io.get()); } };
     }
 
     const def = INS.editorFor(f);

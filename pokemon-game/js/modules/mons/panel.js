@@ -159,9 +159,9 @@
       const done = () => {
         const name = (input.value || '').trim();
         if (!name) { input.focus(); return; }
-        const taken = new Set(speciesRows(project).map(r => r.id));
-        let id = KIT.slug(name) || 'new-one', n = 2;
-        while (taken.has(id)) id = `${KIT.slug(name) || 'new-one'}-${n++}`;
+        const taken = Object.create(null);            // no prototype: a species called 'constructor' is not taken
+        for (const r of speciesRows(project)) taken[r.id] = true;
+        const id = KIT.editor.ops.uniqueKey(taken, KIT.slug(name) || 'new-one');
         speciesState.adding = false; speciesState.draft = '';
         speciesState.open[id] = true;
         input.blur();

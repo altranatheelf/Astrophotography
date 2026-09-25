@@ -314,10 +314,17 @@
     }
   };
 
-  /** Helper: a resolver backed by a registry. */
+  /**
+   * Helper: a resolver backed by a registry. An empty or undefined registry
+   * answers null ("cannot tell"): a headless check with no art loaded is not
+   * evidence that every tile is missing.
+   */
   S.registryRefKind = function (kind, registryName) {
     return S.refKind(kind, {
-      has(id) { return KIT.registry.exists(registryName) ? KIT.registry(registryName).has(id) : null; },
+      has(id) {
+        if (!KIT.registry.exists(registryName) || KIT.registry(registryName).size() === 0) return null;
+        return KIT.registry(registryName).has(id);
+      },
       list() { return KIT.registry.exists(registryName) ? KIT.registry(registryName).list().map(d => ({ id: d.id, label: KIT.labelOf(d, null, d.id) })) : []; },
       label(id) { const d = KIT.registry.exists(registryName) && KIT.registry(registryName).get(id); return d ? KIT.labelOf(d, null, id) : id; },
     });

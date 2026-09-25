@@ -278,3 +278,36 @@ test('world: an object that answers emits `interact`, the half of interactMissed
   await world.runSlot(kid, 'step', 'p1');
   assert.equal(seen.length, 1, 'other slots are not interactions');
 });
+
+test('world × rules: a door that moves you is judged by the map you pressed A on', async () => {
+  // `interact` is emitted after its script, so a rule's lines do not talk over
+  // the conversation. But a door's script transfers you, and the rule scoped to
+  // the map with the door used to be checked on the far side and never fire.
+  const raw = {
+    version: 3, meta: { id: 'doors', title: 'Doors' },
+    heroes: [{ id: 'p1', name: 'Ash', sprite: 'hero-boy' }],
+    start: { map: 'home', x: 2, y: 2, dir: 'right' },
+    vars: { knocked: { type: 'number', default: 0 }, anywhere: { type: 'number', default: 0 } },
+    rules: {
+      knock: { when: 'interact', scope: { maps: ['home'] }, do: body(['@set knocked += 1']) },
+      any: { when: 'interact', do: body(['@set anywhere += 1']) },
+    },
+    maps: {
+      home: { id: 'home', name: 'Home', width: 8, height: 6, kind: 'indoor', objects: [
+        { id: 'door', name: 'Door', type: 'npc', x: 3, y: 2, pages: [page({ on: { interact: body(['@transfer town 1 2 right']) } })] },
+      ] },
+      town: { id: 'town', name: 'Town', width: 8, height: 6, kind: 'outdoor', objects: [] },
+    },
+  };
+  const { project, problems } = P.normalize(raw);
+  assert.deepEqual(problems.filter(p => p.severity === 'error'), []);
+  const world = makeWorld(project);
+  await world.enterMap('home', 2, 2, 'right');
+  const door = world.entities.find(e => e.id === 'door');
+  await world.runSlot(door, 'interact', 'p1');
+  await world.rulesSettled();
+  assert.equal(world.map.id, 'town', 'the door moved the hero');
+  assert.equal(world.save.vars.anywhere, 1, 'the unscoped rule fired');
+  assert.equal(world.save.vars.knocked, 1, 'and so did the one scoped to the map the door is on');
+});
+

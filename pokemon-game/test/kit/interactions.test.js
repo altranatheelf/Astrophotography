@@ -240,7 +240,9 @@ test('clock × saves: the gap since you last played is applied once, not once pe
   assert.ok(first > 0, 'the first load sees the gap');
   KIT.clock.stamp(s);                               // the runtime stamps on load
   const second = KIT.clock.gap(s);
-  assert.equal(second, 0, 'a second load of the same save sees nothing — the gap was spent');
+  // Milliseconds, and the stamp and this read are two clock reads apart: a
+  // millisecond can pass between them. Three days must not come back.
+  assert.ok(second < 1000, `a second load of the same save sees nothing — the gap was spent (${second} ms)`);
 });
 
 test('clock × saves: a save with no stamp at all is not treated as infinitely old', () => {

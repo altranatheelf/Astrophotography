@@ -54,6 +54,16 @@
   const isObj = KIT.isObject;
   const clone = (v) => KIT.deepClone(v);
   const same = (a, b) => KIT.deepEqual(a, b);
+  // Keys the importers once wrote into every tile and no longer do, because
+  // nothing read them. A project imported before they went still carries them,
+  // and that is not a difference worth refusing a re-import over.
+  const RETIRED = { tiles: ['probability', 'warpLook'] };
+  const withoutRetired = (v, table) => {
+    if (!RETIRED[table] || !isObj(v)) return v;
+    const out = Object.assign({}, v);
+    for (const k of RETIRED[table]) delete out[k];
+    return out;
+  };
   const sorted = (o) => Object.keys(o || {}).sort();
 
   // Tables that live directly on the project, in the order they are written.
@@ -211,7 +221,7 @@
           const existing = w.get([t.key, id]);
           let action = 'added';
           if (existing !== undefined) {
-            if (same(existing, value)) action = 'unchanged';
+            if (same(withoutRetired(existing, t.key), withoutRetired(value, t.key))) action = 'unchanged';
             else if (overwrite) action = 'replaced';
             else action = 'skipped';
           }

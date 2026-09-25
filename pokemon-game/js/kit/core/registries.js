@@ -24,6 +24,13 @@
     { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
+  /** addStamps(list) — put brushes on .stamps, replacing any with the same id (art files and modules may load twice). */
+  KIT.registry('tiles').addStamps = function (list) {
+    for (const s of list) {
+      const i = this.stamps.findIndex(x => x.id === s.id);
+      if (i >= 0) this.stamps[i] = s; else this.stamps.push(s);
+    }
+  };
   KIT.defineRegistry('sprites', { fields: named, doc: 'Walking character sprites (frames down/up/left × 3).' });
   KIT.defineRegistry('faces', { fields: named, doc: 'Dialogue faces.' });
   KIT.defineRegistry('icons', { fields: named, doc: 'Small UI icons.' });

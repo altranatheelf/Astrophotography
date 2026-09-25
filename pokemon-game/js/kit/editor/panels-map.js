@@ -913,8 +913,7 @@
       const st = ed.state;
       const src = st.project.maps[st.mapId];
       const base = copy ? `${src.name} copy` : 'New map';
-      let id = KIT.slug(base), n = 2;
-      while (st.project.maps[id]) id = `${KIT.slug(base)}-${n++}`;
+      const id = ED.ops.uniqueKey(st.project.maps, KIT.slug(base));
       const layout = (st.project.world && st.project.world.maps && st.project.world.maps[st.mapId]) || { x: 0, y: 0, folder: '' };
       if (copy) {
         const clone = KIT.deepClone(src);

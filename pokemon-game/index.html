@@ -148,16 +148,16 @@
 <script src="js/kit/editor/panels-project.js"></script>
 <script src="js/kit/editor/panel-cast.js"></script>
 <script src="js/kit/editor/integration.js"></script>
-<!-- Modules (docs/MODULES.md). These two are what this demo enables
-     (project.modules); the third the engine ships, `dungeon`, belongs to the
-     dungeon template and is not loaded here. tools/load-modules.js loads the
-     same files in the same order for the demo builder and the Node tests.
+<!-- Modules (docs/MODULES.md). The demo enables mons and home
+     (project.modules); bullet is loaded so a game can switch it on, and
+     dungeon is left to games made with --modules dungeon. tools/load-modules.js
+     loads the same files in the same order for the demo builder and the Node
+     tests.
 
      They load BEFORE main.js so main.js still captures the whole page as
-     KIT.PRISTINE_HTML (publish rebuilds the page from that). KIT.module does
-     not exist yet at this point, so each manifest.js registers on
-     DOMContentLoaded — its listener is added first, so it runs before boot.
-     (docs/ENGINE-HOOKS.md §9 is the fix that would make this ordinary.) -->
+     KIT.PRISTINE_HTML (publish rebuilds the page from that). KIT.module comes
+     from js/kit/core/modules.js, loaded above, so each manifest.js declares
+     its module as it loads; boot activates the ones project.modules names. -->
 <script src="js/modules/mons/rules.js"></script>
 <script src="js/modules/mons/strings.js"></script>
 <script src="js/modules/mons/art.js"></script>

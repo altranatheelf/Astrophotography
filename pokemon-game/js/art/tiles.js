@@ -32,13 +32,7 @@
   };
 
   /** registerStamps(stamps) — upserts into KIT.registry('tiles').stamps ({ id, name, group, tiles:[[ids]] }). */
-  T.registerStamps = function (stamps) {
-    const all = reg.stamps = reg.stamps || [];
-    for (const s of stamps) {
-      const i = all.findIndex(x => x.id === s.id);
-      if (i >= 0) all[i] = s; else all.push(s);
-    }
-  };
+  T.registerStamps = function (stamps) { reg.addStamps(stamps); };
 
   // Legacy views over the registry (the art tools read these).
   Object.defineProperty(T, 'list', { get: () => reg.list() });

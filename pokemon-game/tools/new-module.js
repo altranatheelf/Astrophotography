@@ -63,8 +63,8 @@ function rulesJs(v) {
 // only wiring.
 //
 // What this module owns:
-//   save.modules.${v.id}      { version, total, byKey, seconds }
-//   project.packs.${v.id}     see TUNING below
+//   save.modules.${v.camel}      { version, total, byKey, seconds }
+//   project.packs.${v.camel}     see TUNING below
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
   const M = KIT.${v.camel} = KIT.${v.camel} || {};
@@ -110,7 +110,7 @@ function rulesJs(v) {
     return KIT.modules.saveSection(save, '${v.id}');
   };
 
-  // ---- the content slice (project.packs.${v.id}) --------------------------------
+  // ---- the content slice (project.packs.${v.camel}) --------------------------------
   /** Every number this module turns, as schema fields. The panel forms itself from these. */
   M.TUNING = [
     { key: 'label', type: 'string', default: '${v.label}', label: 'What to call it',
@@ -118,7 +118,7 @@ function rulesJs(v) {
     { key: 'step', type: 'number', integer: true, min: 1, max: 100, default: 1, label: 'How much one counts for' },
     { key: 'max', type: 'number', integer: true, min: 1, default: 99, label: 'As high as it goes' },
   ];
-  /** contentDefaults() -> project.packs.${v.id} before the author touches it. */
+  /** contentDefaults() -> project.packs.${v.camel} before the author touches it. */
   M.contentDefaults = () => KIT.schema.defaults(M.TUNING);
   /** tuning(project) -> the pack with every default filled in. */
   M.tuning = (project) => KIT.modules.pack(project, '${v.id}');
@@ -325,7 +325,7 @@ function panelJs(v) {
     renderTuning(st) {
       const insp = ED.inspector;
       if (!insp || typeof insp.packForm !== 'function') {
-        UI.clear(this.tuneSec.body).appendChild(make('p.ed-hint', { text: 'The inspector is not loaded. The numbers live in project.packs.${v.id}.' }));
+        UI.clear(this.tuneSec.body).appendChild(make('p.ed-hint', { text: 'The inspector is not loaded. The numbers live in project.packs.${v.camel}.' }));
         return;
       }
       this._tune = insp.packForm(this.tuneSec.body, this._tune, {
@@ -399,22 +399,22 @@ function manifestJs(v) {
       KIT.${v.camel}.registerAll(kit);
     },
 
-    // The slice of the save this module owns: save.modules.${v.id}. The engine
+    // The slice of the save this module owns: save.modules.${v.camel}. The engine
     // fills it, runs the migrate chain over it and calls repair, every time a
     // world is made -- so this module never has to check.
     save: {
-      key: '${v.id}',
+      key: '${v.camel}',   // a plain property name, so code can write save.modules.${v.camel}
       defaults: () => KIT.${v.camel}.defaults(),
       migrate: KIT.${v.camel}.migrations,
       repair: (data) => KIT.${v.camel}.repair(data),
     },
 
-    // The slice of the project this module owns: project.packs.${v.id}. Because
+    // The slice of the project this module owns: project.packs.${v.camel}. Because
     // its fields are declared, normalize fills them, validate checks them, and
     // Creator Mode's generic inspector can edit them. (Add at: 'tuning' if you
     // move the numbers inside the pack instead of spreading them across it.)
     content: {
-      key: '${v.id}',
+      key: '${v.camel}',   // a plain property name, so code can write save.modules.${v.camel}
       fields: KIT.${v.camel}.TUNING,
       defaults: () => KIT.${v.camel}.contentDefaults(),
     },
@@ -457,7 +457,7 @@ test('ensure fills the save section and keeps what is already there', () => {
   a.byKey.berries = 3;
   const b = M.ensure(save);
   assert.equal(b.byKey.berries, 3, 'a second call does not wipe it');
-  assert.equal(save.modules.${v.camel}, b, 'it lives under save.modules.${v.id}');
+  assert.equal(save.modules.${v.camel}, b, 'it lives under save.modules.${v.camel}');
 });
 
 test('ensure survives rubbish and never throws', () => {
@@ -536,8 +536,8 @@ test('the command writes through the rules and reports the change', async () => 
 test('the manifest declares a save section and a content slice, and sorts', () => {
   const m = M.MANIFEST;
   assert.equal(m.id, '${v.id}');
-  assert.equal(m.save.key, '${v.id}');
-  assert.equal(m.content.key, '${v.id}');
+  assert.equal(m.save.key, '${v.camel}');
+  assert.equal(m.content.key, '${v.camel}');
   assert.deepEqual(m.save.defaults(), M.defaults());
   assert.deepEqual(m.content.defaults(), M.contentDefaults());
   const { order, missing, cycles } = KIT.modules.order(['${v.id}']);
@@ -614,12 +614,12 @@ how a panel writes to the project without breaking undo.
 ## What it owns
 
 \`\`\`js
-save.modules.${v.id} = { version: 1, total: 0, byKey: {}, seconds: 0 }
-project.packs.${v.id} = { label, step, max }
+save.modules.${v.camel} = { version: 1, total: 0, byKey: {}, seconds: 0 }
+project.packs.${v.camel} = { label, step, max }
 \`\`\`
 
 Nothing else. Runtime state goes in the save section you declared; content goes
-in \`project.packs.${v.id}\`; everything a player reads is a registered string, so
+in \`project.packs.${v.camel}\`; everything a player reads is a registered string, so
 the Terms panel can reword it.
 
 ## Where to start

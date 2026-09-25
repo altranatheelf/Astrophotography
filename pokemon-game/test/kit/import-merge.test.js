@@ -74,6 +74,22 @@ test('merge: the project still normalizes with no errors (contract §4.3)', () =
   assert.ok(n.project.world.maps['outside:map'], 'the world index gained the map');
 });
 
+test('merge: tiles imported before a retired key went are not a conflict on re-import', () => {
+  // RPG Maker imports used to write `probability: 1` and `warpLook: false` into
+  // every tile. Nothing read either, and they were removed; a project imported
+  // before that still has them, and re-importing the same folder reported every
+  // tile as "already in the project and different" and kept the old ones.
+  const p = blank();
+  KIT.import.merge(p, mvResult(), { source: 'rpgmaker' });
+  const ids = Object.keys(p.tiles || {});
+  assert.ok(ids.length > 0, 'the fixture has tiles');
+  for (const id of ids) Object.assign(p.tiles[id], { probability: 1, warpLook: false });
+  const rep = KIT.import.merge(p, mvResult(), { source: 'rpgmaker' });
+  assert.equal(rep.skipped.tiles, 0, 'nothing is refused');
+  assert.equal(rep.unchanged.tiles, ids.length, 'every tile is the same tile');
+  assert.deepEqual(rep.problems.filter(x => x.code === 'duplicate-id' && /^tile /.test(x.message)), []);
+});
+
 test('merge: re-importing the same file changes nothing at all', () => {
   const p = blank();
   p.terrains = [];                       // the blank project's own Grass terrain is not what is being tested here

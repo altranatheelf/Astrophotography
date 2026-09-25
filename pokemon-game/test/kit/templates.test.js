@@ -243,6 +243,19 @@ test('new-module scaffolds a module whose own test passes', () => {
   assert.match(out, /# fail 0/, out.split('\n').filter(l => l.startsWith('# ')).join(' '));
   assert.match(out, /# pass (\d+)/);
   assert.ok(Number(/# pass (\d+)/.exec(out)[1]) >= 8, 'and it is a real test, not one assertion');
+
+  // An id with a hyphen: the panel and the test wrote packs.dayNight while the
+  // manifest declared packs['day-night'], so nothing an author changed reached
+  // the game and three of the module's own tests failed.
+  const hy = run('new-module.js', ['day-night', '--into', game, '--quiet']);
+  assert.equal(hy.code, 0, hy.out);
+  let hyOut = '';
+  try {
+    hyOut = execFileSync(process.execPath, ['--test', 'test/day-night.test.js'], { cwd: game, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: cleanEnv() });
+  } catch (e) {
+    assert.fail('a module with a hyphen in its id fails its own test:\n' + (e.stdout || '') + (e.stderr || ''));
+  }
+  assert.match(hyOut, /# fail 0/);
 });
 
 test('the scaffolded module declares a save section, a content slice, and sorts', () => {

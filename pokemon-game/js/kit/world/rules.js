@@ -198,10 +198,12 @@
    * runs through the ordinary interpreter, which is what makes a rule able to do
    * anything an event page can.
    */
-  R.fire = async function (ctx, event, payload) {
+  R.fire = async function (ctx, event, payload, at) {
     if (!ctx || !ctx.project || !ctx.world) return 0;
     const save = ctx.world.save;
-    const where = {
+    // `at` is where the event happened, when the caller knows (the world's
+    // queue does); otherwise it is where the world is now.
+    const where = at || {
       map: (ctx.world.map && ctx.world.map.id) || null,
       layer: (save && save.dimension) || null,
     };

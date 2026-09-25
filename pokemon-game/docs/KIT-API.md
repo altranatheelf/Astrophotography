@@ -75,7 +75,7 @@ Art is `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows,...]`, or im
 `KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint })` (cached; browser only) · `draw(ctx, art, x, y, opts)` · `downscale(art, size)` · `silhouette(w, h, color)` (**the placeholder for missing art — never crash**) · `validate(art)` · `dims(art)` · `rowsOf(art, frame)` · `frameCount(art)` · `paletteWith(art, map)` · `invalidate(art)` · `artOf(def)`.
 
 ## world/document — stable
-`KIT.document(project) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `seq` (how many changes so far, undo and redo included — a panel compares this instead of re-indexing the project to learn nothing changed), `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `snapshot(label) -> id`, `snapshots()`, `restore(id)`, `deleteSnapshot(id)`, `dirty`, `markClean()`, `clearHistory()`.
+`KIT.document(project) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `seq` (how many changes so far, undo and redo included — a panel compares this instead of re-indexing the project to learn nothing changed), `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `dirty`, `markClean()`, `clearHistory()`.
 Ops: `{op:'set',path,value}` `{op:'del',path}` `{op:'splice',path,index,remove,insert}`. `set` creates missing intermediates as objects.
 `KIT.path.get/has/join/parse/isPrefix/related`.
 
@@ -133,9 +133,9 @@ Content: `project.rules[id] = { name, when, if, do, on, priority, edible, scope:
 Save: `save.rules[id] = { on?, eaten?, patch?, rule?, at? }` — only what this run changed.
 
 `all(project, save)` · `get(project, save, id)` (with any rewrite applied) · `live(project, save, id) -> bool` (eaten beats on/off beats the rule's own `on`) · `matching(project, save, event, { map, layer }) -> [rule]` — **pure**, in firing order: priority → specificity → most recently defined → id ·
-`define(save, rule)` · `activate` · `deactivate` · `eat(save, id)` (permanent; writes `ate rule:<id>` to the history) · `rewrite(save, id, patch)` · `inScope(rule, where)` · `fire(ctx, event, payload) -> Promise<n>` · `MAX_DEPTH = 8` · `depthNow()`.
+`define(save, rule)` · `activate` · `deactivate` · `eat(save, id)` (permanent; writes `ate rule:<id>` to the history) · `rewrite(save, id, patch)` · `inScope(rule, where)` · `fire(ctx, event, payload, where?) -> Promise<n>` (`where` is `{ map, layer }` where the event happened; the world's queue passes it, otherwise it is where the world is now) · `MAX_DEPTH = 8` · `depthNow()`.
 
-The world listens on `'*'` and queues firings so two events in a frame cannot start two conversations: `world.rulesSettled()` · `world.rulesPending()`. A drain is capped at 512 firings and writes `rule:loop` rather than freezing.
+The world listens on `'*'` and queues firings, each with the place its event happened, so two events in a frame cannot start two conversations: `world.rulesSettled()` · `world.rulesPending()`. A drain is capped at 512 firings and writes `rule:loop` rather than freezing.
 
 Scripts: `@rule eat|on|off <id>`. Conditions: `rule.<id>` (a bare word — `not rule.<id>` asks whether it was eaten).
 
@@ -178,7 +178,7 @@ State: `project save events rng ports map entities heroes companion activeHero c
 `runSlot(entity, slot, heroId)` (main-thread slots set `world.busy`; `once` sets `self.done`; `needsBoth` gates in co-op; NPCs face the hero and turn back) ·
 `makeCtx(entity, heroId) -> RunCtx` · `ctxBase()` · `refreshPages()` · `rebuildEntities()` · `stepTriggers(hero)` · `runSlotsForMap(slot)` (deferred while the world is busy — a map entered from inside a script still gets its `init`/`enter` once the script lets go; `drainSlots()` `slotsPending()`) · `hero(i)` · `heroById(id)` · `setActiveHero(i)` · `saveHeroPositions()` · `update(dt)` (runs systems in order).
 Events emitted: `mapEnter mapLeave step interact interactMissed activeHero needsBoth` plus everything commands emit (`varChanged selfChanged itemChanged objectStateChanged timerChanged heroRenamed heal debug`), `clockTick` and `sessionResumed`.
-`interactMissed { hero, x, y, dir }` is the mirror of `step`: A was pressed, and nothing — no object, no extra target — answered. It is how an object type can react without a page.
+`interact { object, hero, result, where:{ map, layer } }` is emitted after the object's script; `where` is where A was pressed, and a rule's scope is checked against it even if the script moved the hero. `interactMissed { hero, x, y, dir }` is the mirror of `step`: A was pressed, and nothing — no object, no extra target — answered. It is how an object type can react without a page.
 
 ## systems/index — stable
 `KIT.clock` (the one clock, kept in `save.clock`): `stamp(save)` `resume(save, now)` `add(save, minutes)` `of(save)` `gap(save)` `settings(project)`.
