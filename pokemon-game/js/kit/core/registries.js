@@ -20,7 +20,7 @@
 
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },
-    { key: 'counter', type: 'bool', default: false }, { key: 'warpLook', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
+    { key: 'counter', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
     { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
@@ -148,7 +148,7 @@
   //   { id, label, detect(files) -> { kind, main, files } | null, run(found, opts) -> Result }
   // `files` are { name, text?, bytes? }; a Result is the shape in docs/IMPORT-CONTRACT.md.
   KIT.defineRegistry('importers', { fields: named.concat([{ key: 'order', type: 'number', integer: true, default: 50 }]), doc: 'File formats a module can import: { id, label, detect(files), run(found, opts) }.' });
-  KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'target', type: 'enum', options: ['project', 'save'], default: 'project' }, { key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: '{ id, target, from, to, up(data) -> data }' });
+  KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: 'Project migrations: { id, from, to, up(project) -> project }. A module migrates its own save slice with save.migrate in its manifest.' });
   KIT.defineRegistry('strings', { fields: base.concat([{ key: 'default', type: 'string' }, { key: 'doc', type: 'text', optional: true }]), doc: 'System strings (Terms) with defaults; the project may override each.' });
 
   // Reference kinds backed by registries / project tables.

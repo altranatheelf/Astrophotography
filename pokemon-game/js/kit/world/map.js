@@ -101,7 +101,7 @@
 
     /** Merged tile flags for a cell: any solid layer makes it solid; passage closes if any layer closes it; bush/counter/encounter/ledge from any layer. */
     function flagsAt(x, y) {
-      const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, warpLook: false, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
+      const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
       if (!inBounds(x, y)) { out.solid = true; return out; }
       for (const layer of LAYERS) {
         const id = tileAt(layer, x, y);
@@ -113,7 +113,6 @@
         if (f.counter) out.counter = true;
         if (f.encounter) out.encounter = true;
         if (f.ledge) out.ledge = f.ledge;
-        if (f.warpLook) out.warpLook = true;
         if (f.terrainTag) out.terrainTag = f.terrainTag;
         for (const e of ['n', 's', 'e', 'w']) if (f.passage && f.passage[e] === false) out.passage[e] = false;
       }

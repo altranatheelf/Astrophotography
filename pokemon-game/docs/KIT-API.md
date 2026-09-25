@@ -5,22 +5,13 @@ agents) building the runtime UI, the editor and modules. `§` refers to
 `ARCHITECTURE.md`. Files marked **stable** are tested and should not be edited
 without a reason.
 
-Load order (classic scripts, no modules):
-```
-core/util.js  core/events.js  core/rng.js  core/registry.js  core/schema.js
-core/registries.js  core/pixels.js
-world/document.js  world/project.js  world/tiles.js
-script/text.js  script/conditions.js  script/commands.js  script/screenplay.js  script/interpreter.js
-world/map.js  world/entities.js  world/world.js
-systems/index.js
-import/tiled.js  import/rpgmaker.js  import/aseprite.js  import/image.js  import/merge.js
-render/atmosphere.js  render/text-canvas.js  render/renderer.js
-scenes/stack.js  scenes/dialogue.js  scenes/menu.js  scenes/title.js  scenes/start.js  scenes/map.js  game.js
-(the full list, with the art, the editor and main.js, is `templates/_shared/kit-files.js`, and `test/kit/load-order.test.js` keeps every copy of it in step)
-```
+Load order (classic scripts, no modules): `CORE` in `templates/_shared/kit-files.js`
+is the one list — core, world, script, map/entities/world, systems, import,
+render, scenes, `game.js` — and `test/kit/load-order.test.js` holds `index.html`
+and `test/kit/_load.js` to it. It is not copied here, because a copy is what drifts.
 (`world/world.js` captures `KIT.interpreter` at load time, so `script/*` must
 load before it; `world/project.js` only uses the script schema lazily, so it may
-come earlier. `test/kit/_load.js` and `index.html` both use this order.)
+come earlier.)
 
 ## core/util — stable
 `KIT.deepClone(v)` · `KIT.deepEqual(a,b)` · `KIT.stableStringify(v, indent)` (sorted keys) ·
@@ -37,14 +28,14 @@ back to `name`, then `fallback`, then `id`. Read a label with this, never `def.l
 
 ## core/events — stable
 `KIT.events(name) -> bus` with `on(event,fn) -> off`, `once`, `off`, `emit(event,payload) -> count`, `count`, `clear`.
-`'*'` listeners receive `(event, payload)`. A throwing listener never stops the others. `KIT.bus` is the global one.
+`'*'` listeners receive `(event, payload)`. A throwing listener never stops the others. `KIT.bus` is the global one; `KIT.worldBus(save)` is the bus an event of one run belongs on (the live world's own bus when `save` is the live save, else `KIT.bus`).
 
 ## core/rng — stable
 `KIT.hash(...parts) -> uint32` · `KIT.rng(seed) -> fn()` with `.int(n) .range(lo,hi) .pick(arr) .chance(p) .weighted(items,key) .shuffle(arr) .fork(label)`.
 Every random decision in the kit goes through one of these; same seed, same run.
 
 ## core/registry + core/registries — stable
-`KIT.defineRegistry(name, { fields, onAdd, onRemove, doc }) -> reg` (idempotent) · `KIT.registry(name)` (throws if undefined) · `KIT.registry.exists(name)`.
+`KIT.defineRegistry(name, { fields, doc }) -> reg` (idempotent) · `KIT.registry(name)` (throws if undefined) · `KIT.registry.exists(name)` · `KIT.registry.names()`.
 Registry: `add(def)` (fills defaults, validates against `fields`, warns on replace unless `def.replace`), `addAll`, `get`, `require`, `has`, `list`, `ids`, `size`, `remove`, `clear`, `on('add'|'remove')`, `groups(key)`.
 Standard registries: `tiles sprites faces icons sounds music voices textEffects assets objectTypes behaviours commands conditions itemKinds systems scenes menus editorPanels editorTools fieldEditors mapSections validators presets blueprints migrations strings importers`.
 `KIT.registry('tiles').stamps` is the multi-tile brush list.
@@ -57,11 +48,13 @@ API: `KIT.schema.field(f)` · `fields(list)` (both memoised on the declaration �
 Ref kinds wired: tile sprite face icon sound music voice textEffect asset preset map item script var fragment object cast fact (+ modules add their own).
 
 ## core/input — stable
-Buttons, not keys: `KIT.input.KEYS = ['up','down','left','right','a','b','menu']`, per player (0-based). Keyboard, gamepad, on-screen pad and swipe all arrive as the same seven.
+Buttons, not keys: `KIT.input.KEYS = ['up','down','left','right','a','b','menu']`, per player (0-based in the keymap). Keyboard, gamepad, on-screen pad and swipe all arrive as the same seven.
 
 The keymap is DATA, so it can be changed: `keymap(player) -> { code: button }` · `keymaps()` (the whole table, to save) · `bind(player, code, button)` (null unbinds; a code may only mean one thing per player, so binding a taken code MOVES it) · `setKeymap(list)` (overlays the defaults, so a saved table only overrides what it names) · `resetKeymap()` · `boundTo(player, button) -> [code]` · `isDefaultKeymap()`.
 
 For a remapping screen: `keyLabel(code)` turns a `KeyboardEvent.code` (a physical position — `KeyZ` whatever the cap says) into what a person would recognise · `capturable(code)` · `NOT_CAPTURABLE = ['Escape']` — the one key the screen cannot take, because it is how a player gets out of it.
+
+Runtime, what a scene or module reads. Here `player` is `2` or `'p2'` for the second player and anything else for the first — not the keymap's 0-based index: `attach(canvas)` `detach()` (keyboard on the window, swipe and tap on the canvas) · `mount(el, { players })` `setPlayers(n)` `players()` `isTouch()` (the on-screen pads) · `state(player) -> { up, down, left, right, a, b, menu }` `pressed(key, player)` `heldMs(key, player)` · `onPress(fn) -> off` (`fn({ player, key })` once per press; `key` may be `'swap'`) `justPressed(key, player)` `consume()` · `press(key, player, ms)` `set(key, player, down)` `releaseAll()` (synthetic input; `KIT.game.press`/`hold` call these) · `poll(pads)` `gamepads(pads)` `deadzone(v)` · `TAP_MS` (a direction held for less than this only turns).
 
 Player-facing: **Settings → Controls** (`js/kit/scenes/menu.js`, the `keys` scene; rows from `KIT.keysScreen.rows(project, players)`). Saved in `settings.keys`, a device preference like language, restored at boot.
 
@@ -82,7 +75,7 @@ Art is `{ w, h, palette:{ch:'#hex'}, rows:[...] }` or `frames:[rows,...]`, or im
 `KIT.pixels.canvas(art, { scale, mirror, recolor, frame, tint })` (cached; browser only) · `draw(ctx, art, x, y, opts)` · `downscale(art, size)` · `silhouette(w, h, color)` (**the placeholder for missing art — never crash**) · `validate(art)` · `dims(art)` · `rowsOf(art, frame)` · `frameCount(art)` · `paletteWith(art, map)` · `invalidate(art)` · `artOf(def)`.
 
 ## world/document — stable
-`KIT.document(project, { maxSnapshots }) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `seq` (how many changes so far, undo and redo included — a panel compares this instead of re-indexing the project to learn nothing changed), `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `snapshot(label) -> id`, `snapshots()`, `restore(id)`, `deleteSnapshot(id)`, `dirty`, `markClean()`, `clearHistory()`.
+`KIT.document(project) -> doc`: `value`, `get(path)`, `has(path)`, `apply(ops, {label}) -> inverse`, `set/del/splice/push`, `transaction(label, fn)` (one undo step; nested flatten), `undo()`, `redo()`, `canUndo/canRedo`, `seq` (how many changes so far, undo and redo included — a panel compares this instead of re-indexing the project to learn nothing changed), `history`, `watch(prefixPath, fn) -> off` (fn gets `{ops, inverse, label, kind, seq, paths}`), `replace(next)`, `snapshot(label) -> id`, `snapshots()`, `restore(id)`, `deleteSnapshot(id)`, `dirty`, `markClean()`, `clearHistory()`.
 Ops: `{op:'set',path,value}` `{op:'del',path}` `{op:'splice',path,index,remove,insert}`. `set` creates missing intermediates as objects.
 `KIT.path.get/has/join/parse/isPrefix/related`.
 
@@ -93,8 +86,8 @@ Problem: `{ severity:'error'|'warn', code, message, where:{ map, object, page, s
 Project v3 shape: see §5 — `version meta modules settings strings heroes start vars items scripts fragments testStates autotiles terrains world maps packs rules facts cast languages assets` (`settings` also carries `language languageName voice clock`).
 
 ## world/tiles — stable
-`KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
-Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', warpLook, encounter, terrainTag, animMs }`.
+`KIT.tiles.def(id)` · `flags(id) -> { solid, passage:{n,s,e,w}, bush, counter, ledge, encounter, terrainTag, animMs, exists }` · `passage(tile, dir)` · `frameAt(tile, timeMs)` · `bake(map, project, { around, radius, seed }) -> { ground, deco, changed }` (pure, deterministic per cell) · `rulesFromTemplate({groupId, terrain, tiles:{center,n,s,e,w,ne,nw,se,sw,inner*}, against})` (the autotile wizard) · `remapGroup(group, from, to, tileMap)` · `ruleRadius(set)` · `ownedTiles(set, layer)` · `ANY/EMPTY/DEFAULTS`.
+Tile registry entry: `{ id, name, group, art|frames, solid, passage, bush, counter, ledge:'down', encounter, terrainTag, animMs }`.
 
 ## world/blueprints — stable
 A whole game to start from. `presets` makes one object, `importers` read one
@@ -136,7 +129,7 @@ Scripts: `@did <verb> [what=… who=…]` writes one down · `@remember <verb>[/
 ## world/rules — stable
 The rules of the world as **things in it**: `when` an event happens, `if` a condition holds, `do` a script. They can be switched off, rewritten and **eaten**. ADR-0012.
 
-Content: `project.rules[id] = { name, when, if, do, on, priority, edible, carrier, scope:{ maps, layers }, note }`.
+Content: `project.rules[id] = { name, when, if, do, on, priority, edible, scope:{ maps, layers }, note }`.
 Save: `save.rules[id] = { on?, eaten?, patch?, rule?, at? }` — only what this run changed.
 
 `all(project, save)` · `get(project, save, id)` (with any rewrite applied) · `live(project, save, id) -> bool` (eaten beats on/off beats the rule's own `on`) · `matching(project, save, event, { map, layer }) -> [rule]` — **pure**, in firing order: priority → specificity → most recently defined → id ·
@@ -246,6 +239,8 @@ Load after `world/*` and `script/*` (they use `KIT.project`, `KIT.screenplay`, `
 `KIT.import.aseprite` — `sheet(json, opts)` · `file(buffer, opts)` (native pixel art) · `parse(buffer, opts)` · `any(input, opts)` · `detect(input) -> 'sheet'|'file'|null` · `artOf(def, dir)` · `direction(tag)` · `split(tag)` · `tagFrames(from,to,dir)` · `zinflate`/`inflateRaw`.
 `opts`: `asset(src)` `inflate` `encodePng(w,h,rgba)` `prefix` `id`/`name` `kind:'sprite'|'tiles'|'faces'|'icons'` `maxPixels` `maxColors` `alphaThreshold`.
 
+`KIT.import.image` — a picture or a sound with no data file: `tileset({ name, w, h, tile, margin, spacing, skip, prefix, id, asset })` (every cell a tile, through the Tiled importer) · `sprite({ name, w, h, columns, rows, order, fps, prefix, id, asset })` (a walk-cycle sheet becomes one sprite) · `audio({ name, kind, src, loop, loopStart, loopEnd, prefix, id })` · `guessTile(w, h, prefer)` `guessGrid(w, h)` `guessAudio(name, bytes) -> 'music'|'sound'` `dirsOf(order)` `AUDIO_EXT`.
+
 `KIT.import.merge(target, result, opts) -> Report` — folds a Result into a project.
 `target` is a plain project (merged in place) or a `KIT.document` (one undo step, `"Import <source>"`).
 `opts`: `{ prefix, overwrite, dryRun, source, label, register, autotileSet }`.
@@ -264,7 +259,7 @@ The CLI is `node tools/import.js <file|folder> [--into js/content/<project>] [--
 Lights and weather over a map, drawn after the world. `KIT.atmosphere.set(spec)` `state()` `update(dt)` `draw(ctx, world, view)` · `lights` `lightDetail` `goal` `reset()` `useMap(map)` `rgba(...)` `BLANK` `LAYERED_DARKNESS`. `tools/experiments/frame.js` holds the frame budget for 128 lights.
 
 ## render/text-canvas — stable
-Text drawn on the canvas rather than in the DOM (ADR-0007 keeps dialogue in the DOM; this is for names over heads and the like). `KIT.textCanvas.draw(ctx, text, x, y, opts)` `layout(text, opts)` `measurer()` `offsetFor(...)` `writer(...)`.
+Text drawn on the canvas rather than in the DOM (ADR-0007 keeps dialogue in the DOM; this is for names over heads and the like). `KIT.textCanvas.draw(ctx, text, x, y, opts)` `layout(text, opts)` `measurer()` `offsetFor(...)` `writer(...)` — `KIT.drawText` and `KIT.textWriter` are the same `draw` and `writer`.
 
 ## render/renderer — stable
 `KIT.renderer.create({ canvas, project, editor }) -> r`: `render(world)` · `resize()` · `invalidate(mapId, x, y)` (one baked cell; `invalidate(mapId)` drops that map, `invalidate()` drops all) · `clearCaches()` · `cacheStats() -> { maps, bytes, budget }` · `screenToTile` / `tileToScreen` / `viewTiles` · `setScale` · `setProject`. Baked tile layers per map, byte-accounted and evicted LRU under `KIT.renderer.cacheBudget` (192MB).
@@ -314,7 +309,7 @@ Everything visible is a registered panel (`editorPanels`), tool (`editorTools`),
 `KIT.modules.all()` `loaded()` `get(id)` `has(id)` ·
 `order(ids) -> { order, missing, cycles }` (a pure topological sort) ·
 `activate(project)` (registers the modules `project.modules` names, in dependency order; a missing requirement or a cycle is a banner; already-loaded modules are skipped) ·
-`reset()` (forget every activation) · `forget(id)` (unsay the declaration too — for tests).
+`forget(id)` (unsay the declaration entirely — for tests).
 
 The two declarations, which the engine acts on so a module does not have to:
 `saveSection(save, id)` fills, migrates and repairs `save.modules[key]` and writes it back — `KIT.world.create` calls it for every loaded module, so a module's code can assume its section is there and current ·
@@ -324,7 +319,7 @@ The two declarations, which the engine acts on so a module does not have to:
 `problems(project)` validates each declared `fields` against `project.packs[key]` (called by `KIT.project.validate`).
 
 ## main.js — the page's entry point
-`KIT.banner(text)` · `KIT.PRISTINE_HTML` (the page as authored — `KIT.storage.publish` rebuilds from this, never from the live DOM). It loads the project, activates its modules through `loadProject({ before })` and boots the game; the module system itself is the engine's, above.
+`KIT.banner(text)` · `KIT.problems` (the project's validation, filled in after boot) · `KIT.PRISTINE_HTML` (the page as authored — `KIT.storage.publish` rebuilds from this, never from the live DOM). It loads the project, activates its modules through `loadProject({ before })` and boots the game; the module system itself is the engine's, above.
 `tools/load-modules.js` is the Node-side equivalent for the build and the tests: `require('./tools/load-modules.js').load(KIT, ['mons','home'])` requires each module's files in order and calls `activate`.
 
 ## The module namespaces
@@ -358,7 +353,7 @@ Gifts and housekeeping: `rollGifts(save, project, now)` `placeGift(save, project
 Save `save.modules.dungeon` · content `project.packs.dungeon`. Used by the `dungeon` template.
 `tuning(project)` `contentDefaults()` `TUNING` `ensure(save)` `defaults()` `migrations` `hasKey` `isOpen` `tryOpen` `blockAt` `setBlock` `canPush` `switchOn` `setSwitch` `plateHeld` `gateOpen` `switchNames` `torchLight` `lightTorch` `putOut` `isDark` `describe` — all pure; `live(world)` `onMapEnter` `tick` `entityFor` `pushEntity` `listen` are the wiring, and `panel.js` is a form. The dark is the kit's own `KIT.atmosphere` (`map.props.atmosphere = { darkness, ambient }`), and the lantern is `hero.data.light`.
 
-`KIT.bullet` — a bullet-hell fight as an add-on (`js/modules/bullet`): `PATTERNS` `pattern(id)` `runPattern` `patternDone` · `spawn` `movers` `steer` `step` · `create(...)` `registerAll()` `MANIFEST` `VERSION`.
+`KIT.bullet` — a bullet-hell fight as an add-on (`js/modules/bullet`). Save `save.modules.bullet` · content `project.packs.bullet`. `PATTERNS` (`rain sweep hunt ring`, each `(f, count) -> pattern`) `pattern(steps)` `runPattern` `patternDone` · `spawn` `movers` `steer` `step` · `create(...)` `registerAll()` `MANIFEST` `VERSION`.
 
 ## Still to build
 Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus `npm run e2e`: eighteen browser play-throughs in `e2e/`, every one wired in (`test/kit/docs.test.js` fails on an orphan).

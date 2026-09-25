@@ -1,5 +1,6 @@
 'use strict';
-// Every `KIT.something` a document names has to exist.
+// Every `KIT.something` a document names has to exist, and so does every
+// function a `typeof KIT.x === 'function'` guard in js/ or tools/ asks about.
 //
 // The docs test already fails when a document names a file that is not there.
 // This is the same rule for API: `KIT.pixels.load`, `KIT.audio.startMusic`,
@@ -79,4 +80,30 @@ test('docs: every KIT.* a document names exists', () => {
     }
   }
   assert.deepEqual(missing, [], 'documents naming API that does not exist:\n  ' + missing.join('\n  '));
+});
+
+test('a typeof guard in the engine or the tools names a function that exists', () => {
+  // The same rule for code. `if (typeof ED.panelEdit === 'function') return
+  // ED.panelEdit(...)` sat in the module scaffold after panelEdit was deleted:
+  // a guard on a name nothing defines turns a removal into a silent fallback,
+  // and every module it wrote carried it. `KIT.banner` is set by js/main.js.
+  const files = [];
+  const walk = (dir) => {
+    for (const f of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = dir + '/' + f.name;
+      if (f.isDirectory()) walk(rel);
+      else if (f.name.endsWith('.js')) files.push(rel);
+    }
+  };
+  walk('js'); walk('tools');
+  const missing = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const m of text.matchAll(/typeof\s+((?:KIT|ED)(?:\.[A-Za-z_$][\w$]*)+)\s*[!=]==\s*'function'/g)) {
+      const dotted = m[1].startsWith('ED.') ? 'KIT.editor.' + m[1].slice(3) : m[1];
+      if (ELSEWHERE[dotted] || exists(dotted)) continue;
+      missing.push(`${f}:${text.slice(0, m.index).split('\n').length}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'guards for functions that do not exist:\n  ' + missing.join('\n  '));
 });

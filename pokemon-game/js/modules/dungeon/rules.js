@@ -45,21 +45,13 @@
 
   /**
    * ensure(save) -> the module's own section of the save.
-   * The engine has usually filled it already; this still does the whole job for
-   * a bare save, so the module works with no world around it. Never throws, never
-   * loses what is there.
+   * KIT.modules fills, migrates and repairs it from the declaration in
+   * manifest.js, on a bare save too, so the module works with no world around
+   * it. Never throws, never loses what is there.
    */
   D.ensure = function (save) {
     if (!isObj(save)) return D.repair(D.defaults());
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('dungeon')) {
-      const section = KIT.modules.saveSection(save, 'dungeon');
-      if (section) return section;
-    }
-    const mods = save.modules = isObj(save.modules) ? save.modules : {};
-    let data = isObj(mods.dungeon) ? mods.dungeon : {};
-    for (const m of D.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
-    mods.dungeon = D.repair(data);
-    return mods.dungeon;
+    return KIT.modules.saveSection(save, 'dungeon');
   };
 
   // ---- the content slice (project.packs.dungeon) --------------------------------
@@ -86,17 +78,7 @@
   /** contentDefaults() -> project.packs.dungeon when the author has not touched it. */
   D.contentDefaults = () => KIT.schema.defaults(D.TUNING);
   /** tuning(project) -> the pack, with every default filled in. */
-  D.tuning = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('dungeon')) {
-      const p = KIT.modules.pack(project, 'dungeon');
-      if (p) return p;
-    }
-    const pack = (project && project.packs && project.packs.dungeon) || {};
-    const out = D.contentDefaults();
-    for (const k of Object.keys(out)) if (pack[k] !== undefined && pack[k] !== null) out[k] = pack[k];
-    for (const f of D.TUNING) if (f.nullable && pack[f.key] === null) out[f.key] = null;
-    return out;
-  };
+  D.tuning = (project) => KIT.modules.pack(project, 'dungeon');
 
   // ---- keys and doors -------------------------------------------------------------
   /** hasKey(save, itemId, count) — is the key in the bag? A door with no key needs none. */

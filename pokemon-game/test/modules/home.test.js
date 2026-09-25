@@ -13,6 +13,7 @@ require(path.join(root, 'js/kit/world/entities.js'));
 require(path.join(root, 'js/kit/systems/index.js'));      // KIT.clock — the clock is the engine's
 require(path.join(root, 'js/modules/home/rules.js'));
 require(path.join(root, 'js/modules/home/register.js'));
+require(path.join(root, 'js/modules/home/manifest.js'));   // declares the save and content slices ensure() and pack() read
 const H = KIT.home;
 H.registerAll(KIT);
 

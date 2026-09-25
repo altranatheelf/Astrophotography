@@ -46,7 +46,7 @@
   const DIR_KEY = { n: 'n', s: 's', e: 'e', w: 'w', up: 'n', down: 's', right: 'e', left: 'w', north: 'n', south: 's', east: 'e', west: 'w' };
 
   /** Defaults every tile has (a missing/unknown tile is walkable ground). */
-  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, warpLook: false, encounter: false, terrainTag: 0, animMs: 500 });
+  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, encounter: false, terrainTag: 0, animMs: 500 });
 
   function registry() { return KIT.registry.exists('tiles') ? KIT.registry('tiles') : null; }
   T.def = function (tileOrId) {
@@ -56,7 +56,7 @@
   };
 
   /**
-   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, animMs, animated }
+   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, encounter, terrainTag, animMs, animated }
    * Registry flags merged over the defaults. Unknown ids are walkable with exists:false.
    */
   T.flags = function (tileOrId) {

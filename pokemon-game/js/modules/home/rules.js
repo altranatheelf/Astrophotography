@@ -54,30 +54,13 @@
   /**
    * ensure(save) -> the module's save section.
    *
-   * The engine fills, migrates and repairs it when the world is made (see
-   * `save` in manifest.js), so normally this just reads it. It still does the
-   * whole job when handed a bare save — a headless test, a tool — because a
-   * module has to work without a world around it.
+   * KIT.modules fills, migrates and repairs it from the `save` declaration in
+   * manifest.js — when the world is made, and here for a bare save (a headless
+   * test, a tool), because a module has to work without a world around it.
    */
   H.ensure = function (save) {
     if (!save || typeof save !== 'object') return H.repair(H.defaults());
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
-      const section = KIT.modules.saveSection(save, 'home');
-      if (section) return section;
-    }
-    save.modules = save.modules || {};
-    let data = save.modules.home;
-    if (!data || typeof data !== 'object') data = H.defaults();
-    if (!Number.isFinite(data.version)) data.version = 1;
-    for (const m of H.migrations) {
-      if (data.version !== m.from) continue;
-      try { data = m.up(data) || data; } catch (e) { (KIT.log || console).error('[home] migration ' + m.from + '→' + m.to, e); }
-      data.version = m.to;
-    }
-    const d = H.defaults();
-    for (const k of Object.keys(d)) if (!has(data, k)) data[k] = d[k];
-    save.modules.home = H.repair(data);
-    return save.modules.home;
+    return KIT.modules.saveSection(save, 'home');
   };
 
   // ---- content (project.packs.home) ------------------------------------------
@@ -107,16 +90,7 @@
    * project). normalize() has usually written this already; this still fills it
    * for a project that never went through normalize.
    */
-  H.pack = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
-      const p = KIT.modules.pack(project, 'home');
-      if (p) return p;
-    }
-    const raw = (project && project.packs && project.packs.home) || {};
-    const out = Object.assign(H.contentDefaults(), raw);
-    out.tuning = Object.assign(H.tuningDefaults(), raw.tuning || {});
-    return out;
-  };
+  H.pack = (project) => KIT.modules.pack(project, 'home');
   /** tuning(project) -> just the numbers. */
   H.tuning = function (project) { return H.pack(project).tuning; };
 

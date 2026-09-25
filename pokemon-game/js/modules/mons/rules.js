@@ -183,14 +183,7 @@
   };
 
   /** pack(project) -> packs.mons with every default filled in (never mutates the project). */
-  M.pack = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
-      const p = KIT.modules.pack(project, 'mons');
-      if (p) return p;
-    }
-    const raw = (project && project.packs && isObj(project.packs.mons)) ? project.packs.mons : {};
-    return Object.assign(M.contentDefaults(), raw);
-  };
+  M.pack = (project) => KIT.modules.pack(project, 'mons');
 
   // ---- the catch profile -----------------------------------------------------
   // The whole catch scene is driven by this, so re-theming it is content work.
@@ -675,19 +668,7 @@
    */
   M.section = function (save) {
     if (!isObj(save)) return M.saveDefaults();
-    // The engine fills, migrates and repairs the section when the world is made
-    // (see `save` in manifest.js). This reads it — and still does the whole job
-    // for a bare save, because a module has to work without a world around it.
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
-      const section = KIT.modules.saveSection(save, 'mons');
-      if (section) return section;
-    }
-    save.modules = isObj(save.modules) ? save.modules : {};
-    const cur = save.modules.mons;
-    if (!isObj(cur) || num(cur.version, 0) !== M.SAVE_VERSION || !Array.isArray(cur.party)) {
-      save.modules.mons = M.migrateSave(cur);
-    }
-    return save.modules.mons;
+    return KIT.modules.saveSection(save, 'mons');
   };
 
   /** read(save) -> the section without writing to the save (conditions and panels). */

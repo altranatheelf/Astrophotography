@@ -184,7 +184,7 @@ PKMN.TILES.register([
       'mmmmmmmmmmmmmmmm',
       'dddddddddddddddd',
     ] },
-  { id: 'exit-mat', name: 'Exit mat', group: 'interior', solid: false, warpLook: true,
+  { id: 'exit-mat', name: 'Exit mat', group: 'interior', solid: false,
     palette: { o: '#786048', m: '#b09068', l: '#c8a880', d: '#987850' },
     rows: [
       '................',
@@ -204,7 +204,7 @@ PKMN.TILES.register([
       '................',
       '................',
     ] },
-  { id: 'stairs-up', name: 'Stairs (up)', group: 'interior', solid: false, warpLook: true,
+  { id: 'stairs-up', name: 'Stairs (up)', group: 'interior', solid: false,
     palette: { o: '#604020', w: '#d8a870', m: '#b88050', d: '#906038', k: '#3c2c20' },
     rows: [
       'okkkkkkkkkkkkkko',
@@ -224,7 +224,7 @@ PKMN.TILES.register([
       'omdddddddddddddo',
       'oooooooooooooooo',
     ] },
-  { id: 'stairs-down', name: 'Stairs (down)', group: 'interior', solid: false, warpLook: true,
+  { id: 'stairs-down', name: 'Stairs (down)', group: 'interior', solid: false,
     palette: { o: '#604020', w: '#d8a870', m: '#b88050', d: '#906038', K: '#5c4030', k: '#3c2c20' },
     rows: [
       'oooooooooooooooo',

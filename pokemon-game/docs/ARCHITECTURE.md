@@ -22,7 +22,8 @@ world is **content**. Creator Mode uses RPG Maker MV's words in its UI (see §13
   ```
 - Nothing in `js/kit/` may reference a module's namespace (`KIT.mons`, `KIT.home`, …),
   `PKMN`, or content. Nothing in `js/modules/` may reference content.
-  `test/kit/purity.test.js` greps for violations. (`KIT.modules` is the kit's own
+  `test/kit/purity.test.js` and `test/kit/art.test.js` grep `js/kit/` for violations;
+  no test reads `js/modules/` for content. (`KIT.modules` is the kit's own
   module system, `js/kit/core/modules.js`, and the kit calls it freely.)
 - Every extensible thing goes through a registry (§3.1). Every editable thing
   has a schema (§3.2). Every edit goes through the document (§4). No exceptions,
@@ -34,7 +35,7 @@ world is **content**. Creator Mode uses RPG Maker MV's words in its UI (see §13
 ## 1. File map and load order
 
 ```
-index.html                       loads everything below, in this order
+index.html                       loads everything below (its <script> tags are the order; this list groups by folder)
 css/kit.css  css/editor.css
 js/kit/core/registry.js          KIT.registry, KIT.defineRegistry
 js/kit/core/schema.js            KIT.schema  (field types, validate, defaults, refs, migrate helpers)
@@ -42,11 +43,11 @@ js/kit/core/events.js            KIT.events() bus factory
 js/kit/core/rng.js               KIT.rng(seed), KIT.hash(...)
 js/kit/core/pixels.js            KIT.pixels (pixel-string art: draw, downscale, validate)
 js/kit/core/assets.js            KIT.assets (image-backed art: define, load, loadAll)
-js/kit/core/registry.js, registries.js, schema.js, modules.js, lang.js   the registries, the field schema, the module system, languages
+js/kit/core/util.js, registries.js, modules.js, lang.js   helpers (deepClone, clamp, slug…), the standard registries, the module system, languages
 js/kit/core/input.js             KIT.input
 js/kit/core/audio.js             KIT.audio
 js/kit/core/storage.js           KIT.storage
-js/kit/world/document.js         KIT.document(project)  (ops, undo, watch, snapshots)
+js/kit/world/document.js         KIT.document(project)  (ops, undo, watch, transactions)
 js/kit/world/project.js          KIT.project  (schema v3, normalize, validate, migrate, helpers)
 js/kit/world/tiles.js            tile flags, autotile baking (pure)
 js/kit/world/map.js              map view (content + overlay), passability, regions, connections
@@ -64,10 +65,9 @@ js/kit/render/*.js               renderer (baked layers, sprites, markers), atmo
 js/kit/game.js                   KIT.game: boot, loop, save/load, settings, testability API
 js/kit/editor/*.js               KIT.editor: shell, document glue, tools, inspector, panels, screenplay view, play-here, io
 js/art/tiles.js, tiles-*.js      tile art (format §6.2)   js/art/chars.js, chars-*.js   character art
-js/data/types.js moves.js pokemon.js   PKMN species data (exists)   js/sprites/*.js  PKMN portraits (exists)
+js/data/types.js moves.js pokemon.js   PKMN species data   js/sprites/*.js  PKMN portraits
 js/modules/mons/manifest.js + *.js     the Pokémon module (§11)
 js/content/demo/project.js  js/content/demo/maps/*.js     the demo world
-js/content/world/project.js js/content/world/maps/*.js    the author's world (editor export target)
 js/main.js                       captures pristine HTML, loads modules in manifest order, boots
 tools/  test/  e2e/  docs/
 ```
@@ -104,7 +104,7 @@ KIT.module(def) / KIT.modules                                §1
 
 ### 3.1 Registry
 ```js
-KIT.defineRegistry('commands', { fields: [ /* schema for a definition */ ], onAdd(def) {} })
+KIT.defineRegistry('commands', { fields: [ /* schema for a definition */ ], doc: '…' })
 const r = KIT.registry('commands')   // throws if undefined
 r.add(def)      // validates against the registry's definition schema; replaces an existing id (logs a warning unless def.replace === true)
 r.addAll(list) ; r.get(id) ; r.has(id) ; r.list() (stable insertion order) ; r.remove(id) ; r.on('add'|'remove', fn)
@@ -117,7 +117,7 @@ validators presets` (quick-event presets) `blueprints` (whole games to start fro
 A schema is an array of fields:
 ```js
 { key:'radius', type:'number', label:'Wander radius', doc:'How far from home it roams', default:3, min:0, max:20,
-  nullable:false, when:{ field:'kind', eq:'wander' }, display:'radius' }
+  nullable:false, when:{ field:'kind', eq:'wander' } }
 ```
 Types (closed set; each has a form widget, a validator, a reference extractor):
 `string text note number bool enum color position direction tile region route script
@@ -127,13 +127,13 @@ ref:item ref:object ref:script ref:var ref:sound ref:music ref:fragment ref:pres
 - `enum`: `options:[{ value, label }]` or `optionsFrom:'itemKinds'` (a registry).
 - `list`: `of:<field>`, `array:{ min, max }`. `group`: `fields:[...]`.
 - `ref:object`: `ref:{ scope:'sameMap'|'any', tag:'door', symmetrical:true }`.
-- `display` hints for the map: `point` (position), `path`|`loop` (list of positions), `radius` (number), `link` (ref:object → arrow), `hidden`; and for the form: `readonly` (shown, not editable — an entity's id, which other things point at).
+- `display` hints for the form: `readonly` (shown, not editable — an entity's id, which other things point at) and `link` (a position that may be on another map, so the picker offers the map as well).
 - `position` values are `{ x, y }` in tiles (plus optional `map` when `ref` across maps is allowed).
 - `route` is a list of route steps (§9.3 `moveRoute`). `condition` is a Condition (§9.2). `script` is a command list.
 API: `validate(fields, value, ctx) -> [{ path, message }]`, `defaults(fields) -> value`,
 `refs(fields, value) -> [{ kind, id, path, access:'read'|'write' }]` (writes: `setVar`,
 `setSelf`, `give`… are `write`), `walk(fields, value, fn)`.
-Object types register `{ id, label, doc, tags, icon, fields (page props), defaults, maxCount, limit:'moveLast'|'prevent', toc:true, look:{ sprite|tile } }`.
+Object types register `{ id, label, doc, tags, icon, fields (page props), defaults, maxCount, look:{ sprite|tile } }`.
 
 ## 4. Document and storage
 
@@ -146,7 +146,6 @@ doc.apply(ops, { label:'Paint' })           // ops: {op:'set',path,value} | {op:
 doc.transaction('Paint stroke', fn)         // everything applied inside is ONE undo step; nested transactions flatten
 doc.undo() / doc.redo() / doc.canUndo() / doc.history (labels)   — unlimited within the session
 doc.watch(prefixPath, fn)                   // fn({ ops, inverse, label, paths }) for changes under the prefix; doc.watch([], fn) for all
-doc.snapshot(label) -> id / doc.snapshots() / doc.restore(id)   // labelled full copies (kept in memory + storage)
 doc.dirty / doc.markClean()
 ```
 Inverses are computed at apply time. `set` on a missing intermediate creates
@@ -188,13 +187,16 @@ Cross-tab: the draft carries `writerId`; a second tab that sees a foreign
   version: 3,
   meta: { id:'our-adventure', title, subtitle, author, pitch /* the two sentences */, created },
   modules: ['mons'],
-  settings: { tileSize:16, viewport:{ w:16, h:12 }, textSpeed:'normal', zoom:'auto', coop:{ enabled:false },
-              palette:{ remap:{}, tint:null, amount:0 }, encounterRate:12 /* module settings live in packs */ },
+  settings: { tileSize:16, viewport:{ w:16, h:12 }, textSpeed:'normal', language:'en', languageName:'English', voice:null,
+              zoom:'auto', coop:{ enabled:false }, palette:{ remap:{}, tint:null, amount:0 },
+              clock:{ enabled:false, minutesPerStep:1, /* … */ } /* module settings live in packs */ },
   strings: { 'got-item':'Got {count} {item}!', 'save-prompt':'Save your progress?', ... },   // Terms table; kit + modules declare keys with defaults
   heroes: [ { id:'p1', name:'Player 1', sprite:'hero-boy', recolor:{} }, { id:'p2', name:'Player 2', sprite:'hero-girl', recolor:{} } ],
   start: { map:'home', x:5, y:6, dir:'down' },
   vars: { chapter:{ type:'number', default:0, label:'Chapter', group:'Story' }, metMom:{ type:'bool', default:false } },   // declared; undeclared names are allowed and auto-collected (validator warns)
   items: { berry:{ kind:'berry', name:'Berry', icon:'berry', desc:'', note:'', props:{} } },
+  rules: {}, facts: {}, cast: {},   // rules of the world (ADR-0012); what is true and who knows it (§6.2b)
+  languages: { fr:{ name:'Français', lines:{} } }, assets: {},   // translations; image-backed art (KIT.assets)
   scripts: { 'meet-mom': { label:'Meet Mom', trigger:'call'|'auto'|'parallel', when:null|Condition, params:[], body:[Command], note:'' } },
   fragments: [ { id, kind:'note'|'dialogue'|'audio'|'image'|'map-idea', title, body, tags:[], folder:'' } ],
   testStates: [ { id, label, map, x, y, dir, vars:{}, inventory:{}, modules:{} } ],
@@ -247,7 +249,7 @@ Image art: `{ image:'assets/heroes.png' | dataURI, frame:{ x, y, w, h }, frames:
 ### 6.2 Tiles registry entry
 ```js
 { id:'tall-grass', name, group:'nature', art|frames, solid:false, passage:{ n:true, s:true, e:true, w:true },
-  bush:true /* hero legs hidden */, counter:false /* interact across */, ledge:null|'down', warpLook:false,
+  bush:true /* hero legs hidden */, counter:false /* interact across */, ledge:null|'down',
   encounter:true, terrainTag:0, animMs:500, note:'' }
 ```
 Existing `js/art/tiles-*.js` register via `PKMN.TILES.register` — the first
@@ -452,9 +454,10 @@ Determinism: all randomness via `ctx.rng`.
 
 ## 10. Creator Mode (`KIT.editor`)
 
-Shell: top bar (mode strip **EDITING / PLAYING** with colour, map selector with
-folders + search, Undo/Redo, save status, ☰ menu: Snapshots, Export, Import,
-Publish, Reset demo, Help/Vocabulary). Centre: the map canvas (pan: drag on
+Shell: top bar (map selector, the tool buttons, Undo/Redo, zoom −/+, ▶ Play here,
+✕ close); a status line along the bottom (cursor, layer, saved or not, problem
+counts); while playing, a ‹ Back to Creator Mode bar. Save a copy and Save as
+files are in the Project panel; Import is its own panel. Centre: the map canvas (pan: drag on
 empty space or two fingers; zoom buttons; grid; collision/regions/terrain
 overlays toggles). Side panel (bottom sheet on phones, tabs scroll):
 - **Tiles**: Terrain brush (default; paints `terrain`, re-bakes within rule radius, live), Pencil, Fill, Rect, Eraser, Eyedropper, Stamp (multi-tile selection or registry stamp), Random (set + seeded), Regions mode (0-255 palette with names), layer selector (ground/deco/above), Autotile rules sub-view with the **template wizard** (edges/corners/inner corners → rule group) and remap-terrain.
@@ -491,7 +494,7 @@ starts from a test state. DOM ids: `#screen-title #game-canvas #dialogue #choice
 `[data-player]`, `[data-action]`, panels `[data-panel]`, tools `[data-tool]`.
 Tests (Node): registry/schema (validate, defaults, refs incl. read/write,
 display hints), document (ops, inverses, transactions, watch prefixes,
-snapshots, unlimited undo), project (normalize v2→v3 migration, validate codes,
+unlimited undo), project (normalize v2→v3 migration, validate codes,
 resize, export/import files round-trip with sorted keys), tiles (autotile bake
 determinism + locality), map view (passage, ledges, counter, bush, connections,
 overlays), entities (movement rules), text (templating, codes, wrap/paginate),

@@ -1652,7 +1652,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   KIT.defineRegistry('tiles', { fields: named.concat([
     { key: 'solid', type: 'bool', default: false }, { key: 'encounter', type: 'bool', default: false }, { key: 'bush', type: 'bool', default: false },
-    { key: 'counter', type: 'bool', default: false }, { key: 'warpLook', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
+    { key: 'counter', type: 'bool', default: false }, { key: 'terrainTag', type: 'number', integer: true, default: 0 },
     { key: 'animMs', type: 'number', min: 50, default: 500 },
   ]), doc: 'Map tiles (16×16 by default). See ARCHITECTURE §6.2.' });
   KIT.registry('tiles').stamps = [];               // multi-tile brushes: { id, name, group, tiles:[[ids]] }
@@ -1780,7 +1780,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   //   { id, label, detect(files) -> { kind, main, files } | null, run(found, opts) -> Result }
   // `files` are { name, text?, bytes? }; a Result is the shape in docs/IMPORT-CONTRACT.md.
   KIT.defineRegistry('importers', { fields: named.concat([{ key: 'order', type: 'number', integer: true, default: 50 }]), doc: 'File formats a module can import: { id, label, detect(files), run(found, opts) }.' });
-  KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'target', type: 'enum', options: ['project', 'save'], default: 'project' }, { key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: '{ id, target, from, to, up(data) -> data }' });
+  KIT.defineRegistry('migrations', { fields: base.concat([{ key: 'from', type: 'number', integer: true }, { key: 'to', type: 'number', integer: true }]), doc: 'Project migrations: { id, from, to, up(project) -> project }. A module migrates its own save slice with save.migrate in its manifest.' });
   KIT.defineRegistry('strings', { fields: base.concat([{ key: 'default', type: 'string' }, { key: 'doc', type: 'text', optional: true }]), doc: 'System strings (Terms) with defaults; the project may override each.' });
 
   // Reference kinds backed by registries / project tables.
@@ -1943,7 +1943,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
      * their default, which is what makes adding a field to a module safe.
      */
     saveSection(save, id) {
-      const def = M.get(id);
+      const def = M.get(id) || undeclared('saveSection', id);
       const decl = def && def.save;
       if (!decl || !decl.key) return null;
       if (!save || typeof save !== 'object') return defaultsOf(decl);
@@ -1984,7 +1984,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
      * Never mutates the project: this is the reading view. ensurePacks() writes.
      */
     pack(project, id) {
-      const def = M.get(id);
+      const def = M.get(id) || undeclared('pack', id);
       const decl = def && def.content;
       if (!decl || !decl.key) return null;
       const raw = (project && project.packs && project.packs[decl.key]) || {};
@@ -2056,6 +2056,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     },
   };
 
+  // A module's rules asking for a slice its manifest never declared: its
+  // manifest.js was not loaded. Said once, here, instead of a private copy of
+  // the slice logic in every module to fall back on.
+  function undeclared(what, id) {
+    (KIT.log || console).error(`[modules] ${what}('${id}'): no module '${id}' is declared — load its manifest.js`);
+    return null;
+  }
   function defaultsOf(decl) {
     try {
       const d = typeof decl.defaults === 'function' ? decl.defaults() : decl.defaults;
@@ -4648,7 +4655,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   const doc = KIT.document(project)
 //   doc.apply([{ op:'set', path:['maps','town','name'], value:'Town' }], { label:'Rename' })
 //   doc.transaction('Paint', () => { doc.apply(...); doc.apply(...); })   // one undo step
-//   doc.undo(); doc.redo(); doc.watch(['maps','town'], fn); doc.snapshot('Before chapter 2')
+//   doc.undo(); doc.redo(); doc.watch(['maps','town'], fn)
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -4680,8 +4687,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return cur;
   }
 
-  KIT.document = function document(initial, opts) {
-    opts = opts || {};
+  KIT.document = function document(initial) {
     let value = initial;
     const undoStack = [], redoStack = [];
     const watchers = [];
@@ -4750,10 +4756,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       get seq() { return seq; },
       markClean() { dirty = false; },
       get history() { return undoStack.map(e => e.label); },
-      get redoHistory() { return redoStack.map(e => e.label); },
       canUndo() { return undoStack.length > 0; },
       canRedo() { return redoStack.length > 0; },
-      get inTransaction() { return txDepth > 0; },
 
       /** apply(ops, { label }) — ops are applied in order; returns the inverse ops (in reverse order). */
       apply(ops, o) {
@@ -5097,22 +5101,22 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   //   objects  templates; `at:'here'` places at the cursor, `at:'<field>'` at a position field;
   //            string values '$<field>' are replaced by the input, '$here' by { map, x, y } of the cursor.
   KIT.registry('presets').addAll([
-    { id: 'door', name: 'Door', kind: 'object', group: 'Objects', icon: 'door', doc: 'A warp on a door tile, with a door sound.',
+    { id: 'door', name: 'Door', group: 'Objects', icon: 'door', doc: 'A warp on a door tile, with a door sound.',
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'look', type: 'tile', default: 'door' }, { key: 'sound', type: 'ref:sound', default: 'door' }],
       objects: [{ at: 'here', type: 'warp', name: 'Door', pages: [{ props: { to: '$to', look: '$look', sound: '$sound' } }] }] },
-    { id: 'sign', name: 'Sign', kind: 'object', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
+    { id: 'sign', name: 'Sign', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
       fields: [{ key: 'text', type: 'text', default: '' }, { key: 'look', type: 'tile', default: 'sign' }],
       objects: [{ at: 'here', type: 'sign', name: 'Sign', pages: [{ props: { look: '$look' }, on: { interact: [{ t: 'say', text: '$text' }] } }] }] },
-    { id: 'item', name: 'Item on ground', kind: 'object', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
+    { id: 'item', name: 'Item on ground', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
       fields: [{ key: 'item', type: 'ref:item', nullable: false }, { key: 'count', type: 'number', integer: true, min: 1, default: 1 }, { key: 'look', type: 'tile', nullable: true, default: null }],
       objects: [{ at: 'here', type: 'item', name: 'Item', pages: [{ props: { item: '$item', count: '$count', look: '$look' } }] }] },
-    { id: 'transfer-pair', name: 'Transfer pair', kind: 'object', group: 'Objects', icon: 'door', doc: 'Two warps that lead to each other (here and there).',
+    { id: 'transfer-pair', name: 'Transfer pair', group: 'Objects', icon: 'door', doc: 'Two warps that lead to each other (here and there).',
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'sound', type: 'ref:sound', default: null }],
       objects: [
         { at: 'here', type: 'warp', name: 'Warp', pages: [{ props: { to: '$to', sound: '$sound' } }] },
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
-    { id: 'npc', name: 'NPC', kind: 'object', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
+    { id: 'npc', name: 'NPC', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
       fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
@@ -5224,7 +5228,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     return out;
   }
-  KIT.registry('migrations').add({ id: 'project-2-to-3', target: 'project', from: 2, to: 3, doc: 'Flat v1/v2 project (objects with event/trigger/condition) -> v3 pages/slots/terrain.', up: migrate2to3 });
+  KIT.registry('migrations').add({ id: 'project-2-to-3', from: 2, to: 3, doc: 'Flat v1/v2 project (objects with event/trigger/condition) -> v3 pages/slots/terrain.', up: migrate2to3 });
 
   /** migrate(project) -> { project, applied:[migration ids], problems }. Runs the 'migrations' chain up to P.VERSION. */
   P.migrate = function (project) {
@@ -5240,7 +5244,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const reg = KIT.registry('migrations');
     let guard = 0;
     while (v < P.VERSION && guard++ < 50) {
-      const m = reg.list().find(m => (m.target || 'project') === 'project' && m.from === v);
+      const m = reg.list().find(m => m.from === v);
       if (!m) { problems.push({ severity: 'error', code: 'no-migration', message: `no migration from project version ${v}`, where: { path: ['version'] } }); break; }
       p = m.up(p) || p; v = m.to; p.version = v; applied.push(m.id);
     }
@@ -6198,7 +6202,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const DIR_KEY = { n: 'n', s: 's', e: 'e', w: 'w', up: 'n', down: 's', right: 'e', left: 'w', north: 'n', south: 's', east: 'e', west: 'w' };
 
   /** Defaults every tile has (a missing/unknown tile is walkable ground). */
-  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, warpLook: false, encounter: false, terrainTag: 0, animMs: 500 });
+  T.DEFAULTS = Object.freeze({ solid: false, passage: Object.freeze({ n: true, s: true, e: true, w: true }), bush: false, counter: false, ledge: null, encounter: false, terrainTag: 0, animMs: 500 });
 
   function registry() { return KIT.registry.exists('tiles') ? KIT.registry('tiles') : null; }
   T.def = function (tileOrId) {
@@ -6208,7 +6212,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   };
 
   /**
-   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, warpLook, encounter, terrainTag, animMs, animated }
+   * flags(tileOrId) -> { id, exists, solid, passage:{n,s,e,w}, bush, counter, ledge, encounter, terrainTag, animMs, animated }
    * Registry flags merged over the defaults. Unknown ids are walkable with exists:false.
    */
   T.flags = function (tileOrId) {
@@ -11115,7 +11119,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
     /** Merged tile flags for a cell: any solid layer makes it solid; passage closes if any layer closes it; bush/counter/encounter/ledge from any layer. */
     function flagsAt(x, y) {
-      const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, warpLook: false, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
+      const out = { solid: false, bush: false, counter: false, encounter: false, ledge: null, terrainTag: 0, passage: { n: true, s: true, e: true, w: true }, tiles: [] };
       if (!inBounds(x, y)) { out.solid = true; return out; }
       for (const layer of LAYERS) {
         const id = tileAt(layer, x, y);
@@ -11127,7 +11131,6 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (f.counter) out.counter = true;
         if (f.encounter) out.encounter = true;
         if (f.ledge) out.ledge = f.ledge;
-        if (f.warpLook) out.warpLook = true;
         if (f.terrainTag) out.terrainTag = f.terrainTag;
         for (const e of ['n', 's', 'e', 'w']) if (f.passage && f.passage[e] === false) out.passage[e] = false;
       }
@@ -12853,14 +12856,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const FLAG_ALIASES = {
     solid: 'solid', collide: 'solid', blocked: 'solid', impassable: 'solid',
     bush: 'bush', tallgrass: 'bush', counter: 'counter', ledge: 'ledge',
-    warplook: 'warpLook', encounter: 'encounter', encounters: 'encounter',
+    encounter: 'encounter', encounters: 'encounter',
     terraintag: 'terrainTag', tag: 'terrainTag',
     animms: 'animMs', probability: 'probability',
     passage: 'passage', block: 'block', blockededges: 'block',
     passagen: 'passage.n', passages: 'passage.s', passagee: 'passage.e', passagew: 'passage.w',
     name: 'name', group: 'group', note: 'note',
   };
-  const FLAG_NAMES = ['solid', 'bush', 'counter', 'encounter', 'warpLook'];
+  const FLAG_NAMES = ['solid', 'bush', 'counter', 'encounter'];
   const fullPassage = () => ({ n: true, s: true, e: true, w: true });
 
   /** Tile collision (an objectgroup on the tile) -> a full-tile box, or per-edge passage. */
@@ -14851,7 +14854,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         id, name: `${isObj(ts) && ts.name ? ts.name : tsSlug} ${tileId}`, group: tsSlug,
         art: art ? art.art : null,
         solid: flags.solid, passage: flags.passage, bush: flags.bush, counter: flags.counter,
-        ledge: null, warpLook: false, encounter: false, terrainTag: flags.terrainTag,
+        ledge: null, encounter: false, terrainTag: flags.terrainTag,
         animMs: 500, note: notes.join(' '),
         props: Object.assign({ mvTileId: tileId, mvTileset: tilesetId, mvSheet: SHEET_NAMES[setNumber] }, flags.props),
       };
@@ -22063,7 +22066,7 @@ PKMN.TILES.register([
       'dddddddddddddddd',
       'kkkkkkkkkkkkkkkk',
     ] },
-  { id: 'door', name: 'Door', group: 'town', solid: false, warpLook: true,
+  { id: 'door', name: 'Door', group: 'town', solid: false,
     palette: { c: '#f8f0e0', d: '#e4d8c4', k: '#a89878', o: '#604020', w: '#d8a870', m: '#b88050', D: '#906038', y: '#f8d848' },
     rows: [
       'cccccccccccccccc',
@@ -22123,7 +22126,7 @@ PKMN.TILES.register([
       'llllllllllllllll',
       'kkkkkkkkkkkkkkkk',
     ] },
-  { id: 'lab-door', name: 'Lab door', group: 'town', solid: false, warpLook: true,
+  { id: 'lab-door', name: 'Lab door', group: 'town', solid: false,
     palette: { g: '#d8dce4', G: '#eef0f4', l: '#b4bcc8', k: '#8c94a4', f: '#506478', B: '#c0e4ff', b: '#78b8f8', h: '#f0f4f8' },
     rows: [
       'GGGGGGGGGGGGGGGG',
@@ -22354,7 +22357,7 @@ PKMN.TILES.register([
       'mmmmmmmmmmmmmmmm',
       'dddddddddddddddd',
     ] },
-  { id: 'exit-mat', name: 'Exit mat', group: 'interior', solid: false, warpLook: true,
+  { id: 'exit-mat', name: 'Exit mat', group: 'interior', solid: false,
     palette: { o: '#786048', m: '#b09068', l: '#c8a880', d: '#987850' },
     rows: [
       '................',
@@ -22374,7 +22377,7 @@ PKMN.TILES.register([
       '................',
       '................',
     ] },
-  { id: 'stairs-up', name: 'Stairs (up)', group: 'interior', solid: false, warpLook: true,
+  { id: 'stairs-up', name: 'Stairs (up)', group: 'interior', solid: false,
     palette: { o: '#604020', w: '#d8a870', m: '#b88050', d: '#906038', k: '#3c2c20' },
     rows: [
       'okkkkkkkkkkkkkko',
@@ -22394,7 +22397,7 @@ PKMN.TILES.register([
       'omdddddddddddddo',
       'oooooooooooooooo',
     ] },
-  { id: 'stairs-down', name: 'Stairs (down)', group: 'interior', solid: false, warpLook: true,
+  { id: 'stairs-down', name: 'Stairs (down)', group: 'interior', solid: false,
     palette: { o: '#604020', w: '#d8a870', m: '#b88050', d: '#906038', K: '#5c4030', k: '#3c2c20' },
     rows: [
       'oooooooooooooooo',
@@ -24242,7 +24245,6 @@ PKMN.TILES.register([
     "coop": {
       "enabled": false
     },
-    "encounterRate": 12,
     "palette": {
       "amount": 0,
       "remap": {},
@@ -35787,14 +35789,7 @@ PKMN.TILES.register([
   };
 
   /** pack(project) -> packs.mons with every default filled in (never mutates the project). */
-  M.pack = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
-      const p = KIT.modules.pack(project, 'mons');
-      if (p) return p;
-    }
-    const raw = (project && project.packs && isObj(project.packs.mons)) ? project.packs.mons : {};
-    return Object.assign(M.contentDefaults(), raw);
-  };
+  M.pack = (project) => KIT.modules.pack(project, 'mons');
 
   // ---- the catch profile -----------------------------------------------------
   // The whole catch scene is driven by this, so re-theming it is content work.
@@ -36279,19 +36274,7 @@ PKMN.TILES.register([
    */
   M.section = function (save) {
     if (!isObj(save)) return M.saveDefaults();
-    // The engine fills, migrates and repairs the section when the world is made
-    // (see `save` in manifest.js). This reads it — and still does the whole job
-    // for a bare save, because a module has to work without a world around it.
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('mons')) {
-      const section = KIT.modules.saveSection(save, 'mons');
-      if (section) return section;
-    }
-    save.modules = isObj(save.modules) ? save.modules : {};
-    const cur = save.modules.mons;
-    if (!isObj(cur) || num(cur.version, 0) !== M.SAVE_VERSION || !Array.isArray(cur.party)) {
-      save.modules.mons = M.migrateSave(cur);
-    }
-    return save.modules.mons;
+    return KIT.modules.saveSection(save, 'mons');
   };
 
   /** read(save) -> the section without writing to the save (conditions and panels). */
@@ -39655,30 +39638,13 @@ PKMN.TILES.register([
   /**
    * ensure(save) -> the module's save section.
    *
-   * The engine fills, migrates and repairs it when the world is made (see
-   * `save` in manifest.js), so normally this just reads it. It still does the
-   * whole job when handed a bare save — a headless test, a tool — because a
-   * module has to work without a world around it.
+   * KIT.modules fills, migrates and repairs it from the `save` declaration in
+   * manifest.js — when the world is made, and here for a bare save (a headless
+   * test, a tool), because a module has to work without a world around it.
    */
   H.ensure = function (save) {
     if (!save || typeof save !== 'object') return H.repair(H.defaults());
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
-      const section = KIT.modules.saveSection(save, 'home');
-      if (section) return section;
-    }
-    save.modules = save.modules || {};
-    let data = save.modules.home;
-    if (!data || typeof data !== 'object') data = H.defaults();
-    if (!Number.isFinite(data.version)) data.version = 1;
-    for (const m of H.migrations) {
-      if (data.version !== m.from) continue;
-      try { data = m.up(data) || data; } catch (e) { (KIT.log || console).error('[home] migration ' + m.from + '→' + m.to, e); }
-      data.version = m.to;
-    }
-    const d = H.defaults();
-    for (const k of Object.keys(d)) if (!has(data, k)) data[k] = d[k];
-    save.modules.home = H.repair(data);
-    return save.modules.home;
+    return KIT.modules.saveSection(save, 'home');
   };
 
   // ---- content (project.packs.home) ------------------------------------------
@@ -39708,16 +39674,7 @@ PKMN.TILES.register([
    * project). normalize() has usually written this already; this still fills it
    * for a project that never went through normalize.
    */
-  H.pack = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('home')) {
-      const p = KIT.modules.pack(project, 'home');
-      if (p) return p;
-    }
-    const raw = (project && project.packs && project.packs.home) || {};
-    const out = Object.assign(H.contentDefaults(), raw);
-    out.tuning = Object.assign(H.tuningDefaults(), raw.tuning || {});
-    return out;
-  };
+  H.pack = (project) => KIT.modules.pack(project, 'home');
   /** tuning(project) -> just the numbers. */
   H.tuning = function (project) { return H.pack(project).tuning; };
 

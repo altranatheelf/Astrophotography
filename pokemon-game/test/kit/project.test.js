@@ -7,7 +7,7 @@ const P = KIT.project;
 // A few tiles / sprites / sounds so reference checks are exercised (registries are per test process).
 KIT.registry('tiles').addAll([
   { id: 'grass', group: 'nature' }, { id: 'path', group: 'nature' }, { id: 'floor-wood', group: 'interior' }, { id: 'cave-floor', group: 'cave' },
-  { id: 'wall', solid: true }, { id: 'door', warpLook: true }, { id: 'sign', solid: true }, { id: 'water', solid: true },
+  { id: 'wall', solid: true }, { id: 'door' }, { id: 'sign', solid: true }, { id: 'water', solid: true },
 ]);
 KIT.registry('sprites').addAll([{ id: 'hero-boy' }, { id: 'hero-girl' }, { id: 'woman' }]);
 KIT.registry('sounds').add({ id: 'door' });

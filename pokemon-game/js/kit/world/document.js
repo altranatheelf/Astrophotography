@@ -5,7 +5,7 @@
 //   const doc = KIT.document(project)
 //   doc.apply([{ op:'set', path:['maps','town','name'], value:'Town' }], { label:'Rename' })
 //   doc.transaction('Paint', () => { doc.apply(...); doc.apply(...); })   // one undo step
-//   doc.undo(); doc.redo(); doc.watch(['maps','town'], fn); doc.snapshot('Before chapter 2')
+//   doc.undo(); doc.redo(); doc.watch(['maps','town'], fn)
 (function (root) {
   const KIT = root.KIT = root.KIT || {};
 
@@ -37,8 +37,7 @@
     return cur;
   }
 
-  KIT.document = function document(initial, opts) {
-    opts = opts || {};
+  KIT.document = function document(initial) {
     let value = initial;
     const undoStack = [], redoStack = [];
     const watchers = [];
@@ -107,10 +106,8 @@
       get seq() { return seq; },
       markClean() { dirty = false; },
       get history() { return undoStack.map(e => e.label); },
-      get redoHistory() { return redoStack.map(e => e.label); },
       canUndo() { return undoStack.length > 0; },
       canRedo() { return redoStack.length > 0; },
-      get inTransaction() { return txDepth > 0; },
 
       /** apply(ops, { label }) — ops are applied in order; returns the inverse ops (in reverse order). */
       apply(ops, o) {

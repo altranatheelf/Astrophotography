@@ -435,7 +435,6 @@
     "coop": {
       "enabled": false
     },
-    "encounterRate": 12,
     "palette": {
       "amount": 0,
       "remap": {},

@@ -101,22 +101,13 @@ function rulesJs(v) {
   };
 
   /**
-   * ensure(save) -> this module's section. The engine fills it whenever a world
-   * is made (see the save declaration in manifest.js), so this usually just reads
-   * it; it still does the whole job for a bare save, so the module works with no
-   * world around it. Never throws.
+   * ensure(save) -> this module's section. KIT.modules fills, migrates and
+   * repairs it from the save declaration in manifest.js, for a bare save too, so
+   * the module works with no world around it. Never throws.
    */
   M.ensure = function (save) {
     if (!isObj(save)) return M.repair(M.defaults());
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('${v.id}')) {
-      const section = KIT.modules.saveSection(save, '${v.id}');
-      if (section) return section;
-    }
-    const mods = save.modules = isObj(save.modules) ? save.modules : {};
-    let data = isObj(mods.${v.camel}) ? mods.${v.camel} : {};
-    for (const m of M.migrations) if (num(data.version, 0) === m.from) data = m.up(data) || data;
-    mods.${v.camel} = M.repair(data);
-    return mods.${v.camel};
+    return KIT.modules.saveSection(save, '${v.id}');
   };
 
   // ---- the content slice (project.packs.${v.id}) --------------------------------
@@ -128,22 +119,9 @@ function rulesJs(v) {
     { key: 'max', type: 'number', integer: true, min: 1, default: 99, label: 'As high as it goes' },
   ];
   /** contentDefaults() -> project.packs.${v.id} before the author touches it. */
-  M.contentDefaults = function () {
-    const out = {};
-    for (const f of M.TUNING) out[f.key] = f.default;
-    return out;
-  };
+  M.contentDefaults = () => KIT.schema.defaults(M.TUNING);
   /** tuning(project) -> the pack with every default filled in. */
-  M.tuning = function (project) {
-    if (KIT.modules && KIT.modules.get && KIT.modules.get('${v.id}')) {
-      const p = KIT.modules.pack(project, '${v.id}');
-      if (p) return p;
-    }
-    const pack = (project && project.packs && project.packs.${v.camel}) || {};
-    const out = M.contentDefaults();
-    for (const k of Object.keys(out)) if (pack[k] !== undefined && pack[k] !== null) out[k] = pack[k];
-    return out;
-  };
+  M.tuning = (project) => KIT.modules.pack(project, '${v.id}');
 
   // ---- the rules ----------------------------------------------------------------
   // This is the part that is really yours. Everything above is bookkeeping; what

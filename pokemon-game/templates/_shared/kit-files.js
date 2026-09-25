@@ -8,7 +8,7 @@
 // packed kit keeps the same layout, so nothing here changes between the two.
 'use strict';
 
-/** The engine, in the order docs/KIT-API.md gives. */
+/** The engine, in load order. docs/KIT-API.md points here rather than copying it. */
 const CORE = [
   'js/kit/core/util.js', 'js/kit/core/events.js', 'js/kit/core/rng.js', 'js/kit/core/registry.js',
   'js/kit/core/schema.js', 'js/kit/core/registries.js', 'js/kit/core/modules.js',

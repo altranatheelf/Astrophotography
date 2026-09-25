@@ -116,7 +116,7 @@
      * their default, which is what makes adding a field to a module safe.
      */
     saveSection(save, id) {
-      const def = M.get(id);
+      const def = M.get(id) || undeclared('saveSection', id);
       const decl = def && def.save;
       if (!decl || !decl.key) return null;
       if (!save || typeof save !== 'object') return defaultsOf(decl);
@@ -157,7 +157,7 @@
      * Never mutates the project: this is the reading view. ensurePacks() writes.
      */
     pack(project, id) {
-      const def = M.get(id);
+      const def = M.get(id) || undeclared('pack', id);
       const decl = def && def.content;
       if (!decl || !decl.key) return null;
       const raw = (project && project.packs && project.packs[decl.key]) || {};
@@ -229,6 +229,13 @@
     },
   };
 
+  // A module's rules asking for a slice its manifest never declared: its
+  // manifest.js was not loaded. Said once, here, instead of a private copy of
+  // the slice logic in every module to fall back on.
+  function undeclared(what, id) {
+    (KIT.log || console).error(`[modules] ${what}('${id}'): no module '${id}' is declared — load its manifest.js`);
+    return null;
+  }
   function defaultsOf(decl) {
     try {
       const d = typeof decl.defaults === 'function' ? decl.defaults() : decl.defaults;

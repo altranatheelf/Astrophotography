@@ -58,7 +58,7 @@ something will do, add `--dry-run` and it will tell you without touching a file.
 
 5. Tile properties become tile behaviour. On a tile in the tileset, add:
    `solid`, `bush`, `counter`, `ledge` (`down`/`up`/`left`/`right`), `encounter`,
-   `warpLook`, `terrainTag`, `animMs`, or `name` (what the tile is called in
+   `terrainTag`, `animMs`, or `name` (what the tile is called in
    Kit). A collision shape covering the whole tile means solid; a thin strip
    along one edge blocks that edge only. Anything else you invented is kept on
    the tile and shown in the editor.

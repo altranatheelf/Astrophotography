@@ -114,7 +114,7 @@ Dependency rule, enforced by a test that greps `require`/`PKMN.` usage:
 {
   version: 2,                                  // project schema version (migrations below)
   meta:     { title, subtitle, author, created, modified },
-  settings: { textSpeed, encounterRate, catchDifficulty, coop: { enabled, mode }, zoom, ... },
+  settings: { textSpeed, coop: { enabled, mode }, zoom, ... },   // a module's own settings live in packs
   heroes:   [ { id:'p1', name, sprite, recolor:{} }, { id:'p2', ... } ],
   start:    { map, x, y, dir },
   items:    { berry: { kind:'berry', name, icon, desc, props:{...} }, ... },   // kinds are a registry

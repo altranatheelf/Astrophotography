@@ -513,14 +513,14 @@
   const FLAG_ALIASES = {
     solid: 'solid', collide: 'solid', blocked: 'solid', impassable: 'solid',
     bush: 'bush', tallgrass: 'bush', counter: 'counter', ledge: 'ledge',
-    warplook: 'warpLook', encounter: 'encounter', encounters: 'encounter',
+    encounter: 'encounter', encounters: 'encounter',
     terraintag: 'terrainTag', tag: 'terrainTag',
     animms: 'animMs', probability: 'probability',
     passage: 'passage', block: 'block', blockededges: 'block',
     passagen: 'passage.n', passages: 'passage.s', passagee: 'passage.e', passagew: 'passage.w',
     name: 'name', group: 'group', note: 'note',
   };
-  const FLAG_NAMES = ['solid', 'bush', 'counter', 'encounter', 'warpLook'];
+  const FLAG_NAMES = ['solid', 'bush', 'counter', 'encounter'];
   const fullPassage = () => ({ n: true, s: true, e: true, w: true });
 
   /** Tile collision (an objectgroup on the tile) -> a full-tile box, or per-edge passage. */

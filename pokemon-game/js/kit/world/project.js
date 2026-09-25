@@ -242,22 +242,22 @@
   //   objects  templates; `at:'here'` places at the cursor, `at:'<field>'` at a position field;
   //            string values '$<field>' are replaced by the input, '$here' by { map, x, y } of the cursor.
   KIT.registry('presets').addAll([
-    { id: 'door', name: 'Door', kind: 'object', group: 'Objects', icon: 'door', doc: 'A warp on a door tile, with a door sound.',
+    { id: 'door', name: 'Door', group: 'Objects', icon: 'door', doc: 'A warp on a door tile, with a door sound.',
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'look', type: 'tile', default: 'door' }, { key: 'sound', type: 'ref:sound', default: 'door' }],
       objects: [{ at: 'here', type: 'warp', name: 'Door', pages: [{ props: { to: '$to', look: '$look', sound: '$sound' } }] }] },
-    { id: 'sign', name: 'Sign', kind: 'object', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
+    { id: 'sign', name: 'Sign', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
       fields: [{ key: 'text', type: 'text', default: '' }, { key: 'look', type: 'tile', default: 'sign' }],
       objects: [{ at: 'here', type: 'sign', name: 'Sign', pages: [{ props: { look: '$look' }, on: { interact: [{ t: 'say', text: '$text' }] } }] }] },
-    { id: 'item', name: 'Item on ground', kind: 'object', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
+    { id: 'item', name: 'Item on ground', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
       fields: [{ key: 'item', type: 'ref:item', nullable: false }, { key: 'count', type: 'number', integer: true, min: 1, default: 1 }, { key: 'look', type: 'tile', nullable: true, default: null }],
       objects: [{ at: 'here', type: 'item', name: 'Item', pages: [{ props: { item: '$item', count: '$count', look: '$look' } }] }] },
-    { id: 'transfer-pair', name: 'Transfer pair', kind: 'object', group: 'Objects', icon: 'door', doc: 'Two warps that lead to each other (here and there).',
+    { id: 'transfer-pair', name: 'Transfer pair', group: 'Objects', icon: 'door', doc: 'Two warps that lead to each other (here and there).',
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'sound', type: 'ref:sound', default: null }],
       objects: [
         { at: 'here', type: 'warp', name: 'Warp', pages: [{ props: { to: '$to', sound: '$sound' } }] },
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
-    { id: 'npc', name: 'NPC', kind: 'object', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
+    { id: 'npc', name: 'NPC', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
       fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
@@ -369,7 +369,7 @@
     }
     return out;
   }
-  KIT.registry('migrations').add({ id: 'project-2-to-3', target: 'project', from: 2, to: 3, doc: 'Flat v1/v2 project (objects with event/trigger/condition) -> v3 pages/slots/terrain.', up: migrate2to3 });
+  KIT.registry('migrations').add({ id: 'project-2-to-3', from: 2, to: 3, doc: 'Flat v1/v2 project (objects with event/trigger/condition) -> v3 pages/slots/terrain.', up: migrate2to3 });
 
   /** migrate(project) -> { project, applied:[migration ids], problems }. Runs the 'migrations' chain up to P.VERSION. */
   P.migrate = function (project) {
@@ -385,7 +385,7 @@
     const reg = KIT.registry('migrations');
     let guard = 0;
     while (v < P.VERSION && guard++ < 50) {
-      const m = reg.list().find(m => (m.target || 'project') === 'project' && m.from === v);
+      const m = reg.list().find(m => m.from === v);
       if (!m) { problems.push({ severity: 'error', code: 'no-migration', message: `no migration from project version ${v}`, where: { path: ['version'] } }); break; }
       p = m.up(p) || p; v = m.to; p.version = v; applied.push(m.id);
     }

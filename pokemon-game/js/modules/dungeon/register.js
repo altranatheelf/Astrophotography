@@ -264,10 +264,10 @@
 
     // ---- quick-create presets ------------------------------------------------------------
     KIT.registry('presets').addAll([
-      { id: 'locked-door', name: 'Locked door', kind: 'object', group: 'Dungeon', icon: 'door', doc: 'A door and the key that opens it.',
+      { id: 'locked-door', name: 'Locked door', group: 'Dungeon', icon: 'door', doc: 'A door and the key that opens it.',
         fields: [{ key: 'key', type: 'ref:item', nullable: true }, { key: 'lockedText', type: 'text', default: '' }],
         objects: [{ at: 'here', type: 'dungeon-door', name: 'Locked door', pages: [{ props: { key: '$key', lockedText: '$lockedText' } }] }] },
-      { id: 'switch-and-gate', name: 'Switch and gate', kind: 'object', group: 'Dungeon', icon: 'flag', doc: 'A plate here and the gate it opens over there.',
+      { id: 'switch-and-gate', name: 'Switch and gate', group: 'Dungeon', icon: 'flag', doc: 'A plate here and the gate it opens over there.',
         fields: [{ key: 'name', type: 'string', default: 'switch1' }, { key: 'gate', type: 'position', display: 'link' }],
         objects: [
           { at: 'here', type: 'dungeon-switch', name: 'Plate', pages: [{ props: { name: '$name' } }] },

@@ -90,7 +90,7 @@ original path and adds an `asset-unresolved` problem — the import still succee
 
 ## Tile flags
 Map tool properties become Kit tile flags (§6.2): `solid`, `passage:{n,s,e,w}`,
-`bush`, `counter`, `ledge`, `warpLook`, `encounter`, `terrainTag`, `animMs`.
+`bush`, `counter`, `ledge`, `encounter`, `terrainTag`, `animMs`.
 Unknown custom properties are kept verbatim on `tile.props` so nothing is lost.
 
 ## What every importer must do

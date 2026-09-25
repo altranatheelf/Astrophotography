@@ -320,7 +320,7 @@ PKMN.TILES.register([
       'dddddddddddddddd',
       'kkkkkkkkkkkkkkkk',
     ] },
-  { id: 'door', name: 'Door', group: 'town', solid: false, warpLook: true,
+  { id: 'door', name: 'Door', group: 'town', solid: false,
     palette: { c: '#f8f0e0', d: '#e4d8c4', k: '#a89878', o: '#604020', w: '#d8a870', m: '#b88050', D: '#906038', y: '#f8d848' },
     rows: [
       'cccccccccccccccc',
@@ -380,7 +380,7 @@ PKMN.TILES.register([
       'llllllllllllllll',
       'kkkkkkkkkkkkkkkk',
     ] },
-  { id: 'lab-door', name: 'Lab door', group: 'town', solid: false, warpLook: true,
+  { id: 'lab-door', name: 'Lab door', group: 'town', solid: false,
     palette: { g: '#d8dce4', G: '#eef0f4', l: '#b4bcc8', k: '#8c94a4', f: '#506478', B: '#c0e4ff', b: '#78b8f8', h: '#f0f4f8' },
     rows: [
       'GGGGGGGGGGGGGGGG',

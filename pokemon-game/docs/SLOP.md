@@ -81,6 +81,7 @@ without reading:
 | `js/kit` names no module | `test/kit/purity.test.js` |
 | The load order is one list, repeated nowhere it can drift | `test/kit/load-order.test.js` |
 | A document names only files that exist and quotes only the true test count | `test/kit/docs.test.js` |
+| Every `KIT.*` a document names exists, and so does every function a `typeof KIT.x === 'function'` guard asks about | `test/kit/docs-api.test.js` |
 | No message tells a phone to press a key it does not have | `test/kit/phone-copy.test.js` |
 
 ## What is measured and not gated, on purpose
@@ -125,3 +126,88 @@ was found with a `file:line` or not at all:
 Each finding gets a skeptic before it gets a fix: somebody whose job is to
 refute it from the source. About a third do not survive that, and the ones
 that do are the ones worth the time.
+
+## What the reading found
+
+The six questions above were put to the codebase in September 2026, one reader
+per question, with a skeptic per finding reading the source to refute it. Of
+110 findings, about a third had already been fixed by the time a skeptic got to
+them, or were wrong. What survived was more interesting than the counts: the
+worst of it was bugs, and every bug was one of the patterns in the research.
+
+**Bugs, each now under a test.**
+
+* *A copy that was wrong, copied.* The Dungeon panel handed the inspector's
+  field path to `doc.set` as the whole pack, so the first number an author
+  changed replaced `packs.dungeon` with `['torchRadius']`. `tools/new-module.js`
+  wrote the same line into every module it scaffolded. Both now call one
+  `KIT.editor.inspector.packForm` (`e2e/editor.js` makes a dungeon game and
+  types into it; `test/kit/templates.test.js` guards the scaffold).
+* *Hand-built beside the shared thing.* Home's numbers had their own inputs,
+  which let a chance of 5 through; the inspector's widget, one call away,
+  clamps. And every keystroke in a number field was its own undo step, while
+  the text widget three screens down already waited for a pause.
+* *Documented, consumed, never defined.* The Map panel asked for a `mapSections`
+  registry, a module added to it, the API doc described it, and nothing had
+  ever defined it, so both sides guarded on it and the section never appeared.
+  The world never emitted the `interact` event its docs promised either.
+* *Errors masked.* A corrupt Aseprite cel or Tiled layer was reported as "pass
+  `opts.inflate`" — a missing decoder — because the decoder's own reason was
+  caught and turned into `null`. A malformed external tileset was reported as
+  never supplied. A malformed `@if` line lost the parser's reason and said
+  "could not read this line". A validator that threw left the Problems panel
+  empty. A draft the browser could not read was overwritten by the next
+  autosave.
+* *Work done twice.* Five panels, the ref creator and the Import panel ran the
+  refresh, the validation and the save a second time after `ED.commit` had
+  already done them.
+
+**Dead weight.** Fields declared, validated and defaulted on every definition
+and read by nothing (tile `probability` and `warpLook`, object-type `limit` and
+`toc`, preset `kind`, a migration `target`, rule `carrier`,
+`settings.encounterRate`, a `radius` display hint);
+hooks for callers that never came (registry `onAdd`/`onRemove`/`silentReplace`,
+the registry's and the module system's `reset()`, document snapshots, an editor
+wrapper round `KIT.renderer.create`). All removed; saved projects that carry
+the old keys still load.
+
+**Copies turned into calls.** The script-slot labels (one panel said
+"Interact" where the rest said "On Interact", against its own docstring), the
+file picker and paste box, form teardown, the menu's screen switch, the catch
+scene's way back to its menu, the home cursor, the RPG Maker parser's block
+closer, and each module's private copy of the save-slice and pack logic that
+`KIT.modules` already runs from its manifest (the copies had drifted: one
+skipped the defaults, one let a failing migration throw). The one long function that was many things — the Project panel's
+400-line `refresh`, eight sections that shared nothing but `host` — is eight
+named sections now. The other long ones (`catchScene`, the menu, the script
+editor's mount) are each one scene built top to bottom, and stay.
+
+**Comments that described the past.** Section numbers pointing at sections
+that do not exist; a shell described as "frozen" that had changed four times
+that month; `@eat` for what is spelled `@rule eat`; a renderer described as
+unable to draw sprites it had drawn for weeks; paragraphs that were the
+biography of a line rather than its reason. Corrected or cut.
+
+**Kept, on purpose.**
+
+* Tile `terrainTag`. Nothing in the engine acts on it, but it is RPG Maker's
+  own per-tile data: the importers carry it in and `KIT.tiles.flags` hands it
+  to a game. Deleting it would lose what a person imported. (`warpLook`, which
+  no tool outside this repo writes, went: it was set on five door tiles and
+  promised as "tile behaviour" in the import guide, and it did nothing.)
+* Registry `on('add'|'remove')`. Only a test calls it, but it is documented in
+  `docs/KIT-API.md`, which ADR-0016 counts as a reference: an extension point
+  offered on purpose.
+* The shared six-line windows between the Dungeon and Home panels: the
+  scaffold's panel skeleton, written so that a module reads on its own.
+
+**Measured again afterwards:**
+
+| | before | after |
+|---|---|---|
+| helper copies | 58 | 0 |
+| empty `catch` blocks | 57 | 44, each with its reason |
+| public API referenced by nothing | 10 | 0 |
+| functions of 175 lines or more | 8 | 7 |
+| unit tests | 610 | 632 |
+

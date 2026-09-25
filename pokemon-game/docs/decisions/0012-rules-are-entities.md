@@ -17,7 +17,9 @@ parts an author already knows:
 | `if`   | a **condition** — the same type an event page's page-condition uses |
 | `do`   | a **script** — the same command list an event page runs |
 
-Plus `on`, `priority`, `edible`, `carrier` and a `scope` of maps and layers.
+Plus `on`, `priority`, `edible` and a `scope` of maps and layers. (A `carrier`,
+the object whose destruction would eat the rule, was declared here too and
+never read by anything; it was removed in September 2026, ADR-0016.)
 
 It can be switched off, **rewritten**, and **eaten**. `@rule eat doors-need-keys`
 is a verb a story can use, and after it the doors do not need keys, because the
