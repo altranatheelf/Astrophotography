@@ -45,21 +45,30 @@ written faster than it is read. The machine just does it at scale.
 
 ## What this codebase had
 
-Measured in September 2026, before the pass that produced this page:
+Measured with `tools/slop.js` as it stands now, over commit `64446db`, the
+last one before the pass that produced this page — so anyone can run it again:
 
-* `num` was defined locally in **21** files, `isObj` in **13**, `titleCase`
-  in **12**, `has` in **9**, `clamp` in **3** — while `KIT.clamp`,
-  `KIT.isObject` and `KIT.slug` already existed in `js/kit/core/util.js`. And
-  the copies had drifted: `num(null, 5)` returned `0` in `js/kit` and `5` in
-  `js/modules`. Same name, two answers, depending on the folder.
-* **57** empty `catch` blocks. Every one carried a comment, which is better than
-  the industry norm and still not the same as every one being right.
-* **10** functions defined on a public namespace that nothing anywhere called —
+```
+git archive 64446db pokemon-game | tar -x -C /tmp/before
+cp tools/slop.js /tmp/before/pokemon-game/tools/ && node /tmp/before/pokemon-game/tools/slop.js
+```
+
+* `num` was defined locally in **20** files, `titleCase` in **12**, `isObj` in
+  **11**, `has` in **7**, `clamp` in **3** and `slug` once — **54** copies —
+  while `KIT.clamp`, `KIT.isObject` and `KIT.slug` already existed in
+  `js/kit/core/util.js`. And the copies had drifted: nine of the `num` copies
+  turned `null` into `0` and six into the default, so `num(null, 5)` was `0` in
+  one file and `5` in the next. Same name, two answers.
+* **57** empty `catch` blocks, every one with a comment, which is better than
+  the industry norm and still not the same as every one being right — and
+  **4** more in the promise form, `.catch(() => {})`, with none. The
+  instrument did not count that form until a review of it pointed that out.
+* **9** functions defined on a public namespace that nothing anywhere called —
   including `M.invalidateArt`, a hook "for when Creator Mode edits art in
   place", written for an art editor that was never built.
-* Two file pairs sharing runs of six identical lines (`js/kit/editor/panels-project.js`
-  and `js/kit/editor/panels-writing.js`; `js/modules/dungeon/panel.js` and
-  `js/modules/home/panel.js`), and eight functions over 175 lines.
+* Three file pairs sharing runs of six identical lines, 17 such windows in all
+  (the Project and Writing panels had 11 of them), and eight functions over 175
+  lines.
 * Zero `TODO`s, zero stray `console.log`s, zero tests without an assertion, and
   a docs test that already failed when a document named a file that was not
   there. Those are the marks of having been read; this page is about the rest.
@@ -75,13 +84,13 @@ without reading:
 |---|---|
 | A helper lives in `js/kit/core/util.js` once; a file may alias it, never copy it | `test/kit/helpers.test.js`, `test/kit/slop.test.js` |
 | `num`, `has`, `titleCase` mean one thing | `test/kit/helpers.test.js` |
-| An empty `catch` says why, or it is a bug report nobody filed | `test/kit/slop.test.js` |
+| An empty `catch`, or an empty promise `.catch(() => {})`, says why, or it is a bug report nobody filed | `test/kit/slop.test.js` |
 | API nothing references — not the engine, tests, tools, docs or a page — is dead. Document it or delete it | `test/kit/slop.test.js` |
 | No `console.log`, no `TODO`, after a session ends | `test/kit/slop.test.js` |
 | `js/kit` names no module | `test/kit/purity.test.js` |
 | The load order is one list, repeated nowhere it can drift | `test/kit/load-order.test.js` |
 | A document names only files that exist and quotes only the true test count | `test/kit/docs.test.js` |
-| Every `KIT.*` a document names exists, and so does every function a `typeof KIT.x === 'function'` guard asks about | `test/kit/docs-api.test.js` |
+| Every `KIT.*` a document names exists; every bare `name(` it writes is an identifier somewhere in the code; every function a `typeof KIT.x === 'function'` guard asks about exists | `test/kit/docs-api.test.js` |
 | No message tells a phone to press a key it does not have | `test/kit/phone-copy.test.js` |
 
 ## What is measured and not gated, on purpose
@@ -135,7 +144,7 @@ per question, with a skeptic per finding reading the source to refute it. Of
 them, or were wrong. What survived was more interesting than the counts: the
 worst of it was bugs, and every bug was one of the patterns in the research.
 
-**Bugs, each now under a test.**
+**Bugs.** Each has a test that fails without its fix, except the last.
 
 * *A copy that was wrong, copied.* The Dungeon panel handed the inspector's
   field path to `doc.set` as the whole pack, so the first number an author
@@ -160,33 +169,67 @@ worst of it was bugs, and every bug was one of the patterns in the research.
   autosave.
 * *Work done twice.* Five panels, the ref creator and the Import panel ran the
   refresh, the validation and the save a second time after `ED.commit` had
-  already done them.
+  already done them. (Read, not tested: it shows only as time.)
 
 **Dead weight.** Fields declared, validated and defaulted on every definition
 and read by nothing (tile `probability` and `warpLook`, object-type `limit` and
 `toc`, preset `kind`, a migration `target`, rule `carrier`,
-`settings.encounterRate`, a `radius` display hint);
-hooks for callers that never came (registry `onAdd`/`onRemove`/`silentReplace`,
-the registry's and the module system's `reset()`, document snapshots, an editor
-wrapper round `KIT.renderer.create`). All removed; saved projects that carry
-the old keys still load.
+`settings.encounterRate`, a `radius` display hint); hooks for callers that
+never came (registry `onAdd`/`onRemove`/`silentReplace`, the registry's and the
+module system's `reset()`, document snapshots, an editor wrapper round
+`KIT.renderer.create`). All removed. Saved projects that carry the old keys
+still load, and re-importing into one does not see the old keys as a change.
 
-**Copies turned into calls.** The script-slot labels (one panel said
-"Interact" where the rest said "On Interact", against its own docstring), the
-file picker and paste box, form teardown, the menu's screen switch, the catch
-scene's way back to its menu, the home cursor, the RPG Maker parser's block
-closer, and each module's private copy of the save-slice and pack logic that
-`KIT.modules` already runs from its manifest (the copies had drifted: one
-skipped the defaults, one let a failing migration throw). The one long function that was many things — the Project panel's
-400-line `refresh`, eight sections that shared nothing but `host` — is eight
-named sections now. The other long ones (`catchScene`, the menu, the script
-editor's mount) are each one scene built top to bottom, and stay.
+**Copies turned into calls.** The script-slot labels (three places said
+"Interact" and three "On Interact", one against its own docstring),
+the file picker and paste box, form teardown, the menu's screen switch, the
+catch scene's way back to its menu, the home cursor, the RPG Maker parser's
+block closer, and each module's private copy of the save-slice and pack logic
+that `KIT.modules` already runs from its manifest (the copies had drifted: one
+skipped the defaults, one let a failing migration throw). The one long function
+that was many things — the Project panel's 400-line `refresh`, eight sections
+that shared nothing but `host` — is eight named sections now. The other long
+ones (`catchScene`, the menu, the script editor's mount) are each one scene
+built top to bottom, and stay.
 
 **Comments that described the past.** Section numbers pointing at sections
-that do not exist; a shell described as "frozen" that had changed four times
+that do not exist; a shell described as "frozen" that had changed twelve times
 that month; `@eat` for what is spelled `@rule eat`; a renderer described as
 unable to draw sprites it had drawn for weeks; paragraphs that were the
 biography of a line rather than its reason. Corrected or cut.
+
+## What reviewing the fixes found
+
+The fixes were then read the same way — two more passes over the diff, a
+skeptic per finding — and they had the same failure modes, because they were
+written the same way: fast, a file at a time, each one locally right.
+
+* A seam check that stopped walls also stopped a walker with `through` on,
+  which passes walls everywhere else.
+* The `interact` event, emitted after its script, had its rules judged on the
+  map a door's script had just moved you to. Events now carry where they
+  happened, and the rule queue judges them there.
+* The draft block, once set by one failed read, lasted the whole session even
+  when there was no draft to protect.
+* Retiring two tile keys made every tile imported before look changed to the
+  next re-import, which refused them all.
+* The number widget's new typing pause let a two-finger undo take back the
+  step before the typing, after which the late commit cleared the redo; and it
+  still committed a chance of 5 while the caret sat in the box.
+* The settings form, kept across refreshes so the caret survived, stopped
+  showing sounds imported after it was built.
+* The shared button helper, given an `aria-label` for its glyph buttons, gave
+  one to every button, so a screen reader heard "Tap the map to set this
+  position" while the button said "Tap the map… (cancel)".
+* A scaffolded module with a hyphen in its id read one pack and wrote another.
+* Tests that could not fail: a check that typed faster than the pause the fix
+  was about, and one that asked a function that fills in defaults whether the
+  defaults were there.
+
+And one bug that had been in the game all along: giving the title screen's
+empty `.catch(() => {})` a line to say turned up a `TypeError` it had been
+swallowing every time the saved-games check came back after the title had
+closed. Each of these has a test now that fails without its fix.
 
 **Kept, on purpose.**
 
@@ -201,13 +244,13 @@ biography of a line rather than its reason. Corrected or cut.
 * The shared six-line windows between the Dungeon and Home panels: the
   scaffold's panel skeleton, written so that a module reads on its own.
 
-**Measured again afterwards:**
+**Measured again afterwards,** with the same instrument:
 
-| | before | after |
+| | before (`64446db`) | after |
 |---|---|---|
-| helper copies | 58 | 0 |
-| empty `catch` blocks | 57 | 44, each with its reason |
-| public API referenced by nothing | 10 | 0 |
+| helper copies | 54 | 0 |
+| empty catch blocks | 57 with a comment, 4 without | 43, each with its reason; 0 without |
+| public API referenced by nothing | 9 | 0 |
+| file pairs sharing six-line windows | 3 (17 windows) | 4 (11 windows) |
 | functions of 175 lines or more | 8 | 7 |
-| unit tests | 610 | 632 |
-
+| unit tests (as `npm test` counts them) | 614 | 638 |

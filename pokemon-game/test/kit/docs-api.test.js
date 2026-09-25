@@ -1,13 +1,20 @@
 'use strict';
-// Every `KIT.something` a document names has to exist, and so does every
-// function a `typeof KIT.x === 'function'` guard in js/ or tools/ asks about.
+// Documents have to name API that exists. Three checks, each as strong as it
+// says and no stronger:
 //
-// The docs test already fails when a document names a file that is not there.
-// This is the same rule for API: `KIT.pixels.load`, `KIT.audio.startMusic`,
-// `KIT.home.touch` — each was in a document and in nothing else, because a doc
-// written to describe intent is not corrected when the code takes a different
-// road. Now it is. A path that a game or module defines rather than the kit is
-// listed with the reason, the way the path test lists generated files.
+// 1. Every fully qualified `KIT.a.b` a document names resolves on the kit as
+//    loaded headless (a path set elsewhere is listed with why).
+// 2. Every bare `name(` a document writes (the usual shape in a section about
+//    one namespace: `play(id)`, `restore(id)`) is an identifier somewhere in
+//    the code. That catches a method that exists nowhere — `startMusic`,
+//    `deleteSnapshot` — and not one that exists on some other object.
+// 3. Every `typeof KIT.x === 'function'` guard in js/ or tools/ asks about a
+//    function that exists: a guard on a deleted name turns the removal into a
+//    silent fallback.
+//
+// A document written to describe intent is not corrected when the code takes
+// a different road; these are what correct it. docs/SLOP.md and the decision
+// records are history and are allowed to name what is gone.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -107,3 +114,27 @@ test('a typeof guard in the engine or the tools names a function that exists', (
   }
   assert.deepEqual(missing, [], 'guards for functions that do not exist:\n  ' + missing.join('\n  '));
 });
+
+test('docs: every bare `name(` a document writes is an identifier in the code', () => {
+  const { stripComments } = require(path.join(ROOT, 'tools', 'slop.js'));
+  const files = [];
+  const walk = (dir) => {
+    for (const f of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = dir + '/' + f.name;
+      if (f.isDirectory()) walk(rel);
+      else if (f.name.endsWith('.js')) files.push(rel);
+    }
+  };
+  walk('js'); walk('tools');
+  const idents = new Set();
+  for (const f of files) for (const w of stripComments(fs.readFileSync(path.join(ROOT, f), 'utf8')).match(/[A-Za-z_$][\w$]*/g) || []) idents.add(w);
+  const docs = fs.readdirSync(path.join(ROOT, 'docs')).filter(f => f.endsWith('.md') && f !== 'SLOP.md').map(f => 'docs/' + f).concat(['README.md']);
+  const missing = [];
+  for (const d of docs) {
+    for (const m of fs.readFileSync(path.join(ROOT, d), 'utf8').matchAll(/`([a-z][A-Za-z0-9_]*)\(/g)) {
+      if (!idents.has(m[1])) missing.push(`${d}: ${m[1]}(`);
+    }
+  }
+  assert.deepEqual(Array.from(new Set(missing)), [], 'documents naming methods that exist nowhere in the code:\n  ' + Array.from(new Set(missing)).join('\n  '));
+});
+

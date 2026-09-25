@@ -266,6 +266,22 @@ test('tiled: base64 without compression works, and an unknown codec is a problem
   assert.equal(res.maps.town.layers.ground.every(v => v === null), true);
 });
 
+test('tiled: corrupt compressed data says what the decoder said, not "pass opts.inflate"', () => {
+  // The decoder ran and refused; its reason used to be swallowed and the author
+  // told to supply a decoder that would have failed the same way.
+  const src = json('town-zlib.tmj');
+  const layer = src.layers.find(l => l.type === 'tilelayer');
+  const bytes = Buffer.from(layer.data, 'base64');
+  for (let i = 2; i < Math.min(bytes.length, 12); i++) bytes[i] = 0xff;      // past the zlib header: a broken stream
+  layer.data = bytes.toString('base64');
+  const res = TILED.map(src, mapOpts());
+  const bad = res.problems.find(p => p.code === 'bad-layer-data');
+  assert.ok(bad, 'reported as bad data: ' + JSON.stringify(res.problems.map(p => p.code + ' ' + p.message)));
+  assert.equal(bad.severity, 'error');
+  assert.doesNotMatch(bad.message, /opts\.inflate/);
+  assert.equal(res.problems.some(p => p.code === 'compressed-unsupported'), false, 'and not as a missing decoder');
+});
+
 test('tiled: prepare() turns compressed data into plain gid arrays', async () => {
   const prepared = await TILED.prepare(json('town-zlib.tmj'));
   assert.equal(prepared.layers[0].compression, undefined);
@@ -332,6 +348,16 @@ test('tiled: a missing external tileset is reported, never thrown', () => {
 });
 
 // ---------------------------------------------------------------------------
+test('tiled: an external tileset that was supplied but will not parse says so', () => {
+  // It used to be reported as "was not supplied", which sent the author to
+  // look for a file they had already given.
+  const res = TILED.map(json('town.tmj'), { asset, id: 'town', tilesets: { 'outside.tsj': '{ "this is": not json', 'outside.tsx': '<tileset name="x" this is broken' } });
+  const bad = res.problems.filter(p => p.code === 'external-tileset-bad');
+  assert.equal(bad.length, 1, JSON.stringify(res.problems.map(p => p.code + ' ' + p.message)));
+  assert.match(bad[0].message, /could not be read/);
+  assert.equal(res.problems.some(p => p.code === 'external-tileset-missing'), false, 'not "was not supplied"');
+});
+
 test('tiled: ids are stable across two imports and the result replaces rather than duplicates', () => {
   const a = TILED.map(json('town.tmj'), mapOpts());
   const b = TILED.map(json('town.tmj'), mapOpts());

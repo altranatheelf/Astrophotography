@@ -60,10 +60,14 @@
 
           // Light up Continue when a save turns up.
           Promise.resolve(KIT.storage.listGames()).then((saves) => {
+            // The answer can arrive after the title has closed (Creator Mode, a
+            // quick New Game). There is no menu to light up then. This threw into
+            // an empty .catch for as long as that catch said nothing.
+            if (!list.isConnected) return;
             const any = (saves || []).some(s => s.exists);
             const btn = list.querySelector('[data-action="continue"]');
             if (btn && any) { btn.disabled = false; items[1].disabled = false; index = 1; refresh(); }
-          }).catch(() => {});
+          }).catch((e) => (KIT.log || console).error('[title] could not check for saved games; Continue stays off', e));
 
           this._off = UI.onAction(host, (action, el) => {
             if (el.disabled) return;

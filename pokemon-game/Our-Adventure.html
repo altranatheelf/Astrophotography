@@ -3271,7 +3271,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const el = new Audio(def.src);
       el.volume = Math.max(0, Math.min(1, (volume == null ? 1 : volume) * volumes.master * (loop ? volumes.music : volumes.sound)));
       el.loop = !!loop;
-      el.play().catch(() => {});
+      // Refused before the first tap (autoplay) is expected, and the next play() will do.
+      // Anything else — a file the browser cannot decode — is worth a line.
+      el.play().catch((e) => { if (!e || e.name !== 'NotAllowedError') (KIT.log || console).warn('[audio] could not play', def.src, e); });
       fileNodes.push(el);
       if (fileNodes.length > 8) fileNodes = fileNodes.slice(-8);
       return el;
@@ -11256,12 +11258,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         // simply worked, which is what any author gets the first time two maps
         // are joined a tile out of line.
         // A `through` walker passes walls inside a map, so it passes them across a seam too.
+        // (connectionAt has already skipped a connection to a map that is not there.)
         if (!through) {
-          try {
-            const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
-            if (there.solid) return { ok: false, reason: 'tile' };
-            if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
-          } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+          const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
+          if (there.solid) return { ok: false, reason: 'tile' };
+          if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
         }
         return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
       }
@@ -19857,10 +19858,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
           // Light up Continue when a save turns up.
           Promise.resolve(KIT.storage.listGames()).then((saves) => {
+            // The answer can arrive after the title has closed (Creator Mode, a
+            // quick New Game). There is no menu to light up then. This threw into
+            // an empty .catch for as long as that catch said nothing.
+            if (!list.isConnected) return;
             const any = (saves || []).some(s => s.exists);
             const btn = list.querySelector('[data-action="continue"]');
             if (btn && any) { btn.disabled = false; items[1].disabled = false; index = 1; refresh(); }
-          }).catch(() => {});
+          }).catch((e) => (KIT.log || console).error('[title] could not check for saved games; Continue stays off', e));
 
           this._off = UI.onAction(host, (action, el) => {
             if (el.disabled) return;
@@ -27539,8 +27544,17 @@ PKMN.TILES.register([
     if (state.doc.history.length > before) { state.doc.undo(); afterDocument('undo'); return true; }
     return false;
   };
-  ED.undo = function () { if (state.doc.undo()) afterDocument('undo'); };
-  ED.redo = function () { if (state.doc.redo()) afterDocument('redo'); };
+  // A field still waiting out its typing pause commits when it loses focus. An
+  // undo that ran first — a two-finger tap does not move focus — would take back
+  // the step BEFORE the typing, and the late commit would then clear the redo
+  // that could have brought it back. So the typing is settled first, and undo
+  // takes back what was typed.
+  function settleTyping() {
+    const a = typeof document !== 'undefined' ? document.activeElement : null;
+    if (a && ED.el && ED.el.root && ED.el.root.contains(a) && typeof a.blur === 'function') a.blur();
+  }
+  ED.undo = function () { settleTyping(); if (state.doc.undo()) afterDocument('undo'); };
+  ED.redo = function () { settleTyping(); if (state.doc.redo()) afterDocument('redo'); };
 
   function afterDocument(kind) {
     state.project = state.doc.value;
@@ -29358,18 +29372,21 @@ PKMN.TILES.register([
     box.placeholder = placeholder || '';
     return box;
   };
-  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
   /**
    * packForm(host, prev, { project, fields, value, at, label }) -> handle
    * A module's own settings as a schema form (the Dungeon numbers, Home's
    * tuning). Every change is one undo step that writes the ONE field that
    * changed, under `at` (['packs', 'dungeon']), so no edit can replace the
-   * whole pack. Pass back the handle it returned last time: the form is built
-   * once per project and only re-read after that, so the number being typed
-   * keeps its caret through the refresh its own commit causes.
+   * whole pack. Pass back the handle it returned last time: while focus is in
+   * the form it is only re-read, so the number being typed keeps its caret
+   * through the refresh its own commit causes.
    */
   INS.packForm = function (host, prev, o) {
-    if (prev && prev.host === host && prev.project === o.project) { prev.form.refresh(o.value); return prev; }
+    // Kept only while focus is inside it (a number mid-edit, a Tab to the next
+    // field). Otherwise it is built again, so a picker lists the sounds that
+    // were imported since.
+    const busy = typeof document !== 'undefined' && document.activeElement && host.contains(document.activeElement);
+    if (prev && prev.host === host && prev.project === o.project && busy) { prev.form.refresh(o.value); return prev; }
     if (prev) prev.form.destroy();
     const form = INS.mount(host, {
       fields: o.fields, value: o.value, ctx: { project: o.project },
@@ -29377,6 +29394,7 @@ PKMN.TILES.register([
     });
     return { host, project: o.project, form };
   };
+  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
   INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
@@ -29715,7 +29733,8 @@ PKMN.TILES.register([
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
-      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(f.integer ? Math.round(n) : n); };
+      // What reaches the document is always in range; the box shows what was typed until you leave it.
+      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(clampV(n)); };
       input.onblur = () => { const v = clampV(input.value); input.value = String(v); t.push(v); t.flush(); };
       el.appendChild(wrap);
       if (f.min != null && f.max != null) el.appendChild(make('div.ed-sub', { text: `${f.min} to ${f.max}` }));
@@ -31734,7 +31753,7 @@ PKMN.TILES.register([
   /** A preset that asks for something (a sign's line, a door's target) fills in a small form first. */
   function renderPresetForm() {
     if (!el.presetForm) return;
-    if (presetForm) { try { presetForm.destroy(); } catch (e) { /* ignore */ } presetForm = null; }
+    if (presetForm) { presetForm.destroy(); presetForm = null; }
     clear(el.presetForm);
     el.presetForm.hidden = !presetDraft;
     if (!presetDraft) return;
@@ -33737,7 +33756,7 @@ PKMN.TILES.register([
       const base = ['maps', sel.map, 'objects', i];
       if (sel.kind === 'object') return { path: base, label: `event ${sel.id}` };
       if (sel.kind === 'page') return { path: base.concat('pages', sel.page || 0), label: `${sel.id} page ${(sel.page || 0) + 1}` };
-      return { path: base.concat('pages', sel.page || 0, 'on', sel.slot), label: `${sel.id} · ${titleCase(sel.slot)}` };
+      return { path: base.concat('pages', sel.page || 0, 'on', sel.slot), label: `${sel.id} · ${P.slotLabel(sel.slot)}` };
     }
     return { path: [], label: 'the whole project' };
   };
@@ -37360,7 +37379,7 @@ PKMN.TILES.register([
     const pack = M.pack(world.project);
     const gained = M.resumeBonus(section, num(elapsedMs, 0), { hours: num(pack.awayHours, 20), bonus: num(pack.awayBonus, 4) });
     if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
-      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
+      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch((e) => (KIT.log || console).warn('[mons] welcome-back toast', e));
     }
     return gained;
   }
@@ -37380,7 +37399,7 @@ PKMN.TILES.register([
     // friendship for walking together
     const gained = M.walkFriendship(section, 1, { per: num(pack.stepsPerFriendship, 128), bonus: num(pack.followStepBonus, 1) });
     if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
-      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-friendship-up', { name: M.displayName(gained[0], world.project) }) })).catch(() => {});
+      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-friendship-up', { name: M.displayName(gained[0], world.project) }) })).catch((e) => (KIT.log || console).warn('[mons] friendship toast', e));
     }
 
     if (!p || !p.tile || !p.tile.encounter) return;
@@ -38494,7 +38513,7 @@ PKMN.TILES.register([
   const num = KIT.num;
   const int = (v, d) => Math.round(num(v, d));
   const titleCase = (s) => KIT.titleCase(String(s || '').toLowerCase());   // PBS writes names in capitals
-  const slug = (s) => (KIT.slug ? KIT.slug(String(s || '')) : String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+  const slug = (s) => KIT.slug(String(s || ''));
   const withPrefix = (id, opts) => (opts && opts.prefix ? slug(opts.prefix) + ':' + id : id);
   // BaseStats is written in a different ORDER by the two generations of the format,
   // which is the one thing you cannot see by looking at the numbers:

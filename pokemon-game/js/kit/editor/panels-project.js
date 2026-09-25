@@ -109,7 +109,7 @@
       const base = ['maps', sel.map, 'objects', i];
       if (sel.kind === 'object') return { path: base, label: `event ${sel.id}` };
       if (sel.kind === 'page') return { path: base.concat('pages', sel.page || 0), label: `${sel.id} page ${(sel.page || 0) + 1}` };
-      return { path: base.concat('pages', sel.page || 0, 'on', sel.slot), label: `${sel.id} · ${titleCase(sel.slot)}` };
+      return { path: base.concat('pages', sel.page || 0, 'on', sel.slot), label: `${sel.id} · ${P.slotLabel(sel.slot)}` };
     }
     return { path: [], label: 'the whole project' };
   };

@@ -176,8 +176,17 @@
     if (state.doc.history.length > before) { state.doc.undo(); afterDocument('undo'); return true; }
     return false;
   };
-  ED.undo = function () { if (state.doc.undo()) afterDocument('undo'); };
-  ED.redo = function () { if (state.doc.redo()) afterDocument('redo'); };
+  // A field still waiting out its typing pause commits when it loses focus. An
+  // undo that ran first — a two-finger tap does not move focus — would take back
+  // the step BEFORE the typing, and the late commit would then clear the redo
+  // that could have brought it back. So the typing is settled first, and undo
+  // takes back what was typed.
+  function settleTyping() {
+    const a = typeof document !== 'undefined' ? document.activeElement : null;
+    if (a && ED.el && ED.el.root && ED.el.root.contains(a) && typeof a.blur === 'function') a.blur();
+  }
+  ED.undo = function () { settleTyping(); if (state.doc.undo()) afterDocument('undo'); };
+  ED.redo = function () { settleTyping(); if (state.doc.redo()) afterDocument('redo'); };
 
   function afterDocument(kind) {
     state.project = state.doc.value;

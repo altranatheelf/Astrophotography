@@ -301,18 +301,21 @@
     box.placeholder = placeholder || '';
     return box;
   };
-  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
   /**
    * packForm(host, prev, { project, fields, value, at, label }) -> handle
    * A module's own settings as a schema form (the Dungeon numbers, Home's
    * tuning). Every change is one undo step that writes the ONE field that
    * changed, under `at` (['packs', 'dungeon']), so no edit can replace the
-   * whole pack. Pass back the handle it returned last time: the form is built
-   * once per project and only re-read after that, so the number being typed
-   * keeps its caret through the refresh its own commit causes.
+   * whole pack. Pass back the handle it returned last time: while focus is in
+   * the form it is only re-read, so the number being typed keeps its caret
+   * through the refresh its own commit causes.
    */
   INS.packForm = function (host, prev, o) {
-    if (prev && prev.host === host && prev.project === o.project) { prev.form.refresh(o.value); return prev; }
+    // Kept only while focus is inside it (a number mid-edit, a Tab to the next
+    // field). Otherwise it is built again, so a picker lists the sounds that
+    // were imported since.
+    const busy = typeof document !== 'undefined' && document.activeElement && host.contains(document.activeElement);
+    if (prev && prev.host === host && prev.project === o.project && busy) { prev.form.refresh(o.value); return prev; }
     if (prev) prev.form.destroy();
     const form = INS.mount(host, {
       fields: o.fields, value: o.value, ctx: { project: o.project },
@@ -320,6 +323,7 @@
     });
     return { host, project: o.project, form };
   };
+  /** destroyForms(list) — tear down mounted inspector forms; a missing destroy is not an error. */
   INS.destroyForms = function (list) { for (const f of list || []) if (f && typeof f.destroy === 'function') f.destroy(); };
 
   /** A sprite's standing frame, as a canvas (for the sprite picker and the page preview). */
@@ -658,7 +662,8 @@
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
-      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(f.integer ? Math.round(n) : n); };
+      // What reaches the document is always in range; the box shows what was typed until you leave it.
+      input.oninput = () => { const n = Number(input.value); if (input.value !== '' && Number.isFinite(n)) t.push(clampV(n)); };
       input.onblur = () => { const v = clampV(input.value); input.value = String(v); t.push(v); t.flush(); };
       el.appendChild(wrap);
       if (f.min != null && f.max != null) el.appendChild(make('div.ed-sub', { text: `${f.min} to ${f.max}` }));

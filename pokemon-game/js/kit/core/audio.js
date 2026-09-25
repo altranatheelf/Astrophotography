@@ -216,7 +216,9 @@
       const el = new Audio(def.src);
       el.volume = Math.max(0, Math.min(1, (volume == null ? 1 : volume) * volumes.master * (loop ? volumes.music : volumes.sound)));
       el.loop = !!loop;
-      el.play().catch(() => {});
+      // Refused before the first tap (autoplay) is expected, and the next play() will do.
+      // Anything else — a file the browser cannot decode — is worth a line.
+      el.play().catch((e) => { if (!e || e.name !== 'NotAllowedError') (KIT.log || console).warn('[audio] could not play', def.src, e); });
       fileNodes.push(el);
       if (fileNodes.length > 8) fileNodes = fileNodes.slice(-8);
       return el;

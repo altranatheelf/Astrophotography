@@ -63,7 +63,7 @@
     const pack = M.pack(world.project);
     const gained = M.resumeBonus(section, num(elapsedMs, 0), { hours: num(pack.awayHours, 20), bonus: num(pack.awayBonus, 4) });
     if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
-      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch(() => {});
+      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-welcome-back') })).catch((e) => (KIT.log || console).warn('[mons] welcome-back toast', e));
     }
     return gained;
   }
@@ -83,7 +83,7 @@
     // friendship for walking together
     const gained = M.walkFriendship(section, 1, { per: num(pack.stepsPerFriendship, 128), bonus: num(pack.followStepBonus, 1) });
     if (gained.length && world.ports && world.ports.io && world.ports.io.toast) {
-      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-friendship-up', { name: M.displayName(gained[0], world.project) }) })).catch(() => {});
+      Promise.resolve(world.ports.io.toast({ text: M.t(world.project, 'mons-friendship-up', { name: M.displayName(gained[0], world.project) }) })).catch((e) => (KIT.log || console).warn('[mons] friendship toast', e));
     }
 
     if (!p || !p.tile || !p.tile.encounter) return;

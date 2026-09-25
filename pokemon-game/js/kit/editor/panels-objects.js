@@ -281,7 +281,7 @@
   /** A preset that asks for something (a sign's line, a door's target) fills in a small form first. */
   function renderPresetForm() {
     if (!el.presetForm) return;
-    if (presetForm) { try { presetForm.destroy(); } catch (e) { /* ignore */ } presetForm = null; }
+    if (presetForm) { presetForm.destroy(); presetForm = null; }
     clear(el.presetForm);
     el.presetForm.hidden = !presetDraft;
     if (!presetDraft) return;

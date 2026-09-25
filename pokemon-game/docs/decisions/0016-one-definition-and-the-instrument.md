@@ -6,10 +6,10 @@
 This engine was written by an AI assistant across many sessions, and the
 published measurements of what that produces (GitClear 2025, 2026; see
 `docs/SLOP.md`) name the same thing first every year: copies instead of calls.
-When this repo was measured it had it. `num` was written out in twenty-one
+When this repo was measured it had it. `num` was written out in twenty
 files while `KIT.clamp` and `KIT.isObject` sat unused in `js/kit/core/util.js`,
-and the copies had drifted until `num(null, 5)` gave two different answers in
-two folders. Ten public functions had no caller anywhere. What rule stops it
+and the copies had drifted until `num(null, 5)` was `0` in one file and `5` in
+the next. Nine public functions had no caller anywhere. What rule stops it
 coming back?
 
 ## What was chosen

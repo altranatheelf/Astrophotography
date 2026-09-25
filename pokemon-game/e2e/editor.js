@@ -532,10 +532,12 @@ async function run(browser, label, size, opts) {
   // ['torchRadius']. It rebuilt the form on every refresh too, so the second
   // key typed went nowhere. Home's hand-built inputs let 5 through as a chance.
   if (label === 'wide') {
+    // Slower than the inspector's 400 ms typing pause, so a commit (and the
+    // refresh it causes) lands between the keys, as it does for a person.
     const typeInto = async (sel, text) => {
       await page.click(sel, { clickCount: 3 });
       await page.keyboard.press('ControlOrMeta+A');
-      await page.keyboard.type(text, { delay: 60 });
+      await page.keyboard.type(text, { delay: 600 });
       await page.keyboard.press('Tab');
       await page.waitForTimeout(250);
     };
@@ -548,7 +550,40 @@ async function run(browser, label, size, opts) {
     const tuning = await page.evaluate(() => KIT.editor.state.project.packs.home.tuning);
     check(tuning && !Array.isArray(tuning) && tuning.maxGifts === 12, `Home: "12" typed a key at a time is 12, not 1 (${JSON.stringify(tuning)})`);
     check(tuning && tuning.giftChance === 1, 'Home: a chance typed as 5 is held at its most, 1');
+    // ...and not only once you leave the box: what reaches the project is in range while you type.
+    await typeInto(dial('giftChance'), '0.3');
+    await page.click(dial('giftChance'), { clickCount: 3 });
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('5');
+    await page.waitForTimeout(700);
+    check(await page.evaluate(() => KIT.editor.state.project.packs.home.tuning.giftChance) === 1, 'Home: a 5 still in the box reaches the project as 1');
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(250);
     check(await homeRest() === before, 'Home: the jobs, furniture and presents are untouched by a tuning edit');
+
+    // Undo while a number is still waiting out its typing pause (a two-finger
+    // tap does not move focus). It used to take back the step BEFORE the typing,
+    // and the late commit then cleared the redo that could have brought it back.
+    const was = await page.evaluate(() => KIT.editor.state.project.packs.home.tuning.giftFriendship);
+    await page.click(dial('giftFriendship'), { clickCount: 3 });
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('7');
+    await page.evaluate(() => KIT.editor.undo());
+    await page.waitForTimeout(700);
+    const now = await page.evaluate(() => ({ v: KIT.editor.state.project.packs.home.tuning.giftFriendship, redo: KIT.editor.state.doc.canRedo() }));
+    check(now.v === was && now.redo, `Home: undo mid-typing takes back what was typed, and redo can bring it back (${JSON.stringify(now)}, was ${was})`);
+    await page.evaluate(() => KIT.editor.redo());
+    check(await page.evaluate(() => KIT.editor.state.project.packs.home.tuning.giftFriendship) === 7, 'Home: and redo does');
+
+    // A button's accessible name: a glyph is named by its title, words by themselves
+    // (WCAG 2.5.3). The shared helper once named every button by its tooltip.
+    const names = await page.evaluate(() => {
+      const INS = KIT.editor.inspector;
+      const worded = INS.btn('✛ Pick on the map', 'Tap the map to set this position', () => {});
+      const glyph = INS.btn('↺', 'Back to the default', () => {});
+      return { worded: worded.getAttribute('aria-label'), glyph: glyph.getAttribute('aria-label') };
+    });
+    check(names.worded === null && names.glyph === 'Back to the default', `buttons: words name themselves, a glyph takes its title (${JSON.stringify(names)})`);
   }
 
   // --- 10. reload: the draft is still there --------------------------------------------
@@ -623,18 +658,28 @@ async function dungeonNumbers(browser) {
     for (const [key, text] of [['torchRadius', '12'], ['darkness', '0.5']]) {
       await page.click(dial(key), { clickCount: 3 });
       await page.keyboard.press('ControlOrMeta+A');
-      await page.keyboard.type(text, { delay: 60 });
+      await page.keyboard.type(text, { delay: 600 });      // a commit lands between the keys
       await page.keyboard.press('Tab');
       await page.waitForTimeout(250);
     }
     const pack = await page.evaluate(() => KIT.editor.state.project.packs.dungeon);
     check(!!pack && !Array.isArray(pack) && typeof pack === 'object', `Dungeon: the pack is still an object after an edit (${JSON.stringify(pack)})`);
     check(!!pack && pack.torchRadius === 12 && pack.darkness === 0.5, 'Dungeon: two numbers typed one after the other are both kept, every key of them');
-    check(await page.evaluate(() => KIT.dungeon.tuning(KIT.editor.state.project).torchColor === '#ffc887'), 'Dungeon: the numbers nobody touched keep their defaults');
+    check(!!pack && pack.torchColor === '#ffc887' && pack.pushSound === 'bump', 'Dungeon: the settings nobody touched are still in the pack');
     await page.evaluate(() => KIT.editor.undo());
     await page.waitForTimeout(250);
     const undone = await page.evaluate(() => KIT.editor.state.project.packs.dungeon);
     check(!!undone && undone.torchRadius === 12 && undone.darkness !== 0.5, `Dungeon: undo takes back only the last number (${JSON.stringify(undone)})`);
+    // A sound imported after the form was built is offered by its pickers.
+    await page.evaluate(() => {
+      const res = KIT.import.image.audio({ name: 'creak.wav', kind: 'sound', src: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=' });
+      KIT.import.merge(KIT.editor.state.doc, res, { source: 'creak.wav' });
+      KIT.editor.afterEdit();
+    });
+    await openPanel(page, 'tiles');
+    await openPanel(page, 'dungeon');
+    const offered = await page.$$eval('.ed-panel-body[data-panel="dungeon"] .ed-f[data-key="pushSound"] option', (os) => os.map(o => o.value));
+    check(offered.includes('creak'), `Dungeon: a sound imported after the form was built is in its picker (${offered.length} offered)`);
     await shot(page, 'wide', '15-dungeon-numbers');
     check(problems.length === 0, 'no console errors or page errors in the dungeon game' + (problems.length ? ':\n     ' + problems.slice(0, 6).join('\n     ') : ''));
   } finally {

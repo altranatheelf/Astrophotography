@@ -27,16 +27,51 @@ function walk(dir, out) {
   }
   return out;
 }
+/**
+ * stripComments(source) -> the source with its line and block comments blanked out,
+ * strings left alone. A comment naming a function is not a use of it: the
+ * doc comment above a dead function used to count as its caller.
+ */
+function stripComments(s) {
+  let out = '', i = 0, q = null;
+  while (i < s.length) {
+    const c = s[i], d = s[i + 1];
+    if (q) {
+      out += c;
+      if (c === '\\') { out += d || ''; i += 2; continue; }
+      if (c === q) q = null;
+      i++; continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { q = c; out += c; i++; continue; }
+    if (c === '/' && d === '/') { while (i < s.length && s[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { const j = s.indexOf('*/', i + 2); const gap = s.slice(i, j < 0 ? s.length : j + 2); out += gap.replace(/[^\n]/g, ' '); i = j < 0 ? s.length : j + 2; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+
 const CODE = walk('js', []).sort();
 const src = Object.fromEntries(CODE.map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]));
 const lineOf = (s, idx) => s.slice(0, idx).split('\n').length;
 
-/** Everything a definition may legitimately be referenced from: the engine, its tests, tools, docs and pages. */
+/**
+ * Everything a definition may legitimately be referenced from: the engine, its
+ * tests, tools, docs and pages — code with its comments taken out. Two
+ * documents are left out because they are history: docs/SLOP.md and the
+ * decision records name dead functions precisely to say they were dead.
+ */
+const HISTORY = [path.join('docs', 'SLOP.md'), path.join('docs', 'decisions') + path.sep];
 function everything() {
-  let text = Object.values(src).join('\n');
+  let text = Object.values(src).map(stripComments).join('\n');
   for (const dir of ['test', 'tools', 'e2e', 'docs', 'templates']) {
     if (!fs.existsSync(path.join(ROOT, dir))) continue;
-    for (const f of walkAll(dir, [])) { try { text += '\n' + fs.readFileSync(path.join(ROOT, f), 'utf8'); } catch (e) { /* unreadable: not a reference */ } }
+    for (const f of walkAll(dir, [])) {
+      if (HISTORY.some(h => f === h || f.startsWith(h))) continue;
+      try {
+        const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+        text += '\n' + (f.endsWith('.js') ? stripComments(t) : t);
+      } catch (e) { /* unreadable: not a reference */ }
+    }
   }
   text += '\n' + fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   return text;
@@ -79,20 +114,28 @@ for (const f of CODE) {
   let m;
   while ((m = re.exec(src[f]))) {
     const line = src[f].slice(m.index, src[f].indexOf('\n', m.index));
-    if (/KIT\.[\w.]+/.test(line)) continue;                   // an alias of, or a wrapper over, the shared one
+    // An alias of, or a wrapper over, the shared one — but not a copy behind a
+    // guard on it (`KIT.slug ? KIT.slug(s) : <its own body>`), which is still a copy.
+    if (/KIT\.[\w.]+/.test(line) && !/KIT\.\w+\s*\?/.test(line)) continue;
     if (/=\s*\((?:label|k|key)\b/.test(line)) continue;        // same name, different thing: a field builder, a schema lookup
     M.helperCopies.push(`${f}:${lineOf(src[f], m.index)}  ${m[1]}`);
   }
 }
 
 // ---- swallowed errors ----------------------------------------------------------------
+// Both forms: `catch (e) {}` and a promise's `.catch(() => {})`.
 M.emptyCatches = { commented: 0, bare: [] };
 for (const f of CODE) {
-  const re = /catch\s*\((\w+)\)\s*\{\s*(\/\*[^*]*\*\/)?\s*\}/g;
-  let m;
-  while ((m = re.exec(src[f]))) {
-    if (m[2]) M.emptyCatches.commented++;
-    else M.emptyCatches.bare.push(`${f}:${lineOf(src[f], m.index)}`);
+  const forms = [
+    /catch\s*\((\w+)\)\s*\{\s*(\/\*[^*]*\*\/)?\s*\}/g,
+    /\.catch\(\s*(?:\(\s*\w*\s*\)|\w+|function\s*\(\s*\w*\s*\))\s*(?:=>)?\s*\{\s*(\/\*[^*]*\*\/)?\s*\}\s*\)()/g,
+  ];
+  for (const re of forms) {
+    let m;
+    while ((m = re.exec(src[f]))) {
+      if (m[1] && m[1].startsWith('/*') || m[2]) M.emptyCatches.commented++;
+      else M.emptyCatches.bare.push(`${f}:${lineOf(src[f], m.index)}`);
+    }
   }
 }
 
@@ -158,7 +201,7 @@ for (const f of CODE) {
   }
 }
 
-module.exports = { measure: () => M, CODE };
+module.exports = { measure: () => M, CODE, stripComments };
 if (require.main !== module) return;
 
 // ---- report -------------------------------------------------------------------------------

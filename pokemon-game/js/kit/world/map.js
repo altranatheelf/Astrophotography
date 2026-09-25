@@ -212,12 +212,11 @@
         // simply worked, which is what any author gets the first time two maps
         // are joined a tile out of line.
         // A `through` walker passes walls inside a map, so it passes them across a seam too.
+        // (connectionAt has already skipped a connection to a map that is not there.)
         if (!through) {
-          try {
-            const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
-            if (there.solid) return { ok: false, reason: 'tile' };
-            if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
-          } catch (e) { return { ok: false, reason: 'edge' }; }      // a connection to a map that is not there
+          const there = KIT.mapView(project, save, conn.map).flagsAt(conn.x, conn.y);
+          if (there.solid) return { ok: false, reason: 'tile' };
+          if (there.passage[EDGE_OPPOSITE[d.edge]] === false) return { ok: false, reason: 'edge-in' };
         }
         return { ok: true, reason: 'connection', to: { x: nx, y: ny }, connection: conn };
       }
