@@ -23,6 +23,36 @@
   /** A list panel inside #pause-menu: rows of { label, value, action, disabled }. */
   function panel(title, rows, opts) { return UI.parts.listPanel(UI.el('pause-menu'), title, rows, opts); }
 
+  /**
+   * KIT.pauseScreen — what the pause menu says, without drawing it. The menu
+   * scene draws it; so does the Look panel's preview, from these same rows,
+   * so a look is judged on the menu the game really shows.
+   *
+   *   rows(game, project) -> [{ label, action, value }]  Keep playing, then the
+   *                          `menus` registry, in the order the look asks for
+   *                          (KIT.look.menuOrder; the kit's order is `order`)
+   *   title() -> 'Paused', or null when the look leaves it off
+   *   hint()  -> the help line under the list, or null when the look leaves
+   *              it off: a start menu down the side of the screen has no room
+   *              for one, and needs none. The pause menu's only, like its
+   *              title: the lists it opens (Settings, Save, Moments) keep
+   *              theirs, because "☰ closes" is the one line on them that says
+   *              how to get back out.
+   */
+  const PAUSE = KIT.pauseScreen = KIT.pauseScreen || {};
+  PAUSE.rows = function (game, project) {
+    const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
+    const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
+    return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
+      if (id === 'keep-playing') return { label: KIT.strings.get(project || (game && game.project), 'keep-playing'), action: 'close' };
+      const def = menus.get(id);
+      return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
+    });
+  };
+  PAUSE.title = () => (KIT.look.get('menu.title', true) ? 'Paused' : null);
+  const HINT = () => (KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes');
+  PAUSE.hint = () => (KIT.look.get('menu.hint', true) ? HINT() : null);
+
   /** One scene drives every list: pause, settings and save just supply rows. */
   scenes.add({
     id: 'menu', name: 'Menu',
@@ -33,8 +63,8 @@
         if (mode === 'settings') rows = settingRows();
         else if (mode === 'save') rows = self._saveRows || [{ label: 'Loading…', disabled: true }];
         else if (mode === 'moments') rows = momentRows();
-        else rows = pauseRows();
-        ui = panel(titleFor(), rows, { hint: KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes' });
+        else rows = PAUSE.rows(game);
+        ui = panel(titleFor(), rows, { hint: mode === 'pause' ? PAUSE.hint() : HINT() });
         index = Math.min(index, Math.max(0, rows.length - 1));
         // Never start on a row that cannot be chosen. Both lists that have
         // unchoosable rows put one FIRST — the Save screen's autosave slot, and
@@ -74,21 +104,9 @@
         if (mode === 'settings') return KIT.strings.get(game && game.project, 'settings');
         if (mode === 'save') return KIT.strings.get(game && game.project, 'save');
         if (mode === 'moments') return KIT.strings.get(game && game.project, 'moments');
-        return 'Paused';
-      }
-
-      /**
-       * Keep playing, then the `menus` registry, in the order the look asks for
-       * (KIT.look.menuOrder — the kit's order is the registry's `order`).
-       */
-      function pauseRows() {
-        const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
-        const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
-        return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
-          if (id === 'keep-playing') return { label: t('keep-playing'), action: 'close' };
-          const def = menus.get(id);
-          return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
-        });
+        // The pause menu's own heading, which a look may leave off. The lists
+        // it opens keep theirs: "Settings" says where the player has got to.
+        return PAUSE.title();
       }
 
       /** The engine's own words, through the Terms table so they translate. */
@@ -262,7 +280,7 @@
         // fortnight off loses the lot. If the browser has not promised to keep
         // this game, they deserve to know before they rely on it.
         const d = KIT.storage.durability ? KIT.storage.durability() : null;
-        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
+        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true, notice: true });
         return rows.concat([{ label: t('back'), action: 'back' }]);
       }
       function when(iso) {

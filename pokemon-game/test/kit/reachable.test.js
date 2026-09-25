@@ -92,6 +92,13 @@ const AUTHORED_IN = {
   maps: 'the map editor itself (panels-map.js) and the Objects panel — a map is not a table row',
   assets: 'the Import panel: art comes in from Tiled/RPG Maker/Aseprite, it is not typed in',
   autotiles: 'the Import panel, same as the rest of the art',
+  // The look is not filled in by normalize — an absent key is the kit's own
+  // look — so these are not `p.x = {}` lines and the loop below never meets
+  // them. They are held to a real panel by the check after it.
+  ui: 'look',
+  looks: 'look',
+  fonts: 'look',
+  voices: 'the Look group\'s Voices panel',
 };
 
 test('every table a project carries is editable by an author', () => {
@@ -100,7 +107,8 @@ test('every table a project carries is editable by an author', () => {
   assert.ok(tables.length >= 8, `found the project's tables (${tables.length})`);
 
   const panelSrc = ['js/kit/editor/panels-project.js', 'js/kit/editor/panels-writing.js',
-    'js/kit/editor/panels-objects.js', 'js/kit/editor/panels-map.js', 'js/kit/editor/panel-cast.js']
+    'js/kit/editor/panels-objects.js', 'js/kit/editor/panels-map.js', 'js/kit/editor/panel-cast.js',
+    'js/kit/editor/panel-look.js']
     .map(read).join('\n');
   const panels = new Set(Array.from(panelSrc.matchAll(/editorPanels'\)\.add\(\{\s*\n?\s*id: '([a-z-]+)'/g)).map((m) => m[1]));
   assert.ok(panels.size >= 6, `found the panels (${Array.from(panels).sort().join(', ')})`);
@@ -115,6 +123,10 @@ test('every table a project carries is editable by an author', () => {
   assert.deepEqual(unreachable, [],
     `a project can hold these and no author can edit them: ${unreachable.join('; ')}.\n` +
     'Add a panel to the editorPanels registry, or add the table to AUTHORED_IN with the place it IS edited.');
+  // And every panel this list names is real, whether or not normalize lists
+  // the table: `ui` is edited in the Look panel or it is edited nowhere.
+  const ghosts = Object.keys(AUTHORED_IN).filter((t) => /^[a-z-]+$/.test(AUTHORED_IN[t]) && !panels.has(AUTHORED_IN[t]));
+  assert.deepEqual(ghosts, [], `AUTHORED_IN names panels that do not exist: ${ghosts.map((t) => `${t} → ${AUTHORED_IN[t]}`).join(', ')}`);
 });
 
 test('a player can actually walk back into a moment', () => {

@@ -1,9 +1,18 @@
-/* This game's own look. The engine ships a dark, plain frame; everything here
-   overrides it. Change the colours and it stops looking like anyone else's. */
+/* This game's own look, for a programmer who wants to write CSS.
+
+   The easy way needs no file at all: open the game, Creator Mode › Look, pick
+   a look to start from and change what you like while a preview shows it.
+   That is saved with the game and wins over this file.
+
+   This file is for what the Look panel does not do. It is loaded after the
+   engine's stylesheet, and every colour the engine draws with is a variable
+   you can set here. These are a few of them; the Kit's docs/LOOKS.md lists
+   the rest. */
 :root {
-  --game-bg: #0b0d12;          /* around the screen */
-  --game-frame: #1b2130;       /* the screen's border */
-  --text-bg: #ffffff;          /* the dialogue box */
-  --text-fg: #17181d;
-  --text-border: #2a2f3d;
+  --kit-screen-bg: #0b0d12;     /* behind the map, where it does not reach the edge */
+  --kit-screen-frame: #1b2130;  /* the border round the game screen */
+  --paper: #ffffff;             /* the message box and the menus */
+  --ink: #17181d;               /* their text */
+  --kit-frame: #2a2f3d;         /* their border */
+  --kit-accent: #3b4b8a;        /* names, the cursor and the chosen line */
 }

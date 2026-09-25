@@ -22,7 +22,9 @@
   /**
    * whereSelection(where) -> the editor selection a `where` record points at.
    * `where` is what KIT.project.collect and the validator hand out: { script }
-   * or { map, object, page, slot } or { map } or { item } or { fragment }.
+   * or { map, object, page, slot } or { map } or { item } or { fragment }, or
+   * { look, path } for something in the game's look (the Look panel opens the
+   * section that path is in).
    * Three panels had their own copy of this and two had drifted: one dropped
    * slot 0 because it tested truthiness, one could not point at an item.
    */
@@ -34,6 +36,7 @@
     if (w.map) return { kind: 'map', id: w.map };
     if (w.item) return { kind: 'item', id: w.item };
     if (w.fragment) return { kind: 'fragment', id: w.fragment };
+    if (w.look) return { kind: 'look', path: Array.isArray(w.path) ? w.path.slice() : ['ui'] };
     return { kind: 'project' };
   };
 
@@ -306,6 +309,93 @@
 
   /** problems(project) -> the validator output, for the Problems panel. */
   O.problems = function (project) { return P.validate(project); };
+
+  // ---- the look -------------------------------------------------------------------
+  /**
+   * KIT.editor.ops.look — every write to `project.ui`. Paths are inside `ui`:
+   * ['tokens', 'paper'], ['dialogue', 'lines'], ['voice'].
+   *
+   * `project.ui` holds only what the game changes on top of the look it
+   * starts from, and these keep it that way. A value equal to the one
+   * underneath is not a change, so it is not stored. A parent the write
+   * needs is made by a write of its own, so undo takes it away again: the
+   * document records a set on a missing key as "delete it" on the way back,
+   * but a parent it made in passing has no record at all, and one undo after
+   * the first change left an empty `ui: { dialogue: {} }` behind in a project
+   * that had never had a look. And a part left empty is taken away, up to
+   * `ui` itself.
+   */
+  const LOOK = O.look = O.look || {};
+  const uiPath = (path) => ['ui'].concat(path);
+
+  /**
+   * set(doc, path, value) -> whether anything changed. A value equal to the
+   * inherited one resets instead. What is compared and stored is the value as
+   * the game will use it (KIT.look.cleanAt): a prefix typed eight letters long
+   * is the four the game shows, '#FFFFFF' is the '#ffffff' underneath and so
+   * no change, and a value the look cannot hold at all is not written.
+   */
+  LOOK.set = function (doc, path, value) {
+    if (value === undefined) return LOOK.reset(doc, path);
+    const c = KIT.look.cleanAt(path, value);
+    if (!c.ok) return false;
+    if (KIT.deepEqual(c.value, KIT.look.inherited(doc.value, path))) return LOOK.reset(doc, path);
+    const full = uiPath(path);
+    if (KIT.deepEqual(doc.get(full), c.value)) return false;
+    for (let i = 1; i < full.length; i++) {
+      const at = full.slice(0, i);
+      if (!KIT.isObject(doc.get(at))) doc.set(at, {}, { label: 'Look' });
+    }
+    doc.set(full, KIT.deepClone(c.value), { label: 'Look' });
+    return true;
+  };
+
+  /** reset(doc, path) -> whether anything changed. Back to the look underneath; empty parents go too. */
+  LOOK.reset = function (doc, path) {
+    const full = uiPath(path);
+    let changed = false;
+    if (doc.has(full)) { doc.del(full, { label: 'Look' }); changed = true; }
+    for (let i = full.length - 1; i >= 1; i--) {
+      const at = full.slice(0, i);
+      const v = doc.get(at);
+      if (!KIT.isObject(v) || Object.keys(v).length) break;
+      doc.del(at, { label: 'Look' });
+      changed = true;
+    }
+    return changed;
+  };
+
+  /** Every override the game's look holds, as paths inside `ui`: a token, a part's option, the voice. */
+  function overrides(ui) {
+    const out = [];
+    if (!KIT.isObject(ui)) return out;
+    for (const k of Object.keys(ui)) {
+      if (k === 'base' || k === 'screens') continue;
+      if (KIT.isObject(ui[k])) for (const key of Object.keys(ui[k])) out.push([k, key]);
+      else out.push([k]);
+    }
+    return out;
+  }
+  LOOK.overrides = (project) => overrides(project && project.ui);
+
+  /**
+   * useBase(doc, id, { clean }) — start from another look. `kit` is no base at
+   * all. The game's own changes stay on top unless `clean`, and any that now
+   * equal what the new look says are dropped: they are no longer changes. A
+   * change the author made against the old look that the new one happens to
+   * share is not lost — it is exactly what they see.
+   */
+  LOOK.useBase = function (doc, id, opts) {
+    const base = id && id !== 'kit' ? id : null;
+    if (opts && opts.clean) for (const path of overrides(doc.get(['ui']))) LOOK.reset(doc, path);
+    if (base) {
+      if (!KIT.isObject(doc.get(['ui']))) doc.set(['ui'], {}, { label: 'Look' });
+      if (doc.get(['ui', 'base']) !== base) doc.set(['ui', 'base'], base, { label: 'Look' });
+    } else LOOK.reset(doc, ['base']);
+    for (const path of overrides(doc.get(['ui']))) {
+      if (KIT.deepEqual(doc.get(uiPath(path)), KIT.look.inherited(doc.value, path))) LOOK.reset(doc, path);
+    }
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

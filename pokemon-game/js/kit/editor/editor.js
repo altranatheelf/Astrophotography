@@ -42,6 +42,9 @@
   // ---- state --------------------------------------------------------------------
   /** set({ tool:'fill', layer:'deco' }) — shallow merge, then repaint and tell the panels. */
   ED.set = function (patch) {
+    // A change still waiting out its pause belongs to the panel it was made
+    // in: it is written before the author is anywhere else.
+    if (patch && patch.panel !== undefined && patch.panel !== state.panel) ED.flushPending();
     let panelChanged = false;
     for (const k of Object.keys(patch || {})) {
       if (k === 'show') Object.assign(state.show, patch.show);
@@ -186,8 +189,35 @@
     const a = typeof document !== 'undefined' ? document.activeElement : null;
     if (a && ED.el && ED.el.root && ED.el.root.contains(a) && typeof a.blur === 'function') a.blur();
   }
-  ED.undo = function () { settleTyping(); if (state.doc.undo()) afterDocument('undo'); };
-  ED.redo = function () { settleTyping(); if (state.doc.redo()) afterDocument('redo'); };
+  ED.undo = function () { settleTyping(); ED.flushPending(); if (state.doc.undo()) afterDocument('undo'); };
+  ED.redo = function () { settleTyping(); ED.flushPending(); if (state.doc.redo()) afterDocument('redo'); };
+
+  /**
+   * pending(key, fn, ms) — run `fn` once things have been quiet for `ms`
+   * (300 by default); another call with the same key before then replaces it
+   * and starts the wait again. flushPending() runs whatever is waiting, now.
+   *
+   * A colour picker sends a value for every step of a drag and a stepper one
+   * for every tap, and a commit for each was thirty undo steps for one change
+   * of mind. The Look panel shows each value at once and writes the lot as
+   * one step when the finger stops. Undo, redo, Play here, closing and
+   * switching panels flush first, so the step exists before anything that
+   * could need it: an undo taken before it would take back the change BEFORE
+   * the drag, and the late write would then clear the redo.
+   */
+  const waiting = new Map();          // key -> { fn, timer }
+  ED.pending = function (key, fn, ms) {
+    const was = waiting.get(key);
+    if (was) clearTimeout(was.timer);
+    const entry = { fn, timer: setTimeout(() => { if (waiting.get(key) === entry) { waiting.delete(key); run(entry); } }, ms == null ? 300 : ms) };
+    waiting.set(key, entry);
+  };
+  ED.flushPending = function () {
+    const all = Array.from(waiting.values());
+    waiting.clear();
+    for (const entry of all) { clearTimeout(entry.timer); run(entry); }
+  };
+  function run(entry) { try { entry.fn(); } catch (e) { (KIT.log || console).error('[editor] a waiting change could not be written', e); } }
 
   function afterDocument(kind) {
     state.project = state.doc.value;
@@ -458,6 +488,16 @@
     const tool = KIT.registry('editorTools').get(state.tool);
     if (tool && tool.move) { try { tool.move(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); } }
   }
+  /**
+   * A panel's stage (the Look panel's preview) covers the canvas, so the
+   * canvas never hears its fingers. Two and three of them are still undo and
+   * redo there, through the same gesture code; one finger is the panel's own.
+   */
+  function stageGestureDown(ev) {
+    if (ev.pointerType !== 'touch') return;
+    if (gestureDown(ev)) { ev.preventDefault(); ev.stopPropagation(); }
+  }
+  function stageGestureMove(ev) { if (ev.pointerType === 'touch') gestureMove(ev); }
   function onPointerUp(ev) {
     if (ev.pointerType === 'touch' && gestureUp(ev)) return;
     if (panning && panning.id === ev.pointerId) { panning = null; return; }
@@ -547,7 +587,7 @@
   }
 
   /**
-   * The panels, in four groups.
+   * The panels, in five groups.
    *
    * Nineteen panels as one flat strip was the thing that made Creator Mode feel
    * impossible: a four-row wall of equal-weight tabs on a laptop, and on a phone
@@ -561,10 +601,15 @@
    * Tiles under Game on the first try. A module's panel that says nothing lands
    * in Game, which is where a thing about the whole game belongs. Problems is
    * its own group so the count is always on screen.
+   *
+   * Look is a group of its own too (ADR-0017): how the game looks and sounds
+   * is a thing a person sets out to do, not a setting among the game's, and
+   * as the seventh chip under Game nobody found it.
    */
   const GROUPS = [
     { id: 'map', label: 'Map', hint: 'This map: paint it, place things on it, connect it' },
     { id: 'story', label: 'Story', hint: 'What is said and what happens' },
+    { id: 'look', label: 'Look', hint: 'How the game looks and sounds' },
     { id: 'game', label: 'Game', hint: 'The whole game: settings, variables, items, words' },
     { id: 'problems', label: 'Problems', hint: 'What the validator found' },
   ];
@@ -595,10 +640,15 @@
     const errs = (state.problems || []).filter(p => p.severity === 'error').length;
     const warns = (state.problems || []).filter(p => p.severity === 'warn').length;
     for (const g of GROUPS) {
-      const b = UI.make('button.ed-group', { text: g.label });
+      const b = UI.make('button.ed-group');
       b.type = 'button';
       b.dataset.group = g.id;
       b.title = g.hint;
+      b.appendChild(UI.make('span.ed-group-label', { text: g.label }));
+      // Five words and the grip do not fit across the narrowest phones once
+      // Problems carries a count, so there it is ⚠ and the count; the
+      // stylesheet chooses, and the name stays the button's name.
+      if (g.id === 'problems') { b.appendChild(UI.make('span.ed-group-icon', { text: '⚠' })); b.setAttribute('aria-label', g.label); }
       b.setAttribute('aria-selected', String(g.id === active));
       if (g.id === 'problems') {
         const n = errs + warns;
@@ -633,7 +683,9 @@
     }
   }
   ED.buildTabs = buildTabs;
-  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map'); }
+  // Look is short like Map: the preview in the top half is what the author
+  // is looking at while they change the look.
+  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map' && groupOf(state.panel) !== 'look'); }
   function syncSheet() {
     if (!ED.el || !ED.el.root) return;
     const tall = sheetTall();
@@ -669,6 +721,7 @@
     }
     const rec = mounted.get(id);
     if (rec) { rec.el.hidden = false; refreshPanel(rec); host.scrollTop = rec.scrollTop || 0; }
+    syncStage(rec ? id : null);
     // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
     // for painting. Opening one hands the pointer to its tool unless the active
     // tool is one the panel uses — otherwise a tap meant to select Mom paints
@@ -680,6 +733,37 @@
       cancelTool();
       state.tool = want;
     }
+  }
+  /**
+   * A panel's stage. A panel that defines `stage(el, ed)` is given the stage
+   * — the map's half of the screen — for as long as it is open: the Look
+   * panel shows its live preview there, where the map would be. The stage
+   * panel covers the canvas, the tool row is hidden (there is nothing to
+   * paint), and the panel's handle is destroyed when the panel is left, or
+   * Creator Mode closed, or Play here starts — so nothing it drew goes on
+   * running, or making sounds, where nobody can see it.
+   */
+  let stagePanel = null;                  // { id, el, handle }
+  function syncStage(id) {
+    const def = id ? KIT.registry('editorPanels').get(id) : null;
+    const want = def && typeof def.stage === 'function' && state.mode === 'edit' && open ? id : null;
+    if (stagePanel && stagePanel.id === want && stagePanel.el.isConnected) return;
+    if (stagePanel) {
+      const was = stagePanel;
+      stagePanel = null;
+      try { if (was.handle && was.handle.destroy) was.handle.destroy(); } catch (e) { (KIT.log || console).error(`[panel ${was.id}] stage`, e); }
+      was.el.remove();
+    }
+    if (ED.el && ED.el.root) ED.el.root.classList.toggle('is-stage-panel', !!want);
+    if (!want || !ED.el || !ED.el.stage) return;
+    const el = UI.make('div.ed-stage-panel');
+    el.dataset.panel = want;
+    el.addEventListener('pointerdown', stageGestureDown, true);
+    el.addEventListener('pointermove', stageGestureMove, true);
+    ED.el.stage.appendChild(el);
+    stagePanel = { id: want, el, handle: null };
+    try { stagePanel.handle = def.stage(el, ED) || null; }
+    catch (e) { (KIT.log || console).error(`[panel ${want}] stage`, e); el.textContent = `This preview failed to open: ${e.message}`; }
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -710,8 +794,9 @@
     const mk = (label, title, fn, cls) => { const b = UI.make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label }); b.title = title; b.onclick = fn; bar.appendChild(b); return b; };
     ED.el.undoBtn = mk('↶', 'Undo (Ctrl+Z)', () => ED.undo());
     ED.el.redoBtn = mk('↷', 'Redo (Ctrl+Shift+Z)', () => ED.redo());
-    mk('−', 'Zoom out', () => ED.zoom(-1));
-    mk('+', 'Zoom in', () => ED.zoom(1));
+    // The map's zoom: hidden with the map under a panel's stage (editor.css).
+    mk('−', 'Zoom out', () => ED.zoom(-1), 'ed-zoom');
+    mk('+', 'Zoom in', () => ED.zoom(1), 'ed-zoom');
     ED.el.playBtn = mk('▶ Play', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
     ED.el.playBtn.appendChild(UI.make('span.ed-play-more', { text: ' here' }));   // dropped on a phone, where the row is full
     mk('✕', 'Close Creator Mode', () => ED.close());
@@ -796,7 +881,8 @@
       if (old) old.remove();
       const pill = UI.make('div.ed-toast', { text });
       ED.el.root.appendChild(pill);
-      setTimeout(() => pill.remove(), 1800);
+      // Long enough to read: a word's worth of time for every five letters.
+      setTimeout(() => pill.remove(), Math.max(1800, String(text).length * 55));
       return;
     }
     if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text);
@@ -852,8 +938,10 @@
   };
   ED.playHere = async function (opts) {
     if (!game || !game.loadProject) { ED.toast('The game is not running'); return; }
+    ED.flushPending();
     await ED.saveNow();
     state.mode = 'play';
+    syncStage(null);
     emit('mode', 'play');
     ED.el.root.classList.add('playing');
     game.loadProject(KIT.deepClone(state.project));
@@ -867,6 +955,7 @@
     emit('mode', 'edit');
     ED.el.root.classList.remove('playing');
     ED.refresh({ drop: true });                    // the game may have baked other maps into the same renderer
+    syncStage(state.panel);
   };
 
   // ---- open / close ----------------------------------------------------------------
@@ -898,8 +987,10 @@
   };
   ED.close = async function () {
     if (!open) return;
+    ED.flushPending();
     await ED.saveNow();
     open = false;
+    syncStage(null);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('keyup', onKeyUp);
     if (unwatch) { unwatch(); unwatch = null; }

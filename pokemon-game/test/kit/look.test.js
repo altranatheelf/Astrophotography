@@ -14,7 +14,7 @@ const path = require('path');
 const KIT = require('./_load.js');
 const ROOT = path.join(__dirname, '..', '..');
 const R = (f) => require(path.join(ROOT, f));
-R('js/kit/scenes/stack.js'); R('js/kit/ui/parts.js'); R('js/kit/scenes/menu.js');
+R('js/kit/scenes/stack.js'); R('js/kit/ui/parts.js'); R('js/kit/scenes/dialogue.js'); R('js/kit/scenes/menu.js');
 const L = KIT.look;
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 /** The stylesheet without its comments, which describe the rule in the same words as the rule. */
@@ -86,6 +86,22 @@ test('look: every token lands somewhere in css/kit.css', () => {
     if (!read1.has(t.css)) missing.push(`${t.key} (${t.css}) is compiled but kit.css never reads it`);
   }
   assert.deepEqual(missing, []);
+});
+
+test('look: an empty colour that is drawn in another says which, the one css/kit.css falls back to', () => {
+  // The Look panel shows that colour in the empty colour's square. Without it
+  // the square was black beside "Same as accent", with the name drawn in blue.
+  const empty = L.TOKENS.concat(L.PARTS.cursor).filter(f => f.type === 'color' && f.nullable && !f.none);
+  assert.ok(empty.length >= 12, `the eight inks, the chosen line's text, the title's two and the cursor (${empty.length})`);
+  for (const f of empty) {
+    assert.ok(f.follows || f.shows, `${f.key} says what it is drawn in`);
+    if (f.shows) assert.match(f.shows, /^#[0-9a-f]{6}$/, `${f.key} shows a colour`);
+    if (!f.follows) continue;
+    const to = L.TOKENS.find(t => t.key === f.follows);
+    assert.ok(to && to.type === 'color', `${f.key} follows a colour token (${f.follows})`);
+    const v = /^var\((--[\w-]+)/.exec(f.fallback || '');
+    if (v) assert.equal(to.css, v[1], `${f.key} follows what the stylesheet falls back to`);
+  }
 });
 
 test('look: the kit look compiles to nothing', () => {
@@ -331,6 +347,230 @@ test('look: the kit ships the kit look, empty', () => {
   assert.deepEqual(kit.ui, {});
   assert.equal(kit.rev, 1);
   assert.deepEqual(Object.keys(L.ROLES), L.PARTS.sounds.map(f => f.key), 'every role is a sound option');
+});
+
+// ---- the looks to start from, and the parts' options ---------------------------------
+
+const PRESETS = ['handheld', 'soul', 'dream'];
+/** The rules of a stylesheet, one per line as compile writes them, @keyframes left out. */
+const rulesOf = (css) => css.split('\n').filter(r => r && !r.startsWith('@'));
+const selectorsOf = (rule) => rule.slice(0, rule.indexOf('{')).split(',').map(s => s.trim());
+
+test('look: each built-in look resolves with no problems, and compiles the same twice', () => {
+  for (const id of PRESETS) {
+    const p = { ui: { base: id } };
+    const look = L.resolve(p);
+    assert.deepEqual(look._chain, ['kit', id]);
+    assert.deepEqual(L.problems(p), [], `${id} is a clean look`);
+    const css = L.css(p);
+    assert.ok(css.length > 0, `${id} changes something`);
+    assert.equal(css, L.css({ ui: { base: id } }), `${id}: the same look, the same text`);
+    const def = KIT.registry('looks').get(id);
+    assert.ok(def.label && def.describe && def.rev === 1, `${id} has a name, a description and a rev`);
+  }
+  assert.ok(KIT.registry('voices').has('typer'), 'the Soul look talks in a voice the kit ships');
+});
+
+test('look: every compiled rule stays on the game screen, and off the title', () => {
+  // The part options that are not the kit's own, all at once, on each look.
+  const every = { tokens: { paper: '#101010' }, dialogue: { lines: 4, width: 80, margin: 20, face: 'above-left', faceFrame: false, name: 'tab', nameCase: 'upper', prefix: '> ', marker: '', markerMotion: 'blink' },
+    choice: { place: 'center', layout: 'grid', columns: 3 }, menu: { at: 'top', caps: true }, toast: { at: 'center', shape: 'box' },
+    pad: { shape: 'square' }, cursor: { glyph: '*', color: '#00ff00', size: 20, highlight: false } };
+  const sheets = PRESETS.map(id => L.css({ ui: { base: id } })).concat([L.css({ ui: every })]);
+  for (const css of sheets) {
+    for (const rule of rulesOf(css)) {
+      for (const sel of selectorsOf(rule)) assert.ok(/^#(stage|screen|controls)\b/.test(sel), `"${sel}" starts at the game's own elements`);
+      assert.ok(!rule.includes('#screen-title'), `the title keeps its own look for now: ${rule}`);
+    }
+  }
+  // A cursor rule on the title would put a heart beside "New Game".
+  assert.ok(!sheets.some(css => /#screen-title|\.kit-start/.test(css)));
+});
+
+test('look: a mark an author types cannot close the string it is written in', () => {
+  // The prefix holds four letters: all three of these reach the stylesheet, escaped.
+  const pre = L.css({ ui: { dialogue: { prefix: '"};' } } });
+  assert.ok(pre.includes('content:"\\22 \\7d \\3b "'), pre);
+  assert.ok(!/content:"[^"]*;/.test(pre.replace(/\\3b /g, '')), 'no bare ; inside the string');
+  // A cursor holds two, so the ; never arrives at all.
+  const cur = L.css({ ui: { cursor: { glyph: '"};' } } });
+  assert.ok(cur.includes('content:"\\22 \\7d "'), cur);
+  assert.equal(L.resolve({ ui: { cursor: { glyph: '"};' } } }).cursor.glyph, '"}');
+  // Letters as a person counts them: a heart is one, and six are cut to four.
+  assert.equal(L.resolve({ ui: { dialogue: { prefix: '♥♥♥♥♥♥' } } }).dialogue.prefix, '♥♥♥♥');
+  assert.equal(L.resolve({ ui: { dialogue: { prefix: 7 } } }).dialogue.prefix, '', 'a number is not a mark');
+  // What the soul look writes, as the spec for it says.
+  assert.ok(L.css({ ui: { base: 'soul' } }).includes('.kit-line.is-start::before{content:"* "'));
+  assert.ok(L.css({ ui: { base: 'soul' } }).includes('content:"\\2665 "'), 'the heart cursor');
+});
+
+test('look: a part\'s option is one rule, only when it is not the kit\'s own', () => {
+  const one = (ui) => rulesOf(L.css({ ui }));
+  assert.deepEqual(one({ dialogue: { lines: 3, width: 100, marker: '▼' } }), [], 'the kit\'s own values write nothing');
+  assert.deepEqual(one({ dialogue: { lines: 2 } }), ['#screen #dialogue .kit-text{min-height:calc(var(--kit-line,1.45) * 2 * 1em)}']);
+  assert.deepEqual(one({ menu: { at: 'top-left' } }), ['#screen #pause-menu:has(> .kit-pause){align-items:flex-start;justify-content:flex-start}']);
+  assert.deepEqual(one({ pad: { shape: 'square' } }), ['#stage{--kit-pad-ab-radius:12px}']);
+  assert.deepEqual(one({ toast: { shape: 'box' }, tokens: { radius: 6 } }), ['#stage{--kit-radius:6px;--kit-toast-radius:6px}']);
+  // Blinking is an animation, so it only plays where things may move.
+  const blink = L.css({ ui: { dialogue: { markerMotion: 'blink' } } });
+  assert.ok(blink.includes('@keyframes kit-look-blink'));
+  assert.ok(blink.includes('#stage:not([data-kit-motion=reduce]):not([data-kit-fast]) #screen #dialogue .kit-next.is-ready{animation:kit-look-blink'));
+  assert.ok(blink.includes('#screen #dialogue .kit-next.is-ready{animation:none}'), 'and is still everywhere else');
+  // Options held for later are clean in a look, and write nothing yet.
+  const later = { dialogue: { pageTurn: 'scroll', at: 'avoid-hero', open: 'pop', speeds: { slow: 5 } }, choice: { place: 'in-box' }, menu: { order: ['save', '*'], hide: ['coop'] } };
+  assert.deepEqual(L.problems({ ui: later }), []);
+  assert.equal(L.css({ ui: later }), '');
+  assert.deepEqual(L.resolve({ ui: later }).dialogue.speeds, { slow: 5, normal: 48, fast: 96 });
+  const bad = L.resolve({ ui: { dialogue: { speeds: { slow: 'fast' } }, menu: { order: ['a;b'] } } });
+  assert.deepEqual(bad._problems.map(q => q.where.path.join('.')).sort(), ['ui.dialogue.speeds.slow', 'ui.menu.order']);
+});
+
+test('look: on a chosen line with colours of its own, a value takes the line\'s colour', () => {
+  const VALUE = '#screen #choice .kit-option.is-selected .kit-item-value,#screen #pause-menu .kit-menu-item.is-selected .kit-item-value,#screen .kit-ui-screen .kit-uibtn.is-selected .kit-item-value{color:var(--kit-sel-ink,var(--ink))}';
+  const has = (ui) => rulesOf(L.css({ ui })).includes(VALUE);
+  // Dream's chosen line is a white bar and its accent is white: the value on
+  // it (Settings' "auto", a save's date) was white on white.
+  assert.ok(has({ base: 'dream' }), 'Dream');
+  const dream = L.resolve({ ui: { base: 'dream' } }).tokens;
+  const lum = (hex) => { const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  assert.ok(ratio(dream.selectInk, dream.select) >= 3, 'and what it takes can be read on the bar');
+  assert.ok(has({ base: 'soul' }) && has({ base: 'handheld' }), 'the other looks that change the chosen line do the same');
+  assert.ok(!has({}) && !has({ tokens: { accent: '#ff0000' } }), 'the kit\'s own chosen line keeps accent-coloured values, and compiles to nothing');
+  assert.ok(!has({ base: 'dream', tokens: { valueInk: '#ff0000' } }), 'a value colour of the look\'s own wins');
+});
+
+test('look: a name on a tab moves out of the way of a portrait above the same corner', () => {
+  const MOVE = '#screen #dialogue .kit-name{left:auto;right:12px}';
+  assert.ok(rulesOf(L.css({ ui: { base: 'dream', dialogue: { face: 'above-left' } } })).includes(MOVE), 'Dream with its portrait moved to the left');
+  assert.ok(!rulesOf(L.css({ ui: { base: 'dream' } })).includes(MOVE), 'Dream as it is: the portrait is right, the tab stays left');
+  assert.ok(!rulesOf(L.css({ ui: { dialogue: { face: 'above-left' } } })).includes(MOVE), 'no tab, nothing to move');
+});
+
+test('look: capitals leave a notice in a list as it was written', () => {
+  const css = L.css({ ui: { menu: { caps: true } } });
+  assert.ok(rulesOf(css).includes('#screen #pause-menu .kit-menu-item:not(.kit-menu-notice) .kit-item-label{text-transform:uppercase}'), css);
+});
+
+test('look: cleanAt cleans one value as its field says, the way a whole look is cleaned', () => {
+  assert.deepEqual(L.cleanAt(['dialogue', 'prefix'], 'abcdefgh'), { ok: true, value: 'abcd' }, 'four letters');
+  assert.deepEqual(L.cleanAt(['tokens', 'paper'], '#FFF'), { ok: true, value: '#ffffff' }, 'one spelling for one colour');
+  assert.deepEqual(L.cleanAt(['tokens', 'frameWidth'], 99), { ok: true, value: 12 });
+  assert.equal(L.cleanAt(['tokens', 'paper'], 'pink').ok, false);
+  assert.equal(L.cleanAt(['tokens', 'paper'], null).ok, false, 'the box must have a colour');
+  assert.deepEqual(L.cleanAt(['tokens', 'rim'], null), { ok: true, value: null }, 'the inner line may have none');
+  assert.deepEqual(L.cleanAt(['dialogue', 'speeds'], { slow: 500 }), { ok: true, value: { slow: 120 } }, 'a group, field by field');
+  assert.deepEqual(L.cleanAt(['dialogue', 'speeds', 'fast'], 0), { ok: true, value: 1 }, 'and one field of it');
+  assert.deepEqual(L.cleanAt(['voice'], 'typer'), { ok: true, value: 'typer' });
+  assert.equal(L.cleanAt(['voice'], 'no spaces').ok, false);
+  for (const bad of [['nothing', 'here'], ['tokens'], ['dialogue', 'lines', 'deeper'], [], ['tokens', 'constructor']]) {
+    assert.equal(L.cleanAt(bad, 1).ok, false, `${JSON.stringify(bad)} is no field`);
+  }
+  assert.equal(L.resolve({ ui: { tokens: { paper: '#ABC' } } }).tokens.paper, '#aabbcc', 'a look read from a file is spelled the same way');
+});
+
+test('look: inherited is the look underneath the game\'s own changes', () => {
+  const p = { ui: { base: 'soul', tokens: { paper: '#123456' }, dialogue: { lines: 5 } } };
+  assert.equal(L.inherited(p, ['tokens', 'paper']), '#000000', 'Soul\'s own');
+  assert.equal(L.inherited(p, ['dialogue', 'lines']), 3, 'and where Soul says nothing, the kit\'s');
+  assert.equal(L.inherited({}, ['tokens', 'paper']), '#fdfdfb');
+  assert.equal(L.inherited(p, ['voice']), 'typer');
+  assert.equal(L.inherited(p, ['nothing', 'here']), undefined);
+  assert.equal(L.inherited(p, ['dialogue']).prefix, '* ', 'a whole part');
+});
+
+test('look: the validator says when words are hard to read, the box is huge, or a sound is missing', () => {
+  const codes = (ui) => L.problems({ ui }).map(q => q.code + ':' + q.where.path.join('.'));
+  assert.deepEqual(codes({ tokens: { ink: '#777777', paper: '#888888' } }), ['ui-contrast:ui.tokens.ink']);
+  assert.deepEqual(codes({ tokens: { select: '#222222', selectInk: '#333333', accent: '#ffffff', buttonInk: '#000000' } }), ['ui-contrast:ui.tokens.selectInk']);
+  assert.deepEqual(codes({ tokens: { select: null, ink: '#ffffff', paper: '#000000', selectInk: '#111111', accent: '#8899ff', inputBg: '#000000', buttonInk: '#000000' } }), ['ui-contrast:ui.tokens.selectInk'],
+    'no background of its own: the chosen line is read against the box');
+  // With the box round the chosen line off, the line has no background of its
+  // own whatever `select` says: it is read against the box, both ways round.
+  assert.deepEqual(codes({ tokens: { paper: '#fdfdfb', select: '#000000', selectInk: '#fdfdfb' }, cursor: { highlight: false } }), ['ui-contrast:ui.tokens.selectInk'],
+    'near-white text on near-white paper is reported, though the unused bar behind it would have been dark');
+  assert.deepEqual(codes({ tokens: { paper: '#000000', ink: '#ffffff', accent: '#ffffff', select: '#ffffff', selectInk: '#ffffff', inputBg: '#000000', buttonInk: '#000000' }, cursor: { highlight: false } }), [],
+    'and white on black paper is not, though the unused bar would have been white');
+  // A value on the chosen line (a volume) and the cursor beside it are read against the line too.
+  assert.deepEqual(codes({ tokens: { accent: '#ffffff' } }), ['ui-contrast:ui.tokens.valueInk', 'ui-contrast:ui.tokens.cursorInk', 'ui-contrast:ui.tokens.buttonInk'],
+    'a white accent on the kit\'s pale chosen line: its values and its cursor both vanish, and so does OK on a white button');
+  assert.deepEqual(codes({ tokens: { select: '#ffffff', valueInk: '#fafafa' } }), ['ui-contrast:ui.tokens.valueInk'], 'a value colour of the look\'s own is its to keep, and is checked');
+  assert.deepEqual(codes({ cursor: { color: '#eeeeee' } }), ['ui-contrast:ui.cursor.color'], 'a cursor colour of its own is named where it was set');
+  assert.deepEqual(codes({ cursor: { color: '#eeeeee', glyph: '' } }), [], 'no cursor, nothing to read');
+  assert.deepEqual(codes({ tokens: { toastInk: '#101010' } }), ['ui-contrast:ui.tokens.toastInk']);
+  // The box that asks for a name. White words on a black message box were
+  // typed white into a white field, and OK was white on a white button, and
+  // nothing said so: Soul and Dream shipped that way.
+  assert.deepEqual(codes({ tokens: { paper: '#000000', ink: '#ffffff', select: null, cursorInk: '#ffffff' } }), ['ui-contrast:ui.tokens.inputBg'], 'a name typed in white into the white name box');
+  assert.deepEqual(codes({ tokens: { paper: '#000000', ink: '#ffffff', select: null, cursorInk: '#ffffff', inputBg: '#202020' } }), [], 'and a dark one of its own reads');
+  assert.deepEqual(codes({ tokens: { button: '#f0f0f0' } }), ['ui-contrast:ui.tokens.buttonInk'], 'OK in white on a pale OK button');
+  assert.deepEqual(codes({ tokens: { button: '#f0f0f0', buttonInk: '#000000' } }), []);
+  for (const id of ['soul', 'dream']) {
+    assert.deepEqual(codes({ base: id, tokens: { inputBg: '#ffffff', buttonInk: '#ffffff' } }), ['ui-contrast:ui.tokens.inputBg', 'ui-contrast:ui.tokens.buttonInk'],
+      `${id} with the white name box and white OK it used to have is reported`);
+    const look = L.resolve({ ui: { base: id } }).tokens;
+    assert.ok(look.inputBg !== look.ink && look.buttonInk !== look.accent, `${id} has a name box and an OK button that can be read`);
+  }
+  assert.deepEqual(codes({ dialogue: { lines: 6 }, tokens: { lineHeight: 2.4, textSize: 'huge' } }), ['ui-lines:ui.dialogue.lines']);
+  assert.deepEqual(codes({ dialogue: { face: 'above-left', faceScale: 6, lines: 4 } }), ['ui-lines:ui.dialogue.lines'], 'a big portrait over the box');
+  assert.deepEqual(codes({ dialogue: { face: 'left', faceScale: 6, lines: 4 } }), [], 'the same portrait beside it is fine');
+  assert.deepEqual(codes({ dialogue: { lines: 6 } }), [], 'six lines of ordinary text is a big box, not a problem');
+  for (const id of PRESETS) assert.deepEqual(codes({ base: id }), [], `${id} keeps the game in sight`);
+  assert.deepEqual(codes({ sounds: { move: 'nope' }, voice: 'nobody' }), ['ui-ref:ui.sounds.move', 'ui-ref:ui.voice']);
+  assert.deepEqual(codes({ sounds: { move: 'select', open: 'save' }, voice: 'soft' }), []);
+  assert.ok(L.problems({ ui: { sounds: { move: 'nope' } } }).every(q => q.severity === 'warn'), 'none of it stops the game');
+});
+
+test('look: dialogueLayout marks the first line of each piece the author wrote', () => {
+  const DL = KIT.dialogueLayout;
+  const lay = { width: 10, measure: (s) => s.length };
+  const spans = KIT.text.tokenize('Hello there, you.\nSecond one\n\nThird');
+  const r = DL.lines(spans, lay);
+  const text = r.lines.map(l => l.map(sp => sp.text || '').join(''));
+  assert.deepEqual(text, ['Hello', 'there,', 'you.', 'Second one', '', 'Third']);
+  assert.deepEqual(Array.from(r.starts).sort((a, b) => a - b), [0, 3, 5], 'the first line, the one after each break, and not the blank line');
+  assert.deepEqual(text, KIT.text.wrap(spans, lay).map(l => l.map(sp => sp.text || '').join('')), 'the same lines KIT.text.wrap makes');
+  // A break at the end closes the last line; it opens no empty one.
+  assert.deepEqual(DL.lines(KIT.text.tokenize('One\n'), lay).lines.length, KIT.text.wrap(KIT.text.tokenize('One\n'), lay).length);
+  assert.deepEqual(Array.from(DL.lines([], lay).starts), [], 'nothing to say, nothing to mark');
+});
+
+test('look: an arrow in a row or a grid of answers moves the way it points', () => {
+  const nav = KIT.ui.nav;
+  /** Boxes of 100×40, laid out `cols` across in reading order, as a grid of answers is. */
+  const grid = (n, cols) => Array.from({ length: n }, (_, i) => ({ left: (i % cols) * 100, top: Math.floor(i / cols) * 40, width: 100, height: 40 }));
+  const column = grid(3, 1), row = grid(2, 2), two = grid(4, 2);
+  assert.equal(nav(column, 0, 'down', true), 1, 'a column: down is the next');
+  assert.equal(nav(column, 2, 'down', true), 0, 'and from the last, round to the first');
+  assert.equal(nav(column, 2, 'down', false), 2, 'or not, without wrap');
+  assert.equal(nav(row, 0, 'right', true), 1, 'a row: right is the next');
+  assert.equal(nav(row, 1, 'right', true), 0, 'and round to the first');
+  assert.equal(nav(row, 0, 'down', true), 0, '▼ on Yes beside No goes nowhere: nothing is under it');
+  assert.equal(nav(two, 0, 'down', true), 2, 'a 2×2 grid: down from the top left is the bottom left');
+  assert.equal(nav(two, 0, 'right', true), 1, 'and right is the top right');
+  // The grid that was found: North South / East West / Stay, two across.
+  const five = grid(5, 2);
+  assert.equal(nav(five, 1, 'down', true), 3, '▼ from South is West, under it — it was East, in reading order');
+  assert.equal(nav(five, 3, 'up', true), 1, '▲ from West is South');
+  assert.equal(nav(five, 2, 'left', false), 2, '◀ from the left-hand column goes nowhere without wrap');
+  assert.equal(nav(five, 2, 'left', true), 3, 'and round its own row with it, not up to the row before');
+  assert.equal(nav(five, 4, 'down', true), 0, '▼ from the last, alone on its row, round to the top of its column');
+  assert.equal(nav(five, 3, 'down', true), 4, '▼ from West, with nothing under it, is the nearest below');
+  const unseen = grid(3, 3).map(() => ({ left: 0, top: 0, width: 0, height: 0 }));
+  assert.equal(nav(unseen, 0, 'right', true), 1, 'answers nobody has laid out yet move in reading order');
+  assert.equal(nav(unseen, 0, 'left', true), 2);
+  assert.equal(nav([], 0, 'down', true), 0);
+  assert.ok(read('js/kit/scenes/dialogue.js').includes('UI.nav('), 'the choice scene moves with it');
+});
+
+test('look: a toast stays as long as the look says', () => {
+  try {
+    L.use({ ui: { toast: { ms: 4000 } } });
+    assert.equal(L.get('toast.ms', 1600), 4000);
+    L.use({ ui: { toast: { ms: 99999 } } });
+    assert.equal(L.get('toast.ms', 1600), 6000, 'pulled into range');
+  } finally { L.use(null); }
+  assert.ok(read('js/kit/scenes/dialogue.js').includes("KIT.look.get('toast.ms', 1600)"), 'KIT.toast asks the look when the caller did not say');
 });
 
 test('the pause menu waits for the cutscene', () => {

@@ -139,6 +139,9 @@
     'ui-base-cycle': 'Two looks are each built on the other. The circle is cut where it was found.',
     'ui-base-deep': 'Looks are built on looks more than eight deep; the ones past eight are left out.',
     'ui-bad-value': 'A value in the look is not one the engine can use — not a colour, or not one of the choices — so it is left out and the look underneath shows.',
+    'ui-contrast': 'Two colours in the look are too close to read one on the other. Look › Colours: make one lighter or the other darker.',
+    'ui-lines': 'The message box would cover a lot of the game on a phone. Look › Message box: fewer lines, or a smaller portrait.',
+    'ui-ref': 'The look names a sound or a voice this game does not have, so it stays quiet or sounds ordinary. Look › Sounds: pick one it has.',
   };
   /** explain(code) -> the "what does this mean" line under a problem. */
   W.explain = function (code) {
@@ -631,6 +634,7 @@
     if (sel.kind === 'object' || sel.kind === 'slot') ED.set({ panel: 'objects' });
     else if (sel.kind === 'script') ED.set({ panel: 'scripts' });
     else if (sel.kind === 'map') ED.set({ panel: 'map' });
+    else if (sel.kind === 'look') ED.set({ panel: 'look' });
     else ED.set({ panel: 'project' });
   }
 

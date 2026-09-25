@@ -188,6 +188,7 @@ test('ops: one "where -> selection", and slot 0 is a slot', () => {
   assert.deepEqual(O.whereSelection({ map: 'town' }), { kind: 'map', id: 'town' });
   assert.deepEqual(O.whereSelection({ item: 'key' }), { kind: 'item', id: 'key' });
   assert.deepEqual(O.whereSelection({ fragment: 'greeting' }), { kind: 'fragment', id: 'greeting' });
+  assert.deepEqual(O.whereSelection({ look: true, path: ['ui', 'tokens', 'ink'] }), { kind: 'look', path: ['ui', 'tokens', 'ink'] }, 'a look problem opens the Look panel');
   assert.deepEqual(O.whereSelection({}), { kind: 'project' });
   assert.deepEqual(O.whereSelection(null), { kind: 'project' });
 });

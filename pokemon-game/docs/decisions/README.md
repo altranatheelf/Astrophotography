@@ -43,6 +43,7 @@ is a new number.
 | [0011](0011-history-is-tally-plus-window.md) | History is a permanent tally plus a bounded window | accepted |
 | [0012](0012-rules-are-entities.md) | A rule of the world is a condition plus a script, and can be eaten | accepted |
 | [0013](0013-saves-are-a-tree.md) | Saves are a tree of moments, stored as deltas | accepted |
-| [0014](0014-creator-mode-is-four-groups.md) | Creator Mode is four groups, and a panel picks its tool | accepted |
+| [0014](0014-creator-mode-is-four-groups.md) | Creator Mode is four groups, and a panel picks its tool | accepted; five groups since 0017 |
 | [0015](0015-a-new-game-is-a-blueprint.md) | A new game is a blueprint, and a module brings its own | accepted |
 | [0016](0016-one-definition-and-the-instrument.md) | One definition, and the instrument that says so | accepted |
+| [0017](0017-looks-are-data.md) | Looks are data, compiled to one stylesheet; Look is a fifth group | accepted |

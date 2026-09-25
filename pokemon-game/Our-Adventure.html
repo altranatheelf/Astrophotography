@@ -269,7 +269,7 @@ body { overflow: hidden; }
 .kit-option.is-selected, .kit-menu-item.is-selected { background: var(--kit-sel, #eaf0ff); border-color: var(--kit-sel-frame, var(--kit-accent, #3b4b8a)); color: var(--kit-sel-ink, var(--ink)); }
 .kit-option.is-selected::before, .kit-menu-item.is-selected::before { opacity: 1; }
 .kit-uibtn:disabled { opacity: .45; cursor: default; }
-.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: #fff; justify-content: center; }
+.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: var(--kit-button-ink, #fff); justify-content: center; }
 .kit-item-label { flex: 1 1 auto; }
 .kit-item-value { font-family: var(--font-ui); font-size: 10px; color: var(--kit-value-ink, var(--kit-accent, #3b4b8a)); }
 .kit-item-note { font-size: 12px; opacity: .6; }
@@ -278,7 +278,7 @@ body { overflow: hidden; }
 .kit-input {
   font: inherit; font-size: 18px; width: 100%;
   padding: 10px 12px; margin: 4px 0;
-  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: #fff; color: var(--ink);
+  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: var(--kit-input-bg, #fff); color: var(--ink);
 }
 .kit-debug-body { font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 
@@ -570,7 +570,7 @@ body { overflow: hidden; }
   .ed-panel-body[data-panel="tiles"] > .ed-chips::-webkit-scrollbar { display: none; }   /* one swipeable row of layers */
   .ed-panel-body[data-panel="tiles"] > .ed-chips .ed-chip { white-space: nowrap; flex: 0 0 auto; }
   .ed-group { padding: 6px 2px; font-size: 15px; }
-  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
+  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; min-height: 44px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
   .ed-toolbar { gap: 4px; padding: 4px 6px; }
   .ed-maps { max-width: 30vw; flex: 0 0 auto; }
@@ -587,6 +587,12 @@ body { overflow: hidden; }
 .ed-f-label { color: #c3cfe2; font-size: 12px; font-weight: 600; letter-spacing: .02em; flex: 1 1 auto; }
 .ed-f.is-inherited .ed-f-label { color: #7c8aa0; font-weight: 500; }
 .ed-f.is-inherited .ed-f-body { opacity: .78; }
+/* A colour square IS the colour: dimmed with the rest, the white of a box
+   showed as grey beside the white box it stands for. The hex and the "none"
+   chip beside it are dimmed instead. */
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color) { opacity: 1; }
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color) :is(.ed-hex, .ed-color-none) { opacity: .78; }
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color):focus-within :is(.ed-hex, .ed-color-none) { opacity: 1; }
 .ed-f.is-inline .ed-f-body { flex: 0 0 auto; }
 .ed-f-body:focus-within { opacity: 1; }
 .ed-btn.ed-f-reset { min-height: 28px; min-width: 28px; padding: 0 6px; line-height: 1; font-size: 13px; color: #9fb0c8; }
@@ -602,7 +608,7 @@ body { overflow: hidden; }
 
 textarea.ed-grow { min-height: 64px; font-family: inherit; overflow: hidden; }
 textarea.ed-note { min-height: 48px; font-family: inherit; color: #c3cfe2; }
-textarea.is-bad { border-color: #b03434; }
+textarea.is-bad, input.is-bad { border-color: #b03434; }
 .ed-preview { display: flex; flex-direction: column; gap: 6px; }
 .ed-preview-box { position: relative; background: #101728; border: 2px solid #3b4a68; border-radius: 6px; padding: 8px 10px 10px; font-family: "Press Start 2P", ui-monospace, monospace; font-size: 10px; line-height: 1.9; color: #eef3ff; }
 .ed-preview-line { white-space: pre-wrap; min-height: 1.9em; }
@@ -620,6 +626,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-seg button + button { border-left: 0; }
 .ed-seg button[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
 .ed-color { width: 52px; min-height: 40px; padding: 2px; }
+.ed-color.is-none { opacity: .35; }
 .ed-hex { flex: 1 1 auto; }
 
 .ed-dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 4px; }
@@ -804,6 +811,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-f-body > input, .ed-f-body > select, .ed-f-body > textarea,
 .ed-cond-cell input, .ed-cond-cell select, .ed-ref > select { width: 100%; }
 .ed-form input, .ed-form select, .ed-form textarea { box-sizing: border-box; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; }
+.ed-form input.is-bad, .ed-form textarea.is-bad { border-color: #b03434; box-shadow: 0 0 0 1px #b03434; }
 .ed-form input:focus, .ed-form select:focus, .ed-form textarea:focus { outline: 2px solid #4f8bf0; outline-offset: -1px; }
 .ed-slot .ed-btn, .ed-pages-head .ed-btn, .ed-obj-head .ed-btn { white-space: nowrap; flex: 0 0 auto; }
 .ed-btn.tiny { min-height: 30px; padding: 2px 8px; font-size: 11.5px; color: #9fb0c8; margin-top: 4px; }
@@ -990,6 +998,85 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40dvh; backg
    the buttons under it are on. Last in the file, so it beats .ed-json's own
    min-height rather than tying with it. */
 textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre-wrap; }
+
+/* ---- the Look group (js/kit/editor/panel-look.js, look-preview.js) ---- */
+/* Five groups and the grip across a 390px phone. Problems carries a count, and
+   with its word too the row no longer fits, so on the narrowest phones it is
+   ⚠ and the count (the button keeps its name for a screen reader). */
+.ed-group-icon { display: none; }
+@media (max-width: 430px) {
+  .ed-group[data-group="problems"] .ed-group-label { display: none; }
+  .ed-group[data-group="problems"] .ed-group-icon { display: inline; }
+  .ed-group[data-group="problems"] .ed-group-badge { margin-left: 4px; }
+}
+
+/* A panel's stage: it covers the map, and there is nothing to paint or zoom
+   while it is up (− and + zoomed the map under it, and nothing on screen moved). */
+.ed-stage-panel { position: absolute; inset: 0; z-index: 3; background: #0a0d13; display: flex; flex-direction: column; touch-action: manipulation; }
+.ed-root.is-stage-panel .ed-tools, .ed-root.is-stage-panel .ed-zoom { display: none; }
+/* The grip's tall sheet over a stage keeps the stage tall enough for a message
+   box: at three quarters of the phone the preview was a 78px strip showing the
+   last line of one. The sheet still grows, and is never shorter than the short one. */
+@media (max-width: 760px) {
+  .ed-root.is-sheet-tall.is-stage-panel .ed-side { flex-shrink: 1; min-height: 46dvh; }
+  .ed-root.is-sheet-tall.is-stage-panel .ed-stage { min-height: 250px; }
+}
+
+.ed-look-stage { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 6px 8px 8px; }
+/* Six tabs and ▶ Try in one row of 44px targets at 390px: the preview needs every pixel under it. */
+.ed-look-chips { display: grid; grid-template-columns: repeat(7, minmax(44px, 1fr)); gap: 4px; flex: 0 0 auto; }
+@media (min-width: 761px) { .ed-look-chips { grid-template-columns: repeat(8, minmax(44px, 1fr)); } }   /* and Phone | Fill */
+.ed-look-chip { min-height: 44px; min-width: 44px; padding: 0; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #cbd6e8; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: -.01em; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.ed-look-chip[aria-selected="true"] { background: #1f2f4d; border-color: #4f8bf0; color: #fff; }
+.ed-look-chip.ed-look-mode { background: #22304a; color: #e8ecf4; }
+.ed-look-chip.ed-look-mode[aria-pressed="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
+@media (max-width: 760px) { .ed-look-chip.ed-look-size { display: none; } }
+.ed-look-frame { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; }
+.ed-look-preview { position: relative; flex: 1 1 auto; width: 100%; min-height: 0; }
+.ed-look-frame.is-phone .ed-look-preview { max-width: 390px; }
+
+/* The sheet: every control 44px, whatever the widget would be elsewhere. */
+.ed-look .ed-hint { margin: 4px 0 8px; }
+.ed-look-intro { margin-top: 0; }
+.ed-look-section { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 6px 10px; margin: 6px 0 0; border: 1px solid #263044; border-radius: 8px; background: #151c28; color: #e8ecf4; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.ed-look-section[aria-expanded="true"] { background: #1a2640; border-color: #35507f; border-radius: 8px 8px 0 0; }
+.ed-look-caret { color: #8494ab; width: 14px; flex: 0 0 auto; }
+.ed-look-body { border: 1px solid #35507f; border-top: 0; border-radius: 0 0 8px 8px; padding: 8px 10px 10px; background: #121a28; min-width: 0; }
+.ed-look-body .ed-sec { background: #151d2c; }
+.ed-panel-body[data-panel="look"] button, .ed-panel-body[data-panel="look"] select { min-height: 44px; }
+.ed-panel-body[data-panel="look"] input:not([type="checkbox"]) { min-height: 44px; }
+.ed-panel-body[data-panel="look"] .ed-btn { min-width: 44px; }
+.ed-panel-body[data-panel="look"] .ed-btn.ed-f-reset { min-width: 44px; min-height: 44px; }
+.ed-panel-body[data-panel="look"] .ed-chip { min-width: 44px; font-size: 13px; }
+.ed-panel-body[data-panel="look"] .ed-color { width: 52px; min-height: 44px; flex: 0 0 auto; }
+.ed-panel-body[data-panel="look"] .ed-hex { min-width: 0; flex: 1 1 90px; }
+.ed-panel-body[data-panel="look"] .ed-color-none { flex: 0 1 auto; }
+.ed-panel-body[data-panel="look"] .ed-f-body > input[type="text"] { margin-top: 2px; }
+.ed-panel-body[data-panel="look"] .ed-sec > summary { min-height: 48px; }
+.ed-panel-body[data-panel="look"] .ed-f.is-flash { outline: 2px solid #4f8bf0; outline-offset: 4px; border-radius: 6px; }
+
+/* Start from: a card per look, each a tiny message box drawn in that look. */
+.ed-look-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.ed-look-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 64px; padding: 8px; border: 2px solid #263044; border-radius: 10px; background: #1a212d; color: #e8ecf4; font: inherit; text-align: left; cursor: pointer; }
+.ed-look-card[aria-pressed="true"] { border-color: #4f8bf0; background: #1d2c47; }
+.ed-look-card-name { font-weight: 600; font-size: 13px; }
+.ed-look-swatch { position: relative; display: flex; flex-direction: column; gap: 2px; min-height: 52px; margin-top: 8px; padding: 6px 8px; border-style: solid; font-size: 11px; line-height: 1.3; overflow: visible; pointer-events: none; }
+.ed-look-swatch-name { font-weight: 700; font-size: 9.5px; letter-spacing: .04em; }
+.ed-look-swatch-tab { position: absolute; left: 6px; bottom: calc(100% - 2px); padding: 0 5px; border-style: solid; border-bottom: 0; font-size: 9px; font-weight: 700; line-height: 1.5; }
+.ed-look-swatch.has-face-above { margin-top: 22px; }
+.ed-look-swatch-face { position: absolute; bottom: calc(100% + 3px); width: 16px; height: 16px; border: 2px solid; border-radius: 2px; }
+.ed-look-swatch-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
+.ed-look-describe { color: #c3cfe2; }
+.ed-look-sheet { border: 1px solid #4f8bf0; background: #16203a; border-radius: 10px; padding: 10px; margin: 0 0 10px; color: #e8ecf4; }
+.ed-look-sheet p { margin: 0 0 8px; }
+.ed-look-sheet-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ed-look-sheet-row .ed-btn { flex: 1 1 auto; }
+
+/* Sounds: a line per sound, a picker, ▶ to hear it, ↺ to put back the look's own. */
+.ed-look-sound { margin: 0 0 10px; }
+.ed-look-sound .ed-row { margin: 3px 0 0; flex-wrap: nowrap; }
+.ed-look-sound .ed-look-select { flex: 1 1 auto; min-width: 0; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; font: inherit; }
+.ed-look-sound.is-inherited .ed-f-label { color: #7c8aa0; font-weight: 500; }
 
 </style>
 </head>
@@ -1801,6 +1888,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { id: 'soft', name: 'Soft voice', sound: 'blip', pitch: 1.15, everyChars: 3, volume: 0.3, jitter: 0.12 },
     { id: 'flat', name: 'Flat voice', sound: 'blip', pitch: 1, everyChars: 2, jitter: 0, volume: 0.4 },
     { id: 'none', name: 'Silent', sound: null, pitch: 1, everyChars: 12, volume: 0 },
+    // A blip on every letter, the same pitch each time: a typewriter, or the
+    // narrator of a certain kind of game. What the Soul look talks in.
+    { id: 'typer', name: 'Typewriter', sound: 'blip', everyChars: 1, jitter: 0 },
   ]);
   // What a letter DOES while it sits there. Undertale drives all of this from a
   // single numeric `shake` whose meaning changes at 39 — below that it is a
@@ -4139,55 +4229,66 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   // has `none` — what "no colour" means for it (`transparent`, `none`) — or has
   // no `none`, and then null means "follow the fallback": the eight inks that
   // default to the accent are null until somebody picks one of their own.
-  const color = (key, def, css, fallback, group, doc, more) => Object.assign({ key, type: 'color', default: def, css, fallback, group, doc }, more || {});
-  const ink = (key, css, doc) => color(key, null, css, 'var(--kit-accent, #3b4b8a)', 'accent', doc, { nullable: true });
+  // `follows` names the token such a one is drawn in meanwhile, and `shows` is
+  // the colour it is drawn in when that is a picture rather than a token (the
+  // title's night sky), so the Look panel can show that colour in its square
+  // instead of black. `label` is what the Look panel calls a token, in the
+  // words of somebody making a game rather than somebody writing CSS;
+  // `noneLabel` is what "no colour" means for a nullable one, said the same way.
+  const color = (key, label, def, css, fallback, group, doc, more) => Object.assign({ key, label, type: 'color', default: def, css, fallback, group, doc }, more || {});
+  const ink = (key, label, css, doc) => color(key, label, null, css, 'var(--kit-accent, #3b4b8a)', 'accent', doc, { nullable: true, noneLabel: 'Same as accent', follows: 'accent' });
   L.TOKENS = [
-    color('paper', '#fdfdfb', '--paper', '#fdfdfb', 'box', 'The message box and panel background.'),
-    color('ink', '#23233a', '--ink', '#23233a', 'box', 'Text in the box and panels.'),
-    color('frame', '#2b2b3a', '--kit-frame', '#2b2b3a', 'box', 'The border round the box, the panels and the portrait.'),
-    { key: 'frameWidth', type: 'number', integer: true, min: 0, max: 12, default: 3, css: '--kit-frame-w', fallback: '3px', form: 'px', group: 'box', doc: 'How thick that border is.' },
-    { key: 'radius', type: 'number', integer: true, min: 0, max: 24, default: 10, css: '--kit-radius', fallback: '10px', form: 'px', group: 'box', doc: 'How round the corners are.' },
-    color('rim', '#dfe3ef', '--kit-rim', '#dfe3ef', 'box', 'The thin line just inside the border.', { nullable: true, none: 'transparent' }),
-    color('drop', '#000000', '--kit-drop', 'rgba(0, 0, 0, .35)', 'box', 'The shadow under the box and panels.', { nullable: true, none: 'transparent', form: 'rgba', alpha: 0.35 }),
-    color('shadow', null, '--kit-text-shadow', 'none', 'box', 'A shadow under the letters in the box.', { nullable: true, none: 'none', form: 'textShadow' }),
-    color('accent', '#3b4b8a', '--kit-accent', '#3b4b8a', 'accent', 'The one colour to change first: names, markers, the cursor and the selected row all follow it.'),
-    ink('nameInk', '--kit-name-ink', 'The speaker\'s name.'),
-    ink('markerInk', '--kit-marker-ink', 'The ▼ that says there is more.'),
-    ink('titleInk', '--kit-title-ink', 'Panel titles.'),
-    ink('cursorInk', '--kit-cursor-ink', 'The cursor beside the selected row.'),
-    ink('valueInk', '--kit-value-ink', 'Values in the menus (on, off, 50%).'),
-    ink('selectFrame', '--kit-sel-frame', 'The border of the selected row.'),
-    ink('button', '--kit-button', 'The OK button.'),
-    ink('inputFrame', '--kit-input-frame', 'The border of a name or number field.'),
-    color('select', '#eaf0ff', '--kit-sel', '#eaf0ff', 'accent', 'The background of the selected row.', { nullable: true, none: 'transparent' }),
-    color('selectInk', null, '--kit-sel-ink', 'var(--ink)', 'accent', 'The text of the selected row.', { nullable: true }),
-    color('faceBg', '#eef1f8', '--kit-face-bg', '#eef1f8', 'box', 'Behind a portrait.'),
-    color('dim', '#08090f', '--kit-dim', 'rgba(8, 9, 15, .55)', 'screen', 'What darkens the game behind a message with a dimmed background.', { form: 'rgba', alpha: 'dimAmount' }),
-    { key: 'dimAmount', type: 'number', min: 0, max: 1, default: 0.55, css: null, fallback: '.55', group: 'screen', doc: 'How dark that is.' },
-    { key: 'menuDimAmount', type: 'number', min: 0, max: 1, default: 0.5, css: '--kit-menu-dim', fallback: 'rgba(8, 9, 15, .5)', form: 'rgba', color: 'dim', alpha: 'menuDimAmount', group: 'screen', doc: 'How dark the game goes behind the pause menu and choices.' },
-    { key: 'fontText', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of everything on the game screen.' },
-    { key: 'fontUi', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Names, titles, values, the chapter card and the title buttons.' },
-    { key: 'fontName', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', doc: 'The speaker\'s name only. Empty follows the one above.' },
-    { key: 'textSize', type: 'enum', options: ['small', 'normal', 'large', 'huge'], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big a message is.' },
-    { key: 'lineHeight', type: 'number', min: 1, max: 2.4, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message.' },
-    color('screenBg', '#0a0b10', '--kit-screen-bg', '#0a0b10', 'screen', 'Behind the map, where it does not reach the edge.'),
-    color('screenFrame', '#2f3450', '--kit-screen-frame', '#2f3450', 'screen', 'The bezel round the game screen.'),
-    color('highlight', '#ffcb3d', '--accent', '#ffcb3d', 'title', 'The game\'s name on the title, the chapter subtitle and the chosen title button.'),
-    color('highlight2', '#6fd3ff', '--accent-2', '#6fd3ff', 'title', 'The subtitle on the title screen.'),
-    color('titleBg', null, '--kit-title-bg', 'linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%)', 'title', 'Behind the title screen. Empty keeps the night-sky gradient.', { nullable: true }),
-    color('titleShadow', '#7a4a00', '--kit-title-shadow', '#7a4a00', 'title', 'The shadow under the game\'s name.', { nullable: true, none: 'transparent' }),
-    color('titleButton', null, '--kit-title-button', 'rgba(255, 255, 255, .06)', 'title', 'The title buttons. Empty keeps them see-through.', { nullable: true }),
-    color('titleButtonInk', '#ffffff', '--kit-title-button-ink', '#fff', 'title', 'Their text.'),
-    color('titlePickInk', '#2a1d00', '--kit-title-pick-ink', '#2a1d00', 'title', 'The text of the chosen title button.'),
-    color('toastBg', '#0c0e16', '--kit-toast-bg', 'rgba(12, 14, 22, .92)', 'toast', 'A toast ("Saved.").', { form: 'rgba', alpha: 0.92 }),
-    color('toastFrame', '#3a4160', '--kit-toast-frame', '#3a4160', 'toast', 'Its border.'),
-    color('toastInk', '#ffffff', '--kit-toast-ink', '#fff', 'toast', 'Its text.'),
-    color('chapterBg', '#06070c', '--kit-chapter-bg', 'rgba(6, 7, 12, .82)', 'chapter', 'Behind a chapter card.', { form: 'rgba', alpha: 0.82 }),
-    color('chapterInk', '#ffffff', '--kit-chapter-ink', '#fff', 'chapter', 'The chapter title.'),
-    color('padFrame', '#3a4160', '--kit-pad-frame', '#3a4160', 'pad', 'The border of the on-screen buttons.'),
-    color('padInk', '#cfd6f5', '--kit-pad-ink', '#cfd6f5', 'pad', 'Their arrows and labels.'),
-    color('padA', '#4a6ad8', '--kit-pad-a', 'linear-gradient(180deg, #4a6ad8, #32499e)', 'pad', 'The A button.', { form: 'gradient' }),
-    color('padB', '#d85a6a', '--kit-pad-b', 'linear-gradient(180deg, #d85a6a, #9e3244)', 'pad', 'The B button.', { form: 'gradient' }),
+    color('paper', 'Box', '#fdfdfb', '--paper', '#fdfdfb', 'box', 'The message box and panel background.'),
+    color('ink', 'Text', '#23233a', '--ink', '#23233a', 'box', 'Text in the box and panels.'),
+    color('frame', 'Border', '#2b2b3a', '--kit-frame', '#2b2b3a', 'box', 'The border round the box, the panels and the portrait.'),
+    { key: 'frameWidth', label: 'Border thickness', type: 'number', integer: true, min: 0, max: 12, default: 3, css: '--kit-frame-w', fallback: '3px', form: 'px', group: 'box', doc: 'How thick that border is.' },
+    { key: 'radius', label: 'Rounded corners', type: 'number', integer: true, min: 0, max: 24, default: 10, css: '--kit-radius', fallback: '10px', form: 'px', group: 'box', doc: 'How round the corners are. 0 is square.' },
+    color('rim', 'Inner line', '#dfe3ef', '--kit-rim', '#dfe3ef', 'box', 'The thin line just inside the border.', { nullable: true, none: 'transparent', noneLabel: 'None' }),
+    color('drop', 'Shadow under the box', '#000000', '--kit-drop', 'rgba(0, 0, 0, .35)', 'box', 'The shadow under the box and panels.', { nullable: true, none: 'transparent', form: 'rgba', alpha: 0.35, noneLabel: 'None' }),
+    color('shadow', 'Shadow under the letters', null, '--kit-text-shadow', 'none', 'box', 'A shadow under the letters in the box.', { nullable: true, none: 'none', form: 'textShadow', noneLabel: 'None' }),
+    color('accent', 'Accent', '#3b4b8a', '--kit-accent', '#3b4b8a', 'accent', 'The one colour to change first: names, markers, the cursor and the selected row all follow it.'),
+    ink('nameInk', 'Speaker\'s name', '--kit-name-ink', 'The speaker\'s name.'),
+    ink('markerInk', '“More” mark', '--kit-marker-ink', 'The ▼ that says there is more.'),
+    ink('titleInk', 'Panel titles', '--kit-title-ink', 'Panel titles.'),
+    ink('cursorInk', 'Cursor', '--kit-cursor-ink', 'The cursor beside the selected row.'),
+    ink('valueInk', 'Menu values', '--kit-value-ink', 'Values in the menus (on, off, 50%).'),
+    ink('selectFrame', 'Border of the chosen line', '--kit-sel-frame', 'The border of the selected row.'),
+    ink('button', 'OK button', '--kit-button', 'The OK button.'),
+    // The OK button's word and the inside of the name box were white whatever
+    // the look, so a look with a white accent and white text (Soul, Dream) had
+    // a blank OK and a name typed white on white. They are colours of their own.
+    color('buttonInk', 'OK button text', '#ffffff', '--kit-button-ink', '#fff', 'accent', 'The word on the OK button.'),
+    ink('inputFrame', 'Border of a name box', '--kit-input-frame', 'The border of a name or number field.'),
+    color('inputBg', 'Inside a name box', '#ffffff', '--kit-input-bg', '#fff', 'accent', 'Behind the name or number the player types, which is in the text colour.'),
+    color('select', 'Chosen line', '#eaf0ff', '--kit-sel', '#eaf0ff', 'accent', 'The background of the selected row.', { nullable: true, none: 'transparent', noneLabel: 'None' }),
+    color('selectInk', 'Chosen line\'s text', null, '--kit-sel-ink', 'var(--ink)', 'accent', 'The text of the selected row.', { nullable: true, noneLabel: 'Same as text', follows: 'ink' }),
+    color('faceBg', 'Behind a portrait', '#eef1f8', '--kit-face-bg', '#eef1f8', 'box', 'Behind a portrait.'),
+    color('dim', 'Dimmed background', '#08090f', '--kit-dim', 'rgba(8, 9, 15, .55)', 'screen', 'What darkens the game behind a message with a dimmed background.', { form: 'rgba', alpha: 'dimAmount' }),
+    { key: 'dimAmount', label: 'How dark, behind a message', type: 'number', min: 0, max: 1, step: 0.05, default: 0.55, css: null, fallback: '.55', group: 'screen', doc: 'How dark that is: 0 is not at all, 1 is black.' },
+    { key: 'menuDimAmount', label: 'How dark, behind the menu', type: 'number', min: 0, max: 1, step: 0.05, default: 0.5, css: '--kit-menu-dim', fallback: 'rgba(8, 9, 15, .5)', form: 'rgba', color: 'dim', alpha: 'menuDimAmount', group: 'screen', doc: 'How dark the game goes behind the pause menu and choices.' },
+    { key: 'fontText', label: 'Letters', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of everything on the game screen.' },
+    { key: 'fontUi', label: 'Letters of names and menus', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Names, titles, values, the chapter card and the title buttons.' },
+    { key: 'fontName', label: 'Letters of the speaker\'s name', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', doc: 'The speaker\'s name only. Empty follows the one above.' },
+    { key: 'textSize', label: 'Text size', type: 'enum', options: ['small', 'normal', 'large', 'huge'], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big a message is.' },
+    { key: 'lineHeight', label: 'Line spacing', type: 'number', min: 1, max: 2.4, step: 0.05, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message.' },
+    color('screenBg', 'Behind the map', '#0a0b10', '--kit-screen-bg', '#0a0b10', 'screen', 'Behind the map, where it does not reach the edge.'),
+    color('screenFrame', 'Screen border', '#2f3450', '--kit-screen-frame', '#2f3450', 'screen', 'The bezel round the game screen.'),
+    color('highlight', 'Game name', '#ffcb3d', '--accent', '#ffcb3d', 'title', 'The game\'s name on the title, the chapter subtitle and the chosen title button.'),
+    color('highlight2', 'Subtitle', '#6fd3ff', '--accent-2', '#6fd3ff', 'title', 'The subtitle on the title screen.'),
+    color('titleBg', 'Title background', null, '--kit-title-bg', 'linear-gradient(180deg, #1a2240 0%, #101526 60%, #0a0b10 100%)', 'title', 'Behind the title screen.', { nullable: true, noneLabel: 'Night sky', shows: '#1a2240' }),
+    color('titleShadow', 'Shadow under the game name', '#7a4a00', '--kit-title-shadow', '#7a4a00', 'title', 'The shadow under the game\'s name.', { nullable: true, none: 'transparent', noneLabel: 'None' }),
+    color('titleButton', 'Title buttons', null, '--kit-title-button', 'rgba(255, 255, 255, .06)', 'title', 'The buttons on the title screen.', { nullable: true, noneLabel: 'See-through', follows: 'titleBg' }),
+    color('titleButtonInk', 'Title button text', '#ffffff', '--kit-title-button-ink', '#fff', 'title', 'Their text.'),
+    color('titlePickInk', 'Chosen title button text', '#2a1d00', '--kit-title-pick-ink', '#2a1d00', 'title', 'The text of the chosen title button.'),
+    color('toastBg', 'Toast background', '#0c0e16', '--kit-toast-bg', 'rgba(12, 14, 22, .92)', 'toast', 'Behind the note.', { form: 'rgba', alpha: 0.92 }),
+    color('toastFrame', 'Toast border', '#3a4160', '--kit-toast-frame', '#3a4160', 'toast', 'Its border.'),
+    color('toastInk', 'Toast text', '#ffffff', '--kit-toast-ink', '#fff', 'toast', 'Its text.'),
+    color('chapterBg', 'Chapter card', '#06070c', '--kit-chapter-bg', 'rgba(6, 7, 12, .82)', 'chapter', 'Behind a chapter card.', { form: 'rgba', alpha: 0.82 }),
+    color('chapterInk', 'Chapter title', '#ffffff', '--kit-chapter-ink', '#fff', 'chapter', 'The chapter title.'),
+    color('padFrame', 'Button borders', '#3a4160', '--kit-pad-frame', '#3a4160', 'pad', 'The border of the on-screen buttons.'),
+    color('padInk', 'Arrows and labels', '#cfd6f5', '--kit-pad-ink', '#cfd6f5', 'pad', 'The arrows and the ☰ on the on-screen buttons.'),
+    color('padA', 'A button', '#4a6ad8', '--kit-pad-a', 'linear-gradient(180deg, #4a6ad8, #32499e)', 'pad', 'The A button.', { form: 'gradient' }),
+    color('padB', 'B button', '#d85a6a', '--kit-pad-b', 'linear-gradient(180deg, #d85a6a, #9e3244)', 'pad', 'The B button.', { form: 'gradient' }),
   ];
 
   /**
@@ -4199,9 +4300,102 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    */
   L.ROLES = { move: 'blip', confirm: 'select', cancel: 'back', buzzer: null, save: 'save', open: null, close: null, page: null, toast: null };
 
-  /** PARTS: the options of each piece of the interface, as schema field lists. More arrive as they start to work. */
+  // Field builders for the parts below. `label` and `doc` are what the Look
+  // panel shows, so they are written for somebody making a game on a phone.
+  const pick = (key, label, options, def, doc, more) => Object.assign({
+    key, label, type: 'enum', display: 'chips', default: def, doc: doc || '',
+    options: options.map(([value, text]) => ({ value, label: text })),
+  }, more || {});
+  const whole = (key, label, min, max, def, doc, more) => Object.assign({ key, label, type: 'number', integer: true, min, max, default: def, doc: doc || '' }, more || {});
+  const flag = (key, label, def, doc) => ({ key, label, type: 'bool', default: def, doc: doc || '' });
+  /** A short mark (a cursor, a prefix): a few letters of the author's own, or one of the offered ones. */
+  const mark = (key, label, max, def, options, doc) => ({
+    key, label, type: 'string', max, default: def, display: 'chips', doc,
+    options: options.map(([value, text]) => ({ value, label: text || value })),
+  });
+
+  const SOUND_WORDS = {
+    move: ['Moving the cursor', 'A tick as the cursor steps from one line to the next.'],
+    confirm: ['Choosing', 'A line in a menu, or an answer, is picked.'],
+    cancel: ['Going back', 'B, or backing out of a list.'],
+    buzzer: ['“Not now”', 'A press that cannot do anything yet, like B on a question with no way out. Silent plays the going-back sound instead.'],
+    save: ['Saved', 'The game has been saved.'],
+    open: ['Opening the menu', ''],
+    close: ['Closing the menu', ''],
+    page: ['Turning a page', 'A message moving on to its next page.'],
+    toast: ['A note popping up', 'A toast, like “Saved.”'],
+  };
+
+  /**
+   * PARTS: the options of each piece of the interface, as schema field lists.
+   * Every value is optional in a look and every one has the kit's own as its
+   * default, which compiles to nothing.
+   *
+   * `later` marks an option a look may already hold — the built-in looks do —
+   * that the Look panel does not offer yet, because the game does not act on
+   * it yet (how the box opens, the page turn, a box that moves out of the way,
+   * typing speeds), or because it wants an editor of its own (the pause menu's
+   * order). On an enum it can be a list of the choices held back instead: the
+   * answers can sit in the corner or the middle now, and by the box later.
+   * A look carrying one is still a clean look, and it takes effect when the
+   * game learns it, with nothing to convert.
+   */
   L.PARTS = {
-    sounds: Object.keys(L.ROLES).map((role) => ({ key: role, type: 'ref:sound', nullable: true, default: L.ROLES[role] })),
+    dialogue: [
+      whole('lines', 'Lines in the box', 2, 6, 3, 'How many lines of a message show at once. Fewer lines, more pages.'),
+      whole('width', 'Width', 50, 100, 100, 'How much of the screen\'s width the box takes, in %.', { step: 2 }),
+      whole('margin', 'Gap round the box', 0, 40, 10, 'Space between the box and the edge of the screen, in pixels.'),
+      pick('face', 'Portrait', [['left', 'Left'], ['right', 'Right'], ['above-left', 'Above left'], ['above-right', 'Above right'], ['none', 'Hidden']], 'left',
+        'Where the speaker\'s face goes, on a line that has one.'),
+      whole('faceScale', 'Portrait size', 1, 6, 3, 'How many times bigger than the picture itself.'),
+      flag('faceFrame', 'Frame round the portrait', true),
+      pick('name', 'Speaker\'s name', [['inside', 'In the box'], ['tab', 'On a tab'], ['none', 'Hidden']], 'inside'),
+      pick('nameCase', 'Letters of the name', [['as-written', 'As written'], ['upper', 'CAPITALS'], ['lower', 'lower case']], 'as-written'),
+      mark('prefix', 'Start each line with', 4, '', [['* '], ['- '], ['> '], ['', 'Nothing']],
+        'Put in front of every line you begin on its own. A line too long for the box carries on lined up after the mark, not under it.'),
+      mark('marker', '“More” mark', 2, '▼', [['▼'], ['▶'], ['✦'], ['', 'None']],
+        'Shown in the corner when a page has finished and there is more to read. Type your own, or pick one.'),
+      pick('markerMotion', 'The mark', [['bob', 'Bobs'], ['blink', 'Blinks'], ['still', 'Stays still']], 'bob'),
+      pick('open', 'Opening', [['none', 'Appears'], ['pop', 'Pops'], ['slide', 'Slides up']], 'none', '', { later: true }),
+      pick('pageTurn', 'Next page', [['clear', 'Clears the box'], ['scroll', 'Scrolls up a line']], 'clear', '', { later: true }),
+      pick('at', 'Where the box goes', [['bottom', 'Bottom'], ['avoid-hero', 'Out of the hero\'s way']], 'bottom', '', { later: true }),
+      { key: 'speeds', label: 'Typing speeds', type: 'group', later: true, doc: 'Letters a second for each text speed a player can pick.',
+        fields: [whole('slow', 'Slow', 1, 120, 22), whole('normal', 'Normal', 1, 120, 48), whole('fast', 'Fast', 1, 120, 96)] },
+    ],
+    choice: [
+      pick('place', 'Where the answers go', [['corner', 'Corner'], ['center', 'Middle'], ['above-box', 'Above the box'], ['in-box', 'In the box'], ['beside-box', 'Beside the box']], 'corner',
+        '', { later: ['above-box', 'in-box', 'beside-box'] }),
+      pick('layout', 'Answers in a', [['column', 'Column'], ['row', 'Row'], ['grid', 'Grid']], 'column'),
+      whole('columns', 'Columns', 2, 4, 2, 'How many answers across, in a grid.', { when: { field: 'layout', eq: 'grid' } }),
+    ],
+    menu: [
+      pick('at', 'Where', [['center', 'Middle'], ['left', 'Left'], ['right', 'Right'], ['top-left', 'Top left'], ['top', 'Top']], 'center',
+        'Where the pause menu sits on the screen.'),
+      flag('title', '“Paused” at the top', true),
+      flag('hint', 'Help line at the bottom', true, 'The line saying how to use the pause menu. Settings and Save keep theirs, so a player can always see how to get back out.'),
+      flag('caps', 'CAPITAL letters', false),
+      { key: 'order', label: 'Order', type: 'list', of: { type: 'string' }, default: ['*'], later: true },
+      { key: 'hide', label: 'Hidden', type: 'list', of: { type: 'string' }, default: [], later: true },
+    ],
+    toast: [
+      pick('at', 'Where', [['top', 'Top'], ['bottom', 'Bottom'], ['center', 'Middle']], 'top', 'Where on the screen it pops up.'),
+      pick('shape', 'Shape', [['pill', 'Pill'], ['box', 'Box']], 'pill', 'A box has the same corners as the message box.'),
+      whole('ms', 'How long it stays', 600, 6000, 1600, 'In thousandths of a second: 1000 is one second.', { step: 200 }),
+    ],
+    pad: [
+      pick('shape', 'A and B buttons', [['round', 'Round'], ['square', 'Square']], 'round', 'The on-screen buttons a phone plays with.'),
+    ],
+    cursor: [
+      mark('glyph', 'Cursor', 2, '▶', [['▶'], ['♥'], ['☞'], ['►'], ['•'], ['', 'None']],
+        'Pick one, or type your own: one or two letters.'),
+      { key: 'color', label: 'Cursor colour', type: 'color', nullable: true, default: null, noneLabel: 'Same as accent', follows: 'cursorInk' },
+      whole('size', 'Cursor size', 8, 32, 11, 'In pixels.'),
+      flag('highlight', 'Box round the chosen line', true, 'Off leaves only the cursor to say which line is chosen.'),
+    ],
+    sounds: Object.keys(L.ROLES).map((role) => Object.assign(
+      { key: role, label: SOUND_WORDS[role][0], doc: SOUND_WORDS[role][1], type: 'ref:sound', nullable: true, default: L.ROLES[role] },
+      // The page-turn sound belongs with the page turn, which a look cannot change yet.
+      role === 'page' ? { later: true } : {})),
   };
 
   /** 'changed' { look } when a look is put in use; 'applied' { css, look } when the page has it. */
@@ -4232,7 +4426,14 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (v === null) return { ok: !!f.nullable, value: null };
     if (v === undefined) return { ok: false };
     switch (f.type) {
-      case 'color': return { ok: typeof v === 'string' && HEX.test(v), value: v };
+      // One spelling per colour, lower case and six digits: '#FFF' and '#ffffff'
+      // are the same white, and a look that stored one against the other kept a
+      // "change" that changed nothing.
+      case 'color': {
+        if (typeof v !== 'string' || !HEX.test(v)) return { ok: false };
+        const h = v.toLowerCase();
+        return { ok: true, value: h.length === 4 ? '#' + h.slice(1).split('').map(c => c + c).join('') : h };
+      }
       case 'number': {
         if (typeof v !== 'number' || !Number.isFinite(v)) return { ok: false };
         let n = f.integer ? Math.round(v) : v;
@@ -4240,8 +4441,13 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (f.max != null) n = Math.min(f.max, n);
         return { ok: true, value: n };
       }
-      case 'enum': return { ok: (f.options || []).includes(v), value: v };
+      case 'enum': return { ok: (S.enumOptions(f) || []).includes(v), value: v };
       case 'bool': return { ok: typeof v === 'boolean', value: v };
+      // A mark is cut to its length in letters as a person counts them (code
+      // points, so ♥ and an emoji are one each), the way a number is pulled
+      // into range. It reaches CSS only through cssString, which escapes it.
+      case 'string': return typeof v === 'string' ? { ok: true, value: Array.from(v).slice(0, f.max == null ? undefined : f.max).join('') } : { ok: false };
+      case 'list': return { ok: Array.isArray(v) && v.every((x) => typeof x === 'string' && (x === '*' || ID.test(x))), value: Array.isArray(v) ? v.slice() : v };
       case 'font': return { ok: typeof v === 'string' && (KIT.has(FONT_WORDS, v) || ID.test(v)), value: v };
       default:
         // An id of something else — a sound, a voice. Whether it EXISTS is the
@@ -4258,7 +4464,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     const byKey = new Map(fields.map(f => [f.key, f]));
     for (const k of Object.keys(obj)) {
       const f = byKey.get(k);
-      const r = f ? clean(f, obj[k]) : { ok: false };
+      // A group (the typing speeds) is cleaned field by field, like a part.
+      if (f && f.type === 'group' && isObj(obj[k])) { out[k] = cleanFields(f.fields, obj[k], path.concat(k), dropped); continue; }
+      const r = f && f.type !== 'group' ? clean(f, obj[k]) : { ok: false };
       if (r.ok) out[k] = r.value;
       else dropped.push({ path: path.concat(k), value: obj[k] });
     }
@@ -4288,6 +4496,31 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       else dropped.push({ path: [k], value: v });
     }
     return { ui: out, dropped };
+  };
+
+  /**
+   * cleanAt(path, value) -> { ok, value } — one value of a look, cleaned as the
+   * field at `path` (inside `ui`: ['tokens', 'paper'], ['dialogue', 'prefix'],
+   * ['voice']) says, the way `sanitize` would clean it inside a whole look. It
+   * is what the editor stores: a prefix typed eight letters long is the four
+   * the game uses, so the game's look and the stored one never disagree about
+   * what was changed. A path that is no field is not ok.
+   */
+  L.cleanAt = function (path, value) {
+    const [k, ...rest] = path || [];
+    if (k === 'voice' && !rest.length) return { ok: value === null || (typeof value === 'string' && ID.test(value)), value };
+    let fields = k === 'tokens' ? L.TOKENS : (KIT.has(L.PARTS, k) ? L.PARTS[k] : null);
+    let f = null;
+    for (let i = 0; i < rest.length; i++) {
+      f = fields ? fields.find(x => x.key === rest[i]) : null;
+      if (!f) return { ok: false };
+      fields = f.type === 'group' ? f.fields : null;
+    }
+    if (!f) return { ok: false };
+    if (f.type !== 'group') return clean(f, value);
+    const dropped = [];
+    const out = cleanFields(f.fields, value, [], dropped);
+    return dropped.length ? { ok: false } : { ok: true, value: out };
   };
 
   // ---- resolving -------------------------------------------------------------------
@@ -4378,16 +4611,124 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return look;
   };
 
-  /** problems(project) -> what the `ui` validator reports: a broken chain of looks, and values that were left out. */
-  L.problems = function (project) { return L.resolve(project)._problems; };
-
-  // ---- compiling ---------------------------------------------------------------------
+  /**
+   * inherited(project, path) -> what `path` (['dialogue', 'lines'], ['tokens'])
+   * comes to from the look this game starts from, without the game's own
+   * changes on top. It is the answer to "is this change a change at all?": a
+   * value equal to it is not stored (project.ui holds overrides only), and ↺ in
+   * the Look panel puts it back.
+   */
+  L.inherited = function (project, path) {
+    const ui = project && isObj(project.ui) ? project.ui : {};
+    let v = L.resolve(Object.assign({}, project || {}, { ui: typeof ui.base === 'string' ? { base: ui.base } : {} }));
+    for (const k of path || []) {
+      if (!isObj(v) || !KIT.has(v, k)) return undefined;
+      v = v[k];
+    }
+    return v;
+  };
 
   function rgb(hex) {
     let h = hex.slice(1);
     if (h.length === 3) h = h.split('').map(c => c + c).join('');
     return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
   }
+
+  // ---- what the validator says about a look ----------------------------------------
+
+  /** contrast(a, b) -> the WCAG contrast ratio of two hex colours, 1 to 21. */
+  function contrast(a, b) {
+    const lum = (hex) => {
+      const [r, g, bl] = rgb(hex).map((c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    };
+    const x = lum(a), y = lum(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+  /** Each text size's clamp() in css/kit.css, worked out for a phone 390 pixels wide. */
+  const TEXT_PX = { small: 13, normal: 15, large: 17, huge: 20 };
+  /**
+   * How tall the game screen is on a 390×844 phone, in pixels: the page less
+   * the on-screen buttons under it (three rows of 56-pixel buttons) and the
+   * gaps round them. The box is measured against what the player can see.
+   */
+  const GAME_H = 630;
+
+  /**
+   * boxHeight(look) -> about how tall the message box is on a 390-pixel phone, in
+   * pixels. An estimate from the numbers the stylesheet uses — the text, the
+   * name above it, the padding and the border, a portrait of the usual 24
+   * pixels — good enough to say "this covers half the game" before anybody
+   * has played it, which is all it is for.
+   */
+  function boxHeight(look) {
+    const d = look.dialogue, t = look.tokens;
+    const chrome = 22 + 2 * t.frameWidth;
+    let h = d.lines * t.lineHeight * (TEXT_PX[t.textSize] || 15) + chrome + (d.name === 'inside' ? 18 : 0);
+    const face = 24 * d.faceScale + 8;
+    if (d.face === 'left' || d.face === 'right') h = Math.max(h, face + chrome);
+    else if (d.face === 'above-left' || d.face === 'above-right') h += face + 6;
+    return h + d.margin;
+  }
+
+  /**
+   * checks(look, project) -> the problems a look can have that are not about
+   * reading it: words hard to read against their background (below 3:1, the
+   * least that still reads on a phone outdoors), a message box that would
+   * cover half the game, and a sound or voice this game does not have. All
+   * warnings: the game plays either way.
+   */
+  function checks(look, project) {
+    const out = [];
+    const t = look.tokens;
+    // The chosen line has a background of its own only with the box round it
+    // on; with it off, the line is read against the box like any other.
+    const chosenBg = look.cursor.highlight && t.select ? t.select : t.paper;
+    const chosenInk = t.selectInk || t.ink;
+    const cursorInk = look.cursor.color || t.cursorInk || t.accent;
+    const pairs = [
+      [['tokens', 'ink'], t.ink, t.paper, 'The text in the message box'],
+      [['tokens', 'selectInk'], chosenInk, chosenBg, 'The chosen line of a menu'],
+      // A value on the chosen line (a volume, a save's date). One that takes the
+      // line's own colour (valueOnChosen) is read with the line, above.
+      [['tokens', 'valueInk'], valueOnChosen(t, S.defaults(L.TOKENS)) ? null : (t.valueInk || t.accent), chosenBg, 'A value on the chosen line of a menu (a volume, a save\'s date)'],
+      [look.cursor.color ? ['cursor', 'color'] : ['tokens', 'cursorInk'], look.cursor.glyph ? cursorInk : null, chosenBg, 'The cursor'],
+      [['tokens', 'toastInk'], t.toastInk, t.toastBg, 'The text of a toast'],
+      // The box that asks for a name: what is typed is in the text colour, on
+      // a background of its own; and OK's word is on the OK button.
+      [['tokens', 'inputBg'], t.ink, t.inputBg, 'A name the player types'],
+      [['tokens', 'buttonInk'], t.buttonInk, t.button || t.accent, 'The word on the OK button'],
+    ];
+    for (const [path, fg, bg, what] of pairs) {
+      if (!HEX.test(fg || '') || !HEX.test(bg || '')) continue;
+      const r = contrast(fg, bg);
+      if (r < 3) out.push(problem('warn', 'ui-contrast', `${what} is hard to read: its colours are only ${r.toFixed(1)} to 1 apart, and 3 to 1 is the least that reads on a phone.`, ['ui'].concat(path)));
+    }
+    const h = boxHeight(look);
+    if (h > 0.45 * GAME_H) {
+      out.push(problem('warn', 'ui-lines', `The message box would be about ${Math.round(h)} pixels tall on a phone, ${Math.round((100 * h) / GAME_H)}% of the game screen. Fewer lines, smaller text or a smaller portrait keeps the game in sight.`, ['ui', 'dialogue', 'lines']));
+    }
+    // Only a definite "not here" counts: a registry nothing has filled yet
+    // (a tool that loaded half the engine) cannot tell, and is not a problem.
+    const missing = (kind, id) => { const r = S.refKinds[kind]; return !!(id && r && r.has && r.has(id, { project }) === false); };
+    for (const f of L.PARTS.sounds) {
+      const id = look.sounds[f.key];
+      if (missing('sound', id)) out.push(problem('warn', 'ui-ref', `There is no sound “${id}” in this game, so ${f.label.toLowerCase()} makes no sound.`, ['ui', 'sounds', f.key]));
+    }
+    if (missing('voice', look.voice)) out.push(problem('warn', 'ui-ref', `There is no voice “${look.voice}” in this game, so talking sounds like the ordinary voice.`, ['ui', 'voice']));
+    return out;
+  }
+
+  /**
+   * problems(project) -> what the `ui` validator reports: a broken chain of
+   * looks, values that were left out, and what checks() finds.
+   */
+  L.problems = function (project) {
+    const look = L.resolve(project);
+    return look._problems.concat(checks(look, project));
+  };
+
+  // ---- compiling ---------------------------------------------------------------------
   const rgba = (hex, a) => `rgba(${rgb(hex).join(',')},${Math.round(a * 1000) / 1000})`;
   /** A darker shade, for the bottom of a button's gradient. */
   const darker = (hex, by) => '#' + rgb(hex).map(c => Math.round(c * (1 - by)).toString(16).padStart(2, '0')).join('');
@@ -4441,15 +4782,140 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   /**
+   * cssString(text) -> a CSS string, quotes included. Letters, digits, a space
+   * and `* . _ , ! ? -` stand as they are; everything else is written as its
+   * code point (`\2665 `), so nothing an author types — a quote, a brace, a
+   * semicolon — can close the string it sits in.
+   */
+  const cssString = (s) => '"' + Array.from(String(s)).map((ch) => (/[A-Za-z0-9 *._,!?-]/.test(ch) ? ch : '\\' + ch.codePointAt(0).toString(16) + ' ')).join('') + '"';
+
+  /** part(look, name) -> that part of a look, every field cleaned or the kit's own. */
+  function part(look, name) {
+    const given = look && isObj(look[name]) ? look[name] : {};
+    const out = {};
+    for (const f of L.PARTS[name]) {
+      const r = f.type === 'group' ? { ok: false } : clean(f, given[f.key]);
+      out[f.key] = r.ok ? r.value : S.defaultFor(f);
+    }
+    return out;
+  }
+
+  // Where the cursor and the chosen line are drawn by the look: a question, the
+  // pause menu and its lists, and the author's own screens. Never the title or
+  // the start screen, which have a chosen button of their own and would look
+  // broken with a heart beside it.
+  const CURSOR_HOSTS = ['#screen #choice', '#screen #pause-menu', '#screen .kit-ui-screen'];
+  const CURSOR_ROWS = ['#screen #choice .kit-option', '#screen #pause-menu .kit-menu-item', '#screen .kit-ui-screen .kit-uibtn'];
+  /** Animations a look adds only play here: not under the player's Reduce motion, not under ?fast=1. */
+  const MOVING = '#stage:not([data-kit-motion=reduce]):not([data-kit-fast])';
+  const MENU_AT = { left: ['center', 'flex-start'], right: ['center', 'flex-end'], 'top-left': ['flex-start', 'flex-start'], top: ['flex-start', 'center'] };
+
+  /**
+   * valueOnChosen(tokens, kit) -> whether a value on the chosen line (a volume,
+   * a save's date) is written in the chosen line's own text colour. Values
+   * follow the accent, and so does nothing else on that line: a look that
+   * paints the chosen line — Dream's white bar — with a white accent wrote
+   * "Zoom" on the bar and its value in white on white. So when a look gives
+   * the chosen line colours of its own and gives values none, the value goes
+   * with the line. A look that picks a value colour keeps it, and the
+   * validator says if it cannot be read.
+   */
+  function valueOnChosen(tokens, kit) {
+    return tokens.valueInk == null && (tokens.select !== kit.select || tokens.selectInk !== kit.selectInk);
+  }
+
+  /**
+   * partRules(look, tokens, vars, kit) -> the rules for the parts' options, each
+   * only when it is not the kit's own, in a fixed order. A custom property a
+   * part sets goes into `vars` (a Map), to join the tokens on #stage. `kit` is
+   * the kit's own tokens.
+   *
+   * Every selector starts at #screen (or #stage), one id more than the rule it
+   * overrides in css/kit.css, so a look wins over the kit and over a module's
+   * own stylesheet loaded later, and cannot reach #editor.
+   */
+  function partRules(look, tokens, vars, kit) {
+    const d = part(look, 'dialogue'), c = part(look, 'choice'), m = part(look, 'menu');
+    const t = part(look, 'toast'), pad = part(look, 'pad'), cur = part(look, 'cursor');
+    const out = [];
+    const rule = (sel, body) => out.push(`${sel}{${body}}`);
+
+    if (d.width !== 100) rule('#screen #dialogue .kit-box', `width:${d.width}%;margin-left:auto;margin-right:auto`);
+    if (d.margin !== 10) rule('#screen #dialogue', `padding:${d.margin}px`);
+    if (d.lines !== 3) rule('#screen #dialogue .kit-text', `min-height:calc(var(--kit-line,1.45) * ${d.lines} * 1em)`);
+    if (d.face === 'right') rule('#screen #dialogue .kit-box', 'flex-direction:row-reverse');
+    else if (d.face === 'above-left' || d.face === 'above-right') {
+      // Above the box, against the box's own corner; a box at the top of the
+      // screen has no room above it, so there the portrait hangs below.
+      rule('#screen #dialogue .kit-facebox', `position:absolute;bottom:calc(100% + 6px);${d.face === 'above-left' ? 'left' : 'right'}:0`);
+      rule('#screen #dialogue[data-position=top] .kit-facebox', 'bottom:auto;top:calc(100% + 6px)');
+    } else if (d.face === 'none') rule('#screen #dialogue .kit-facebox', 'display:none!important');
+    if (!d.faceFrame) rule('#screen #dialogue .kit-facebox', 'border:0;background:none;padding:0');
+    if (d.name === 'tab') {
+      rule('#screen #dialogue .kit-name', 'position:absolute;left:12px;bottom:calc(100% - var(--kit-frame-w,3px));margin:0;padding:4px 10px;background:var(--paper);'
+        + 'border:var(--kit-frame-w,3px) solid var(--kit-frame,#2b2b3a);border-bottom:0;border-radius:var(--kit-radius,10px) var(--kit-radius,10px) 0 0');
+      rule('#screen #dialogue', `padding-top:calc(${d.margin}px + 2.4em)`);          // room for the tab over a box at the top
+      // A portrait above the box's left corner sits exactly where the tab does,
+      // and the tab covered the bottom of the face. The tab moves to the other
+      // corner, the way Dream has it the other way round.
+      if (d.face === 'above-left') rule('#screen #dialogue .kit-name', 'left:auto;right:12px');
+    } else if (d.name === 'none') rule('#screen #dialogue .kit-name', 'display:none!important');
+    if (d.nameCase !== 'as-written') rule('#screen #dialogue .kit-name', `text-transform:${d.nameCase === 'upper' ? 'uppercase' : 'lowercase'}`);
+    if (d.prefix) {
+      // A margin, not a padding: the scene measures the text's clientWidth to
+      // wrap it, and a margin keeps that the true width of the words.
+      rule('#screen #dialogue .kit-text', 'margin-left:var(--kit-prefix-w,2ch)');
+      rule('#screen #dialogue .kit-line.is-start::before', `content:${cssString(d.prefix)};display:inline-block;white-space:pre;width:var(--kit-prefix-w,2ch);margin-left:calc(-1 * var(--kit-prefix-w,2ch))`);
+    }
+    if (d.marker === '') rule('#screen #dialogue .kit-next', 'display:none');
+    if (d.markerMotion !== 'bob') {
+      rule('#screen #dialogue .kit-next.is-ready', 'animation:none');
+      if (d.markerMotion === 'blink') {
+        out.push('@keyframes kit-look-blink{50%{opacity:0}}');
+        rule(MOVING + ' #screen #dialogue .kit-next.is-ready', 'animation:kit-look-blink 1s steps(1,end) infinite');
+      }
+    }
+
+    if (c.place === 'center') rule('#screen #choice', 'align-items:center;justify-content:center;padding-bottom:14px');
+    if (c.layout === 'row') rule('#screen #choice .kit-list', 'flex-direction:row;flex-wrap:wrap;justify-content:space-around');
+    else if (c.layout === 'grid') rule('#screen #choice .kit-list', `display:grid;grid-template-columns:repeat(${c.columns},1fr)`);
+
+    // The kit's own lists only (a .kit-pause panel): a module's screen drawn
+    // in the same host places itself, and a look moving it would put a fight's
+    // health bar in the corner.
+    if (MENU_AT[m.at]) rule('#screen #pause-menu:has(> .kit-pause)', `align-items:${MENU_AT[m.at][0]};justify-content:${MENU_AT[m.at][1]}`);
+    // Capitals are for the menu's words. A notice in the list — the save
+    // list's warning that the browser may clear this game — is sentences, and
+    // six lines of sentences in capitals are hard to read.
+    if (m.caps) rule('#screen #pause-menu .kit-menu-item:not(.kit-menu-notice) .kit-item-label', 'text-transform:uppercase');
+
+    if (t.at === 'bottom') rule('#screen #toast', 'align-items:flex-end;padding:0 0 14px');
+    else if (t.at === 'center') rule('#screen #toast', 'align-items:center;padding:0');
+    if (t.shape === 'box') vars.set('--kit-toast-radius', tokens.radius + 'px');
+    if (pad.shape === 'square') vars.set('--kit-pad-ab-radius', '12px');
+
+    if (cur.glyph !== '▶') rule(CURSOR_ROWS.map(s => s + '::before').join(','), cur.glyph === '' ? 'display:none' : `content:${cssString(cur.glyph)}`);
+    const own = [];
+    if (cur.size !== 11) own.push(`--kit-cursor-size:${cur.size}px`);
+    if (cur.color) own.push(`--kit-cursor-ink:${cur.color}`);
+    if (own.length) rule(CURSOR_HOSTS.join(','), own.join(';'));
+    if (!cur.highlight) rule(CURSOR_ROWS.map(s => s + '.is-selected').join(','), 'background:transparent;border-color:transparent');
+    if (valueOnChosen(tokens, kit)) rule(CURSOR_ROWS.map(s => s + '.is-selected .kit-item-value').join(','), 'color:var(--kit-sel-ink,var(--ink))');
+    return out;
+  }
+
+  /**
    * compile(look, env) -> string. Pure and deterministic: the same look gives
    * the same text, and the kit look gives ''. `env` is what the look may name
    * that lives in the game rather than in the look: `{ fonts }`, the game's
    * project.fonts.
    *
-   * Only what DIFFERS from the kit is written, as custom properties on #stage —
-   * the element the stylesheet's `var(--kit-*, …)` fallbacks sit under — so
-   * nothing here can reach Creator Mode, which lives outside it. Values are
-   * cleaned again here: a look handed in by hand has not been through resolve.
+   * Only what DIFFERS from the kit is written: the tokens as custom properties
+   * on #stage — the element the stylesheet's `var(--kit-*, …)` fallbacks sit
+   * under — and then a rule for each part's option that is not the kit's
+   * (partRules). Nothing here can reach Creator Mode, which lives outside
+   * #stage. Values are cleaned again here: a look handed in by hand has not
+   * been through resolve.
    */
   L.compile = function (look, env) {
     const e = isObj(env) ? env : {};
@@ -4459,13 +4925,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const r = clean(t, given[t.key]);
       tokens[t.key] = r.ok ? r.value : kit[t.key];
     }
-    const decls = [];
+    const vars = new Map();
     for (const t of L.TOKENS) {
       if (!t.css) continue;
       const v = tokenCss(t, tokens, e);
-      if (v !== null && v !== tokenCss(t, kit, e)) decls.push(`${t.css}:${v}`);
+      if (v !== null && v !== tokenCss(t, kit, e)) vars.set(t.css, v);
     }
-    return decls.length ? `#stage{${decls.join(';')}}` : '';
+    const rules = partRules(look, tokens, vars, kit);
+    if (vars.size) rules.unshift(`#stage{${Array.from(vars, ([k, v]) => `${k}:${v}`).join(';')}}`);
+    return rules.join('\n');
   };
 
   /** css(project) -> the stylesheet for this game's look: its look compiled against its own fonts. What apply writes into the page. */
@@ -4569,6 +5037,64 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     describe: 'The engine\'s own: a white box with a dark border, a pixel font for names and menus, and a blue accent.',
     ui: {},
   });
+
+  // Three more, each the few things that make a well-known kind of game feel
+  // like itself: the box, the cursor, the menu, the voice. Colours, glyphs,
+  // font stacks and the kit's own synth sounds only — no pictures, so nothing
+  // here belongs to anybody. The descriptions say what a look does TODAY; a
+  // few of these values (the page that scrolls up, typing speeds, a box that
+  // steps out of the hero's way, answers placed by the box) are held for when
+  // the game acts on them, and the words will grow with it.
+  KIT.registry('looks').addAll([
+    {
+      id: 'handheld', label: 'Handheld', rev: 1, base: 'kit',
+      describe: 'A white two-line box with a soft shadow under the letters, a start menu down the right in capitals, and silent typing.',
+      ui: {
+        tokens: { paper: '#f8f8f8', ink: '#404040', shadow: '#d0d0c8', frame: '#5a6a86', frameWidth: 4, radius: 4,
+          rim: '#c8d0e0', drop: null, accent: '#404040', markerInk: '#e03030', select: null, lineHeight: 1.6,
+          titleBg: '#284878' },
+        dialogue: { lines: 2, name: 'none', face: 'none', marker: '▼', markerMotion: 'bob',
+          pageTurn: 'scroll', speeds: { slow: 8, normal: 16, fast: 60 } },
+        choice: { place: 'above-box' },
+        cursor: { glyph: '▶', highlight: false },
+        menu: { at: 'right', title: false, hint: false, caps: true, order: ['*', 'keep-playing'] },
+        toast: { at: 'bottom', shape: 'box' },
+        sounds: { confirm: 'select', page: 'select' },
+        voice: 'none',
+      },
+    },
+    {
+      id: 'soul', label: 'Soul', rev: 1, base: 'kit',
+      describe: 'A black box with a square white border, a heart for a cursor, a blip on every letter, and “* ” at the start of each line.',
+      ui: {
+        tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 3, radius: 0, rim: null, drop: null,
+          accent: '#ffffff', select: null, selectInk: '#ffff00', faceBg: '#000000', fontText: 'mono', fontUi: 'mono',
+          titleBg: '#000000', toastBg: '#000000', toastFrame: '#ffffff', buttonInk: '#000000', inputBg: '#000000' },
+        dialogue: { width: 94, name: 'none', face: 'left', faceFrame: false, faceScale: 2, prefix: '* ', marker: '',
+          at: 'avoid-hero', speeds: { slow: 20, normal: 30, fast: 60 } },
+        choice: { place: 'in-box', layout: 'row' },
+        cursor: { glyph: '♥', color: '#ff0000', highlight: false },
+        menu: { at: 'top-left', title: false, hint: false, caps: true, hide: ['keep-playing'] },
+        toast: { at: 'top', shape: 'box' },
+        pad: { shape: 'square' },
+        voice: 'typer',
+      },
+    },
+    {
+      id: 'dream', label: 'Dream', rev: 1, base: 'kit',
+      describe: 'A black box with a thin white border, the speaker\'s name in capitals on a tab, and a framed portrait above the box.',
+      ui: {
+        tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 2, radius: 0, rim: null, drop: null,
+          accent: '#ffffff', select: '#ffffff', selectInk: '#000000', faceBg: '#000000', buttonInk: '#000000', inputBg: '#000000' },
+        dialogue: { name: 'tab', nameCase: 'upper', face: 'above-right', faceFrame: true, faceScale: 3, marker: '▼', markerMotion: 'blink' },
+        choice: { place: 'beside-box' },
+        // The chosen answer is a white bar, so the hand pointing at it is black.
+        cursor: { glyph: '☞', color: '#000000', highlight: true },
+        menu: { title: false, caps: true },
+        voice: 'soft',
+      },
+    },
+  ]);
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -19238,7 +19764,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 // anything else that needs to draw the same thing (a preview of a look, a
 // module's own screen) can call too, into a host of its own, and get markup the
 // look's rules already reach. They build DOM and return the pieces; the input,
-// the timing and the sounds stay in the scenes.
+// the timing and the sounds stay in the scenes — all but `nav`, which works
+// out where an arrow goes among the pieces once they are laid out, so every
+// screen that lays choices side by side moves between them the same way.
 //
 // Nothing here touches the page when the file loads: it runs headless in the
 // tests, and the DOM is only reached inside the functions.
@@ -19267,6 +19795,51 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     if (prev && prev.parentNode === screen) screen.insertBefore(el, prev.nextSibling);
     else screen.appendChild(el);
     return el;
+  };
+
+  /**
+   * nav(rects, from, dir, wrap) -> the index an arrow moves to. `rects` are
+   * where the choices are on the screen (what getBoundingClientRect gives:
+   * left, top, width, height), `from` is the one chosen now and `dir` is
+   * up, down, left or right. Pure: it reads the numbers, never the page.
+   *
+   * It goes to the nearest choice whose middle lies that way, counting the
+   * distance across the arrow twice. So ▼ in a grid of answers is the one
+   * underneath, not the next one in reading order — that one is up and across
+   * at the start of the next row, and ▼ used to jump there. With nothing that
+   * way, `wrap` goes round to the far end of the same row or column, the way
+   * a list goes from its last line to its first; without `wrap`, and for an
+   * arrow across a single row (▼ on a Yes beside a No), it stays where it is.
+   * Choices not laid out yet (all at 0×0) have nothing to measure, so they
+   * move in reading order.
+   */
+  UI.nav = function (rects, from, dir, wrap) {
+    const n = rects ? rects.length : 0;
+    if (n < 2 || !(from >= 0 && from < n)) return from;
+    const back = dir === 'up' || dir === 'left';
+    const here = rects[from];
+    if (!here || !(here.width || here.height)) {
+      const to = from + (back ? -1 : 1);
+      return wrap ? (to + n) % n : Math.max(0, Math.min(n - 1, to));
+    }
+    const along = dir === 'left' || dir === 'right' ? 'x' : 'y', across = along === 'x' ? 'y' : 'x';
+    const mid = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    const c = mid(here), sign = back ? -1 : 1;
+    // `ahead` is how far along the arrow a choice is: above 0 is that way,
+    // below 0 is behind. Half a pixel either way is the same row.
+    const nearest = (score) => {
+      let best = from, bestScore = Infinity;
+      rects.forEach((r, i) => {
+        if (i === from) return;
+        const m = mid(r);
+        const s = score((m[along] - c[along]) * sign, Math.abs(m[across] - c[across]));
+        if (s < bestScore) { bestScore = s; best = i; }
+      });
+      return best;
+    };
+    const ahead = nearest((d, off) => (d > 0.5 ? d + 2 * off : Infinity));
+    if (ahead !== from || !wrap) return ahead;
+    return nearest((d, off) => (d < -0.5 ? d + 2 * off : Infinity));
   };
 
   UI.parts = {
@@ -19303,7 +19876,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     /**
      * listPanel(host, title, rows, { hint }) -> { host, list }
      * The pause menu's panel, and every list that is drawn like it: rows of
-     * { label, value, note, action, disabled }, each a [data-action] button.
+     * { label, value, note, action, disabled, notice }, each a [data-action]
+     * button. A `notice` row is a sentence said in the list rather than a
+     * thing to pick (the save list's warning), and a look's capitals leave it
+     * as written.
      */
     listPanel(host, title, rows, opts) {
       UI.clear(host);
@@ -19317,6 +19893,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         b.setAttribute('data-action', r.action || ('row-' + i));
         b.setAttribute('data-index', String(i));
         if (r.disabled) b.disabled = true;
+        if (r.notice) b.classList.add('kit-menu-notice');
         b.appendChild(UI.make('span.kit-item-label', { text: r.label }));
         if (r.value != null) b.appendChild(UI.make('span.kit-item-value', { text: String(r.value) }));
         if (r.note) b.appendChild(UI.make('span.kit-item-note', { text: r.note }));
@@ -19352,6 +19929,34 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       panel.appendChild(list);
       host.appendChild(panel);
       return { host, list, promptBox: null };
+    },
+
+    /**
+     * toast(host, text) -> { host, pill } — the little note that pops up
+     * ("Saved."). Only the drawing: how long it stays is KIT.toast's. The text
+     * is a Term or a line a command already substituted, so it only has its
+     * codes taken out.
+     */
+    toast(host, text) {
+      UI.clear(host);
+      const pill = UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') });
+      host.appendChild(pill);
+      host.hidden = false;
+      host.classList.add('is-in');
+      return { host, pill };
+    },
+
+    /** card(host, { title, subtitle }) -> { host, card } — a chapter card, already substituted by the command that asked. */
+    card(host, o) {
+      const opts = o || {};
+      UI.clear(host);
+      host.hidden = false;
+      host.classList.add('is-in');
+      const card = UI.make('div.kit-card');
+      card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(opts.title || '') }));
+      if (opts.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(opts.subtitle) }));
+      host.appendChild(card);
+      return { host, card };
     },
 
     /** titleScreen(host, { meta, items, hint }) -> { host, list }. items are { action, label, disabled }. */
@@ -19469,7 +20074,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const scenes = KIT.registry('scenes');
 
   const SPEEDS = { slow: 22, normal: 48, fast: 96, instant: 0 };
-  const LINES_PER_PAGE = 3;
+  /** How many lines a page holds: the look's, three in the kit's. */
+  const lines = () => KIT.look.get('dialogue.lines', 3);
 
   function settings() { return (KIT.storage && KIT.storage.settings) ? KIT.storage.settings() : {}; }
   function instant() { return !!(KIT.fx && KIT.fx.instant) || settings().textSpeed === 'instant'; }
@@ -19489,6 +20095,37 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return (id && reg.get(id)) || reg.get('default') || null;
   }
   const SILENT = /[\s.,;:!?'"\-—–()\[\]]/;
+
+  /**
+   * KIT.dialogueLayout — the message box's own line breaking, pure, for when
+   * the look starts each line with a mark ("* ").
+   *
+   *   lines(spans, layout) -> { lines, starts }
+   *
+   * The spans are split at every line break the author wrote, each piece is
+   * wrapped on its own, and `starts` is the set of line numbers where a piece
+   * begins: those lines get the mark, and the lines a long piece wraps onto
+   * line up after it. A piece with nothing to read in it (a blank line
+   * between two) gets no mark. The lines are the same ones KIT.text.wrap would
+   * make; only the marking is new, so a look without a mark never comes here.
+   */
+  const DL = KIT.dialogueLayout = KIT.dialogueLayout || {};
+  DL.lines = function (spans, layout) {
+    const pieces = [[]];
+    for (const sp of spans || []) {
+      if (sp.type === 'break') pieces.push([]);
+      else pieces[pieces.length - 1].push(sp);
+    }
+    // A break at the very end closes the last line; it does not open another.
+    if (pieces.length > 1 && !pieces[pieces.length - 1].length) pieces.pop();
+    const out = [], starts = new Set();
+    for (const piece of pieces) {
+      const readable = piece.some((sp) => sp.type === 'icon' || (sp.type === 'text' && sp.text.trim()));
+      if (readable) starts.add(out.length);
+      for (const line of KIT.text.wrap(piece, layout)) out.push(line);
+    }
+    return { lines: out, starts };
+  };
 
   /** effectFor(id) -> the textEffects definition, or null. */
   function effectFor(id) {
@@ -19572,23 +20209,44 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   // ---- dialogue ------------------------------------------------------------------
+  // `previewable`: this scene can be driven off the stack into a host of
+  // somebody else's — the Look panel's live preview — with `root` (where its
+  // host is) and `preview` (leave the game's music alone). A module that
+  // replaces the scene says so for its own, or the preview draws still markup.
   scenes.add({
-    id: 'dialogue', name: 'Message',
+    id: 'dialogue', name: 'Message', previewable: true,
     create() {
       let ui = null, units = [], unitIndex = 0, charIndex = 0, acc = 0, pages = [], pageIndex = 0;
       let waiting = false, complete = false, speed = 1, pauseLeft = 0;
-      let voice = null, sinceBlip = 0, spoken = 0;
+      let voice = null, sinceBlip = 0, spoken = 0, starts = null, perPage = 3;
 
       function layoutFor(textEl) {
-        return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: LINES_PER_PAGE };
+        return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: lines() };
       }
 
-      function buildPage(page) {
+      /**
+       * paged(body, ctx, layout, prefix) -> pages. With no mark to start the
+       * lines with, exactly the render or layout call it always was; with one,
+       * the same lines broken by KIT.dialogueLayout, which also says which of
+       * them start a piece the author wrote.
+       */
+      function paged(body, ctx, lay, prefix) {
+        starts = null;
+        perPage = lay.lines;
+        if (!prefix) return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages;
+        const r = DL.lines(KIT.text.tokenize(ctx ? KIT.text.substitute(body, ctx) : body), lay);
+        starts = r.starts;
+        return KIT.text.paginate(r.lines, lay.lines);
+      }
+
+      function buildPage(at) {
+        const page = pages[at] || [];
         const t = ui.text;
         t.innerHTML = '';
         units = []; unitIndex = 0; charIndex = 0; acc = 0; complete = false; waiting = false; speed = 1; pauseLeft = 0;
-        for (const line of page) {
+        page.forEach((line, n) => {
           const lineEl = UI.make('div.kit-line');
+          if (starts && starts.has(at * perPage + n)) lineEl.classList.add('is-start');
           for (const span of line) {
             if (span.type === 'text') {
               // The span's own voice wins over the line's, so `{voice:sans}`
@@ -19618,7 +20276,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             else if (span.type === 'shake') units.push({ type: 'shake' });
           }
           t.appendChild(lineEl);
-        }
+        });
         if (instant()) revealAll();
         updatePrompt();
       }
@@ -19682,15 +20340,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
-        ui.next.textContent = '▼';
+        ui.next.textContent = KIT.look.get('dialogue.marker', '▼');
       }
 
       return {
         id: 'dialogue', transparent: true,
         enter(params) {
-          ui = UI.parts.dialogueBox(UI.el('dialogue'));
-          if (!ui) { this.finish(); return; }
           const p = params || {};
+          ui = UI.parts.dialogueBox(UI.el('dialogue', p.root));
+          if (!ui) { this.finish(); return; }
           ui.host.hidden = false;
           ui.host.setAttribute('data-position', p.position || 'bottom');
           ui.host.setAttribute('data-bg', p.bg || 'window');
@@ -19700,7 +20358,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           ui.name.classList.remove('is-big', 'is-small');
           ui.face.innerHTML = '';
           ui.face.hidden = !p.face;
-          if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), 3));
+          if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), KIT.look.get('dialogue.faceScale', 3)));
           // Who is talking decides what they sound like: their own voice if they
           // are in the cast, else whatever this line asked for, else the game's.
           voice = voiceFor(p.voice);
@@ -19711,17 +20369,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           // one entirely. A `ctx` on the payload is the explicit opt-in for raw
           // text that still needs templating.
           const body = p.text == null ? '' : p.text;
-          const lay = layoutFor(ui.text);
-          const rendered = p.ctx ? KIT.text.render(body, p.ctx, lay) : KIT.text.layout(body, lay);
-          pages = rendered[0].pages;
+          // A mark at the start of each line sits in the text's left margin,
+          // as wide as the mark itself, so the width measured for wrapping is
+          // what is left for the words.
+          const prefix = KIT.look.get('dialogue.prefix', '');
+          if (prefix) ui.text.style.setProperty('--kit-prefix-w', Math.ceil(measurerFor(ui.text)(prefix)) + 'px');
+          else ui.text.style.removeProperty('--kit-prefix-w');
+          pages = paged(body, p.ctx, layoutFor(ui.text), prefix);
           pageIndex = 0;
-          buildPage(pages[0] || []);
+          buildPage(0);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
           ui.host.addEventListener('click', this._tap);
           // Get the music out from under the voice. Counted, so a run of lines
           // ducks once and comes back up once at the end rather than pumping
           // between every box.
-          if (KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
+          if (!p.preview && KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
         },
         exit() {
           if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
@@ -19768,7 +20430,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (ev.key === 'a' || ev.key === 'menu') {
             if (waiting) { waiting = false; updatePrompt(); return true; }
             if (!complete) { revealAll(); return true; }
-            if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pages[pageIndex]); return true; }
+            if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pageIndex); return true; }
             this.finish(true);
             return true;
           }
@@ -19781,7 +20443,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- choice ---------------------------------------------------------------------
   scenes.add({
-    id: 'choice', name: 'Choices',
+    id: 'choice', name: 'Choices', previewable: true,
     create() {
       let host = null, index = 0, options = [];
       return {
@@ -19790,7 +20452,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const p = params || {};
           options = p.options || [];
           index = 0;
-          host = UI.el('choice');
+          host = UI.el('choice', p.root);
           if (!host) { this.finish(-1); return; }
           const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
           UI.select(list, index);
@@ -19806,6 +20468,15 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         input(ev) {
+          const arrow = ev.key === 'up' || ev.key === 'down' || ev.key === 'left' || ev.key === 'right';
+          // Answers side by side, or in a grid, move the way the arrow points:
+          // in reading order, ▼ in a grid of two went to the next answer, up and
+          // across, rather than the one underneath it.
+          if (arrow && KIT.look.get('choice.layout', 'column') !== 'column') {
+            const next = UI.nav(Array.from(this._list.children, (b) => b.getBoundingClientRect()), index, ev.key, true);
+            if (next !== index) { index = next; UI.select(this._list, index); KIT.look.sound('move'); }
+            return true;
+          }
           if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { this._pick.call(this); return true; }
@@ -20005,13 +20676,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const p = params || {};
           host = UI.el('chapter');
           if (!host) { this.finish(); return; }
-          UI.clear(host);
-          host.hidden = false;
-          host.classList.add('is-in');
-          const card = UI.make('div.kit-card');
-          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(p.title || '') }));
-          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(p.subtitle) }));
-          host.appendChild(card);
+          UI.parts.card(host, { title: p.title, subtitle: p.subtitle });
           left = (KIT.fx && KIT.fx.instant) ? 80 : (p.ms == null ? 2000 : p.ms);
         },
         exit() { if (host) { host.hidden = true; host.classList.remove('is-in'); UI.clear(host); } },
@@ -20023,19 +20688,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 
   // ---- toast ------------------------------------------------------------------------
   // A toast does not take input: it shows, the script carries on after a beat,
-  // and the element fades away on its own. Its text is a Term or a line a
-  // command already substituted, so it is not translated a second time here.
+  // and the element fades away on its own. How long it stays is the caller's
+  // to say, else the look's: a look for slow readers can keep "Saved." up
+  // longer, and there was no way to before.
   let toastTimer = null;
   KIT.toast = function (text, ms) {
     const host = UI.el('toast');
     if (!host) return Promise.resolve();
-    UI.clear(host);
-    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') }));
-    host.hidden = false;
-    host.classList.add('is-in');
+    UI.parts.toast(host, text);
     KIT.look.sound('toast');
     if (toastTimer) clearTimeout(toastTimer);
-    const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || 1600);
+    const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || KIT.look.get('toast.ms', 1600));
     toastTimer = setTimeout(() => { host.classList.remove('is-in'); host.hidden = true; }, life);
     return new Promise(res => setTimeout(res, Math.min(life, (KIT.fx && KIT.fx.instant) ? 10 : 550)));
   };
@@ -20071,6 +20734,36 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /** A list panel inside #pause-menu: rows of { label, value, action, disabled }. */
   function panel(title, rows, opts) { return UI.parts.listPanel(UI.el('pause-menu'), title, rows, opts); }
 
+  /**
+   * KIT.pauseScreen — what the pause menu says, without drawing it. The menu
+   * scene draws it; so does the Look panel's preview, from these same rows,
+   * so a look is judged on the menu the game really shows.
+   *
+   *   rows(game, project) -> [{ label, action, value }]  Keep playing, then the
+   *                          `menus` registry, in the order the look asks for
+   *                          (KIT.look.menuOrder; the kit's order is `order`)
+   *   title() -> 'Paused', or null when the look leaves it off
+   *   hint()  -> the help line under the list, or null when the look leaves
+   *              it off: a start menu down the side of the screen has no room
+   *              for one, and needs none. The pause menu's only, like its
+   *              title: the lists it opens (Settings, Save, Moments) keep
+   *              theirs, because "☰ closes" is the one line on them that says
+   *              how to get back out.
+   */
+  const PAUSE = KIT.pauseScreen = KIT.pauseScreen || {};
+  PAUSE.rows = function (game, project) {
+    const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
+    const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
+    return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
+      if (id === 'keep-playing') return { label: KIT.strings.get(project || (game && game.project), 'keep-playing'), action: 'close' };
+      const def = menus.get(id);
+      return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
+    });
+  };
+  PAUSE.title = () => (KIT.look.get('menu.title', true) ? 'Paused' : null);
+  const HINT = () => (KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes');
+  PAUSE.hint = () => (KIT.look.get('menu.hint', true) ? HINT() : null);
+
   /** One scene drives every list: pause, settings and save just supply rows. */
   scenes.add({
     id: 'menu', name: 'Menu',
@@ -20081,8 +20774,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (mode === 'settings') rows = settingRows();
         else if (mode === 'save') rows = self._saveRows || [{ label: 'Loading…', disabled: true }];
         else if (mode === 'moments') rows = momentRows();
-        else rows = pauseRows();
-        ui = panel(titleFor(), rows, { hint: KIT.input.isTouch() ? 'Tap a line · ☰ closes' : 'Arrows · Z chooses · X closes' });
+        else rows = PAUSE.rows(game);
+        ui = panel(titleFor(), rows, { hint: mode === 'pause' ? PAUSE.hint() : HINT() });
         index = Math.min(index, Math.max(0, rows.length - 1));
         // Never start on a row that cannot be chosen. Both lists that have
         // unchoosable rows put one FIRST — the Save screen's autosave slot, and
@@ -20122,21 +20815,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         if (mode === 'settings') return KIT.strings.get(game && game.project, 'settings');
         if (mode === 'save') return KIT.strings.get(game && game.project, 'save');
         if (mode === 'moments') return KIT.strings.get(game && game.project, 'moments');
-        return 'Paused';
-      }
-
-      /**
-       * Keep playing, then the `menus` registry, in the order the look asks for
-       * (KIT.look.menuOrder — the kit's order is the registry's `order`).
-       */
-      function pauseRows() {
-        const shown = menus.list().filter((def) => typeof def.when !== 'function' || def.when(game));
-        const entries = [{ id: 'keep-playing', order: -Infinity }].concat(shown.map((def) => ({ id: def.id, order: def.order })));
-        return KIT.look.menuOrder(entries, KIT.look.get('menu', {})).map((id) => {
-          if (id === 'keep-playing') return { label: t('keep-playing'), action: 'close' };
-          const def = menus.get(id);
-          return { label: KIT.labelOf(def, game), action: 'menu:' + def.id, value: typeof def.value === 'function' ? def.value(game) : undefined };
-        });
+        // The pause menu's own heading, which a look may leave off. The lists
+        // it opens keep theirs: "Settings" says where the player has got to.
+        return PAUSE.title();
       }
 
       /** The engine's own words, through the Terms table so they translate. */
@@ -20310,7 +20991,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         // fortnight off loses the lot. If the browser has not promised to keep
         // this game, they deserve to know before they rely on it.
         const d = KIT.storage.durability ? KIT.storage.durability() : null;
-        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true });
+        if (d && !d.safe) rows.push({ label: '⚠ ' + d.note, disabled: true, notice: true });
         return rows.concat([{ label: t('back'), action: 'back' }]);
       }
       function when(iso) {
@@ -28387,7 +29068,9 @@ PKMN.TILES.register([
   /**
    * whereSelection(where) -> the editor selection a `where` record points at.
    * `where` is what KIT.project.collect and the validator hand out: { script }
-   * or { map, object, page, slot } or { map } or { item } or { fragment }.
+   * or { map, object, page, slot } or { map } or { item } or { fragment }, or
+   * { look, path } for something in the game's look (the Look panel opens the
+   * section that path is in).
    * Three panels had their own copy of this and two had drifted: one dropped
    * slot 0 because it tested truthiness, one could not point at an item.
    */
@@ -28399,6 +29082,7 @@ PKMN.TILES.register([
     if (w.map) return { kind: 'map', id: w.map };
     if (w.item) return { kind: 'item', id: w.item };
     if (w.fragment) return { kind: 'fragment', id: w.fragment };
+    if (w.look) return { kind: 'look', path: Array.isArray(w.path) ? w.path.slice() : ['ui'] };
     return { kind: 'project' };
   };
 
@@ -28672,6 +29356,93 @@ PKMN.TILES.register([
   /** problems(project) -> the validator output, for the Problems panel. */
   O.problems = function (project) { return P.validate(project); };
 
+  // ---- the look -------------------------------------------------------------------
+  /**
+   * KIT.editor.ops.look — every write to `project.ui`. Paths are inside `ui`:
+   * ['tokens', 'paper'], ['dialogue', 'lines'], ['voice'].
+   *
+   * `project.ui` holds only what the game changes on top of the look it
+   * starts from, and these keep it that way. A value equal to the one
+   * underneath is not a change, so it is not stored. A parent the write
+   * needs is made by a write of its own, so undo takes it away again: the
+   * document records a set on a missing key as "delete it" on the way back,
+   * but a parent it made in passing has no record at all, and one undo after
+   * the first change left an empty `ui: { dialogue: {} }` behind in a project
+   * that had never had a look. And a part left empty is taken away, up to
+   * `ui` itself.
+   */
+  const LOOK = O.look = O.look || {};
+  const uiPath = (path) => ['ui'].concat(path);
+
+  /**
+   * set(doc, path, value) -> whether anything changed. A value equal to the
+   * inherited one resets instead. What is compared and stored is the value as
+   * the game will use it (KIT.look.cleanAt): a prefix typed eight letters long
+   * is the four the game shows, '#FFFFFF' is the '#ffffff' underneath and so
+   * no change, and a value the look cannot hold at all is not written.
+   */
+  LOOK.set = function (doc, path, value) {
+    if (value === undefined) return LOOK.reset(doc, path);
+    const c = KIT.look.cleanAt(path, value);
+    if (!c.ok) return false;
+    if (KIT.deepEqual(c.value, KIT.look.inherited(doc.value, path))) return LOOK.reset(doc, path);
+    const full = uiPath(path);
+    if (KIT.deepEqual(doc.get(full), c.value)) return false;
+    for (let i = 1; i < full.length; i++) {
+      const at = full.slice(0, i);
+      if (!KIT.isObject(doc.get(at))) doc.set(at, {}, { label: 'Look' });
+    }
+    doc.set(full, KIT.deepClone(c.value), { label: 'Look' });
+    return true;
+  };
+
+  /** reset(doc, path) -> whether anything changed. Back to the look underneath; empty parents go too. */
+  LOOK.reset = function (doc, path) {
+    const full = uiPath(path);
+    let changed = false;
+    if (doc.has(full)) { doc.del(full, { label: 'Look' }); changed = true; }
+    for (let i = full.length - 1; i >= 1; i--) {
+      const at = full.slice(0, i);
+      const v = doc.get(at);
+      if (!KIT.isObject(v) || Object.keys(v).length) break;
+      doc.del(at, { label: 'Look' });
+      changed = true;
+    }
+    return changed;
+  };
+
+  /** Every override the game's look holds, as paths inside `ui`: a token, a part's option, the voice. */
+  function overrides(ui) {
+    const out = [];
+    if (!KIT.isObject(ui)) return out;
+    for (const k of Object.keys(ui)) {
+      if (k === 'base' || k === 'screens') continue;
+      if (KIT.isObject(ui[k])) for (const key of Object.keys(ui[k])) out.push([k, key]);
+      else out.push([k]);
+    }
+    return out;
+  }
+  LOOK.overrides = (project) => overrides(project && project.ui);
+
+  /**
+   * useBase(doc, id, { clean }) — start from another look. `kit` is no base at
+   * all. The game's own changes stay on top unless `clean`, and any that now
+   * equal what the new look says are dropped: they are no longer changes. A
+   * change the author made against the old look that the new one happens to
+   * share is not lost — it is exactly what they see.
+   */
+  LOOK.useBase = function (doc, id, opts) {
+    const base = id && id !== 'kit' ? id : null;
+    if (opts && opts.clean) for (const path of overrides(doc.get(['ui']))) LOOK.reset(doc, path);
+    if (base) {
+      if (!KIT.isObject(doc.get(['ui']))) doc.set(['ui'], {}, { label: 'Look' });
+      if (doc.get(['ui', 'base']) !== base) doc.set(['ui', 'base'], base, { label: 'Look' });
+    } else LOOK.reset(doc, ['base']);
+    for (const path of overrides(doc.get(['ui']))) {
+      if (KIT.deepEqual(doc.get(uiPath(path)), KIT.look.inherited(doc.value, path))) LOOK.reset(doc, path);
+    }
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -28722,6 +29493,9 @@ PKMN.TILES.register([
   // ---- state --------------------------------------------------------------------
   /** set({ tool:'fill', layer:'deco' }) — shallow merge, then repaint and tell the panels. */
   ED.set = function (patch) {
+    // A change still waiting out its pause belongs to the panel it was made
+    // in: it is written before the author is anywhere else.
+    if (patch && patch.panel !== undefined && patch.panel !== state.panel) ED.flushPending();
     let panelChanged = false;
     for (const k of Object.keys(patch || {})) {
       if (k === 'show') Object.assign(state.show, patch.show);
@@ -28866,8 +29640,35 @@ PKMN.TILES.register([
     const a = typeof document !== 'undefined' ? document.activeElement : null;
     if (a && ED.el && ED.el.root && ED.el.root.contains(a) && typeof a.blur === 'function') a.blur();
   }
-  ED.undo = function () { settleTyping(); if (state.doc.undo()) afterDocument('undo'); };
-  ED.redo = function () { settleTyping(); if (state.doc.redo()) afterDocument('redo'); };
+  ED.undo = function () { settleTyping(); ED.flushPending(); if (state.doc.undo()) afterDocument('undo'); };
+  ED.redo = function () { settleTyping(); ED.flushPending(); if (state.doc.redo()) afterDocument('redo'); };
+
+  /**
+   * pending(key, fn, ms) — run `fn` once things have been quiet for `ms`
+   * (300 by default); another call with the same key before then replaces it
+   * and starts the wait again. flushPending() runs whatever is waiting, now.
+   *
+   * A colour picker sends a value for every step of a drag and a stepper one
+   * for every tap, and a commit for each was thirty undo steps for one change
+   * of mind. The Look panel shows each value at once and writes the lot as
+   * one step when the finger stops. Undo, redo, Play here, closing and
+   * switching panels flush first, so the step exists before anything that
+   * could need it: an undo taken before it would take back the change BEFORE
+   * the drag, and the late write would then clear the redo.
+   */
+  const waiting = new Map();          // key -> { fn, timer }
+  ED.pending = function (key, fn, ms) {
+    const was = waiting.get(key);
+    if (was) clearTimeout(was.timer);
+    const entry = { fn, timer: setTimeout(() => { if (waiting.get(key) === entry) { waiting.delete(key); run(entry); } }, ms == null ? 300 : ms) };
+    waiting.set(key, entry);
+  };
+  ED.flushPending = function () {
+    const all = Array.from(waiting.values());
+    waiting.clear();
+    for (const entry of all) { clearTimeout(entry.timer); run(entry); }
+  };
+  function run(entry) { try { entry.fn(); } catch (e) { (KIT.log || console).error('[editor] a waiting change could not be written', e); } }
 
   function afterDocument(kind) {
     state.project = state.doc.value;
@@ -29138,6 +29939,16 @@ PKMN.TILES.register([
     const tool = KIT.registry('editorTools').get(state.tool);
     if (tool && tool.move) { try { tool.move(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); } }
   }
+  /**
+   * A panel's stage (the Look panel's preview) covers the canvas, so the
+   * canvas never hears its fingers. Two and three of them are still undo and
+   * redo there, through the same gesture code; one finger is the panel's own.
+   */
+  function stageGestureDown(ev) {
+    if (ev.pointerType !== 'touch') return;
+    if (gestureDown(ev)) { ev.preventDefault(); ev.stopPropagation(); }
+  }
+  function stageGestureMove(ev) { if (ev.pointerType === 'touch') gestureMove(ev); }
   function onPointerUp(ev) {
     if (ev.pointerType === 'touch' && gestureUp(ev)) return;
     if (panning && panning.id === ev.pointerId) { panning = null; return; }
@@ -29227,7 +30038,7 @@ PKMN.TILES.register([
   }
 
   /**
-   * The panels, in four groups.
+   * The panels, in five groups.
    *
    * Nineteen panels as one flat strip was the thing that made Creator Mode feel
    * impossible: a four-row wall of equal-weight tabs on a laptop, and on a phone
@@ -29241,10 +30052,15 @@ PKMN.TILES.register([
    * Tiles under Game on the first try. A module's panel that says nothing lands
    * in Game, which is where a thing about the whole game belongs. Problems is
    * its own group so the count is always on screen.
+   *
+   * Look is a group of its own too (ADR-0017): how the game looks and sounds
+   * is a thing a person sets out to do, not a setting among the game's, and
+   * as the seventh chip under Game nobody found it.
    */
   const GROUPS = [
     { id: 'map', label: 'Map', hint: 'This map: paint it, place things on it, connect it' },
     { id: 'story', label: 'Story', hint: 'What is said and what happens' },
+    { id: 'look', label: 'Look', hint: 'How the game looks and sounds' },
     { id: 'game', label: 'Game', hint: 'The whole game: settings, variables, items, words' },
     { id: 'problems', label: 'Problems', hint: 'What the validator found' },
   ];
@@ -29275,10 +30091,15 @@ PKMN.TILES.register([
     const errs = (state.problems || []).filter(p => p.severity === 'error').length;
     const warns = (state.problems || []).filter(p => p.severity === 'warn').length;
     for (const g of GROUPS) {
-      const b = UI.make('button.ed-group', { text: g.label });
+      const b = UI.make('button.ed-group');
       b.type = 'button';
       b.dataset.group = g.id;
       b.title = g.hint;
+      b.appendChild(UI.make('span.ed-group-label', { text: g.label }));
+      // Five words and the grip do not fit across the narrowest phones once
+      // Problems carries a count, so there it is ⚠ and the count; the
+      // stylesheet chooses, and the name stays the button's name.
+      if (g.id === 'problems') { b.appendChild(UI.make('span.ed-group-icon', { text: '⚠' })); b.setAttribute('aria-label', g.label); }
       b.setAttribute('aria-selected', String(g.id === active));
       if (g.id === 'problems') {
         const n = errs + warns;
@@ -29313,7 +30134,9 @@ PKMN.TILES.register([
     }
   }
   ED.buildTabs = buildTabs;
-  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map'); }
+  // Look is short like Map: the preview in the top half is what the author
+  // is looking at while they change the look.
+  function sheetTall() { return state.sheet === 'tall' || (state.sheet === 'auto' && groupOf(state.panel) !== 'map' && groupOf(state.panel) !== 'look'); }
   function syncSheet() {
     if (!ED.el || !ED.el.root) return;
     const tall = sheetTall();
@@ -29349,6 +30172,7 @@ PKMN.TILES.register([
     }
     const rec = mounted.get(id);
     if (rec) { rec.el.hidden = false; refreshPanel(rec); host.scrollTop = rec.scrollTop || 0; }
+    syncStage(rec ? id : null);
     // A panel can be *for* a tool: Events is for picking and moving Events, Tiles
     // for painting. Opening one hands the pointer to its tool unless the active
     // tool is one the panel uses — otherwise a tap meant to select Mom paints
@@ -29360,6 +30184,37 @@ PKMN.TILES.register([
       cancelTool();
       state.tool = want;
     }
+  }
+  /**
+   * A panel's stage. A panel that defines `stage(el, ed)` is given the stage
+   * — the map's half of the screen — for as long as it is open: the Look
+   * panel shows its live preview there, where the map would be. The stage
+   * panel covers the canvas, the tool row is hidden (there is nothing to
+   * paint), and the panel's handle is destroyed when the panel is left, or
+   * Creator Mode closed, or Play here starts — so nothing it drew goes on
+   * running, or making sounds, where nobody can see it.
+   */
+  let stagePanel = null;                  // { id, el, handle }
+  function syncStage(id) {
+    const def = id ? KIT.registry('editorPanels').get(id) : null;
+    const want = def && typeof def.stage === 'function' && state.mode === 'edit' && open ? id : null;
+    if (stagePanel && stagePanel.id === want && stagePanel.el.isConnected) return;
+    if (stagePanel) {
+      const was = stagePanel;
+      stagePanel = null;
+      try { if (was.handle && was.handle.destroy) was.handle.destroy(); } catch (e) { (KIT.log || console).error(`[panel ${was.id}] stage`, e); }
+      was.el.remove();
+    }
+    if (ED.el && ED.el.root) ED.el.root.classList.toggle('is-stage-panel', !!want);
+    if (!want || !ED.el || !ED.el.stage) return;
+    const el = UI.make('div.ed-stage-panel');
+    el.dataset.panel = want;
+    el.addEventListener('pointerdown', stageGestureDown, true);
+    el.addEventListener('pointermove', stageGestureMove, true);
+    ED.el.stage.appendChild(el);
+    stagePanel = { id: want, el, handle: null };
+    try { stagePanel.handle = def.stage(el, ED) || null; }
+    catch (e) { (KIT.log || console).error(`[panel ${want}] stage`, e); el.textContent = `This preview failed to open: ${e.message}`; }
   }
   function refreshPanel(rec) {
     if (!rec || rec.el.hidden) return;
@@ -29390,8 +30245,9 @@ PKMN.TILES.register([
     const mk = (label, title, fn, cls) => { const b = UI.make('button.ed-btn' + (cls ? '.' + cls : ''), { text: label }); b.title = title; b.onclick = fn; bar.appendChild(b); return b; };
     ED.el.undoBtn = mk('↶', 'Undo (Ctrl+Z)', () => ED.undo());
     ED.el.redoBtn = mk('↷', 'Redo (Ctrl+Shift+Z)', () => ED.redo());
-    mk('−', 'Zoom out', () => ED.zoom(-1));
-    mk('+', 'Zoom in', () => ED.zoom(1));
+    // The map's zoom: hidden with the map under a panel's stage (editor.css).
+    mk('−', 'Zoom out', () => ED.zoom(-1), 'ed-zoom');
+    mk('+', 'Zoom in', () => ED.zoom(1), 'ed-zoom');
     ED.el.playBtn = mk('▶ Play', 'Play from the cursor (F5)', () => ED.playHere(), 'primary');
     ED.el.playBtn.appendChild(UI.make('span.ed-play-more', { text: ' here' }));   // dropped on a phone, where the row is full
     mk('✕', 'Close Creator Mode', () => ED.close());
@@ -29476,7 +30332,8 @@ PKMN.TILES.register([
       if (old) old.remove();
       const pill = UI.make('div.ed-toast', { text });
       ED.el.root.appendChild(pill);
-      setTimeout(() => pill.remove(), 1800);
+      // Long enough to read: a word's worth of time for every five letters.
+      setTimeout(() => pill.remove(), Math.max(1800, String(text).length * 55));
       return;
     }
     if (KIT.toast) KIT.toast(text); else (KIT.log || console).log('[editor]', text);
@@ -29532,8 +30389,10 @@ PKMN.TILES.register([
   };
   ED.playHere = async function (opts) {
     if (!game || !game.loadProject) { ED.toast('The game is not running'); return; }
+    ED.flushPending();
     await ED.saveNow();
     state.mode = 'play';
+    syncStage(null);
     emit('mode', 'play');
     ED.el.root.classList.add('playing');
     game.loadProject(KIT.deepClone(state.project));
@@ -29547,6 +30406,7 @@ PKMN.TILES.register([
     emit('mode', 'edit');
     ED.el.root.classList.remove('playing');
     ED.refresh({ drop: true });                    // the game may have baked other maps into the same renderer
+    syncStage(state.panel);
   };
 
   // ---- open / close ----------------------------------------------------------------
@@ -29578,8 +30438,10 @@ PKMN.TILES.register([
   };
   ED.close = async function () {
     if (!open) return;
+    ED.flushPending();
     await ED.saveNow();
     open = false;
+    syncStage(null);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('keyup', onKeyUp);
     if (unwatch) { unwatch(); unwatch = null; }
@@ -30961,22 +31823,60 @@ PKMN.TILES.register([
   // =================================================================================
   const FE = KIT.registry('fieldEditors');
 
+  /**
+   * chipRow(options, onPick) -> { el, paint(value) } — one 44-pixel chip per
+   * option, wrapping onto as many rows as it takes. A segmented control stops
+   * fitting a phone at about four choices, and a <select> hides them all
+   * behind a tap; five portrait places or five cursors want to be seen at once.
+   */
+  function chipRow(options, onPick) {
+    const row = make('div.ed-chips.ed-chip-choices');
+    const chips = options.map((o) => {
+      const b = make('button.ed-chip', { text: o.label });
+      b.type = 'button';
+      b.dataset.value = String(o.value);
+      b.onclick = (e) => { e.preventDefault(); onPick(o.value); };
+      row.appendChild(b);
+      return b;
+    });
+    return { el: row, paint(v) { chips.forEach((b, i) => b.setAttribute('aria-pressed', String(options[i].value === v))); } };
+  }
+
   // ---- text ------------------------------------------------------------------------
   FE.add({
     // 'label' is here too: in content it is always plain text. The other kind
     // of label — a function of the game — only ever appears in a registry
     // definition, which is code, and code is not edited through a form.
+    //
+    // `display: 'chips'` with `options` offers those as chips above the box —
+    // a cursor, a mark — and the box takes anything else.
     id: 'string', types: ['string', 'label'],
     mount(el, f, value, onChange) {
       const input = make('input');
       input.type = 'text';
       input.value = value == null || typeof value === 'function' ? '' : String(value);
       if (f.placeholder) input.placeholder = f.placeholder;
+      let chips = null;
+      if (f.display === 'chips' && Array.isArray(f.options)) {
+        chips = chipRow(INS.enumOptions(f), (v) => { input.value = v; chips.paint(v); onChange(v); });
+        chips.paint(input.value);
+        el.appendChild(chips.el);
+        input.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', your own');
+        input.placeholder = f.placeholder || 'or type your own';
+      }
       const t = typed(onChange);
-      input.oninput = () => t.push(input.value);
+      // A field with a length (`max`, in letters as a person counts them, so
+      // ♥ is one) stops taking letters there, rather than showing eight when
+      // the game keeps four.
+      const cut = (s) => (f.max == null ? s : Array.from(s).slice(0, f.max).join(''));
+      input.oninput = () => {
+        if (cut(input.value) !== input.value) input.value = cut(input.value);
+        if (chips) chips.paint(input.value);
+        t.push(input.value);
+      };
       input.onblur = () => t.flush();
       el.appendChild(input);
-      return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
+      return { set(v) { const s = v == null ? '' : String(v); if (chips) chips.paint(s); if (document.activeElement !== input && input.value !== s) input.value = s; } };
     },
   });
 
@@ -31108,6 +32008,12 @@ PKMN.TILES.register([
     mount(el, f, value, onChange, ctx) {
       const opts = INS.enumOptions(f, ctx);
       let cur = value;
+      if (f.display === 'chips') {
+        const chips = chipRow(opts, (v) => { cur = v; chips.paint(v); onChange(v); });
+        chips.paint(cur);
+        el.appendChild(chips.el);
+        return { set(v) { cur = v; chips.paint(v); } };
+      }
       if (opts.length && opts.length <= 4) {
         const seg = make('div.ed-seg');
         const buttons = opts.map(o => {
@@ -31132,21 +32038,54 @@ PKMN.TILES.register([
   });
 
   // ---- colour ----------------------------------------------------------------------
+  /** #rgb or #rrggbb as the #rrggbb a colour input takes; null for anything else. */
+  const sixDigits = (c) => {
+    const s = String(c);
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+    return /^#[0-9a-f]{3}$/i.test(s) ? '#' + s.slice(1).split('').map(x => x + x).join('').toLowerCase() : null;
+  };
   FE.add({
+    // A colour a field may leave empty (`nullable`) gets a chip for that,
+    // named by `noneLabel` — "None", "Same as accent" — because an empty hex
+    // box does not say what empty MEANS, and clearing one did nothing at all.
+    //
+    // An empty one that is drawn in another colour meanwhile ("Same as
+    // accent" is the accent) shows that colour in its square, faded, when the
+    // form can say which (`ctx.noneColour(field)`): a black square beside a
+    // name the game draws in blue said the name was black.
     id: 'color', types: ['color'],
-    mount(el, f, value, onChange) {
+    mount(el, f, value, onChange, ctx) {
       const row = make('div.ed-row');
       const swatch = make('input.ed-color');
       swatch.type = 'color';
-      swatch.value = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : '#000000';
+      const shown = (v) => sixDigits(v == null && ctx && ctx.noneColour ? ctx.noneColour(f) : v);
+      swatch.value = shown(value) || '#000000';
+      swatch.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', colour');
       const hex = make('input.ed-hex');
       hex.type = 'text';
       hex.value = value == null ? '' : String(value);
-      swatch.oninput = () => { hex.value = swatch.value; onChange(swatch.value); };
-      hex.oninput = () => { if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex.value)) { swatch.value = hex.value.length === 4 ? '#' + hex.value.slice(1).split('').map(c => c + c).join('') : hex.value; onChange(hex.value); } };
+      hex.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', as #rrggbb');
+      let none = null;
+      // With no colour of its own, the swatch is faded: black there would be a lie.
+      const paintNone = (v) => { if (none) { none.setAttribute('aria-pressed', String(v == null)); swatch.classList.toggle('is-none', v == null); } };
+      swatch.oninput = () => { hex.value = swatch.value; paintNone(swatch.value); onChange(swatch.value); };
+      // Text that is not a colour ("pink") is not sent anywhere; the box edge
+      // goes red instead, so it does not look taken and then quietly ignored.
+      hex.oninput = () => {
+        const ok = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex.value);
+        hex.classList.toggle('is-bad', !ok && hex.value !== '');
+        if (ok) { swatch.value = sixDigits(hex.value); paintNone(hex.value); onChange(hex.value); }
+      };
       row.appendChild(swatch); row.appendChild(hex);
+      if (f.nullable) {
+        none = make('button.ed-chip.ed-color-none', { text: f.noneLabel || 'None' });
+        none.type = 'button';
+        none.onclick = (e) => { e.preventDefault(); hex.value = ''; paintNone(null); onChange(null); };
+        row.appendChild(none);
+      }
+      paintNone(value);
       el.appendChild(row);
-      return { set(v) { if (document.activeElement !== hex) hex.value = v == null ? '' : String(v); if (/^#[0-9a-f]{6}$/i.test(String(v))) swatch.value = v; } };
+      return { set(v) { if (document.activeElement !== hex) { hex.value = v == null ? '' : String(v); hex.classList.toggle('is-bad', false); } const c = shown(v); if (c) swatch.value = c; paintNone(v); } };
     },
   });
 
@@ -34493,6 +35432,9 @@ PKMN.TILES.register([
     'ui-base-cycle': 'Two looks are each built on the other. The circle is cut where it was found.',
     'ui-base-deep': 'Looks are built on looks more than eight deep; the ones past eight are left out.',
     'ui-bad-value': 'A value in the look is not one the engine can use — not a colour, or not one of the choices — so it is left out and the look underneath shows.',
+    'ui-contrast': 'Two colours in the look are too close to read one on the other. Look › Colours: make one lighter or the other darker.',
+    'ui-lines': 'The message box would cover a lot of the game on a phone. Look › Message box: fewer lines, or a smaller portrait.',
+    'ui-ref': 'The look names a sound or a voice this game does not have, so it stays quiet or sounds ordinary. Look › Sounds: pick one it has.',
   };
   /** explain(code) -> the "what does this mean" line under a problem. */
   W.explain = function (code) {
@@ -34985,6 +35927,7 @@ PKMN.TILES.register([
     if (sel.kind === 'object' || sel.kind === 'slot') ED.set({ panel: 'objects' });
     else if (sel.kind === 'script') ED.set({ panel: 'scripts' });
     else if (sel.kind === 'map') ED.set({ panel: 'map' });
+    else if (sel.kind === 'look') ED.set({ panel: 'look' });
     else ED.set({ panel: 'project' });
   }
 
@@ -36810,6 +37753,1063 @@ PKMN.TILES.register([
     }
     if (q && !facts.length) host.appendChild(make('div.ed-sub', { text: 'Nothing by that name.' }));
   }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/editor/look-preview.js ----
+// Creator Mode — the Look panel's live preview.
+//
+//   const pv = KIT.editor.lookPreview.mount(el, { project, onPick })
+//   pv.show('talk' | 'choice' | 'menu' | 'title' | 'toast' | 'pad', again)
+//   pv.mode('edit' | 'try')
+//   pv.destroy()
+//
+// A little copy of the game screen, in the top half of the phone, that shows
+// the look being made. It is not a picture of the look: the message box is the
+// game's own dialogue scene, typing the line with its blips and its ▼, and a
+// question is the game's own choice scene, driven off the scene stack into a
+// host of the preview's instead of the game's. A look is about feel as much as
+// colour, and feel is only judged by watching it type.
+//
+// It lives in a shadow root, so the game's stylesheet and the compiled look
+// reach it exactly as they reach the game (they are cloned in), and nothing in
+// it can collide with the game's own #dialogue or #choice, which have the same
+// ids. `project` is a function returning the project to show — the Look panel
+// hands in its draft, so a colour is seen while the finger is still on it.
+//
+// Two modes. **Edit** (the default): a tap on a part of the preview opens that
+// part's settings (`onPick(section, field)`) and outlines it. **Try**: taps go
+// to the scenes — turn the page, pick an answer, walk the list — the way a
+// player's would.
+//
+// Nothing here runs unless a panel mounts it: the file only defines functions,
+// so it loads headless with the rest of Creator Mode.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const ED = KIT.editor = KIT.editor || {};
+
+  const TABS = [
+    { id: 'talk', label: 'Talk' }, { id: 'choice', label: 'Choice' }, { id: 'menu', label: 'Menu' },
+    { id: 'title', label: 'Title' }, { id: 'toast', label: 'Toast' }, { id: 'pad', label: 'Pad' },
+  ];
+  // The game's six overlay hosts, the same ids in the same order as index.html.
+  const HOSTS = ['chapter', 'dialogue', 'choice', 'pause-menu', 'toast', 'screen-title'];
+  // Which settings a tap on each host opens. A tap is taken to the part it
+  // landed on (the nearest kit- element), and the host it is in says which.
+  const SECTION_OF_HOST = { dialogue: 'box', choice: 'choice', 'pause-menu': 'menu', toast: 'toast', chapter: 'colours', 'screen-title': 'colours', controls: 'pad' };
+  // Some parts are one field of their section, and go straight to it. `_` is
+  // the host itself, and where a tap on any other part of it goes: the chapter
+  // card's padding, or the title's blurb, is that screen's background — not
+  // the top of Colours, with the colours of the thing tapped a long scroll away.
+  const FIELD_OF_PART = {
+    dialogue: { 'kit-facebox': 'face', 'kit-name': 'name', 'kit-next': 'marker' },
+    'screen-title': { _: 'titleBg', 'kit-title': 'highlight', 'kit-subtitle': 'highlight2', 'kit-menu-item': 'titleButton' },
+    chapter: { _: 'chapterBg', 'kit-chapter-title': 'chapterInk', 'kit-chapter-sub': 'highlight' },
+  };
+
+  const SAMPLE = 'Hello! This is how talking looks.\nA {color:#e04848}coloured{/color} word, a {fx:wave}wavy{/fx} one, and a {pause:300}pause.';
+
+  /**
+   * sample(project) -> { who, face, text } — the line the preview types: the
+   * first line in the game said by somebody, preferring one with a portrait,
+   * so an author sees their own people talking in the look; when there is
+   * none, a line that shows a colour, an effect and a pause, said by the first
+   * of the cast (or Mira).
+   */
+  function sample(project) {
+    const p = project || {};
+    let best = null;
+    const visit = (v, depth) => {
+      if ((best && best.face) || !v || typeof v !== 'object' || depth > 14) return;
+      if (Array.isArray(v)) { for (const x of v) visit(x, depth + 1); return; }
+      if (v.t === 'say' && typeof v.who === 'string' && v.who.trim() && typeof v.text === 'string' && v.text.trim()) {
+        if (!best || (!best.face && v.face)) best = v;
+        return;
+      }
+      for (const k of Object.keys(v)) visit(v[k], depth + 1);
+    };
+    visit(p.scripts, 0);
+    for (const id of Object.keys(p.maps || {})) visit((p.maps[id] || {}).objects, 0);
+    if (best) return { who: best.who, face: best.face || null, text: best.text };
+    const castId = p.cast && Object.keys(p.cast)[0];
+    return { who: castId ? ((p.cast[castId] && p.cast[castId].name) || castId) : 'Mira', face: null, text: SAMPLE };
+  }
+
+  /**
+   * standIn() -> a face for the sample line when no line in the game has one,
+   * so the portrait's settings (where it goes, its size, its frame, the colour
+   * behind it) have something to show: the game's first portrait, else an id
+   * nothing has, which the dialogue scene draws as its stand-in shape. No
+   * picture is made for it.
+   */
+  function standIn() {
+    const faces = KIT.registry.exists('faces') ? KIT.registry('faces').ids() : [];
+    return faces[0] || 'sample';
+  }
+
+  // The preview's own stylesheet, last in its shadow root. The page's #stage
+  // rules size it for a whole window (on a laptop, #screen is 70vw × 82vh);
+  // here #stage fills the preview, and `#stage #screen` is two ids, so it wins
+  // over that media rule without an !important.
+  const SHEET = [
+    ':host{display:block;position:relative;overflow:hidden;border-radius:10px;background:#0b0c12}',
+    '#stage{position:absolute;inset:0;flex-direction:column;padding:8px;gap:8px;justify-content:stretch;align-items:stretch}',
+    '#stage #screen{width:100%;height:auto;flex:1 1 auto;min-height:0;background-size:cover;background-position:center;image-rendering:pixelated}',
+    // The pad is a picture here, not the thing a thumb presses: a little smaller, so it fits beside itself.
+    '#stage #controls{flex:0 0 auto;width:100%;flex-direction:row;justify-content:center;zoom:.86}',
+    '#stage #controls .kit-pad{width:100%;max-width:460px;grid-template-columns:auto 1fr auto;justify-items:normal}',
+    '#stage #controls .kit-extra{flex-direction:column}',
+    // The preview's screen is about half the height of a phone's game screen,
+    // and a title with a pitch and five buttons is taller than that: shrunk to
+    // fit (fitAll), and never pushed up out of sight.
+    '#stage #screen-title{align-items:safe center}',
+    // The pause menu is drawn whole and then shrunk to fit too, rather than
+    // scrolled inside its panel: rows cut off at the bottom are the ones an
+    // author was trying to see.
+    '#stage #pause-menu .kit-panel{max-height:none;overflow:visible}',
+    // The Toast tab draws a chapter card behind the toast, which a game never
+    // does at once: with the toast in the middle, the card's words go to the top.
+    '#stage #chapter[data-apart]{align-items:flex-start}',
+    '#stage #chapter[data-apart] .kit-card{padding-top:6px;padding-bottom:4px}',
+    // The toast and the chapter card let taps through to the game under them.
+    // Here there is no game under them, and a tap is how their settings open.
+    '#stage[data-kit-preview] #toast .kit-toast-pill,#stage[data-kit-preview] #chapter{pointer-events:auto}',
+    '.ed-look-picked{outline:3px solid #4f8bf0 !important;outline-offset:2px}',
+  ].join('\n');
+
+  /**
+   * mount(el, { project, onPick }) -> { show(tab, again), mode(m), tab(), destroy() }
+   * `project()` is the project to show; `onPick(section, field)` hears an Edit
+   * tap. The tab chips and the Try toggle are built here, above the preview.
+   */
+  function mount(el, opts) {
+    const o = opts || {};
+    const UI = KIT.ui;
+    const project = typeof o.project === 'function' ? o.project : () => (ED.state && ED.state.project) || {};
+    const state = { tab: 'talk', mode: 'edit', size: 'phone' };
+    let alive = true, scene = null, restart = 0, raf = 0, last = 0, picked = null, sig = '', drawn = null;
+
+    const wrap = UI.make('div.ed-look-stage');
+    const bar = UI.make('div.ed-look-chips');
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-label', 'What the preview shows');
+    const frame = UI.make('div.ed-look-frame');
+    const host = UI.make('div.ed-look-preview');
+    frame.appendChild(host);
+    wrap.appendChild(bar);
+    wrap.appendChild(frame);
+    el.appendChild(wrap);
+
+    const chips = TABS.map((t) => {
+      const b = UI.make('button.ed-look-chip', { text: t.label });
+      b.type = 'button';
+      b.dataset.preview = t.id;
+      b.setAttribute('role', 'tab');
+      b.onclick = () => show(t.id, true);      // the tab already up plays again
+      bar.appendChild(b);
+      return b;
+    });
+    const tryBtn = UI.make('button.ed-look-chip.ed-look-mode');
+    tryBtn.type = 'button';
+    tryBtn.onclick = () => mode(state.mode === 'edit' ? 'try' : 'edit');
+    bar.appendChild(tryBtn);
+    // On a laptop the preview can be the width of a phone, or fill the stage.
+    const sizeBtn = UI.make('button.ed-look-chip.ed-look-size');
+    sizeBtn.type = 'button';
+    // Drawn again at the new width: a line wrapped for a phone keeps its phone line breaks otherwise.
+    sizeBtn.onclick = () => { state.size = state.size === 'phone' ? 'fill' : 'phone'; paintChips(); draw(); };
+    bar.appendChild(sizeBtn);
+
+    // ---- the shadow root: the game's stylesheets, then the preview's, then the stage
+    const shadow = host.attachShadow({ mode: 'open' });
+    const loads = [];
+    let lookStyle = null;
+    for (const node of document.querySelectorAll('link[rel="stylesheet"], style')) {
+      // A web font's stylesheet is the page's to fetch, once; the fonts it
+      // declares reach the shadow root by name.
+      if (node.tagName === 'LINK' && /^(https?:)?\/\//i.test(node.getAttribute('href') || '')) continue;
+      const copy = node.cloneNode(true);
+      if (copy.tagName === 'LINK') loads.push(new Promise((res) => { copy.onload = res; copy.onerror = res; setTimeout(res, 1500); }));
+      if (node.id === 'kit-look') lookStyle = copy;
+      shadow.appendChild(copy);
+    }
+    if (!lookStyle) { lookStyle = document.createElement('style'); lookStyle.id = 'kit-look'; shadow.appendChild(lookStyle); }
+    const sheet = document.createElement('style');
+    sheet.textContent = SHEET;
+    shadow.appendChild(sheet);
+
+    const stage = UI.make('div');
+    stage.id = 'stage';
+    stage.setAttribute('data-kit-preview', '');
+    const screen = UI.make('div');
+    screen.id = 'screen';
+    for (const id of HOSTS) { const h = UI.make('div.overlay'); h.id = id; h.hidden = true; screen.appendChild(h); }
+    stage.appendChild(screen);
+    // The pad is a copy of the real one: the same buttons, none of its listeners.
+    const realPad = UI.el('controls');
+    const pad = realPad ? realPad.cloneNode(true) : UI.make('div.kit-controls');
+    pad.id = 'controls';
+    pad.hidden = true;
+    stage.appendChild(pad);
+    shadow.appendChild(stage);
+    // The map the author was looking at, behind the preview's boxes: a look is
+    // judged against the game, not against black. A canvas that has drawn a
+    // picture from another file cannot be read back; then it is the screen's colour.
+    //
+    // Copied two frames from now, not at once. Coming from Story or Game, the
+    // canvas is still the strip their tall sheet squashed it to; the editor
+    // resizes it on the next frame and draws the map again on the one after.
+    // A copy taken at once was that strip, stretched into a blurred close-up.
+    function backdrop() {
+      try { if (ED.el && ED.el.canvas) screen.style.backgroundImage = `url("${ED.el.canvas.toDataURL()}")`; }
+      catch (e) { (KIT.log || console).warn('[look preview] the map could not be copied behind the preview', e); }
+    }
+    let snapRaf = requestAnimationFrame(() => { snapRaf = requestAnimationFrame(() => { snapRaf = 0; if (alive) backdrop(); }); });
+    const ready = Promise.all(loads);
+
+    const hostEl = (id) => shadow.getElementById(id);
+
+    /** #stage here follows the game's: the player's Reduce motion, and ?fast=1. */
+    function syncFlags() {
+      const real = UI.el('stage');
+      for (const a of ['data-kit-motion', 'data-kit-fast']) {
+        if (real && real.hasAttribute(a)) stage.setAttribute(a, real.getAttribute(a));
+        else stage.removeAttribute(a);
+      }
+    }
+    syncFlags();
+
+    // ---- what each tab shows -------------------------------------------------------
+    function stopScene() {
+      if (restart) { clearTimeout(restart); restart = 0; }
+      if (scene) { const s = scene; scene = null; try { if (s.exit) s.exit(); } catch (e) { (KIT.log || console).error('[look preview] exit', e); } }
+    }
+    function clearAll() {
+      stopScene();
+      for (const id of HOSTS) { const h = hostEl(id); h.hidden = true; h.classList.remove('is-in'); UI.clear(h); }
+      pad.hidden = true;
+      // A host outlined by a tap (the chapter card's backdrop) is emptied, not
+      // thrown away, and came back outlined the next time its tab was up.
+      if (picked) picked.classList.remove('ed-look-picked');
+      picked = null;
+    }
+    /**
+     * drive(id, params) — run a scene into the preview, off the stack. It ends
+     * the way a scene ends (finish), and the preview starts it again a moment
+     * later, so Try mode can go round as often as the author likes. Only a
+     * scene that says `previewable` is driven; a module that replaced it gets
+     * still markup instead.
+     */
+    function drive(id, params) {
+      const def = KIT.registry('scenes').get(id);
+      if (!def || !def.previewable) return false;
+      const s = def.create(params);
+      s.id = s.id || id;
+      s.finish = () => {
+        if (scene !== s) return;
+        stopScene();
+        restart = setTimeout(() => { restart = 0; if (alive && state.tab === (id === 'dialogue' ? 'talk' : 'choice')) draw(); }, 600);
+      };
+      scene = s;
+      try { s.enter(Object.assign({ root: shadow, preview: true }, params)); }
+      catch (e) { (KIT.log || console).error(`[look preview] ${id}`, e); scene = null; return false; }
+      return true;
+    }
+    /**
+     * talk(short) — somebody talking. `short` is the Pad tab's strip of a
+     * screen, where a portrait above the box hangs out of the top: there the
+     * line is said without one.
+     */
+    function talk(short, bg) {
+      const p = project();
+      const line = sample(p);
+      const ctx = KIT.interpreter && KIT.interpreter.fakeCtx ? KIT.interpreter.fakeCtx({ project: p }) : null;
+      const who = ctx ? KIT.text.substitute(line.who, ctx) : line.who;
+      const said = KIT.cast && KIT.cast.speaker ? KIT.cast.speaker(p, { who, text: line.text }) : { who, text: line.text };
+      const above = /^above/.test(KIT.look.get('dialogue.face', 'left'));
+      const face = short && above ? null : (line.face || standIn());
+      if (drive('dialogue', { who, face, voice: said.voice || null, text: line.text, ctx, bg: bg || 'window' })) return;
+      const ui = UI.parts.dialogueBox(hostEl('dialogue'));
+      ui.host.hidden = false;
+      ui.host.setAttribute('data-bg', bg || 'window');
+      ui.name.textContent = who;
+      ui.name.hidden = !who;
+      UI.clear(ui.text);
+      for (const text of KIT.text.strip(line.text).split('\n')) ui.text.appendChild(UI.make('div.kit-line', { text }));
+      ui.next.textContent = KIT.look.get('dialogue.marker', '▼');
+      ui.next.classList.add('is-ready');
+    }
+    function choice() {
+      const p = project();
+      const options = [{ text: KIT.strings.get(p, 'yes'), index: 0 }, { text: KIT.strings.get(p, 'no'), index: 1 }];
+      if (drive('choice', { prompt: 'Ready?', options })) return;
+      UI.select(UI.parts.choicePanel(hostEl('choice'), { prompt: 'Ready?', options }).list, 0);
+    }
+    /**
+     * nameBox() — the box that asks for a name, standing still. It has four
+     * colours of its own (the field, its border, OK and OK's letters), and no
+     * tab: without it those four changed and nothing on the preview did, which
+     * reads as a broken control. A colour of the name box asks for this.
+     */
+    function nameBox() {
+      const p = project();
+      const host = hostEl('choice');
+      UI.clear(host);
+      host.hidden = false;
+      const panel = UI.make('div.kit-panel.kit-modal');
+      panel.appendChild(UI.make('div.kit-prompt', { text: KIT.strings.get(p, 'name-prompt') }));
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'kit-input';
+      input.value = 'Mira';
+      input.readOnly = true;
+      input.tabIndex = -1;
+      panel.appendChild(input);
+      const row = UI.make('div.kit-row');
+      row.appendChild(UI.button('cancel', KIT.strings.get(p, 'cancel')));
+      row.appendChild(UI.button('ok', KIT.strings.get(p, 'ok'), 'is-primary'));
+      panel.appendChild(row);
+      host.appendChild(panel);
+    }
+    function menu() {
+      const P = KIT.pauseScreen;
+      const rows = P ? P.rows(KIT.game || null, project()) : [];
+      UI.select(UI.parts.listPanel(hostEl('pause-menu'), P ? P.title() : 'Paused', rows, { hint: P ? P.hint() : null }).list, 0);
+      fitAll();
+    }
+    /**
+     * fit(hostId, selector) — that part shrunk until the whole of it is inside
+     * the preview's screen. With a few modules on, the pause menu has a dozen
+     * rows, twice the height of the preview: in the game's own panel the rest
+     * scroll, and here that hid every row after the fifth and the help line
+     * under them — the very things the Menu tab is opened to judge. The title
+     * is the same on a phone with its browser's bars showing, where its blurb
+     * was cut in half and its help line gone.
+     */
+    function fit(hostId, selector) {
+      const h = hostEl(hostId);
+      const box = h && !h.hidden ? h.querySelector(selector) : null;
+      if (!box) return;
+      box.style.zoom = '';
+      const cs = getComputedStyle(h);
+      const room = h.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const need = box.offsetHeight;
+      if (room > 0 && need > room) box.style.zoom = String(Math.floor((room / need) * 100) / 100);
+    }
+    function fitAll() {
+      if (state.tab === 'menu') fit('pause-menu', '.kit-panel');
+      else if (state.tab === 'title') fit('screen-title', '.kit-title-inner');
+    }
+    // The screen changes size with the phone turned, or Phone | Fill: fit again.
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (alive) fitAll(); }) : null;
+    if (resized) resized.observe(screen);
+    function title() {
+      const p = project();
+      const items = ['new-game', 'continue', 'settings'].map((action) => ({ action, label: KIT.strings.get(p, action), disabled: action === 'continue' }));
+      UI.select(UI.parts.titleScreen(hostEl('screen-title'), { meta: p.meta || {}, items, hint: 'Tap to choose' }).list, 0);
+      fitAll();
+    }
+    function toast() {
+      const p = project();
+      const meta = p.meta || {};
+      const chapter = hostEl('chapter');
+      const { card } = UI.parts.card(chapter, { title: meta.title || 'Chapter One', subtitle: meta.subtitle || '' });
+      const { pill } = UI.parts.toast(hostEl('toast'), KIT.strings.get(p, 'saved'));
+      // A toast in the middle sat on the card's words, and neither could be
+      // read. The card goes to the top; on a screen too short for the two, its
+      // words give way and its colour stays. Both hosts fill the screen, so
+      // their offsets (which a fading-in transform does not move) compare.
+      const middle = KIT.look.get('toast.at', 'top') === 'center';
+      chapter.toggleAttribute('data-apart', middle);
+      if (middle && card.offsetTop + card.offsetHeight > pill.offsetTop) card.hidden = true;
+    }
+    // `name` and `dim` have no chip: they are what a colour that only shows
+    // there asks for (the name box's, and the darkness behind a dimmed line).
+    const DRAW = { talk, choice, menu, title, toast, pad() { pad.hidden = false; talk(true); }, name: nameBox, dim() { talk(false, 'dim'); } };
+
+    /** What a tab draws depends on; when the look changes any of it, the tab is drawn again. */
+    function signature() {
+      const look = KIT.look.current();
+      const parts = { talk: [look.dialogue, look.voice], pad: [look.dialogue, look.voice], dim: [look.dialogue, look.voice], choice: [look.choice], menu: [look.menu], title: [], toast: [look.toast], name: [] };
+      return JSON.stringify([state.tab, parts[state.tab]]);
+    }
+
+    /**
+     * show(tab, again) — put that tab up. One that is already up is left as
+     * it is, so opening a section of the panel (which asks for its tab) does
+     * not start the talk over or lose the part a tap outlined; `again` plays
+     * it from the start.
+     */
+    function show(tab, again) {
+      if (!alive || !DRAW[tab]) return;
+      if (!again && tab === state.tab && drawn === tab) return;
+      state.tab = tab;
+      paintChips();
+      draw();
+    }
+    /** draw() — the tab drawn afresh: when it is first shown, and when the look changes what it shows. */
+    function draw() {
+      const tab = state.tab;
+      drawn = tab;
+      ready.then(() => {
+        if (!alive || state.tab !== tab) return;
+        clearAll();
+        sig = signature();
+        try { DRAW[tab](); } catch (e) { (KIT.log || console).error(`[look preview] ${tab}`, e); }
+      });
+    }
+    function mode(m) {
+      state.mode = m === 'try' ? 'try' : 'edit';
+      if (picked) { picked.classList.remove('ed-look-picked'); picked = null; }
+      paintChips();
+    }
+    function paintChips() {
+      chips.forEach((b, i) => b.setAttribute('aria-selected', String(TABS[i].id === state.tab)));
+      const trying = state.mode === 'try';
+      tryBtn.dataset.previewMode = state.mode;
+      tryBtn.setAttribute('aria-pressed', String(trying));
+      tryBtn.textContent = trying ? '✎ Edit' : '▶ Try';
+      tryBtn.title = trying ? 'Back to editing: a tap on the preview opens its settings' : 'Play with the preview: turn the pages, pick an answer';
+      sizeBtn.dataset.previewSize = state.size;
+      sizeBtn.textContent = state.size === 'phone' ? 'Phone' : 'Fill';
+      sizeBtn.title = state.size === 'phone' ? 'As wide as a phone. Tap to fill the space' : 'Filling the space. Tap for a phone\'s width';
+      frame.classList.toggle('is-phone', state.size === 'phone');
+    }
+
+    // ---- taps -----------------------------------------------------------------------
+    /** pick(target) — the part a tap landed on, outlined, and its settings opened. */
+    function pick(target) {
+      let part = null, at = target;
+      while (at && at !== shadow && at.nodeType === 1) {
+        if (!part && Array.from(at.classList || []).some(c => c.startsWith('kit-'))) part = at;
+        const section = SECTION_OF_HOST[at.id];
+        if (section) {
+          if (picked) picked.classList.remove('ed-look-picked');
+          picked = part || at;
+          picked.classList.add('ed-look-picked');
+          const fields = FIELD_OF_PART[at.id] || {};
+          const cls = part ? Object.keys(fields).find(c => part.classList.contains(c)) : null;
+          if (o.onPick) o.onPick(section, (cls && fields[cls]) || fields._ || null);
+          return;
+        }
+        at = at.parentNode;
+      }
+    }
+    /** In Try mode a menu or a title is walked by tapping its lines; talk and choice have their own taps. */
+    function walk(target) {
+      if (state.tab !== 'menu' && state.tab !== 'title') return;
+      const row = target && target.closest ? target.closest('[data-index]') : null;
+      if (!row || row.disabled) return;
+      const list = row.parentNode;
+      UI.select(list, Number(row.getAttribute('data-index')) || 0);
+      KIT.look.sound('move');
+    }
+    host.addEventListener('pointerdown', () => { if (KIT.audio && KIT.audio.unlock) KIT.audio.unlock(); }, true);
+    host.addEventListener('click', (e) => {
+      const target = e.composedPath ? e.composedPath()[0] : e.target;
+      if (state.mode === 'try') {
+        if (state.tab === 'toast') { draw(); return; }
+        walk(target);
+        return;
+      }
+      // Edit: the tap is the author's, not the player's — the scenes never hear it.
+      e.preventDefault();
+      e.stopPropagation();
+      pick(target);
+    }, true);
+
+    // ---- keeping up with the look -----------------------------------------------------
+    const offApplied = KIT.look.events.on('applied', (ev) => {
+      if (!alive) return;
+      lookStyle.textContent = ev.css;
+      syncFlags();
+      if (signature() !== sig) draw();
+    });
+    lookStyle.textContent = KIT.look.css(project());
+
+    function frameStep(t) {
+      raf = 0;
+      if (!alive) return;
+      const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+      last = t;
+      if (scene && scene.update) { try { scene.update(dt, true); } catch (e) { (KIT.log || console).error('[look preview] update', e); stopScene(); } }
+      raf = requestAnimationFrame(frameStep);
+    }
+    raf = requestAnimationFrame(frameStep);
+
+    paintChips();
+    return {
+      show, mode,
+      tab: () => state.tab,
+      destroy() {
+        alive = false;
+        if (raf) cancelAnimationFrame(raf);
+        if (snapRaf) cancelAnimationFrame(snapRaf);
+        if (resized) resized.disconnect();
+        offApplied();
+        stopScene();
+        wrap.remove();
+      },
+    };
+  }
+
+  ED.lookPreview = { mount, sample };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/kit/editor/panel-look.js ----
+// Creator Mode — the Look panel: how the game looks and sounds.
+//
+// Its own group, beside Map, Story and Game (ADR-0017). The top half of the
+// phone is a live preview of the game screen (js/kit/editor/look-preview.js),
+// the sheet under it is this: a row of looks to start from, then the parts of
+// the interface one at a time — colours, the message box, the answers to a
+// question, the cursor, the pause menu, the toast, the on-screen buttons and
+// the sounds. Every section is a form drawn from the look's own field lists
+// (KIT.look.TOKENS and KIT.look.PARTS), so an option added there is an option
+// here, with the words it was given there.
+//
+// Every change is seen at once and written once. A control's value goes into
+// a draft; the draft is put on the page (KIT.look.apply) on the next frame,
+// which is what the preview shows; and it is written to the document as ONE
+// undo step when the controls have been still for 300 ms (KIT.editor.pending).
+// A colour dragged across the picker is one step, and so are three quick taps
+// on a stepper. Writes go through KIT.editor.ops.look, which keeps project.ui
+// to what the game changes: pick a value the look underneath already has and
+// nothing is stored.
+(function (root) {
+  const KIT = root.KIT = root.KIT || {};
+  const ED = KIT.editor = KIT.editor || {};
+  const L = KIT.look;
+
+  /**
+   * The sections, in the order they are listed. `tab` is what the preview
+   * shows while the section is open, so opening "Message box" shows somebody
+   * talking; `part` is the KIT.look.PARTS list the section's form is drawn
+   * from; `tokens` are the colours that belong with it.
+   */
+  const SECTIONS = [
+    { id: 'start', label: 'Start from', tab: 'talk' },
+    { id: 'colours', label: 'Colours' },
+    { id: 'box', label: 'Message box', tab: 'talk', part: 'dialogue', hint: 'The box people talk in.' },
+    { id: 'choice', label: 'Choices', tab: 'choice', part: 'choice', hint: 'The answers when the game asks a question, like Yes and No.' },
+    { id: 'cursor', label: 'Cursor', tab: 'menu', part: 'cursor', hint: 'The mark beside the chosen line, in a question or a menu.' },
+    { id: 'menu', label: 'Pause menu', tab: 'menu', part: 'menu', hint: 'The menu ☰ opens during the game.' },
+    { id: 'toast', label: 'Toast', tab: 'toast', part: 'toast', hint: 'A toast is the little note that pops up, like “Saved.”', tokens: ['toastBg', 'toastFrame', 'toastInk'] },
+    { id: 'pad', label: 'On-screen buttons', tab: 'pad', part: 'pad', tokens: ['padFrame', 'padInk', 'padA', 'padB'] },
+    { id: 'sounds', label: 'Sounds', tab: 'talk' },
+  ];
+  // The colours an author reaches for first, then the rest behind "More colours".
+  const MAIN_COLOURS = ['paper', 'ink', 'frame', 'accent', 'select', 'selectInk', 'dim', 'frameWidth', 'radius'];
+  // Fonts and text size come with the Fonts section, which is still to come.
+  const NOT_YET = ['fontText', 'fontUi', 'fontName', 'textSize', 'lineHeight'];
+  /**
+   * Where each colour can be seen: the preview tabs that draw it, the first
+   * being the one to turn to. Changing "Chosen line" while somebody talks
+   * changed nothing on the screen, and a control that changes nothing looks
+   * broken; so a colour the current tab does not draw turns the preview to
+   * one that does. A colour missing here is on every tab (the screen round
+   * the game) or drawn wherever the box is.
+   */
+  const BOXES = ['talk', 'choice', 'menu', 'name', 'pad', 'dim'];
+  const LISTS = ['menu', 'choice'];
+  const TITLE = ['title'];
+  const SHOWN_IN = {
+    paper: BOXES, ink: BOXES, frame: BOXES, frameWidth: BOXES, radius: BOXES, rim: BOXES, drop: BOXES, shadow: BOXES,
+    accent: ['talk', 'choice', 'menu', 'pad', 'dim'], nameInk: ['talk', 'pad', 'dim'], markerInk: ['talk', 'pad', 'dim'], faceBg: ['talk', 'dim'],
+    titleInk: ['menu'], valueInk: ['menu'], cursorInk: LISTS, selectFrame: LISTS, select: LISTS, selectInk: LISTS, menuDimAmount: LISTS,
+    dim: ['dim'], dimAmount: ['dim'],
+    button: ['name'], buttonInk: ['name'], inputFrame: ['name'], inputBg: ['name'],
+    highlight: ['title', 'toast'], highlight2: TITLE, titleBg: TITLE, titleShadow: TITLE, titleButton: TITLE, titleButtonInk: TITLE, titlePickInk: TITLE,
+    toastBg: ['toast'], toastFrame: ['toast'], toastInk: ['toast'], chapterBg: ['toast'], chapterInk: ['toast'],
+    padFrame: ['pad'], padInk: ['pad'], padA: ['pad'], padB: ['pad'],
+  };
+  /**
+   * Turn the preview to a tab that shows this colour, unless it already does.
+   * The chosen line's box and its border are not drawn at all while the look
+   * has no box round the chosen line (Soul, Handheld): there, say so, and
+   * where to turn it on, rather than change a colour nobody can see.
+   */
+  function showColour(key) {
+    const tabs = SHOWN_IN[key];
+    if (preview && tabs && !tabs.includes(preview.tab())) preview.show(tabs[0]);
+    if ((key === 'select' || key === 'selectFrame') && L.current().cursor.highlight === false) {
+      ED.toast('This look has no box round the chosen line, so this colour does not show. Cursor › Box round the chosen line turns it on.');
+    }
+  }
+  /** Which section a path inside `ui` is set in, for a problem to open and for a tap on the preview. */
+  function sectionOf(path) {
+    const [k, key] = path || [];
+    if (!k || k === 'base') return 'start';
+    if (k === 'tokens') return (SECTIONS.find(s => (s.tokens || []).includes(key)) || { id: 'colours' }).id;
+    if (k === 'sounds' || k === 'voice') return 'sounds';
+    return (SECTIONS.find(s => s.part === k) || { id: 'start' }).id;
+  }
+
+  // Kept outside the panel, so leaving it and coming back finds it as it was.
+  // `field` is one to scroll to and flash the next time the panel is drawn.
+  const state = { open: 'start', field: null };
+  const moreColours = { open: false };
+
+  // =================================================================================
+  // The draft: what the controls say, not yet written
+  // =================================================================================
+  const draft = new Map();            // 'dialogue.lines' -> { path, value }
+  let draftLabel = '';
+  let applyRaf = 0;
+
+  /** The document's project with the draft on top: what the preview and the forms show. */
+  function draftProject() {
+    const p = ED.state.project;
+    if (!draft.size) return p;
+    const ui = KIT.deepClone(KIT.isObject(p.ui) ? p.ui : {});
+    for (const { path, value } of draft.values()) {
+      let at = ui;
+      for (const k of path.slice(0, -1)) { if (!KIT.isObject(at[k])) at[k] = {}; at = at[k]; }
+      at[path[path.length - 1]] = KIT.deepClone(value);
+    }
+    return Object.assign({}, p, { ui });
+  }
+  /** Put the draft on the page on the next frame: at most once a frame, however fast the picker sends. */
+  function showDraft() {
+    if (applyRaf) return;
+    applyRaf = requestAnimationFrame(() => { applyRaf = 0; L.apply(draftProject()); });
+  }
+  /**
+   * followDocument() — the page shows the document's look (and the draft on
+   * top), whichever panel is open. An undo can change the look from anywhere:
+   * a change made here, then Map, then ↶ took `ui` out of the game while the
+   * page kept the look — and KIT.look.get went on answering with it — until
+   * the author came back to Look. So every change to the document is checked
+   * against what was last put on the page, not only the ones Look sees.
+   */
+  let applied = '';
+  function followDocument() {
+    const p = ED.state && ED.state.project;
+    if (!p) return;
+    const now = JSON.stringify([p.ui || null, Array.from(draft.values())]);
+    if (now !== applied) { applied = now; showDraft(); }
+  }
+  let following = false;
+  function follow() {
+    if (following || typeof ED.on !== 'function') return;
+    following = true;
+    ED.on('document', followDocument);
+  }
+  function writeDraft() {
+    if (!draft.size) return;
+    const entries = Array.from(draft.values());
+    draft.clear();
+    ED.commit('Look: ' + draftLabel, (doc, O) => { for (const e of entries) O.look.set(doc, e.path, e.value); });
+  }
+  /** What `path` is in the game as the panel now shows it: the document, the draft on top, the looks under it. */
+  function effective(path) {
+    let at = L.resolve(draftProject());
+    for (const k of path) { if (!KIT.isObject(at)) return undefined; at = at[k]; }
+    return at;
+  }
+  /**
+   * change(path, value, label) — one control moved. Seen now; written when
+   * the controls are still. A value the game already has is not a change, and
+   * writing it would leave an undo step that undoes nothing (a colour box
+   * reports its value again when it loses the caret, say).
+   */
+  function change(path, value, label) {
+    if (KIT.deepEqual(effective(path), value)) return;
+    draft.set(path.join('.'), { path, value });
+    draftLabel = label;
+    if (path[0] === 'tokens') showColour(path[1]);
+    showDraft();
+    ED.pending('look', writeDraft, 300);
+  }
+
+  // =================================================================================
+  // The panel
+  // =================================================================================
+  const make = (spec, o) => KIT.ui.make(spec, o);
+  const clear = (el) => KIT.ui.clear(el);
+  const btn = (...args) => ED.inspector.btn(...args);
+  const INS = () => ED.inspector;
+
+  let preview = null;                 // the stage's preview, while it is up
+  let panel = null;                   // { host, forms:[{ form, get }], sig, now }
+
+  /** Every look there is to start from: the kit's, then the game's own. */
+  function looks(project) {
+    const out = KIT.registry('looks').list().map(d => ({ id: d.id, label: d.label || d.id, describe: d.describe || '' }));
+    const own = KIT.isObject(project.looks) ? project.looks : {};
+    for (const id of Object.keys(own)) if (!out.some(l => l.id === id)) out.push({ id, label: (own[id] && own[id].label) || id, describe: (own[id] && own[id].describe) || '' });
+    return out;
+  }
+
+  /**
+   * swatch(look) -> a tiny message box in that look: its paper, border,
+   * corners and letters, a line of talk (with the mark, when it starts lines
+   * with one) and an answer with the look's cursor. Enough to tell four looks
+   * apart at a glance before tapping any of them.
+   */
+  function swatch(look) {
+    const t = look.tokens, d = look.dialogue, c = look.cursor;
+    const box = make('div.ed-look-swatch');
+    box.setAttribute('aria-hidden', 'true');
+    // A portrait above the box changes its whole outline (Dream's framed face
+    // over the right-hand corner), so it is drawn: a square in the portrait's
+    // colours, at its corner. The tab moves out of its way as it does in the game.
+    const above = d.face === 'above-left' || d.face === 'above-right';
+    if (above) {
+      const face = make('span.ed-look-swatch-face');
+      Object.assign(face.style, { background: t.faceBg, borderColor: d.faceFrame ? t.frame : 'transparent' });
+      face.style[d.face === 'above-left' ? 'left' : 'right'] = '4px';
+      box.appendChild(face);
+      box.classList.add('has-face-above');
+    }
+    Object.assign(box.style, {
+      background: t.paper, color: t.ink, borderColor: t.frame,
+      borderWidth: Math.max(1, Math.round(t.frameWidth * 0.7)) + 'px', borderRadius: Math.round(t.radius * 0.6) + 'px',
+      fontFamily: L.family(t.fontText) || '', textShadow: t.shadow ? `1px 1px 0 ${t.shadow}` : 'none',
+    });
+    if (d.name === 'tab') {
+      const tab = make('span.ed-look-swatch-tab', { text: d.nameCase === 'upper' ? 'MIRA' : 'Mira' });
+      Object.assign(tab.style, { background: t.paper, borderColor: t.frame, color: t.nameInk || t.accent, borderWidth: Math.max(1, Math.round(t.frameWidth * 0.7)) + 'px' });
+      if (d.face === 'above-left') Object.assign(tab.style, { left: 'auto', right: '6px' });
+      box.appendChild(tab);
+    } else if (d.name === 'inside') {
+      const name = make('span.ed-look-swatch-name', { text: d.nameCase === 'upper' ? 'MIRA' : 'Mira' });
+      name.style.color = t.nameInk || t.accent;
+      box.appendChild(name);
+    }
+    box.appendChild(make('span.ed-look-swatch-line', { text: (d.prefix || '') + 'Hello there!' }));
+    const answer = make('span.ed-look-swatch-line');
+    const mark = make('span', { text: c.glyph ? c.glyph + ' ' : '' });
+    mark.style.color = c.color || t.cursorInk || t.accent;
+    answer.appendChild(mark);
+    answer.appendChild(make('span', { text: 'Yes' }));
+    if (c.highlight && t.select) { answer.style.background = t.select; answer.style.color = t.selectInk || t.ink; }
+    else if (t.selectInk) answer.style.color = t.selectInk;
+    box.appendChild(answer);
+    return box;
+  }
+
+  function startSection(body, p, look) {
+    const cards = make('div.ed-look-cards');
+    const all = looks(p);
+    const inUse = look.base || 'kit';
+    for (const l of all) {
+      const card = make('button.ed-look-card');
+      card.type = 'button';
+      card.dataset.look = l.id;
+      card.setAttribute('aria-pressed', String(l.id === inUse));
+      card.appendChild(swatch(L.resolve(Object.assign({}, p, { ui: { base: l.id } }))));
+      card.appendChild(make('span.ed-look-card-name', { text: l.label + (l.id === inUse ? '  ✓' : '') }));
+      card.title = l.describe;
+      card.onclick = () => chooseBase(l, body);
+      cards.appendChild(card);
+    }
+    body.appendChild(cards);
+    const current = all.find(l => l.id === inUse);
+    if (current) body.appendChild(make('p.ed-hint.ed-look-describe', { text: `${current.label}: ${current.describe}` }));
+    body.appendChild(make('p.ed-hint', { text: 'Starting from a look keeps nothing hidden: every part below can still be changed, and ↶ puts back the look you had.' }));
+  }
+
+  /**
+   * chooseBase(look) — start from another look. With no changes of the
+   * author's own there is nothing to ask. With some, the sheet asks whether
+   * they go on top of the new look or are dropped; either way it is one undo
+   * step.
+   */
+  function chooseBase(l, body) {
+    ED.flushPending();
+    const p = ED.state.project;
+    const base = (KIT.isObject(p.ui) && p.ui.base) || 'kit';
+    if (l.id === base) { ED.toast(`${l.label} is the look in use`); return; }
+    const use = (clean) => ED.commit(`Look: start from ${l.label}`, (doc, O) => O.look.useBase(doc, l.id, { clean }));
+    const n = ED.ops.look.overrides(p).length;
+    if (!n) { use(false); return; }
+    const old = body.querySelector('.ed-look-sheet');
+    if (old) old.remove();
+    const sheet = make('div.ed-look-sheet');
+    sheet.appendChild(make('p', { text: `You have changed ${n} thing${n === 1 ? '' : 's'} yourself. Keep ${n === 1 ? 'it' : 'them'} on top of ${l.label}?` }));
+    const row = make('div.ed-look-sheet-row');
+    row.appendChild(btn(`Keep my changes (${n})`, `Start from ${l.label} and keep your own changes on top`, () => { sheet.remove(); use(false); }, 'primary'));
+    row.appendChild(btn('Start clean', `Start from ${l.label} as it is, without your changes`, () => { sheet.remove(); use(true); }));
+    row.appendChild(btn('Cancel', 'Leave the look as it is', () => sheet.remove()));
+    sheet.appendChild(row);
+    body.insertBefore(sheet, body.firstChild);
+  }
+
+  /** A field list as the panel offers it: options held for later left out, and choices held back taken off. */
+  function offered(fields) {
+    return fields.filter(f => f.later !== true).map(f => (Array.isArray(f.later)
+      ? Object.assign({}, f, { options: f.options.filter(o => !f.later.includes(o.value)) })
+      : f));
+  }
+
+  /**
+   * shownColour(field) -> the colour an empty colour is drawn in: the token it
+   * follows ("Same as accent" is the accent, the cursor is the cursor's ink,
+   * which is the accent until it has one of its own), or the colour it shows
+   * for a picture. null for one that is simply none ("None" has no colour).
+   */
+  function shownColour(field) {
+    const tokens = (panel && panel.now ? panel.now : lookNow()).tokens;
+    let f = field;
+    for (let i = 0; f && i < 4; i++) {
+      if (f.shows) return f.shows;
+      const next = f.follows && L.TOKENS.find(t => t.key === f.follows);
+      if (!next) return null;
+      if (tokens[next.key] != null) return tokens[next.key];
+      f = next;
+    }
+    return null;
+  }
+
+  /**
+   * form(body, at, fields, get, inherited) — one form over `ui[at]` (a part,
+   * or the tokens); `get(look)` is that part of a resolved look. The inherited
+   * values are what ↺ goes back to and what is shown dimmed; putting one back
+   * is a delete, not a copy.
+   */
+  function form(body, at, fields, get, inherited) {
+    const host = make('div');
+    body.appendChild(host);
+    const f = INS().mount(host, {
+      fields, value: get(panel.now), ctx: { inherited, project: ED.state.project, noneColour: shownColour },
+      onChange: (path, v, info) => change([at].concat(path), v, (info && info.field && info.field.label) || path.join(' ')),
+    });
+    panel.forms.push({ form: f, get });
+  }
+
+  function tokensForm(body, keys, look, inherited) {
+    const fields = keys.map(k => L.TOKENS.find(t => t.key === k)).filter(Boolean);
+    form(body, 'tokens', fields, (now) => now.tokens, inherited.tokens);
+  }
+
+  function coloursSection(body, look, inherited) {
+    body.appendChild(make('p.ed-hint', { text: 'Tap a colour to pick one, or type it as #rrggbb. Accent is the one to try first: names, the cursor and the chosen line follow it until they have colours of their own.' }));
+    tokensForm(body, MAIN_COLOURS, look, inherited);
+    const owned = new Set(MAIN_COLOURS.concat(NOT_YET, ...SECTIONS.map(s => s.tokens || [])));
+    const more = L.TOKENS.filter(t => !owned.has(t.key)).map(t => t.key);
+    INS().section(body, 'More colours', moreColours.open, (inner) => {
+      inner.appendChild(make('p.ed-hint', { text: 'The finer parts: the speaker\'s name, the “more” mark, the box that asks for a name, the title screen, the chapter card and the screen round the game.' }));
+      tokensForm(inner, more, look, inherited);
+    }, moreColours);
+  }
+
+  function partSection(body, sec, look, inherited) {
+    if (sec.hint) body.appendChild(make('p.ed-hint', { text: sec.hint }));
+    form(body, sec.part, offered(L.PARTS[sec.part]), (now) => now[sec.part], inherited[sec.part]);
+    // A look may hold a choice the game cannot act on yet (Handheld's answers
+    // above the box). No chip is lit for it, so say why, and what it does now.
+    for (const f of L.PARTS[sec.part]) {
+      if (!Array.isArray(f.later) || !f.later.includes(look[sec.part][f.key])) continue;
+      const name = (v) => (f.options.find(o => o.value === v) || { label: v }).label;
+      body.appendChild(make('p.ed-hint.ed-look-later', { text: `${f.label}: this look asks for “${name(look[sec.part][f.key])}”, which the game cannot do yet, so for now it is “${name(f.default)}”. Pick one above to choose for yourself.` }));
+    }
+    if (sec.tokens) tokensForm(body, sec.tokens, look, inherited);
+  }
+
+  /** A select of ids, with a first "none" choice. Sounds and voices are lists too long for chips. */
+  function picker(list, value, noneLabel, onPick) {
+    const sel = make('select.ed-look-select');
+    const none = make('option', { text: noneLabel });
+    none.value = '';
+    sel.appendChild(none);
+    for (const o of list) { const op = make('option', { text: o.label }); op.value = o.id; sel.appendChild(op); }
+    if (value && !list.some(o => o.id === value)) { const op = make('option', { text: `${value} (not in this game)` }); op.value = value; sel.appendChild(op); }
+    sel.value = value || '';
+    sel.onchange = () => onPick(sel.value || null);
+    return sel;
+  }
+
+  function soundsSection(body, look, inherited) {
+    const sounds = KIT.registry('sounds').list().map(d => ({ id: d.id, label: KIT.labelOf(d, null, d.id) }));
+    body.appendChild(make('p.ed-hint', { text: 'What each thing the player does sounds like. ▶ plays it.' }));
+    const rows = [];
+    for (const f of L.PARTS.sounds.filter(x => !x.later)) {
+      const row = make('div.ed-look-sound');
+      const head = make('div.ed-look-sound-head');
+      head.appendChild(make('span.ed-f-label', { text: f.label }));
+      row.appendChild(head);
+      const line = make('div.ed-row');
+      const sel = picker(sounds, look.sounds[f.key], 'Silent', (v) => change(['sounds', f.key], v, f.label));
+      sel.setAttribute('aria-label', f.label);
+      line.appendChild(sel);
+      line.appendChild(btn('▶', `Hear “${f.label}”`, () => { if (KIT.audio.unlock) KIT.audio.unlock(); if (sel.value) KIT.audio.play(sel.value); }));
+      const reset = btn('↺', 'Back to the look\'s own sound', () => { sel.value = inherited.sounds[f.key] || ''; change(['sounds', f.key], inherited.sounds[f.key], f.label); });
+      line.appendChild(reset);
+      row.appendChild(line);
+      if (f.doc) row.appendChild(make('div.ed-hint', { text: f.doc }));
+      body.appendChild(row);
+      rows.push({ row, sel, reset, key: f.key });
+    }
+    const voices = KIT.registry('voices').list().map(d => ({ id: d.id, label: d.name || d.id }));
+    // Dimmed like the sounds above while it is the look's own voice.
+    const vrow = make('div.ed-look-sound');
+    vrow.appendChild(make('span.ed-f-label', { text: 'Typing sound (this look)' }));
+    const vline = make('div.ed-row');
+    const vsel = picker(voices, look.voice, 'The ordinary voice', (v) => change(['voice'], v, 'Typing sound'));
+    vsel.setAttribute('aria-label', 'Typing sound (this look)');
+    vline.appendChild(vsel);
+    vline.appendChild(btn('▶', 'Hear it in the preview', () => { if (KIT.audio.unlock) KIT.audio.unlock(); if (preview) preview.show('talk', true); }));
+    const vreset = btn('↺', 'Back to the look\'s own voice', () => { vsel.value = inherited.voice || ''; change(['voice'], inherited.voice, 'Typing sound'); });
+    vline.appendChild(vreset);
+    vrow.appendChild(vline);
+    vrow.appendChild(make('div.ed-hint', { text: 'How letters sound as they appear, for anyone without a voice of their own. A person in the Cast with a voice keeps it, and Game › Project › “Everybody sounds like” wins over this.' }));
+    body.appendChild(vrow);
+    // The same refresh a form gets: the values follow the document, and ↺ shows only on a change.
+    panel.forms.push({
+      form: { refresh(now) {
+        for (const r of rows) {
+          if (document.activeElement !== r.sel) r.sel.value = now.sounds[r.key] || '';
+          const own = now.sounds[r.key] !== inherited.sounds[r.key];
+          r.reset.hidden = !own;
+          r.row.classList.toggle('is-inherited', !own);
+        }
+        if (document.activeElement !== vsel) vsel.value = now.voice || '';
+        vreset.hidden = now.voice === inherited.voice;
+        vrow.classList.toggle('is-inherited', now.voice === inherited.voice);
+      } },
+      get: (now) => now,
+    });
+  }
+
+  const lookNow = () => L.resolve(draftProject());
+
+  function build(host) {
+    const p = ED.state.project;
+    const look = lookNow();
+    const inherited = L.inherited(p, []);
+    INS().destroyForms(panel.forms.map(x => x.form).filter(f => f.destroy));
+    panel.forms = [];
+    panel.now = look;
+    clear(host);
+    host.appendChild(make('p.ed-hint.ed-look-intro', { text: 'How your game looks and sounds. Pick a look to start from, then change anything below. The picture above shows it as you go: tap a part of it to jump to its settings, or ▶ Try to play it.' }));
+    for (const sec of SECTIONS) {
+      const head = make('button.ed-look-section');
+      head.type = 'button';
+      head.dataset.section = sec.id;
+      const open = state.open === sec.id;
+      head.setAttribute('aria-expanded', String(open));
+      head.appendChild(make('span.ed-look-caret', { text: open ? '▾' : '▸' }));
+      head.appendChild(make('span', { text: sec.label }));
+      head.onclick = () => openSection(open ? null : sec.id);
+      host.appendChild(head);
+      if (!open) continue;
+      const body = make('div.ed-look-body');
+      body.dataset.section = sec.id;
+      host.appendChild(body);
+      if (sec.id === 'start') startSection(body, p, look);
+      else if (sec.id === 'colours') coloursSection(body, look, inherited);
+      else if (sec.id === 'sounds') soundsSection(body, look, inherited);
+      else partSection(body, sec, look, inherited);
+    }
+    refreshForms(look);
+    showField(host);
+  }
+  /** Every form re-read from one resolved look, the one an empty colour's square is read from too. */
+  function refreshForms(now) {
+    panel.now = now;
+    for (const x of panel.forms) x.form.refresh(x.get(now));
+  }
+
+  /**
+   * Scroll to the section that was asked for — to one field of it, flashed,
+   * when one was named — on the next frame. The panel is drawn while Creator
+   * Mode is still switching to it, and the switch ends by putting the sheet
+   * back where this panel was last scrolled to. Scrolled at once, that undid
+   * it: a problem tapped in Problems opened Colours and flashed the colour it
+   * named out of sight, below the Box and Text the author then changed instead.
+   */
+  function showField(host) {
+    if (!state.scroll) return;
+    const open = state.open, field = state.field;
+    state.scroll = false;
+    state.field = null;
+    requestAnimationFrame(() => {
+      if (!host.isConnected || host.hidden) return;             // gone somewhere else meanwhile
+      const head = host.querySelector(`.ed-look-section[data-section="${open}"]`);
+      const row = field ? host.querySelector(`.ed-look-body .ed-f[data-key="${field}"]`) : null;
+      const target = row || head;
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: row ? 'center' : 'start' });
+      if (row) { row.classList.add('is-flash'); setTimeout(() => row.classList.remove('is-flash'), 900); }
+    });
+  }
+
+  /**
+   * openSection(id, field) — one section open at a time, so a phone never
+   * scrolls past three forms to find a fourth. The preview follows: opening
+   * Message box shows somebody talking. `field` scrolls to one field of it
+   * (a tap on the portrait opens Message box at Portrait).
+   */
+  function openSection(id, field) {
+    // A tap on a header does not always take the caret out of the text box it
+    // was in (a button on an iPhone takes no focus), and a panel with the caret
+    // in it is never redrawn under the typing — so the section asked for did
+    // not open, and then opened by surprise when the typing was written. The
+    // author asked to go somewhere else: the typing is finished first.
+    const a = document.activeElement;
+    if (panel && panel.host && a && panel.host.contains(a) && typeof a.blur === 'function') a.blur();
+    ED.flushPending();
+    ask(id, field);
+    const sec = SECTIONS.find(s => s.id === id);
+    if (sec && sec.tab && preview) preview.show(sec.tab);
+    if (!panel) return;
+    panel.sig = '';
+    ED.refreshPanels();
+  }
+  /** ask(id, field) — the section (and field) the next drawing opens and scrolls to. */
+  function ask(id, field) {
+    state.open = id;
+    state.field = field || null;
+    state.scroll = true;
+    if (id === 'colours' && field && !MAIN_COLOURS.includes(field)) moreColours.open = true;
+  }
+
+  KIT.registry('editorPanels').add({
+    id: 'look', label: 'Look', icon: 'look', order: 10, section: 'look',
+    mount(host) {
+      panel = { host, forms: [], sig: '' };
+      follow();
+      // Problems selects before it opens the panel, and a panel not yet
+      // mounted hears no onSelect: the first time, the selection is read here.
+      const sel = ED.state.selection;
+      if (sel && sel.kind === 'look') ask(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2]);
+      host.classList.add('ed-look');
+      this.refresh(ED);
+    },
+    refresh() {
+      if (!panel || !panel.host) return;
+      const p = ED.state.project;
+      followDocument();
+      const sig = JSON.stringify([state.open, (KIT.isObject(p.ui) && p.ui.base) || 'kit', Object.keys(KIT.isObject(p.looks) ? p.looks : {})]);
+      if (sig === panel.sig) { refreshForms(lookNow()); showField(panel.host); return; }
+      if (INS().typingIn(panel.host)) return;
+      panel.sig = sig;
+      build(panel.host);
+    },
+    onSelect(sel) {
+      // A problem in the look, picked in Problems, opens the section it is in.
+      if (sel && sel.kind === 'look') openSection(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2] || null);
+    },
+    stage(el) {
+      preview = ED.lookPreview.mount(el, {
+        project: draftProject,
+        onPick: (section, field) => openSection(section, field),
+      });
+      const sec = SECTIONS.find(s => s.id === state.open);
+      preview.show((sec && sec.tab) || 'talk');
+      return { destroy() { if (preview) { preview.destroy(); preview = null; } } };
+    },
+  });
+
+  ED.lookPanel = { sectionOf };
+  follow();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

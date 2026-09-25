@@ -73,6 +73,7 @@ NODE_PATH=$(npm root -g) node e2e/vision.js   # the whole thing: new game -> cat
 | `docs/ARCHITECTURE.md` | The build contract: data model, commands, editor, phases |
 | `docs/KIT-API.md` | Every public function, with signatures |
 | `docs/CREATOR-MODE.md` | **The author's guide**: paint, place an Event, write a line, test it |
+| `docs/LOOKS.md` | **How your game looks and sounds**: the Look group, every control in it, and three looks to start from |
 | `docs/EDITOR-CONTRACT.md` | How Creator Mode is put together: the shell, panels, tools |
 | `docs/IMPORTING.md` | Bringing maps and art in from Tiled, RPG Maker MV and Aseprite |
 | `docs/IMPORT-CONTRACT.md` | The shape every importer returns |
@@ -148,7 +149,7 @@ becomes playable content with one command, or one drop into Creator Mode
 (`docs/IMPORTING.md`). A module can teach it a format of its own.
 
 Also done: the browser layer (renderer, scenes, input, audio, storage, game
-boot) and Creator Mode — sixteen panels in four groups and nine named map tools
+boot) and Creator Mode — seventeen panels in five groups and nine named map tools
 around one document, opened from the title screen, `?edit=1` or the pause menu
 (`docs/CREATOR-MODE.md`). `e2e/editor.js` plays the whole loop through a real
 browser at phone and laptop size, and photographs every panel at both.

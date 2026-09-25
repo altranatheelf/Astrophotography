@@ -346,3 +346,98 @@ test('inspector: a script slot summarises its first line', () => {
   const many = INS.scriptSummary([{ t: 'say', text: 'Hello!' }, { t: 'wait', ms: 100 }], {});
   assert.match(many, /\+1 more$/);
 });
+
+// ---- widgets, in a stand-in document -------------------------------------------------
+// The widgets build DOM, and these tests run without a browser. This is the
+// least of a document the chip widgets touch — elements with children,
+// attributes and a click handler — and no more, so a test cannot pass by
+// leaning on something a real page would not do.
+R('js/kit/scenes/stack.js');
+function withDocument(fn) {
+  class El {
+    constructor(tag) {
+      this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.dataset = {}; this.style = {}; this.className = ''; this.textContent = ''; this.value = '';
+      const names = new Set();
+      this.classList = { toggle: (c, on) => { if (on === undefined ? !names.has(c) : on) names.add(c); else names.delete(c); }, contains: (c) => names.has(c) };
+    }
+    appendChild(c) { this.children.push(c); return c; }
+    setAttribute(k, v) { this.attrs[k] = String(v); }
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; }
+    all(tag) { return this.children.flatMap(c => (c.tagName === tag ? [c] : []).concat(c.all(tag))); }
+  }
+  const had = Object.prototype.hasOwnProperty.call(global, 'document');
+  global.document = { createElement: (t) => new El(t), activeElement: null };
+  try { return fn(() => new El('div')); } finally { if (!had) delete global.document; }
+}
+const click = (b) => b.onclick({ preventDefault() {} });
+
+test('inspector: an enum shown as chips is one button per choice, however many there are', () => withDocument((div) => {
+  const host = div();
+  const picked = [];
+  const field = { key: 'face', type: 'enum', display: 'chips', default: 'left',
+    options: [{ value: 'left', label: 'Left' }, 'right', 'above-left', 'above-right', { value: 'none', label: 'Hidden' }] };
+  const w = INS.field(host, field, 'left', (v) => picked.push(v));
+  const buttons = host.all('BUTTON');
+  assert.equal(buttons.length, 5, 'five choices, five buttons — a segmented control stops at four');
+  assert.deepEqual(buttons.map(b => b.textContent), ['Left', 'Right', 'Above Left', 'Above Right', 'Hidden']);
+  assert.deepEqual(buttons.map(b => b.getAttribute('aria-pressed')), ['true', 'false', 'false', 'false', 'false']);
+  click(buttons[4]);
+  assert.deepEqual(picked, ['none']);
+  assert.equal(buttons[4].getAttribute('aria-pressed'), 'true');
+  assert.equal(buttons[0].getAttribute('aria-pressed'), 'false');
+  w.set('right');
+  assert.equal(buttons[1].getAttribute('aria-pressed'), 'true', 'and it follows the document');
+}));
+
+test('inspector: a short text with chips offers them, and a box for anything else', () => withDocument((div) => {
+  const host = div();
+  const picked = [];
+  INS.field(host, { key: 'glyph', type: 'string', display: 'chips', options: [{ value: '▶', label: '▶' }, { value: '', label: 'None' }] }, '▶', (v) => picked.push(v));
+  const buttons = host.all('BUTTON');
+  const box = host.all('INPUT')[0];
+  assert.equal(buttons.length, 2);
+  assert.ok(box, 'the box for a mark of your own');
+  click(buttons[1]);
+  assert.deepEqual(picked, [''], '"None" is the empty mark');
+  assert.equal(box.value, '');
+}));
+
+test('inspector: a colour that may be empty says what empty means', () => withDocument((div) => {
+  const host = div();
+  const picked = [];
+  const w = INS.field(host, { key: 'nameInk', type: 'color', nullable: true, noneLabel: 'Same as accent' }, '#ff0000', (v) => picked.push(v));
+  const none = host.all('BUTTON')[0];
+  assert.equal(none.textContent, 'Same as accent');
+  assert.equal(none.getAttribute('aria-pressed'), 'false');
+  const swatch = host.all('INPUT').find(i => i.className.includes('ed-color'));
+  assert.ok(!swatch.classList.contains('is-none'));
+  click(none);
+  assert.deepEqual(picked, [null]);
+  assert.equal(none.getAttribute('aria-pressed'), 'true');
+  assert.ok(swatch.classList.contains('is-none'), 'and the swatch fades: black there would be a lie');
+  w.set('#00ff00');
+  assert.equal(none.getAttribute('aria-pressed'), 'false');
+  const plain = div();
+  INS.field(plain, { key: 'paper', type: 'color' }, '#ffffff', () => {});
+  assert.equal(plain.all('BUTTON').length, 0, 'a colour that must be a colour has no such button');
+}));
+
+test('inspector: an empty colour that follows another shows that colour in its square, not black', () => withDocument((div) => {
+  const host = div();
+  let accent = '#3b4b8a';
+  const field = { key: 'nameInk', type: 'color', nullable: true, noneLabel: 'Same as accent', follows: 'accent' };
+  const w = INS.field(host, field, null, () => {}, { noneColour: (f) => (f.follows === 'accent' ? accent : null) });
+  const swatch = host.all('INPUT').find(i => i.className.includes('ed-color'));
+  const hex = host.all('INPUT').find(i => i.className.includes('ed-hex'));
+  assert.equal(swatch.value, '#3b4b8a', 'the square is the accent the name is drawn in');
+  assert.ok(swatch.classList.contains('is-none'), 'faded, as it has no colour of its own');
+  assert.equal(hex.value, '', 'and the hex box stays empty: nothing is stored');
+  w.set('#00ff00');
+  assert.equal(swatch.value, '#00ff00');
+  accent = '#fff';
+  w.set(null);
+  assert.equal(swatch.value, '#ffffff', 'back to following, it shows the accent as it is now, #rgb written out');
+  const none = div();
+  INS.field(none, { key: 'rim', type: 'color', nullable: true, noneLabel: 'None' }, null, () => {}, { noneColour: () => null });
+  assert.equal(none.all('INPUT').find(i => i.className.includes('ed-color')).value, '#000000', 'a colour that is simply none has nothing to show');
+}));

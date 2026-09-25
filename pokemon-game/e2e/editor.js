@@ -31,7 +31,7 @@ const TEXT_TAB = '.ed-script-views button:nth-child(2)';
 // and home, which bring one each), so the check is "every kit panel is there",
 // not "there are exactly this many tabs".
 const PANELS = ['tiles', 'objects', 'script', 'scripts', 'fragments', 'dialogue', 'map',
-  'project', 'vars', 'rules', 'items', 'strings', 'problems', 'data', 'import'];
+  'look', 'project', 'vars', 'rules', 'items', 'strings', 'problems', 'data', 'import'];
 
 let failures = 0;
 const log = (...a) => console.log(...a);
@@ -124,12 +124,15 @@ const openPanel = async (page, id) => {
   const group = await page.evaluate((pid) => KIT.editor.groupOf(pid), id);
   await page.click(`.ed-group[data-group="${group}"]`);
   await page.waitForTimeout(120);
-  // a one-panel group hides its chip row and opens the panel itself
-  const chip = await page.$(`.ed-tab[data-panel="${id}"]`);
-  if (chip && await chip.isVisible()) await chip.click();
+  // A one-panel group hides its chip row and opens the panel itself. A locator,
+  // not a handle: the chip row can be drawn again between finding a chip and
+  // clicking it, and a handle taken before that clicked a chip that was no
+  // longer in the page (a failure that came and went with the machine's load).
+  const chip = page.locator(`.ed-tab[data-panel="${id}"]`);
+  if (await chip.count() && await chip.isVisible()) await chip.click();
   await page.waitForTimeout(250);
 };
-/** Every panel tab, across all four groups, in order. */
+/** Every panel tab, across all five groups, in order. */
 const allTabs = async (page) => {
   const out = [];
   for (const g of await page.evaluate(() => KIT.editor.groups().map(x => x.id))) {
@@ -175,9 +178,9 @@ async function run(browser, label, size, opts) {
   const st0 = await state(page);
   check(!!st0.mapId, `Creator Mode opened on “${st0.mapId}”`);
   check(await page.isVisible('.ed-toolbar'), 'the toolbar is there');
-  check(await page.isVisible('.ed-groups'), 'the four groups are there');
+  check(await page.isVisible('.ed-groups'), 'the five groups are there');
   const groupIds = await page.$$eval('.ed-groups > .ed-group', els => els.map(e => e.dataset.group));
-  check(groupIds.join(',') === 'map,story,game,problems', `Map · Story · Game · Problems (${groupIds.join(', ')})`);
+  check(groupIds.join(',') === 'map,story,look,game,problems', `Map · Story · Look · Game · Problems (${groupIds.join(', ')})`);
   const tabIds = await allTabs(page);
   const missingTabs = PANELS.filter(id => !tabIds.includes(id));
   const extraTabs = tabIds.filter(id => !PANELS.includes(id));

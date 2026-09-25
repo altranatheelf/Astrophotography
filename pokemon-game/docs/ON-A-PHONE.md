@@ -71,9 +71,16 @@ A served page can do three things a page opened from a file cannot:
 ## What Creator Mode looks like on a phone
 
 * **The bottom sheet** holds all of it. It is short under **Map** so you can see
-  what you are painting, and tall under **Story**, **Game** and **Problems** so
-  you can read. The **▴/▾** grip above the group row flips it by hand; when it
-  goes tall the tool row hides to make room.
+  what you are painting, short under **Look** so the preview of your game has
+  the top half, and tall under **Story**, **Game** and **Problems** so you can
+  read. The **▴/▾** grip at the end of the group row flips it by hand; when it
+  goes tall the tool row hides to make room, and under **Look** the preview
+  keeps enough of the top for the whole message box.
+* **Five groups fit across.** On the narrowest phones Problems shows as ⚠ and
+  its count.
+* **Look** is where the game's look and sounds are made, with your thumb: a
+  look to start from in one tap, a live preview to tap on, and two fingers on
+  the preview to undo (`docs/LOOKS.md`).
 * **Chip rows scroll sideways** — the layer chips under "Painting on", the tile
   categories, the panel chips. If the one you want is not there, swipe the row.
 * **Tiles stay thumb-sized.** A map opens at a zoom that fits it *and* keeps a

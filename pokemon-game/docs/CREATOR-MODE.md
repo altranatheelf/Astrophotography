@@ -54,7 +54,7 @@ loaded (`docs/decisions/0015-a-new-game-is-a-blueprint.md`).
 
 ```
 ┌──────────────────────────────────────────────┬───────────────────────────┐
-│ map ▾   Pencil Fill Rect Erase Pick Stamp    │ Map · Story · Game · Problems │
+│ map ▾   Pencil Fill Rect Erase Pick Stamp    │ Map · Story · Look · Game · Problems │
 │         Terrain Move Hand  ↶ ↷ − + ▶ Play ✕  │ Tiles  Events  Map  …     │
 ├──────────────────────────────────────────────┤                           │
 │                                              │  the panel you picked     │
@@ -66,16 +66,31 @@ loaded (`docs/decisions/0015-a-new-game-is-a-blueprint.md`).
 ```
 
 Every tool has its name under its icon, so nothing has to be guessed at. The
-side panel is four groups — **Map** (what is on this map), **Story** (what
-happens and who says it), **Game** (the whole project) and **Problems** — and
-under the group you picked, a chip for each of its panels. A group with one
-panel just opens it. The Problems group shows a count, red when any is an error.
+side panel is five groups — **Map** (what is on this map), **Story** (what
+happens and who says it), **Look** (how the game looks and sounds), **Game**
+(the whole project) and **Problems** — and under the group you picked, a chip
+for each of its panels. A group with one panel just opens it. The Problems
+group shows a count, red when any is an error; on a narrow phone it is ⚠ and
+the count.
 
 On a phone the panel is a sheet under the map: the tools sit in a row of their
 own above it, the groups and chips wrap, and everything is the same, just
 stacked. Under **Map** the sheet is short, because the map is what you tap;
-under the other groups it takes most of the screen, because a script or a form
-is what you read. The **▴ / ▾** grip beside the groups flips it either way.
+under **Look** it is short too, because the top half is a live preview of the
+game in your look; under the other groups it takes most of the screen, because
+a script or a form is what you read. The **▴ / ▾** grip beside the groups
+flips it either way.
+
+## Your game's look
+
+**Look** makes the game look and sound like yours: start from one of four
+looks (Kit, Handheld, Soul, Dream) with one tap, then change the colours, the
+message box, the answers to a question, the cursor, the pause menu, the
+toast, the on-screen buttons and the sounds. The top half of the screen is a
+live preview — somebody from your game talking in the look as you change it;
+tap a part of it to jump to its settings, or **▶ Try** to play it. Every
+change is one undo step, and two fingers on the preview take it back. Every
+control is explained in `docs/LOOKS.md`.
 
 ## Painting
 
@@ -170,6 +185,7 @@ place in the editor.
 | **Story · Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
 | **Story · Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
 | **Map · Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
+| **Look · Look** | How the game looks and sounds: a look to start from, then colours, the message box, choices, the cursor, the pause menu, the toast, the on-screen buttons and the sounds, with a live preview in the top half (`docs/LOOKS.md`) |
 | **Game · Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
 | **Story · Rules** | Rules of the world: when something happens (a step, a bump, an item changing), what must be true, and what to do. A rule can be switched off, rewritten, or eaten by the player with `@rule eat <id>` — and after that the game plays differently |
 | **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it. **＋ New person** and **＋ New fact** add to it; each one opens as a form |

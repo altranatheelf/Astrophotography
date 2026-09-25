@@ -247,7 +247,7 @@ body { overflow: hidden; }
 .kit-option.is-selected, .kit-menu-item.is-selected { background: var(--kit-sel, #eaf0ff); border-color: var(--kit-sel-frame, var(--kit-accent, #3b4b8a)); color: var(--kit-sel-ink, var(--ink)); }
 .kit-option.is-selected::before, .kit-menu-item.is-selected::before { opacity: 1; }
 .kit-uibtn:disabled { opacity: .45; cursor: default; }
-.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: #fff; justify-content: center; }
+.kit-uibtn.is-primary { background: var(--kit-button, var(--kit-accent, #3b4b8a)); color: var(--kit-button-ink, #fff); justify-content: center; }
 .kit-item-label { flex: 1 1 auto; }
 .kit-item-value { font-family: var(--font-ui); font-size: 10px; color: var(--kit-value-ink, var(--kit-accent, #3b4b8a)); }
 .kit-item-note { font-size: 12px; opacity: .6; }
@@ -256,7 +256,7 @@ body { overflow: hidden; }
 .kit-input {
   font: inherit; font-size: 18px; width: 100%;
   padding: 10px 12px; margin: 4px 0;
-  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: #fff; color: var(--ink);
+  border: 2px solid var(--kit-input-frame, var(--kit-accent, #3b4b8a)); border-radius: 8px; background: var(--kit-input-bg, #fff); color: var(--ink);
 }
 .kit-debug-body { font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 

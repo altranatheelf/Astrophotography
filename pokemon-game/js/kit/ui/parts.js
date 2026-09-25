@@ -6,7 +6,9 @@
 // anything else that needs to draw the same thing (a preview of a look, a
 // module's own screen) can call too, into a host of its own, and get markup the
 // look's rules already reach. They build DOM and return the pieces; the input,
-// the timing and the sounds stay in the scenes.
+// the timing and the sounds stay in the scenes — all but `nav`, which works
+// out where an arrow goes among the pieces once they are laid out, so every
+// screen that lays choices side by side moves between them the same way.
 //
 // Nothing here touches the page when the file loads: it runs headless in the
 // tests, and the DOM is only reached inside the functions.
@@ -35,6 +37,51 @@
     if (prev && prev.parentNode === screen) screen.insertBefore(el, prev.nextSibling);
     else screen.appendChild(el);
     return el;
+  };
+
+  /**
+   * nav(rects, from, dir, wrap) -> the index an arrow moves to. `rects` are
+   * where the choices are on the screen (what getBoundingClientRect gives:
+   * left, top, width, height), `from` is the one chosen now and `dir` is
+   * up, down, left or right. Pure: it reads the numbers, never the page.
+   *
+   * It goes to the nearest choice whose middle lies that way, counting the
+   * distance across the arrow twice. So ▼ in a grid of answers is the one
+   * underneath, not the next one in reading order — that one is up and across
+   * at the start of the next row, and ▼ used to jump there. With nothing that
+   * way, `wrap` goes round to the far end of the same row or column, the way
+   * a list goes from its last line to its first; without `wrap`, and for an
+   * arrow across a single row (▼ on a Yes beside a No), it stays where it is.
+   * Choices not laid out yet (all at 0×0) have nothing to measure, so they
+   * move in reading order.
+   */
+  UI.nav = function (rects, from, dir, wrap) {
+    const n = rects ? rects.length : 0;
+    if (n < 2 || !(from >= 0 && from < n)) return from;
+    const back = dir === 'up' || dir === 'left';
+    const here = rects[from];
+    if (!here || !(here.width || here.height)) {
+      const to = from + (back ? -1 : 1);
+      return wrap ? (to + n) % n : Math.max(0, Math.min(n - 1, to));
+    }
+    const along = dir === 'left' || dir === 'right' ? 'x' : 'y', across = along === 'x' ? 'y' : 'x';
+    const mid = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    const c = mid(here), sign = back ? -1 : 1;
+    // `ahead` is how far along the arrow a choice is: above 0 is that way,
+    // below 0 is behind. Half a pixel either way is the same row.
+    const nearest = (score) => {
+      let best = from, bestScore = Infinity;
+      rects.forEach((r, i) => {
+        if (i === from) return;
+        const m = mid(r);
+        const s = score((m[along] - c[along]) * sign, Math.abs(m[across] - c[across]));
+        if (s < bestScore) { bestScore = s; best = i; }
+      });
+      return best;
+    };
+    const ahead = nearest((d, off) => (d > 0.5 ? d + 2 * off : Infinity));
+    if (ahead !== from || !wrap) return ahead;
+    return nearest((d, off) => (d < -0.5 ? d + 2 * off : Infinity));
   };
 
   UI.parts = {
@@ -71,7 +118,10 @@
     /**
      * listPanel(host, title, rows, { hint }) -> { host, list }
      * The pause menu's panel, and every list that is drawn like it: rows of
-     * { label, value, note, action, disabled }, each a [data-action] button.
+     * { label, value, note, action, disabled, notice }, each a [data-action]
+     * button. A `notice` row is a sentence said in the list rather than a
+     * thing to pick (the save list's warning), and a look's capitals leave it
+     * as written.
      */
     listPanel(host, title, rows, opts) {
       UI.clear(host);
@@ -85,6 +135,7 @@
         b.setAttribute('data-action', r.action || ('row-' + i));
         b.setAttribute('data-index', String(i));
         if (r.disabled) b.disabled = true;
+        if (r.notice) b.classList.add('kit-menu-notice');
         b.appendChild(UI.make('span.kit-item-label', { text: r.label }));
         if (r.value != null) b.appendChild(UI.make('span.kit-item-value', { text: String(r.value) }));
         if (r.note) b.appendChild(UI.make('span.kit-item-note', { text: r.note }));
@@ -120,6 +171,34 @@
       panel.appendChild(list);
       host.appendChild(panel);
       return { host, list, promptBox: null };
+    },
+
+    /**
+     * toast(host, text) -> { host, pill } — the little note that pops up
+     * ("Saved."). Only the drawing: how long it stays is KIT.toast's. The text
+     * is a Term or a line a command already substituted, so it only has its
+     * codes taken out.
+     */
+    toast(host, text) {
+      UI.clear(host);
+      const pill = UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') });
+      host.appendChild(pill);
+      host.hidden = false;
+      host.classList.add('is-in');
+      return { host, pill };
+    },
+
+    /** card(host, { title, subtitle }) -> { host, card } — a chapter card, already substituted by the command that asked. */
+    card(host, o) {
+      const opts = o || {};
+      UI.clear(host);
+      host.hidden = false;
+      host.classList.add('is-in');
+      const card = UI.make('div.kit-card');
+      card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(opts.title || '') }));
+      if (opts.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(opts.subtitle) }));
+      host.appendChild(card);
+      return { host, card };
     },
 
     /** titleScreen(host, { meta, items, hint }) -> { host, list }. items are { action, label, disabled }. */

@@ -1,6 +1,6 @@
 # 0014 — Creator Mode is four groups, and a panel picks its tool
 
-**Status:** accepted
+**Status:** accepted. Amended by [0017](0017-looks-are-data.md): the groups are five, with Look between Story and Game.
 
 ## The question
 Creator Mode grew one panel at a time until there were nineteen tabs in a row,

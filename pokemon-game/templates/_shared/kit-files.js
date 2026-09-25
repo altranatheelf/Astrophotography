@@ -36,6 +36,7 @@ const EDITOR = [
   'js/kit/editor/ops.js', 'js/kit/editor/editor.js', 'js/kit/editor/tools.js', 'js/kit/editor/inspector.js',
   'js/kit/editor/panels-map.js', 'js/kit/editor/panels-objects.js', 'js/kit/editor/script-editor.js',
   'js/kit/editor/panels-writing.js', 'js/kit/editor/panels-project.js', 'js/kit/editor/panel-cast.js',
+  'js/kit/editor/look-preview.js', 'js/kit/editor/panel-look.js',
   'js/kit/editor/integration.js',
 ];
 

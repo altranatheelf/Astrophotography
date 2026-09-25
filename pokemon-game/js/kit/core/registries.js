@@ -108,6 +108,9 @@
     { id: 'soft', name: 'Soft voice', sound: 'blip', pitch: 1.15, everyChars: 3, volume: 0.3, jitter: 0.12 },
     { id: 'flat', name: 'Flat voice', sound: 'blip', pitch: 1, everyChars: 2, jitter: 0, volume: 0.4 },
     { id: 'none', name: 'Silent', sound: null, pitch: 1, everyChars: 12, volume: 0 },
+    // A blip on every letter, the same pitch each time: a typewriter, or the
+    // narrator of a certain kind of game. What the Soul look talks in.
+    { id: 'typer', name: 'Typewriter', sound: 'blip', everyChars: 1, jitter: 0 },
   ]);
   // What a letter DOES while it sits there. Undertale drives all of this from a
   // single numeric `shake` whose meaning changes at 39 — below that it is a

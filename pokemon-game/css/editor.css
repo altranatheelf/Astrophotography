@@ -91,7 +91,7 @@
   .ed-panel-body[data-panel="tiles"] > .ed-chips::-webkit-scrollbar { display: none; }   /* one swipeable row of layers */
   .ed-panel-body[data-panel="tiles"] > .ed-chips .ed-chip { white-space: nowrap; flex: 0 0 auto; }
   .ed-group { padding: 6px 2px; font-size: 15px; }
-  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; min-height: 40px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
+  .ed-sheet-grip { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; min-height: 44px; margin-left: 6px; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #b7c3d8; font: inherit; font-size: 16px; cursor: pointer; }
   /* Every button stays 44px, but the rows pack tighter so the map keeps its room. */
   .ed-toolbar { gap: 4px; padding: 4px 6px; }
   .ed-maps { max-width: 30vw; flex: 0 0 auto; }
@@ -108,6 +108,12 @@
 .ed-f-label { color: #c3cfe2; font-size: 12px; font-weight: 600; letter-spacing: .02em; flex: 1 1 auto; }
 .ed-f.is-inherited .ed-f-label { color: #7c8aa0; font-weight: 500; }
 .ed-f.is-inherited .ed-f-body { opacity: .78; }
+/* A colour square IS the colour: dimmed with the rest, the white of a box
+   showed as grey beside the white box it stands for. The hex and the "none"
+   chip beside it are dimmed instead. */
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color) { opacity: 1; }
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color) :is(.ed-hex, .ed-color-none) { opacity: .78; }
+.ed-f.is-inherited .ed-f-body:has(> .ed-row > .ed-color):focus-within :is(.ed-hex, .ed-color-none) { opacity: 1; }
 .ed-f.is-inline .ed-f-body { flex: 0 0 auto; }
 .ed-f-body:focus-within { opacity: 1; }
 .ed-btn.ed-f-reset { min-height: 28px; min-width: 28px; padding: 0 6px; line-height: 1; font-size: 13px; color: #9fb0c8; }
@@ -123,7 +129,7 @@
 
 textarea.ed-grow { min-height: 64px; font-family: inherit; overflow: hidden; }
 textarea.ed-note { min-height: 48px; font-family: inherit; color: #c3cfe2; }
-textarea.is-bad { border-color: #b03434; }
+textarea.is-bad, input.is-bad { border-color: #b03434; }
 .ed-preview { display: flex; flex-direction: column; gap: 6px; }
 .ed-preview-box { position: relative; background: #101728; border: 2px solid #3b4a68; border-radius: 6px; padding: 8px 10px 10px; font-family: "Press Start 2P", ui-monospace, monospace; font-size: 10px; line-height: 1.9; color: #eef3ff; }
 .ed-preview-line { white-space: pre-wrap; min-height: 1.9em; }
@@ -141,6 +147,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-seg button + button { border-left: 0; }
 .ed-seg button[aria-selected="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
 .ed-color { width: 52px; min-height: 40px; padding: 2px; }
+.ed-color.is-none { opacity: .35; }
 .ed-hex { flex: 1 1 auto; }
 
 .ed-dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 4px; }
@@ -325,6 +332,7 @@ textarea.is-bad { border-color: #b03434; }
 .ed-f-body > input, .ed-f-body > select, .ed-f-body > textarea,
 .ed-cond-cell input, .ed-cond-cell select, .ed-ref > select { width: 100%; }
 .ed-form input, .ed-form select, .ed-form textarea { box-sizing: border-box; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; min-height: 40px; font: inherit; }
+.ed-form input.is-bad, .ed-form textarea.is-bad { border-color: #b03434; box-shadow: 0 0 0 1px #b03434; }
 .ed-form input:focus, .ed-form select:focus, .ed-form textarea:focus { outline: 2px solid #4f8bf0; outline-offset: -1px; }
 .ed-slot .ed-btn, .ed-pages-head .ed-btn, .ed-obj-head .ed-btn { white-space: nowrap; flex: 0 0 auto; }
 .ed-btn.tiny { min-height: 30px; padding: 2px 8px; font-size: 11.5px; color: #9fb0c8; margin-top: 4px; }
@@ -511,3 +519,82 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40dvh; backg
    the buttons under it are on. Last in the file, so it beats .ed-json's own
    min-height rather than tying with it. */
 textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre-wrap; }
+
+/* ---- the Look group (js/kit/editor/panel-look.js, look-preview.js) ---- */
+/* Five groups and the grip across a 390px phone. Problems carries a count, and
+   with its word too the row no longer fits, so on the narrowest phones it is
+   ⚠ and the count (the button keeps its name for a screen reader). */
+.ed-group-icon { display: none; }
+@media (max-width: 430px) {
+  .ed-group[data-group="problems"] .ed-group-label { display: none; }
+  .ed-group[data-group="problems"] .ed-group-icon { display: inline; }
+  .ed-group[data-group="problems"] .ed-group-badge { margin-left: 4px; }
+}
+
+/* A panel's stage: it covers the map, and there is nothing to paint or zoom
+   while it is up (− and + zoomed the map under it, and nothing on screen moved). */
+.ed-stage-panel { position: absolute; inset: 0; z-index: 3; background: #0a0d13; display: flex; flex-direction: column; touch-action: manipulation; }
+.ed-root.is-stage-panel .ed-tools, .ed-root.is-stage-panel .ed-zoom { display: none; }
+/* The grip's tall sheet over a stage keeps the stage tall enough for a message
+   box: at three quarters of the phone the preview was a 78px strip showing the
+   last line of one. The sheet still grows, and is never shorter than the short one. */
+@media (max-width: 760px) {
+  .ed-root.is-sheet-tall.is-stage-panel .ed-side { flex-shrink: 1; min-height: 46dvh; }
+  .ed-root.is-sheet-tall.is-stage-panel .ed-stage { min-height: 250px; }
+}
+
+.ed-look-stage { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 6px 8px 8px; }
+/* Six tabs and ▶ Try in one row of 44px targets at 390px: the preview needs every pixel under it. */
+.ed-look-chips { display: grid; grid-template-columns: repeat(7, minmax(44px, 1fr)); gap: 4px; flex: 0 0 auto; }
+@media (min-width: 761px) { .ed-look-chips { grid-template-columns: repeat(8, minmax(44px, 1fr)); } }   /* and Phone | Fill */
+.ed-look-chip { min-height: 44px; min-width: 44px; padding: 0; border-radius: 8px; border: 1px solid #2f3a4f; background: #161c28; color: #cbd6e8; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: -.01em; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.ed-look-chip[aria-selected="true"] { background: #1f2f4d; border-color: #4f8bf0; color: #fff; }
+.ed-look-chip.ed-look-mode { background: #22304a; color: #e8ecf4; }
+.ed-look-chip.ed-look-mode[aria-pressed="true"] { background: #2c6bd8; border-color: #4f8bf0; color: #fff; }
+@media (max-width: 760px) { .ed-look-chip.ed-look-size { display: none; } }
+.ed-look-frame { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; }
+.ed-look-preview { position: relative; flex: 1 1 auto; width: 100%; min-height: 0; }
+.ed-look-frame.is-phone .ed-look-preview { max-width: 390px; }
+
+/* The sheet: every control 44px, whatever the widget would be elsewhere. */
+.ed-look .ed-hint { margin: 4px 0 8px; }
+.ed-look-intro { margin-top: 0; }
+.ed-look-section { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 6px 10px; margin: 6px 0 0; border: 1px solid #263044; border-radius: 8px; background: #151c28; color: #e8ecf4; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.ed-look-section[aria-expanded="true"] { background: #1a2640; border-color: #35507f; border-radius: 8px 8px 0 0; }
+.ed-look-caret { color: #8494ab; width: 14px; flex: 0 0 auto; }
+.ed-look-body { border: 1px solid #35507f; border-top: 0; border-radius: 0 0 8px 8px; padding: 8px 10px 10px; background: #121a28; min-width: 0; }
+.ed-look-body .ed-sec { background: #151d2c; }
+.ed-panel-body[data-panel="look"] button, .ed-panel-body[data-panel="look"] select { min-height: 44px; }
+.ed-panel-body[data-panel="look"] input:not([type="checkbox"]) { min-height: 44px; }
+.ed-panel-body[data-panel="look"] .ed-btn { min-width: 44px; }
+.ed-panel-body[data-panel="look"] .ed-btn.ed-f-reset { min-width: 44px; min-height: 44px; }
+.ed-panel-body[data-panel="look"] .ed-chip { min-width: 44px; font-size: 13px; }
+.ed-panel-body[data-panel="look"] .ed-color { width: 52px; min-height: 44px; flex: 0 0 auto; }
+.ed-panel-body[data-panel="look"] .ed-hex { min-width: 0; flex: 1 1 90px; }
+.ed-panel-body[data-panel="look"] .ed-color-none { flex: 0 1 auto; }
+.ed-panel-body[data-panel="look"] .ed-f-body > input[type="text"] { margin-top: 2px; }
+.ed-panel-body[data-panel="look"] .ed-sec > summary { min-height: 48px; }
+.ed-panel-body[data-panel="look"] .ed-f.is-flash { outline: 2px solid #4f8bf0; outline-offset: 4px; border-radius: 6px; }
+
+/* Start from: a card per look, each a tiny message box drawn in that look. */
+.ed-look-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.ed-look-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 64px; padding: 8px; border: 2px solid #263044; border-radius: 10px; background: #1a212d; color: #e8ecf4; font: inherit; text-align: left; cursor: pointer; }
+.ed-look-card[aria-pressed="true"] { border-color: #4f8bf0; background: #1d2c47; }
+.ed-look-card-name { font-weight: 600; font-size: 13px; }
+.ed-look-swatch { position: relative; display: flex; flex-direction: column; gap: 2px; min-height: 52px; margin-top: 8px; padding: 6px 8px; border-style: solid; font-size: 11px; line-height: 1.3; overflow: visible; pointer-events: none; }
+.ed-look-swatch-name { font-weight: 700; font-size: 9.5px; letter-spacing: .04em; }
+.ed-look-swatch-tab { position: absolute; left: 6px; bottom: calc(100% - 2px); padding: 0 5px; border-style: solid; border-bottom: 0; font-size: 9px; font-weight: 700; line-height: 1.5; }
+.ed-look-swatch.has-face-above { margin-top: 22px; }
+.ed-look-swatch-face { position: absolute; bottom: calc(100% + 3px); width: 16px; height: 16px; border: 2px solid; border-radius: 2px; }
+.ed-look-swatch-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
+.ed-look-describe { color: #c3cfe2; }
+.ed-look-sheet { border: 1px solid #4f8bf0; background: #16203a; border-radius: 10px; padding: 10px; margin: 0 0 10px; color: #e8ecf4; }
+.ed-look-sheet p { margin: 0 0 8px; }
+.ed-look-sheet-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ed-look-sheet-row .ed-btn { flex: 1 1 auto; }
+
+/* Sounds: a line per sound, a picker, ▶ to hear it, ↺ to put back the look's own. */
+.ed-look-sound { margin: 0 0 10px; }
+.ed-look-sound .ed-row { margin: 3px 0 0; flex-wrap: nowrap; }
+.ed-look-sound .ed-look-select { flex: 1 1 auto; min-width: 0; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; font: inherit; }
+.ed-look-sound.is-inherited .ed-f-label { color: #7c8aa0; font-weight: 500; }

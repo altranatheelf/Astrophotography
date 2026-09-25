@@ -25,6 +25,20 @@
 // Beat 2 is a laptop's keyboard, for the keys the phone does not have: Escape,
 // which cancels the name box wherever the caret is, and Enter, which both
 // turns a page and answers the box.
+//
+// Beat 3 is picking a look, on a phone, with fingers: Creator Mode ▸ Look, a
+// live preview in the top half, every control a thumb can hit, every part of
+// the preview whole and each one a tap away from its settings, Soul in one
+// tap and one undo step, three quick taps on a stepper as one step, a colour
+// dragged as one step, a tap on the preview opening the part it landed on, a
+// two-finger tap taking it back, an undo made on the map reaching the page —
+// and then the game itself, in the look, compared with the preview.
+//
+// Beat 4 is the preview on a laptop: Phone | Fill.
+//
+// Beat 5 is a shorter phone, an iPhone's Safari with its bars showing: the
+// title shrunk to fit the preview, and a toast in the middle kept off the
+// chapter card's words.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -556,6 +570,486 @@ async function keyboard(browser) {
   await ctx.close();
 }
 
+// ---- beat 3: pick a look, on a phone ---------------------------------------------------
+
+/** Read something inside the Look preview's shadow root. */
+const inPreview = (page, fn, arg) => page.evaluate(`(() => {
+  const host = document.querySelector('.ed-look-preview');
+  const root = host && host.shadowRoot;
+  return root ? (${fn})(root, ${JSON.stringify(arg === undefined ? null : arg)}) : null;
+})()`);
+const history = (page) => page.evaluate(() => KIT.editor.state.doc.history.length);
+/** Two fingers tapping the preview: undo, the way it is on the map (the pattern of e2e/touch.js). */
+const TWO_FINGERS = `(async () => {
+  const el = document.querySelector('.ed-stage-panel');
+  const r = el.getBoundingClientRect();
+  const wait = (ms) => new Promise(z => setTimeout(z, ms));
+  const send = (target, type, id, i) => target.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch',
+    isPrimary: i === 0, bubbles: true, cancelable: true, clientX: r.x + 80 + i * 30, clientY: r.y + 160 }));
+  send(el, 'pointerdown', 31, 0); await wait(10); send(el, 'pointerdown', 32, 1);
+  await wait(40);
+  send(window, 'pointerup', 31, 0); await wait(8); send(window, 'pointerup', 32, 1);
+  await wait(150);
+})()`;
+/** Every button and field a thumb can see in the Look panel and above the preview that is smaller than 44×44. */
+const tooSmall = (page) => page.evaluate(() => {
+  const out = [];
+  for (const scope of [document.querySelector('.ed-panel-body[data-panel="look"]'), document.querySelector('.ed-look-chips'), document.querySelector('.ed-groups')]) {
+    for (const el of scope ? scope.querySelectorAll('button, input, select') : []) {
+      const r = el.getBoundingClientRect();
+      if (el.offsetParent === null || !r.width || !r.height) continue;
+      if (r.width < 44 || r.height < 44) out.push(`${el.tagName.toLowerCase()} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 16)}" ${Math.round(r.width)}×${Math.round(r.height)}`);
+    }
+  }
+  return out;
+});
+const section = (page, id) => page.locator(`.ed-look-section[data-section="${id}"]`);
+/** A tap on the preview opened Colours at `key`: that row is flashed, and in the sheet where a thumb can see it. */
+const flashedInView = (key) => `(() => {
+  const row = document.querySelector('.ed-look-body .ed-f.is-flash[data-key="${key}"]');
+  if (!row) return false;
+  const r = row.getBoundingClientRect(), side = document.querySelector('.ed-side').getBoundingClientRect();
+  return r.height > 0 && r.top >= side.top - 1 && r.bottom <= side.bottom + 1;
+})()`;
+/** Tap a point inside a part of the preview, `dx`/`dy` from its top left (the middle when not given). */
+async function tapPart(page, sel, dx, dy) {
+  const r = await inPreview(page, (root, s) => { const e = root.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }, sel);
+  if (!r) return false;
+  await page.touchscreen.tap(r.x + (dx == null ? r.w / 2 : dx), r.y + (dy == null ? r.h / 2 : dy));
+  return true;
+}
+/** Which of `sels` are not inside the preview's screen, top to bottom: missing counts, not drawn (hidden) does not. */
+const wholeOnScreen = (page, sels) => inPreview(page, (root, list) => {
+  const s = root.querySelector('#screen').getBoundingClientRect();
+  return list.filter((sel) => {
+    const e = root.querySelector(sel);
+    if (!e) return true;
+    if (!e.getClientRects().length) return false;
+    const b = e.getBoundingClientRect();
+    return b.top < s.top - 0.5 || b.bottom > s.bottom + 0.5;
+  });
+}, sels);
+/** Whether the toast and the chapter card's words overlap in the Toast tab (null when the words gave way). */
+const toastOnCard = (page) => inPreview(page, (root) => {
+  const card = root.querySelector('#chapter .kit-card');
+  if (!card || card.hidden) return null;
+  const a = root.querySelector('.kit-toast-pill').getBoundingClientRect();
+  return Array.from(card.children).some((w) => { const b = w.getBoundingClientRect(); return !(b.bottom <= a.top || b.top >= a.bottom || b.right <= a.left || b.left >= a.right); });
+});
+async function openSection(page, id) {
+  if (await section(page, id).getAttribute('aria-expanded') !== 'true') await section(page, id).tap();
+  await page.waitForFunction((s) => document.querySelector(`.ed-look-section[data-section="${s}"]`).getAttribute('aria-expanded') === 'true', id);
+}
+
+async function pickALook(browser) {
+  const { ctx, page, errors } = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+
+  beat('3.1', 'Creator Mode ▸ Look: the preview in the top half, and every control a thumb can hit');
+  await page.locator('#screen-title [data-action="creator"]').tap();
+  await expect(page, () => KIT.editor && KIT.editor.isOpen(), 'Creator Mode opens from the title');
+  await page.locator('.ed-group[data-group="look"]').tap();
+  await expect(page, () => { const p = document.querySelector('.ed-stage .ed-look-preview'); return !!p && p.offsetParent !== null && !!p.shadowRoot; }, 'the Look preview is in the stage, where the map was');
+  check(!(await page.evaluate(() => document.querySelector('.ed-root').classList.contains('is-sheet-tall'))), 'and the sheet under it is the short one');
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; return !!r.querySelector('#dialogue:not([hidden]) .kit-line'); }, 'somebody is talking in it');
+  const narrow = await page.evaluate(() => { const b = document.querySelector('.ed-group[data-group="problems"]'); return getComputedStyle(b.querySelector('.ed-group-label')).display === 'none' && b.getAttribute('aria-label') === 'Problems'; });
+  check(narrow, 'five groups fit: Problems is ⚠ on a phone this narrow, and still called Problems');
+  const small = [];
+  for (const id of ['start', 'colours', 'box', 'choice', 'cursor', 'menu', 'toast', 'pad', 'sounds']) {
+    await openSection(page, id);
+    for (const s of await tooSmall(page)) small.push(`${id}: ${s}`);
+  }
+  check(small.length === 0, `every button and field in every section, the tabs over the preview and the five groups with the grip, are at least 44×44${small.length ? ': ' + small.slice(0, 4).join('; ') : ''}`);
+  const widths = await page.evaluate(() => { const p = document.querySelector('.ed-panel'); return { page: document.documentElement.scrollWidth, panel: p.scrollWidth, room: p.clientWidth }; });
+  check(widths.page <= 390 && widths.panel <= widths.room, `nothing sticks out sideways (page ${widths.page}, panel ${widths.panel}/${widths.room})`);
+  check(await page.evaluate(() => Array.from(document.querySelectorAll('.ed-toolbar .ed-zoom')).every(b => b.offsetParent === null)),
+    'the map\'s zoom − and + are not in the toolbar: there is no map under the preview for them to zoom');
+
+  beat('3.1b', 'the preview shows each part whole, and a tap on any of them opens its settings');
+  await page.locator('.ed-look-chip[data-preview="menu"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-look-preview').shadowRoot.querySelector('#pause-menu:not([hidden]) .kit-hint'), 'the Menu tab shows the pause menu');
+  const menuFit = await inPreview(page, (r) => {
+    const s = r.querySelector('#screen').getBoundingClientRect();
+    const rows = r.querySelectorAll('#pause-menu .kit-menu-item');
+    const inside = (el) => { const b = el.getBoundingClientRect(); return b.top >= s.top && b.bottom <= s.bottom && b.left >= s.left && b.right <= s.right; };
+    return { rows: rows.length, last: inside(rows[rows.length - 1]), hint: inside(r.querySelector('#pause-menu .kit-hint')) };
+  });
+  check(menuFit.rows >= 5 && menuFit.last && menuFit.hint, `all ${menuFit.rows} rows and the help line under them are inside the preview's screen (last row ${menuFit.last}, help line ${menuFit.hint})`);
+  await page.locator('.ed-look-chip[data-preview="title"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-look-preview').shadowRoot.querySelector('#screen-title:not([hidden]) .kit-hint'), 'the Title tab shows the title screen');
+  const titleOut = await wholeOnScreen(page, ['.kit-title', '.kit-pitch', '#screen-title .kit-menu-item:last-child', '#screen-title .kit-hint']);
+  check(titleOut.length === 0, `the game's name, its blurb, the buttons and the help line are all inside the preview's screen${titleOut.length ? ' — not: ' + titleOut.join(', ') : ''}`);
+  await page.locator('.ed-look-preview #screen-title .kit-hint').tap();
+  await expect(page, flashedInView('titleBg'), 'a tap on the title\'s help line opens Colours at the title\'s background, in sight');
+  await page.locator('.ed-look-chip[data-preview="toast"]').tap();
+  // A part that lets taps through cannot be tapped at all: that is a failed check, not a stopped run.
+  await page.locator('.ed-look-preview .kit-toast-pill').tap({ timeout: 3000 }).catch(() => {});
+  await expect(page, () => document.querySelector('.ed-look-section[data-section="toast"]').getAttribute('aria-expanded') === 'true', 'a tap on the toast opens Toast');
+  await page.locator('.ed-look-preview .kit-chapter-title').tap({ timeout: 3000 }).catch(() => {});
+  await expect(page, () => document.querySelector('.ed-look-section[data-section="colours"]').getAttribute('aria-expanded') === 'true', 'and a tap on the chapter card opens its colours');
+  // The card's words fill only part of it, and a thumb aiming at the card lands on its edge as often as on them.
+  await tapPart(page, '#chapter .kit-card', 5, 5);
+  await expect(page, flashedInView('chapterBg'), 'a tap on the card\'s edge, not on its words, opens Colours at the card\'s own colour, in sight');
+  check(await inPreview(page, (r) => r.querySelector('#chapter .kit-card').classList.contains('ed-look-picked')), 'with the card outlined');
+  await openSection(page, 'toast');
+  await page.locator('.ed-look-body .ed-f[data-key="at"] .ed-chip[data-value="center"]').tap();
+  await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return r.getElementById('chapter').hasAttribute('data-apart') && !!r.querySelector('.kit-toast-pill'); })()`, 'Toast › Where › Middle');
+  check(await toastOnCard(page) === false, 'the toast in the middle keeps off the chapter card\'s words, and both are there to read');
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => !KIT.editor.state.project.ui, 'two fingers take that back');
+  await openSection(page, 'cursor');
+  const cursorSquare = await page.evaluate(() => { const i = document.querySelector('.ed-look-body .ed-f[data-key="color"] input.ed-color'); return { value: i.value, faded: i.classList.contains('is-none'), accent: KIT.look.resolve(KIT.editor.state.project).tokens.accent }; });
+  check(cursorSquare.faded && cursorSquare.value === cursorSquare.accent, `the cursor's colour, "Same as accent", shows the accent in its square, faded (${cursorSquare.value}, the accent ${cursorSquare.accent})`);
+  await openSection(page, 'box');
+  await expect(page, () => { const f = document.querySelector('.ed-look-preview').shadowRoot.querySelector('#dialogue .kit-facebox'); return !!f && !f.hidden && !!f.querySelector('canvas'); },
+    'no line in the game has a portrait, and the talk shows one anyway, for the portrait\'s settings to change');
+  await page.locator('.ed-look-body .ed-f[data-key="face"] .ed-chip[data-value="above-right"]').tap();
+  await expect(page, () => {
+    const r = document.querySelector('.ed-look-preview').shadowRoot;
+    const f = r.querySelector('#dialogue .kit-facebox').getBoundingClientRect(), b = r.querySelector('#dialogue .kit-box').getBoundingClientRect();
+    return f.height > 0 && f.bottom <= b.top && Math.abs(f.right - b.right) <= 6;
+  }, 'Portrait › Above right puts it over the box\'s right-hand corner');
+  await page.locator('.ed-look-chip[data-preview="pad"]').tap();
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; return !r.getElementById('controls').hidden && !!r.querySelector('#dialogue .kit-line'); }, 'the Pad tab: the buttons, under somebody talking');
+  const padOut = await wholeOnScreen(page, ['#dialogue .kit-box', '#dialogue .kit-name', '#dialogue .kit-facebox']);
+  check(padOut.length === 0, `on the strip of screen the pad leaves, nothing hangs out of the top — the portrait above the box is left out there${padOut.length ? ' — not: ' + padOut.join(', ') : ''}`);
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => !KIT.editor.state.project.ui, 'two fingers take that back, and the game has no look of its own again');
+
+  beat('3.2', 'Soul, in one tap and one undo step');
+  await openSection(page, 'start');
+  const cards = await page.evaluate(() => Array.from(document.querySelectorAll('.ed-look-card')).map(c => c.dataset.look));
+  check(['kit', 'handheld', 'soul', 'dream'].every(id => cards.includes(id)), `the four looks are there to start from (${cards.join(', ')})`);
+  const swatches = await page.evaluate(() => Array.from(document.querySelectorAll('.ed-look-card .ed-look-swatch')).map((s) => {
+    const cs = getComputedStyle(s);
+    return [cs.backgroundColor, cs.borderTopColor, cs.borderTopWidth, cs.borderTopLeftRadius, cs.fontFamily, s.textContent].join(' | ');
+  }));
+  check(new Set(swatches).size === swatches.length, 'and each one\'s little box looks different');
+  const h0 = await history(page);
+  await page.locator('.ed-look-card[data-look="soul"]').tap();
+  const keep = page.locator('.ed-look-sheet button', { hasText: 'Keep my changes' });
+  if (await keep.count()) await keep.tap();
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; const b = r.querySelector('#dialogue .kit-box'); return !!b && getComputedStyle(b).backgroundColor === 'rgb(0, 0, 0)' && getComputedStyle(b).borderTopWidth === '3px'; },
+    'within a moment the preview\'s box is black, with a 3px border', undefined, 400);
+  check(await history(page) === h0 + 1, `and that was one undo step (${h0} → ${await history(page)})`);
+  check(await page.evaluate(() => KIT.editor.state.project.ui.base === 'soul'), 'the game starts from Soul now');
+  await openSection(page, 'sounds');
+  const voiceRow = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.ed-look-body .ed-look-sound'));
+    const ink = (r) => getComputedStyle(r.querySelector('.ed-f-label')).color;
+    const voice = rows[rows.length - 1];
+    return { name: voice.querySelector('.ed-f-label').textContent, dim: voice.classList.contains('is-inherited'), same: ink(voice) === ink(rows[0]) && rows[0].classList.contains('is-inherited') };
+  });
+  check(/Typing sound/.test(voiceRow.name) && voiceRow.dim && voiceRow.same, `"${voiceRow.name}" is Soul's own Typewriter, and its name is greyed like the sounds above it`);
+
+  beat('3.3', 'three quick taps on Lines −, one step, and pages of two lines');
+  await openSection(page, 'box');
+  const h1 = await history(page);
+  const less = page.locator('.ed-look-body .ed-f[data-key="lines"] button[aria-label="Less"]');
+  for (let i = 0; i < 3; i++) await less.tap();
+  await page.waitForTimeout(450);
+  check(await history(page) === h1 + 1, `three taps are one undo step (${h1} → ${await history(page)})`);
+  check(await page.evaluate(() => KIT.editor.state.project.ui.dialogue && KIT.editor.state.project.ui.dialogue.lines === 2), 'and the game has two lines to a page');
+  await page.locator('.ed-look-chip[data-preview-mode]').tap();
+  check(await page.evaluate(() => document.querySelector('.ed-look-chip[data-preview-mode]').dataset.previewMode === 'try'), '▶ Try hands the preview to the player');
+  const pages = [];
+  for (let i = 0; i < 6; i++) {
+    const n = await inPreview(page, (r) => { const d = r.querySelector('#dialogue'); return d && !d.hidden && r.querySelector('#dialogue .kit-next.is-ready') ? r.querySelectorAll('#dialogue .kit-line').length : null; });
+    if (n !== null) pages.push(n);
+    await page.locator('.ed-look-preview').tap();
+    await page.waitForTimeout(120);
+  }
+  check(pages.length >= 2 && pages.every(n => n <= 2), `tapped through, every page has at most two lines (${pages.join(', ')})`);
+  await page.locator('.ed-look-chip[data-preview-mode]').tap();
+  check(await page.evaluate(() => document.querySelector('.ed-look-chip[data-preview-mode]').dataset.previewMode === 'edit'), 'and ✎ Edit takes it back');
+
+  beat('3.4', 'a colour dragged across the picker is one undo step');
+  await openSection(page, 'colours');
+  const paperRow = '.ed-look-body .ed-f[data-key="paper"]';
+  const dim = await page.evaluate((sel) => {
+    const row = document.querySelector(sel);
+    const seen = (el) => { let o = 1; for (let e = el; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
+    return { inherited: row.classList.contains('is-inherited'), square: seen(row.querySelector('input.ed-color')), hex: seen(row.querySelector('.ed-hex')) };
+  }, paperRow);
+  check(dim.inherited && dim.square === 1 && dim.hex < 1, `Soul's own box colour: its square shows the colour as it is, and only the words beside it are dimmed (${dim.square} / ${dim.hex})`);
+  const h1b = await history(page);
+  await page.locator(paperRow + ' .ed-hex').fill('pink');
+  check(await page.evaluate((sel) => document.querySelector(sel + ' .ed-hex').classList.contains('is-bad'), paperRow), '"pink" typed as a colour turns the box\'s edge red');
+  await page.waitForTimeout(350);
+  check(await history(page) === h1b, 'and is not written');
+  await page.locator(paperRow + ' .ed-hex').fill('');
+  const h2 = await history(page);
+  const drag = await page.evaluate(async () => {                               // the picker's drag: ten values, one after another
+    const pick = document.querySelector('.ed-look-body .ed-f[data-key="paper"] input[type="color"]');
+    let last = null;
+    for (let i = 0; i < 10; i++) {
+      last = '#' + (0x10 + i * 8).toString(16).padStart(2, '0') + '2040';
+      pick.value = last;
+      pick.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(z => setTimeout(z, 16));
+    }
+    return last;
+  });
+  await page.waitForTimeout(450);
+  check(await history(page) === h2 + 1, `ten values are one undo step (${h2} → ${await history(page)})`);
+  const want = await page.evaluate((hex) => { const d = document.createElement('div'); d.style.color = hex; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; }, drag);
+  const got = await inPreview(page, (r) => getComputedStyle(r.querySelector('#dialogue .kit-box')).backgroundColor);
+  check(got === want, `and the preview's box is the last of them (${got})`);
+  // With changes of the author's own, starting from another look asks first.
+  await openSection(page, 'start');
+  const h3 = await history(page);
+  await page.locator('.ed-look-card[data-look="kit"]').tap();
+  await expect(page, () => { const s = document.querySelector('.ed-look-sheet'); return !!s && /Keep my changes \(2\)/.test(s.textContent) && /Start clean/.test(s.textContent); },
+    'another look now asks first: keep my 2 changes, or start clean');
+  await page.locator('.ed-look-sheet button', { hasText: 'Cancel' }).tap();
+  check(await page.evaluate(() => !document.querySelector('.ed-look-sheet') && KIT.editor.state.project.ui.base === 'soul') && await history(page) === h3, 'and Cancel changes nothing');
+  await openSection(page, 'colours');
+
+  beat('3.5', 'a tap on the preview opens what it landed on');
+  await page.locator('.ed-look-preview .kit-text').tap();
+  await expect(page, () => document.querySelector('.ed-look-section[data-section="box"]').getAttribute('aria-expanded') === 'true', 'the message box opens Message box');
+  check(await inPreview(page, (r) => !!r.querySelector('.ed-look-picked')), 'with the part outlined');
+
+  beat('3.6', 'two fingers take it back, a step at a time');
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => !(KIT.editor.state.project.ui.tokens && KIT.editor.state.project.ui.tokens.paper), 'the first undoes the colour');
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => !(KIT.editor.state.project.ui.dialogue && KIT.editor.state.project.ui.dialogue.lines), 'the second undoes the lines: three again, Soul\'s own');
+  check(await page.evaluate(() => JSON.stringify(KIT.editor.state.project.ui)) === '{"base":"soul"}', `and what is left is Soul (${await page.evaluate(() => JSON.stringify(KIT.editor.state.project.ui))})`);
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; const b = r.querySelector('#dialogue .kit-box'); return !!b && getComputedStyle(b).backgroundColor === 'rgb(0, 0, 0)'; }, 'the preview follows the undo');
+
+  beat('3.6a', 'a colour the screen on show does not draw turns the preview to one that does');
+  // "Chosen line" changed while somebody talked, and "OK button" had no screen
+  // at all: the square changed and nothing else did, which reads as broken.
+  await openSection(page, 'colours');
+  await page.locator('.ed-look-chip[data-preview="talk"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-look-preview').shadowRoot.querySelector('#dialogue:not([hidden]) .kit-box'), 'the preview shows somebody talking');
+  await page.locator('.ed-look-body .ed-f[data-key="selectInk"] .ed-hex').fill('#ff3030');
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; const row = r.querySelector('#pause-menu:not([hidden]) .kit-menu-item.is-selected'); return !!row && getComputedStyle(row).color === 'rgb(255, 48, 48)'; },
+    '"Chosen line\'s text" turns the preview to the pause menu, and the chosen line\'s letters are that colour');
+  await page.waitForTimeout(400);
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => JSON.stringify(KIT.editor.state.project.ui) === '{"base":"soul"}', 'two fingers take it back');
+  // Soul has no box round the chosen line, so its colour cannot be seen: say so.
+  await page.locator('.ed-look-body .ed-f[data-key="select"] .ed-hex').fill('#ff3030');
+  await expect(page, () => /no box round the chosen line/.test((document.querySelector('.ed-toast') || {}).textContent || ''), '"Chosen line" in a look with no box round it says why nothing changed, and where to turn it on');
+  await page.waitForTimeout(400);
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => JSON.stringify(KIT.editor.state.project.ui) === '{"base":"soul"}', 'two fingers take that back too');
+  if (!(await page.locator('.ed-look-body .ed-f[data-key="button"]').isVisible())) await page.locator('.ed-look-body summary', { hasText: 'More colours' }).tap();
+  await page.locator('.ed-look-body .ed-f[data-key="button"] .ed-hex').fill('#ff00ff');
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview').shadowRoot; const ok = r.querySelector('#choice:not([hidden]) .kit-modal .kit-uibtn.is-primary'); return !!ok && getComputedStyle(ok).backgroundColor === 'rgb(255, 0, 255)'; },
+    '"OK button" shows the box that asks for a name, with OK in that colour');
+  await page.waitForTimeout(400);
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => JSON.stringify(KIT.editor.state.project.ui) === '{"base":"soul"}', 'and back again');
+
+  beat('3.6b', 'the caret in a text box, and a tap on another section');
+  await openSection(page, 'box');
+  const prefix = page.locator('.ed-look-body .ed-f[data-key="prefix"] input[type="text"]');
+  await prefix.fill('abcdefgh');
+  check(await prefix.inputValue() === 'abcd', `"Start each line with" takes four letters, as many as the game shows (${await prefix.inputValue()})`);
+  // (setup) a tap as an iPhone delivers it to a button: the click, with the caret left in the box.
+  await page.evaluate(() => document.querySelector('.ed-look-section[data-section="colours"]').click());
+  await expect(page, () => document.querySelector('.ed-look-section[data-section="colours"]').getAttribute('aria-expanded') === 'true', 'Colours opens at once');
+  check(await page.evaluate(() => KIT.editor.state.project.ui.dialogue && KIT.editor.state.project.ui.dialogue.prefix) === 'abcd', 'and what was typed is written, the four letters the game uses');
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => JSON.stringify(KIT.editor.state.project.ui) === '{"base":"soul"}', 'two fingers take it back');
+
+  beat('3.6c', 'an undo made on the map takes the look off the page too');
+  await openSection(page, 'box');
+  await page.locator('.ed-look-body .ed-f[data-key="lines"] button[aria-label="Less"]').tap();
+  await page.locator('.ed-group[data-group="map"]').tap();
+  await expect(page, () => KIT.editor.state.project.ui.dialogue && KIT.editor.state.project.ui.dialogue.lines === 2 && document.getElementById('kit-look').textContent.includes('* 2 * 1em'),
+    'Lines − and straight to Map: written, and on the page');
+  check(await page.evaluate(() => Array.from(document.querySelectorAll('.ed-toolbar .ed-zoom')).filter(b => b.offsetParent !== null).length === 2), 'the map\'s zoom − and + are back with the map');
+  await page.locator('.ed-toolbar .ed-btn[title^="Undo"]').tap();
+  await expect(page, () => !document.getElementById('kit-look').textContent.includes('* 2 * 1em') && KIT.look.get('dialogue.lines') === 3,
+    '↶ on the map takes it off the page, and the game\'s look says three lines again');
+  // Back by way of Story, whose tall sheet squashes the map's canvas: the copy
+  // of the map behind the preview has to be taken once the canvas has its
+  // own shape again, not the strip Story left it.
+  await page.locator('.ed-group[data-group="story"]').tap();
+  await page.waitForTimeout(200);
+  await page.locator('.ed-group[data-group="look"]').tap();
+  await expect(page, () => { const r = document.querySelector('.ed-look-preview'); return !!r && !!r.shadowRoot.querySelector('#dialogue .kit-box'); }, 'back to Look');
+  await page.waitForTimeout(300);
+  const backdrop = await page.evaluate(async () => {
+    const url = (document.querySelector('.ed-look-preview').shadowRoot.getElementById('screen').style.backgroundImage.match(/url\("(.*)"\)/) || [])[1];
+    if (!url) return null;
+    const img = new Image();
+    await new Promise((res) => { img.onload = res; img.onerror = res; img.src = url; });
+    const c = KIT.editor.el.canvas;
+    return { copy: [img.naturalWidth, img.naturalHeight], canvas: [c.width, c.height] };
+  });
+  check(!!backdrop && backdrop.copy.join('×') === backdrop.canvas.join('×'), `the map behind the preview is the whole map, not the strip Story left (${backdrop && backdrop.copy.join('×')} of ${backdrop && backdrop.canvas.join('×')})`);
+  const BOX = (r) => { const cs = getComputedStyle(r.querySelector('#dialogue .kit-box')); return [cs.backgroundColor, cs.borderTopWidth, cs.borderTopColor, cs.borderTopLeftRadius, cs.color].join(' | '); };
+  await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return !!r.querySelector('#dialogue .kit-line'); })()`, 'somebody is talking again');
+  const previewBox = await inPreview(page, BOX);
+
+  beat('3.6d', 'the tall sheet keeps the message box in sight');
+  await page.locator('.ed-sheet-grip').tap();
+  await expect(page, () => document.querySelector('.ed-root').classList.contains('is-sheet-tall'), '▴ makes the sheet tall');
+  await page.waitForTimeout(200);
+  const sheet = await page.evaluate(() => ({ side: Math.round(document.querySelector('.ed-side').getBoundingClientRect().height), short: Math.round(innerHeight * 0.46) }));
+  check(sheet.side > sheet.short + 60, `the sheet grows (${sheet.short} → ${sheet.side}px)`);
+  const tallOut = await wholeOnScreen(page, ['#dialogue .kit-box']);
+  check(tallOut.length === 0, 'and the whole message box is still in the preview above it, not a strip of its last line');
+  await page.locator('.ed-sheet-grip').tap();
+  await expect(page, () => !document.querySelector('.ed-root').classList.contains('is-sheet-tall'), '▾ puts it back');
+
+  beat('3.6e', 'a problem tapped in Problems opens the colour it names, where a thumb can see it');
+  // (setup) Soul with the white name box it used to have: white words typed on white.
+  await page.evaluate(() => KIT.editor.commit('setup', (doc, O) => O.look.set(doc, ['tokens', 'inputBg'], '#ffffff')));
+  await page.locator('.ed-group[data-group="problems"]').tap();
+  const nameProblem = page.locator('.ed-problem', { hasText: 'A name the player types is hard to read' });
+  await expect(page, () => Array.from(document.querySelectorAll('.ed-problem')).some(p => /A name the player types is hard to read/.test(p.textContent)), 'Problems says a name typed into that box cannot be read');
+  await nameProblem.tap();
+  // The colour is far down More colours: the sheet has to move to it, and stay moved.
+  await expect(page, () => {
+    const row = document.querySelector('.ed-look-body .ed-f.is-flash[data-key="inputBg"]');
+    if (!row) return false;
+    const r = row.getBoundingClientRect(), s = document.querySelector('.ed-panel').getBoundingClientRect();
+    return r.height > 0 && r.top >= s.top - 1 && r.bottom <= s.bottom + 1;
+  }, 'the tap opens Colours at "Inside a name box", flashed, inside the sheet');
+  await page.waitForTimeout(300);
+  check(await page.evaluate(() => { const r = document.querySelector('.ed-look-body .ed-f[data-key="inputBg"]').getBoundingClientRect(), s = document.querySelector('.ed-panel').getBoundingClientRect(); return r.top >= s.top - 1 && r.bottom <= s.bottom + 1; }),
+    'and it is still there a moment later');
+  await page.evaluate(TWO_FINGERS);
+  await expect(page, () => JSON.stringify(KIT.editor.state.project.ui) === '{"base":"soul"}', 'two fingers take it back');
+
+  beat('3.7', 'closed, and a new game in the look');
+  await page.locator('.ed-toolbar .ed-btn[title="Close Creator Mode"]').tap();
+  await expect(page, () => !KIT.editor.isOpen() && KIT.game.scene() === 'title', 'back at the title');
+  check(await page.evaluate(() => !document.querySelector('.ed-look-preview')), 'the preview has gone with Creator Mode');
+  await page.locator('#screen-title [data-action="new-game"]').tap();
+  await expect(page, () => !!document.querySelector('#dialogue:not([hidden]) .kit-line'), 'the intro starts talking');
+  const intro = await page.evaluate(() => {
+    const box = document.querySelector('#dialogue .kit-box');
+    const start = document.querySelector('#dialogue .kit-line.is-start');
+    return { bg: getComputedStyle(box).backgroundColor, mark: start ? getComputedStyle(start, '::before').content : null, next: getComputedStyle(document.querySelector('#dialogue .kit-next')).display };
+  });
+  check(intro.bg === 'rgb(0, 0, 0)', `the box is black (${intro.bg})`);
+  const gameBox = await page.evaluate(`(${BOX.toString()})(document)`);
+  check(gameBox === previewBox, `the box in the game is the box the preview showed (${gameBox})`);
+  check(intro.mark === '"* "', `each line starts with “* ” (${intro.mark})`);
+  check(intro.next === 'none', `and there is no ▼ (${intro.next})`);
+
+  beat('3.8', 'the pause menu, in the top left, with a red heart');
+  check(await tapThrough(page), 'the intro tapped through');
+  await pad(page, 'menu');
+  await expect(page, () => KIT.game.scene() === 'menu' && !!document.querySelector('#pause-menu .kit-menu-item.is-selected'), '☰ opens the pause menu');
+  const menu = await page.evaluate(() => {
+    const host = document.getElementById('pause-menu');
+    const cs = getComputedStyle(host);
+    const pick = document.querySelector('#pause-menu .kit-menu-item.is-selected');
+    const before = getComputedStyle(pick, '::before');
+    return { justify: cs.justifyContent, align: cs.alignItems, title: !!host.querySelector('.kit-panel-title'), hint: !!host.querySelector('.kit-hint'),
+      mark: before.content, ink: before.color, caps: getComputedStyle(pick.querySelector('.kit-item-label')).textTransform };
+  });
+  check(menu.justify === 'flex-start' && menu.align === 'flex-start', `it sits in the top left (${menu.justify} / ${menu.align})`);
+  check(!menu.title && !menu.hint, 'with no "Paused" and no help line');
+  check(menu.mark === '"♥"' && menu.ink === 'rgb(255, 0, 0)', `the chosen line has a red heart (${menu.mark}, ${menu.ink})`);
+  check(menu.caps === 'uppercase', 'in capitals');
+  await page.locator('#pause-menu [data-action="menu:settings"]').tap();
+  await expect(page, () => !!document.querySelector('#pause-menu [data-action="toggle:reduceMotion"]'), 'Settings opens from it');
+  const settingsList = await page.evaluate(() => ({ title: !!document.querySelector('#pause-menu .kit-panel-title'), hint: !!document.querySelector('#pause-menu .kit-hint') }));
+  check(settingsList.title && settingsList.hint, 'and keeps its heading and its help line, the one line saying how to get back out');
+  await pad(page, 'b');
+  await expect(page, () => !!document.querySelector('#pause-menu [data-action="menu:settings"]'), 'B steps back to the pause menu');
+  await pad(page, 'b');
+  await expect(page, () => KIT.game.scene() === 'map', 'B closes it');
+
+  beat('3.8b', 'the name box in Soul can be read, and answers move the way the arrow points');
+  await page.evaluate(() => { window.__named = undefined; KIT.scenes.run('nameEntry', { prompt: 'What is your name?' }).then(v => { window.__named = v; }); });   // (setup)
+  await expect(page, () => KIT.game.scene() === 'nameEntry', 'the name box opens');
+  await page.locator('[data-role=name-entry]').fill('Ava');
+  const nameBox = await page.evaluate(() => {
+    const cs = (el) => getComputedStyle(el);
+    const field = document.querySelector('[data-role=name-entry]'), ok = document.querySelector('#choice [data-action="ok"]');
+    return { field: `${cs(field).color} on ${cs(field).backgroundColor}`, ok: `${cs(ok).color} on ${cs(ok).backgroundColor}` };
+  });
+  check(nameBox.field === 'rgb(255, 255, 255) on rgb(0, 0, 0)', `the name typed is white on black, not white on white (${nameBox.field})`);
+  check(nameBox.ok === 'rgb(0, 0, 0) on rgb(255, 255, 255)', `and OK is black on its white button (${nameBox.ok})`);
+  await page.locator('#choice [data-action="ok"]').tap();
+  await expect(page, () => window.__named === 'Ava', 'OK takes the name');
+  const chosen = () => page.evaluate(() => (document.querySelector('#choice .kit-option.is-selected') || {}).textContent);
+  const ask = (options) => page.evaluate((o) => { window.__picked = undefined; KIT.scenes.run('choice', { prompt: 'Which way?', options: o.map(text => ({ text })) }).then(v => { window.__picked = v; }); }, options);
+  await ask(['Yes', 'No']);                                                                                   // (setup)
+  await expect(page, () => KIT.game.scene() === 'choice', 'Soul asks with its answers in a row');
+  await pad(page, 'down');
+  check(await chosen() === 'Yes', `▼ on Yes beside No stays on Yes (${await chosen()})`);
+  await pad(page, 'right');
+  check(await chosen() === 'No', `and ▶ goes to No (${await chosen()})`);
+  await pad(page, 'a');
+  await expect(page, () => window.__picked === 1, 'A answers No');
+  // (setup) the same look with its answers in a grid, two across, for one question.
+  await page.evaluate(() => { const p = KIT.game.project; KIT.look.apply(Object.assign({}, p, { ui: Object.assign({}, p.ui, { choice: { layout: 'grid', columns: 2 } }) })); });
+  await ask(['North', 'South', 'East', 'West', 'Stay']);
+  await expect(page, () => KIT.game.scene() === 'choice', 'a question with five answers in a grid');
+  const moves = [];
+  for (const b of ['right', 'down', 'left', 'up']) { await pad(page, b); moves.push(`${b} ${await chosen()}`); }
+  check(moves.join(', ') === 'right South, down West, left East, up North', `each arrow goes to the answer that way: ▼ from South is West under it, not East across (${moves.join(', ')})`);
+  await pad(page, 'a');
+  await expect(page, () => window.__picked === 0, 'A answers North');
+  await page.evaluate(() => KIT.look.apply(KIT.game.project));                                               // (setup) the game's own look back
+
+  beat('3.9', 'the look is kept');
+  await page.reload();
+  await page.waitForFunction(() => window.KIT && KIT.game && KIT.game.booted && KIT.game.scene() === 'title', undefined, { timeout: 30000 });
+  check(await page.evaluate(() => KIT.game.project.ui && KIT.game.project.ui.base === 'soul'), 'after a reload the game still starts from Soul');
+  check(await page.evaluate(() => document.getElementById('kit-look').textContent.includes('--paper:#000000')), 'and the page has its stylesheet');
+
+  beat('3.10', 'nothing broke');
+  noErrors(errors);
+  await ctx.close();
+}
+
+// ---- beat 4: the preview on a laptop -------------------------------------------------
+
+async function laptopLook(browser) {
+  const { ctx, page, errors } = await open(browser, { viewport: { width: 1280, height: 800 } });
+  beat('4.1', 'Phone | Fill: the talk is drawn again at the new width');
+  await page.locator('#screen-title [data-action="creator"]').click();
+  await expect(page, () => KIT.editor && KIT.editor.isOpen(), 'Creator Mode opens');
+  await page.locator('.ed-group[data-group="look"]').click();
+  const lines = () => inPreview(page, (r) => (r.querySelector('#dialogue .kit-next.is-ready') ? r.querySelectorAll('#dialogue .kit-line').length : null));
+  await expect(page, `(() => { const r = document.querySelector('.ed-look-preview'); return !!r && !!r.shadowRoot.querySelector('#dialogue .kit-next.is-ready'); })()`, 'the first page is typed, a phone wide');
+  const narrow = await lines();
+  await page.locator('.ed-look-chip.ed-look-size').click();
+  await expect(page, () => document.querySelector('.ed-look-chip.ed-look-size').dataset.previewSize === 'fill', 'Fill');
+  await page.waitForTimeout(300);
+  await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return !!r.querySelector('#dialogue .kit-next.is-ready'); })()`, 'the page is typed again');
+  const wide = await lines();
+  check(wide < narrow, `the same page takes fewer lines filling the space than a phone wide (${narrow} → ${wide})`);
+  beat('4.2', 'nothing broke');
+  noErrors(errors);
+  await ctx.close();
+}
+
+// ---- beat 5: a phone with its browser's bars showing ----------------------------------
+
+async function shortPhone(browser) {
+  // 390×664 is an iPhone's Safari with its toolbars up: the preview's screen is
+  // about 200px tall, a third less than on the phone above.
+  const { ctx, page, errors } = await open(browser, { viewport: { width: 390, height: 664 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  beat('5.1', 'the title and the toast, on the shorter screen');
+  await page.locator('#screen-title [data-action="creator"]').tap();
+  await expect(page, () => KIT.editor && KIT.editor.isOpen(), 'Creator Mode opens');
+  await page.locator('.ed-group[data-group="look"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-stage .ed-look-preview'), 'Look');
+  await page.locator('.ed-look-chip[data-preview="title"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-look-preview').shadowRoot.querySelector('#screen-title:not([hidden]) .kit-hint'), 'the Title tab');
+  const out = await wholeOnScreen(page, ['.kit-title', '.kit-pitch', '#screen-title .kit-menu-item:last-child', '#screen-title .kit-hint']);
+  check(out.length === 0, `the whole title is inside the preview, shrunk to fit it${out.length ? ' — not: ' + out.join(', ') : ''}`);
+  await openSection(page, 'toast');
+  await page.locator('.ed-look-body .ed-f[data-key="at"] .ed-chip[data-value="center"]').tap();
+  await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return r.getElementById('chapter').hasAttribute('data-apart'); })()`, 'Toast › Where › Middle');
+  check(await toastOnCard(page) !== true, 'the toast in the middle does not cover the chapter card\'s words');
+  beat('5.2', 'nothing broke');
+  noErrors(errors);
+  await ctx.close();
+}
+
 (async () => {
   const browser = await chromium.launch();
   try {
@@ -583,6 +1077,9 @@ async function keyboard(browser) {
       }
       await phone(browser);
       await keyboard(browser);
+      await pickALook(browser);
+      await laptopLook(browser);
+      await shortPhone(browser);
     }
   } catch (e) { failures++; log('\nUNCAUGHT: ' + (e && e.stack ? e.stack : e)); }
   await browser.close();

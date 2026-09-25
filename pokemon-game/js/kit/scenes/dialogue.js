@@ -12,7 +12,8 @@
   const scenes = KIT.registry('scenes');
 
   const SPEEDS = { slow: 22, normal: 48, fast: 96, instant: 0 };
-  const LINES_PER_PAGE = 3;
+  /** How many lines a page holds: the look's, three in the kit's. */
+  const lines = () => KIT.look.get('dialogue.lines', 3);
 
   function settings() { return (KIT.storage && KIT.storage.settings) ? KIT.storage.settings() : {}; }
   function instant() { return !!(KIT.fx && KIT.fx.instant) || settings().textSpeed === 'instant'; }
@@ -32,6 +33,37 @@
     return (id && reg.get(id)) || reg.get('default') || null;
   }
   const SILENT = /[\s.,;:!?'"\-—–()\[\]]/;
+
+  /**
+   * KIT.dialogueLayout — the message box's own line breaking, pure, for when
+   * the look starts each line with a mark ("* ").
+   *
+   *   lines(spans, layout) -> { lines, starts }
+   *
+   * The spans are split at every line break the author wrote, each piece is
+   * wrapped on its own, and `starts` is the set of line numbers where a piece
+   * begins: those lines get the mark, and the lines a long piece wraps onto
+   * line up after it. A piece with nothing to read in it (a blank line
+   * between two) gets no mark. The lines are the same ones KIT.text.wrap would
+   * make; only the marking is new, so a look without a mark never comes here.
+   */
+  const DL = KIT.dialogueLayout = KIT.dialogueLayout || {};
+  DL.lines = function (spans, layout) {
+    const pieces = [[]];
+    for (const sp of spans || []) {
+      if (sp.type === 'break') pieces.push([]);
+      else pieces[pieces.length - 1].push(sp);
+    }
+    // A break at the very end closes the last line; it does not open another.
+    if (pieces.length > 1 && !pieces[pieces.length - 1].length) pieces.pop();
+    const out = [], starts = new Set();
+    for (const piece of pieces) {
+      const readable = piece.some((sp) => sp.type === 'icon' || (sp.type === 'text' && sp.text.trim()));
+      if (readable) starts.add(out.length);
+      for (const line of KIT.text.wrap(piece, layout)) out.push(line);
+    }
+    return { lines: out, starts };
+  };
 
   /** effectFor(id) -> the textEffects definition, or null. */
   function effectFor(id) {
@@ -115,23 +147,44 @@
   }
 
   // ---- dialogue ------------------------------------------------------------------
+  // `previewable`: this scene can be driven off the stack into a host of
+  // somebody else's — the Look panel's live preview — with `root` (where its
+  // host is) and `preview` (leave the game's music alone). A module that
+  // replaces the scene says so for its own, or the preview draws still markup.
   scenes.add({
-    id: 'dialogue', name: 'Message',
+    id: 'dialogue', name: 'Message', previewable: true,
     create() {
       let ui = null, units = [], unitIndex = 0, charIndex = 0, acc = 0, pages = [], pageIndex = 0;
       let waiting = false, complete = false, speed = 1, pauseLeft = 0;
-      let voice = null, sinceBlip = 0, spoken = 0;
+      let voice = null, sinceBlip = 0, spoken = 0, starts = null, perPage = 3;
 
       function layoutFor(textEl) {
-        return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: LINES_PER_PAGE };
+        return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: lines() };
       }
 
-      function buildPage(page) {
+      /**
+       * paged(body, ctx, layout, prefix) -> pages. With no mark to start the
+       * lines with, exactly the render or layout call it always was; with one,
+       * the same lines broken by KIT.dialogueLayout, which also says which of
+       * them start a piece the author wrote.
+       */
+      function paged(body, ctx, lay, prefix) {
+        starts = null;
+        perPage = lay.lines;
+        if (!prefix) return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages;
+        const r = DL.lines(KIT.text.tokenize(ctx ? KIT.text.substitute(body, ctx) : body), lay);
+        starts = r.starts;
+        return KIT.text.paginate(r.lines, lay.lines);
+      }
+
+      function buildPage(at) {
+        const page = pages[at] || [];
         const t = ui.text;
         t.innerHTML = '';
         units = []; unitIndex = 0; charIndex = 0; acc = 0; complete = false; waiting = false; speed = 1; pauseLeft = 0;
-        for (const line of page) {
+        page.forEach((line, n) => {
           const lineEl = UI.make('div.kit-line');
+          if (starts && starts.has(at * perPage + n)) lineEl.classList.add('is-start');
           for (const span of line) {
             if (span.type === 'text') {
               // The span's own voice wins over the line's, so `{voice:sans}`
@@ -161,7 +214,7 @@
             else if (span.type === 'shake') units.push({ type: 'shake' });
           }
           t.appendChild(lineEl);
-        }
+        });
         if (instant()) revealAll();
         updatePrompt();
       }
@@ -225,15 +278,15 @@
       function updatePrompt() {
         if (!ui.next) return;
         ui.next.classList.toggle('is-ready', complete || waiting);
-        ui.next.textContent = '▼';
+        ui.next.textContent = KIT.look.get('dialogue.marker', '▼');
       }
 
       return {
         id: 'dialogue', transparent: true,
         enter(params) {
-          ui = UI.parts.dialogueBox(UI.el('dialogue'));
-          if (!ui) { this.finish(); return; }
           const p = params || {};
+          ui = UI.parts.dialogueBox(UI.el('dialogue', p.root));
+          if (!ui) { this.finish(); return; }
           ui.host.hidden = false;
           ui.host.setAttribute('data-position', p.position || 'bottom');
           ui.host.setAttribute('data-bg', p.bg || 'window');
@@ -243,7 +296,7 @@
           ui.name.classList.remove('is-big', 'is-small');
           ui.face.innerHTML = '';
           ui.face.hidden = !p.face;
-          if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), 3));
+          if (p.face) ui.face.appendChild(UI.artCanvas(faceArt(p.face), KIT.look.get('dialogue.faceScale', 3)));
           // Who is talking decides what they sound like: their own voice if they
           // are in the cast, else whatever this line asked for, else the game's.
           voice = voiceFor(p.voice);
@@ -254,17 +307,21 @@
           // one entirely. A `ctx` on the payload is the explicit opt-in for raw
           // text that still needs templating.
           const body = p.text == null ? '' : p.text;
-          const lay = layoutFor(ui.text);
-          const rendered = p.ctx ? KIT.text.render(body, p.ctx, lay) : KIT.text.layout(body, lay);
-          pages = rendered[0].pages;
+          // A mark at the start of each line sits in the text's left margin,
+          // as wide as the mark itself, so the width measured for wrapping is
+          // what is left for the words.
+          const prefix = KIT.look.get('dialogue.prefix', '');
+          if (prefix) ui.text.style.setProperty('--kit-prefix-w', Math.ceil(measurerFor(ui.text)(prefix)) + 'px');
+          else ui.text.style.removeProperty('--kit-prefix-w');
+          pages = paged(body, p.ctx, layoutFor(ui.text), prefix);
           pageIndex = 0;
-          buildPage(pages[0] || []);
+          buildPage(0);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
           ui.host.addEventListener('click', this._tap);
           // Get the music out from under the voice. Counted, so a run of lines
           // ducks once and comes back up once at the end rather than pumping
           // between every box.
-          if (KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
+          if (!p.preview && KIT.audio && KIT.audio.duck) { this._ducked = true; KIT.audio.duck(null, 160); }
         },
         exit() {
           if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
@@ -311,7 +368,7 @@
           if (ev.key === 'a' || ev.key === 'menu') {
             if (waiting) { waiting = false; updatePrompt(); return true; }
             if (!complete) { revealAll(); return true; }
-            if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pages[pageIndex]); return true; }
+            if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pageIndex); return true; }
             this.finish(true);
             return true;
           }
@@ -324,7 +381,7 @@
 
   // ---- choice ---------------------------------------------------------------------
   scenes.add({
-    id: 'choice', name: 'Choices',
+    id: 'choice', name: 'Choices', previewable: true,
     create() {
       let host = null, index = 0, options = [];
       return {
@@ -333,7 +390,7 @@
           const p = params || {};
           options = p.options || [];
           index = 0;
-          host = UI.el('choice');
+          host = UI.el('choice', p.root);
           if (!host) { this.finish(-1); return; }
           const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
           UI.select(list, index);
@@ -349,6 +406,15 @@
         },
         exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
         input(ev) {
+          const arrow = ev.key === 'up' || ev.key === 'down' || ev.key === 'left' || ev.key === 'right';
+          // Answers side by side, or in a grid, move the way the arrow points:
+          // in reading order, ▼ in a grid of two went to the next answer, up and
+          // across, rather than the one underneath it.
+          if (arrow && KIT.look.get('choice.layout', 'column') !== 'column') {
+            const next = UI.nav(Array.from(this._list.children, (b) => b.getBoundingClientRect()), index, ev.key, true);
+            if (next !== index) { index = next; UI.select(this._list, index); KIT.look.sound('move'); }
+            return true;
+          }
           if (ev.key === 'up' || ev.key === 'left') { index = (index - 1 + options.length) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'down' || ev.key === 'right') { index = (index + 1) % options.length; UI.select(this._list, index); KIT.look.sound('move'); return true; }
           if (ev.key === 'a') { this._pick.call(this); return true; }
@@ -548,13 +614,7 @@
           const p = params || {};
           host = UI.el('chapter');
           if (!host) { this.finish(); return; }
-          UI.clear(host);
-          host.hidden = false;
-          host.classList.add('is-in');
-          const card = UI.make('div.kit-card');
-          card.appendChild(UI.make('div.kit-chapter-title', { text: KIT.text.strip(p.title || '') }));
-          if (p.subtitle) card.appendChild(UI.make('div.kit-chapter-sub', { text: KIT.text.strip(p.subtitle) }));
-          host.appendChild(card);
+          UI.parts.card(host, { title: p.title, subtitle: p.subtitle });
           left = (KIT.fx && KIT.fx.instant) ? 80 : (p.ms == null ? 2000 : p.ms);
         },
         exit() { if (host) { host.hidden = true; host.classList.remove('is-in'); UI.clear(host); } },
@@ -566,19 +626,17 @@
 
   // ---- toast ------------------------------------------------------------------------
   // A toast does not take input: it shows, the script carries on after a beat,
-  // and the element fades away on its own. Its text is a Term or a line a
-  // command already substituted, so it is not translated a second time here.
+  // and the element fades away on its own. How long it stays is the caller's
+  // to say, else the look's: a look for slow readers can keep "Saved." up
+  // longer, and there was no way to before.
   let toastTimer = null;
   KIT.toast = function (text, ms) {
     const host = UI.el('toast');
     if (!host) return Promise.resolve();
-    UI.clear(host);
-    host.appendChild(UI.make('div.kit-toast-pill', { text: KIT.text.strip(text || '') }));
-    host.hidden = false;
-    host.classList.add('is-in');
+    UI.parts.toast(host, text);
     KIT.look.sound('toast');
     if (toastTimer) clearTimeout(toastTimer);
-    const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || 1600);
+    const life = (KIT.fx && KIT.fx.instant) ? 200 : (ms || KIT.look.get('toast.ms', 1600));
     toastTimer = setTimeout(() => { host.classList.remove('is-in'); host.hidden = true; }, life);
     return new Promise(res => setTimeout(res, Math.min(life, (KIT.fx && KIT.fx.instant) ? 10 : 550)));
   };

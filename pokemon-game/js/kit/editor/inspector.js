@@ -545,22 +545,60 @@
   // =================================================================================
   const FE = KIT.registry('fieldEditors');
 
+  /**
+   * chipRow(options, onPick) -> { el, paint(value) } — one 44-pixel chip per
+   * option, wrapping onto as many rows as it takes. A segmented control stops
+   * fitting a phone at about four choices, and a <select> hides them all
+   * behind a tap; five portrait places or five cursors want to be seen at once.
+   */
+  function chipRow(options, onPick) {
+    const row = make('div.ed-chips.ed-chip-choices');
+    const chips = options.map((o) => {
+      const b = make('button.ed-chip', { text: o.label });
+      b.type = 'button';
+      b.dataset.value = String(o.value);
+      b.onclick = (e) => { e.preventDefault(); onPick(o.value); };
+      row.appendChild(b);
+      return b;
+    });
+    return { el: row, paint(v) { chips.forEach((b, i) => b.setAttribute('aria-pressed', String(options[i].value === v))); } };
+  }
+
   // ---- text ------------------------------------------------------------------------
   FE.add({
     // 'label' is here too: in content it is always plain text. The other kind
     // of label — a function of the game — only ever appears in a registry
     // definition, which is code, and code is not edited through a form.
+    //
+    // `display: 'chips'` with `options` offers those as chips above the box —
+    // a cursor, a mark — and the box takes anything else.
     id: 'string', types: ['string', 'label'],
     mount(el, f, value, onChange) {
       const input = make('input');
       input.type = 'text';
       input.value = value == null || typeof value === 'function' ? '' : String(value);
       if (f.placeholder) input.placeholder = f.placeholder;
+      let chips = null;
+      if (f.display === 'chips' && Array.isArray(f.options)) {
+        chips = chipRow(INS.enumOptions(f), (v) => { input.value = v; chips.paint(v); onChange(v); });
+        chips.paint(input.value);
+        el.appendChild(chips.el);
+        input.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', your own');
+        input.placeholder = f.placeholder || 'or type your own';
+      }
       const t = typed(onChange);
-      input.oninput = () => t.push(input.value);
+      // A field with a length (`max`, in letters as a person counts them, so
+      // ♥ is one) stops taking letters there, rather than showing eight when
+      // the game keeps four.
+      const cut = (s) => (f.max == null ? s : Array.from(s).slice(0, f.max).join(''));
+      input.oninput = () => {
+        if (cut(input.value) !== input.value) input.value = cut(input.value);
+        if (chips) chips.paint(input.value);
+        t.push(input.value);
+      };
       input.onblur = () => t.flush();
       el.appendChild(input);
-      return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== input && input.value !== s) input.value = s; } };
+      return { set(v) { const s = v == null ? '' : String(v); if (chips) chips.paint(s); if (document.activeElement !== input && input.value !== s) input.value = s; } };
     },
   });
 
@@ -692,6 +730,12 @@
     mount(el, f, value, onChange, ctx) {
       const opts = INS.enumOptions(f, ctx);
       let cur = value;
+      if (f.display === 'chips') {
+        const chips = chipRow(opts, (v) => { cur = v; chips.paint(v); onChange(v); });
+        chips.paint(cur);
+        el.appendChild(chips.el);
+        return { set(v) { cur = v; chips.paint(v); } };
+      }
       if (opts.length && opts.length <= 4) {
         const seg = make('div.ed-seg');
         const buttons = opts.map(o => {
@@ -716,21 +760,54 @@
   });
 
   // ---- colour ----------------------------------------------------------------------
+  /** #rgb or #rrggbb as the #rrggbb a colour input takes; null for anything else. */
+  const sixDigits = (c) => {
+    const s = String(c);
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+    return /^#[0-9a-f]{3}$/i.test(s) ? '#' + s.slice(1).split('').map(x => x + x).join('').toLowerCase() : null;
+  };
   FE.add({
+    // A colour a field may leave empty (`nullable`) gets a chip for that,
+    // named by `noneLabel` — "None", "Same as accent" — because an empty hex
+    // box does not say what empty MEANS, and clearing one did nothing at all.
+    //
+    // An empty one that is drawn in another colour meanwhile ("Same as
+    // accent" is the accent) shows that colour in its square, faded, when the
+    // form can say which (`ctx.noneColour(field)`): a black square beside a
+    // name the game draws in blue said the name was black.
     id: 'color', types: ['color'],
-    mount(el, f, value, onChange) {
+    mount(el, f, value, onChange, ctx) {
       const row = make('div.ed-row');
       const swatch = make('input.ed-color');
       swatch.type = 'color';
-      swatch.value = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : '#000000';
+      const shown = (v) => sixDigits(v == null && ctx && ctx.noneColour ? ctx.noneColour(f) : v);
+      swatch.value = shown(value) || '#000000';
+      swatch.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', colour');
       const hex = make('input.ed-hex');
       hex.type = 'text';
       hex.value = value == null ? '' : String(value);
-      swatch.oninput = () => { hex.value = swatch.value; onChange(swatch.value); };
-      hex.oninput = () => { if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex.value)) { swatch.value = hex.value.length === 4 ? '#' + hex.value.slice(1).split('').map(c => c + c).join('') : hex.value; onChange(hex.value); } };
+      hex.setAttribute('aria-label', (f.label || titleCase(f.key)) + ', as #rrggbb');
+      let none = null;
+      // With no colour of its own, the swatch is faded: black there would be a lie.
+      const paintNone = (v) => { if (none) { none.setAttribute('aria-pressed', String(v == null)); swatch.classList.toggle('is-none', v == null); } };
+      swatch.oninput = () => { hex.value = swatch.value; paintNone(swatch.value); onChange(swatch.value); };
+      // Text that is not a colour ("pink") is not sent anywhere; the box edge
+      // goes red instead, so it does not look taken and then quietly ignored.
+      hex.oninput = () => {
+        const ok = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex.value);
+        hex.classList.toggle('is-bad', !ok && hex.value !== '');
+        if (ok) { swatch.value = sixDigits(hex.value); paintNone(hex.value); onChange(hex.value); }
+      };
       row.appendChild(swatch); row.appendChild(hex);
+      if (f.nullable) {
+        none = make('button.ed-chip.ed-color-none', { text: f.noneLabel || 'None' });
+        none.type = 'button';
+        none.onclick = (e) => { e.preventDefault(); hex.value = ''; paintNone(null); onChange(null); };
+        row.appendChild(none);
+      }
+      paintNone(value);
       el.appendChild(row);
-      return { set(v) { if (document.activeElement !== hex) hex.value = v == null ? '' : String(v); if (/^#[0-9a-f]{6}$/i.test(String(v))) swatch.value = v; } };
+      return { set(v) { if (document.activeElement !== hex) { hex.value = v == null ? '' : String(v); hex.classList.toggle('is-bad', false); } const c = shown(v); if (c) swatch.value = c; paintNone(v); } };
     },
   });
 

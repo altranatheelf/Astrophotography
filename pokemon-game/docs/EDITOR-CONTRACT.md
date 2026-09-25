@@ -42,6 +42,7 @@ Selection:
 { kind: 'script', path: ['scripts','meet-mom'] }  // a common event
 { kind: 'slot', map, id, page, slot }             // a page's script slot
 { kind: 'map', id } | { kind: 'project' } | { kind: 'fragment', id } | { kind: 'item', id } | { kind: 'var', name } | { kind: 'rule', id }
+{ kind: 'look', path: ['ui', 'tokens', 'ink'] }  // something in the game's look (a problem picked in Problems opens its Look section)
 ```
 
 Calls every panel and tool uses:
@@ -54,6 +55,8 @@ KIT.editor.refresh()               // rebuild the map view + repaint
 KIT.editor.repaint()               // canvas only
 KIT.editor.ops                     // js/kit/editor/ops.js — every edit (paint, objects, pages, maps, scripts…)
 KIT.editor.commit(label, fn)       // doc.transaction + validate + autosave
+KIT.editor.pending(key, fn, ms)    // run fn once things have been still for ms (300): a drag or a run of taps is one commit
+KIT.editor.flushPending()          // run whatever is waiting, now (undo, redo, Play here, close and a panel switch do this first)
 KIT.editor.problemsFor(selection)  // the problems that belong to a thing
 KIT.editor.toast(text) / KIT.editor.confirm(text) -> Promise<bool>
 KIT.editor.el                      // { host, root, toolbar, main, stage, canvas, overlay, side, groups, tabs, panel, status } DOM
@@ -64,24 +67,44 @@ KIT.editor.previewWorld()          // a world-shaped object the renderer can dra
 ```js
 KIT.registry('editorPanels').add({
   id: 'tiles', label: 'Tiles', icon: 'grid', order: 10,
-  section: 'map',          // which group it sits under: map | story | game | problems (default game)
+  section: 'map',          // which group it sits under: map | story | look | game | problems (default game)
   tool: 'pencil',          // optional: the tool this panel is for; opening the panel picks it up
   tools: ['pencil', 'fill'],   // unless the active tool is one of these (default: just `tool`)
   mount(el, ed) {},        // build the DOM once, inside `el`
   refresh(ed) {},          // called on change/selection/document events while visible
   onSelect(sel, ed) {},    // optional: the selection changed
   visible(ed) { return true },   // optional
+  stage(el, ed) { return { destroy() {} } },   // optional: the panel draws on the stage (see below)
 })
 ```
-Panels are chips under one of four groups across the top of the side panel (a
+Panels are chips under one of five groups across the top of the side panel (a
 bottom sheet on phones): **Map** for what is on the open map, **Story** for
-scripts and the people in them, **Game** for the project as a whole, and
-**Problems**. `section` picks the group; a panel that names none lands in Game,
+scripts and the people in them, **Look** for how the game looks and sounds,
+**Game** for the project as a whole, and **Problems**. `section` picks the group; a panel that names none lands in Game,
 and a group with a single panel hides its chip row and opens that panel when
 tapped. `KIT.editor.groups()`, `groupOf(id)` and `panelsOf(group)` read the same
 arrangement, and `KIT.editor.el.groups` is the row. Panels must work at 390px
 wide, use `KIT.ui` helpers for consistency, and never write to the project
 except through `KIT.editor.ops` or `KIT.editor.commit`.
+
+**The stage.** A panel that defines `stage(el, ed)` is given the stage — the
+map's half of the screen — while it is open: the shell puts a
+`div.ed-stage-panel` over the canvas, hides the tool row and the map's zoom
+(nothing to paint or zoom), calls `stage` with it, and calls the `destroy()` it returned when the panel is
+left, Creator Mode is closed or Play here starts, so nothing it drew keeps
+running unseen. Two and three fingers on it are still undo and redo. The Look
+panel's live preview (`KIT.editor.lookPreview`) is the one there is. Under Map
+and Look the phone's sheet is short, because the stage is what the author is
+looking at; the grip's tall sheet over a stage still leaves the stage 250px.
+
+**Widgets.** An `enum` field with `display: 'chips'` is a wrapped row of 44px
+chips, however many options it has (a segmented control stops fitting a phone
+at about four). A `string` field with `display: 'chips'` and `options` offers
+those as chips above its box, which takes anything else (a cursor, a mark). A
+`nullable` colour has a chip for "no colour", named by `noneLabel`; while it
+has none, its square shows the colour the form's `ctx.noneColour(field)` names
+— the Look panel reads it from the token the field `follows` ("Same as
+accent" is the accent), so the square is what the game draws, not black.
 
 ## Importers (`importers` registry)
 ```js

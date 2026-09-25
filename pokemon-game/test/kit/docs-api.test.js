@@ -36,7 +36,8 @@ global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) R(f);
 R('tools/load-modules.js').load(KIT, ['mons', 'home', 'dungeon', 'bullet']);
 for (const f of ['js/kit/editor/ops.js', 'js/kit/editor/editor.js', 'js/kit/editor/tools.js', 'js/kit/editor/inspector.js', 'js/kit/editor/panels-map.js',
-  'js/kit/editor/panels-objects.js', 'js/kit/editor/script-editor.js', 'js/kit/editor/panels-writing.js', 'js/kit/editor/panels-project.js', 'js/kit/editor/panel-cast.js', 'js/kit/editor/integration.js']) {
+  'js/kit/editor/panels-objects.js', 'js/kit/editor/script-editor.js', 'js/kit/editor/panels-writing.js', 'js/kit/editor/panels-project.js', 'js/kit/editor/panel-cast.js',
+  'js/kit/editor/look-preview.js', 'js/kit/editor/panel-look.js', 'js/kit/editor/integration.js']) {
   try { R(f); } catch (e) { notLoaded.push(f); }
 }
 
