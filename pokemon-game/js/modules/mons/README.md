@@ -202,15 +202,16 @@ being announced exactly once whether or not another module owns the clock.
 `test/modules/integration.test.js` — 12 more, where this module meets `home`.
 
 `js/modules/mons/e2e.node.js` — the browser play-through (Node + Playwright, not
-part of the page):
+part of the page; `npm run e2e` runs it last):
 
 ```
 export NODE_PATH=$(npm root -g)
 KIT_SHOTS=/tmp/shots node js/modules/mons/e2e.node.js
 ```
 
-29 checks: it starts the demo on Route 1 with a lucky `KIT.game.rngOverride`,
+31 checks: it starts the demo on Route 1 with a lucky `KIT.game.rngOverride`,
 forces an encounter, plays the whole catch scene (berry, timing ring, wobbles,
-nickname), checks the party and the Pokédex, walks with the follower and talks to
+nickname), opens the party from the pause menu and checks it is drawn on top,
+checks the Pokédex, walks with the follower and talks to
 it, goes to the garden, opens a card and pets somebody, then saves, reloads and
 checks that every nickname, heart and "met at" came back.

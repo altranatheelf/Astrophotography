@@ -79,6 +79,7 @@
     state.mapId = id;
     state.map = KIT.mapView(state.project, null, id);
     state.view.x = 0; state.view.y = 0;
+    cursorTouched = false;              // the cursor square belongs to the map it was put on
     ED.select(null);
     emit('change', { mapId: id });
     ED.repaint();
@@ -437,6 +438,7 @@
     ED.beginStroke(KIT.labelOf(tool, ED, tool.id));
     try { if (tool.begin) tool.begin(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); }
     state.cursor = { x: pt.tx, y: pt.ty };
+    cursorTouched = true;
     ED.repaint();
     ev.preventDefault();
   }
@@ -451,7 +453,7 @@
       ED.repaint();
       return;
     }
-    if (state.cursor.x !== pt.tx || state.cursor.y !== pt.ty) { state.cursor = { x: pt.tx, y: pt.ty }; updateStatus(); ED.repaint(); }
+    if (state.cursor.x !== pt.tx || state.cursor.y !== pt.ty) { state.cursor = { x: pt.tx, y: pt.ty }; cursorTouched = true; updateStatus(); ED.repaint(); }
     if (!drawing) return;
     const tool = KIT.registry('editorTools').get(state.tool);
     if (tool && tool.move) { try { tool.move(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); } }
@@ -817,6 +819,37 @@
   };
 
   // ---- play here -----------------------------------------------------------------
+  /**
+   * playStart() -> { x, y } — where Play here puts the hero. The square the
+   * author last touched, when a hero can stand there and walk off it; else the
+   * game's start, when it is on this map; else the open square nearest either.
+   * On a phone nobody hovers: open a map, tap Play, and the cursor was still at
+   * its default, the top-left corner, which in the region "Start your own game"
+   * makes is walled in by trees. The hero stood there and could not move.
+   */
+  let cursorTouched = false;
+  ED.playStart = function () {
+    const p = state.project, id = state.mapId, map = p.maps[id];
+    const view = KIT.mapView(p, null, id);
+    const open = (x, y) => x >= 0 && y >= 0 && x < map.width && y < map.height && !view.flagsAt(x, y).solid
+      && ['up', 'down', 'left', 'right'].some((d) => { const r = view.passable(x, y, d, {}); return r.ok && r.reason !== 'connection'; });
+    const c = state.cursor;
+    if (cursorTouched && open(c.x, c.y)) return { x: c.x, y: c.y };
+    const s = p.start;
+    const from = s && s.map === id ? { x: s.x, y: s.y } : { x: c.x, y: c.y };
+    // Breadth-first from there, so the answer is the nearest open square.
+    const seen = new Set();
+    const queue = [from];
+    while (queue.length) {
+      const q = queue.shift();
+      const k = q.x + ',' + q.y;
+      if (seen.has(k) || q.x < 0 || q.y < 0 || q.x >= map.width || q.y >= map.height) continue;
+      seen.add(k);
+      if (open(q.x, q.y)) return q;
+      queue.push({ x: q.x + 1, y: q.y }, { x: q.x - 1, y: q.y }, { x: q.x, y: q.y + 1 }, { x: q.x, y: q.y - 1 });
+    }
+    return { x: c.x, y: c.y };
+  };
   ED.playHere = async function (opts) {
     if (!game || !game.loadProject) { ED.toast('The game is not running'); return; }
     await ED.saveNow();
@@ -824,10 +857,10 @@
     emit('mode', 'play');
     ED.el.root.classList.add('playing');
     game.loadProject(KIT.deepClone(state.project));
-    const at = (opts && opts.at) || state.cursor;
+    const at = (opts && opts.at) || ED.playStart();
     await game.newGame({ testState: (opts && opts.testState) || null, silent: true });
     if (game.warp) await game.warp(state.mapId, at.x, at.y, 'down');
-    ED.toast('Playing — press Escape to come back');
+    ED.toast('Playing · ‹ Back to Creator Mode is at the top');
   };
   ED.backToEdit = function () {
     state.mode = 'edit';

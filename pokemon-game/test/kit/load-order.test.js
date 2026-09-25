@@ -126,3 +126,13 @@ test('the single file asks for nothing it does not carry', () => {
   assert.match(page, /<link\b[^>]*rel=["']manifest["']/i, 'index.html still links the manifest');
   assert.match(page, /<link\b[^>]*rel=["']apple-touch-icon["']/i, 'index.html still links the apple-touch-icon');
 });
+
+test('index.html loads every portrait in js/sprites', () => {
+  // The Node side reads the folder (tools/load-modules.js SPRITES()); the page
+  // lists its script tags by hand, so a portrait someone draws but forgets to
+  // add here would show as a blob in the game and nowhere else.
+  const html = read('index.html');
+  const missing = fs.readdirSync(path.join(ROOT, 'js', 'sprites')).filter(f => f.endsWith('.js'))
+    .filter(f => !html.includes(`src="js/sprites/${f}"`));
+  assert.deepEqual(missing, [], 'portraits the page never loads: ' + missing.join(', '));
+});

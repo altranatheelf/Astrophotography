@@ -44,6 +44,7 @@
     { id: 'mons-party-title', default: 'Your Pokémon' },
     { id: 'mons-party-empty', default: 'You have not befriended anyone yet.' },
     { id: 'mons-party-hint', default: 'Arrows · Z opens · X closes' },
+    { id: 'mons-party-hint-touch', default: 'Tap one to see it' },
     { id: 'mons-dex-title', default: 'Pokédex' },
     { id: 'mons-dex-count', default: 'Seen {seen} · Befriended {caught} of {total}' },
     { id: 'mons-dex-unseen', default: 'Not met yet.' },

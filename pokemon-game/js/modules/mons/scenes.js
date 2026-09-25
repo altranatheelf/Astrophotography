@@ -17,9 +17,11 @@
 
   // ---- the host element -------------------------------------------------------
   /**
-   * One overlay element for all four screens, added under the kit's own
-   * overlays: a dialogue box, a toast or a name prompt opened *on top of* the
-   * catch scene has to paint above it, and DOM order is what decides.
+   * One overlay element for all four screens, layered between the pause menu
+   * and the dialogue box (kit.css numbers them): the party opened from the menu
+   * has to paint over the menu, and a dialogue, toast or name prompt opened on
+   * top of the catch scene has to paint over it. It shares the menu's z-index
+   * and sits after it in the page, which is what puts it above.
    */
   function host() {
     let el = document.getElementById('mons-scene');
@@ -29,8 +31,10 @@
       el.className = 'overlay';
       el.hidden = true;
       const screen = document.getElementById('screen') || document.body;
+      const menu = document.getElementById('pause-menu');
       const canvas = document.getElementById('game-canvas');
-      if (canvas && canvas.parentNode === screen) screen.insertBefore(el, canvas.nextSibling);
+      const after = (menu && menu.parentNode === screen) ? menu : (canvas && canvas.parentNode === screen) ? canvas : null;
+      if (after) screen.insertBefore(el, after.nextSibling);
       else screen.appendChild(el);
     }
     return el;
@@ -96,7 +100,7 @@
 
   // ---- styles -----------------------------------------------------------------
   const CSS = `
-#mons-scene { display: flex; align-items: center; justify-content: center; padding: 10px; pointer-events: auto; background: rgba(6,7,12,.62); }
+#mons-scene { z-index: 2; display: flex; align-items: center; justify-content: center; padding: 10px; pointer-events: auto; background: rgba(6,7,12,.62); }
 #mons-scene[hidden] { display: none; }
 #mons-scene[data-kind="catch"] { background: rgba(6,7,12,.72); flex-direction: column; justify-content: space-between; padding: 8px; }
 .mons-portrait { image-rendering: pixelated; display: block; }
@@ -493,7 +497,7 @@
       const foot = make('div.kit-row');
       foot.appendChild(UI.button('close', t(project, 'mons-close'), 'is-primary'));
       panel.appendChild(foot);
-      panel.appendChild(make('p.kit-hint', { text: t(project, 'mons-party-hint') }));
+      panel.appendChild(make('p.kit-hint', { text: t(project, KIT.input.isTouch() ? 'mons-party-hint-touch' : 'mons-party-hint') }));
       el.appendChild(panel);
 
       markSelected(rows.map(r => r.el), index);

@@ -22,9 +22,11 @@ you a first partner, and a route north whose tall grass has things living in it
 import, nothing to download. **A blank map** is the other button, for people who
 want one.
 
-**On a phone,** run `npm run phone` on the computer, open the address it prints,
-and use "Add to Home Screen" to get an icon and a full-screen window. The same
-two taps make the same region. See `docs/ON-A-PHONE.md`.
+**On a phone,** open https://raw.githack.com/altranatheelf/Astrophotography/claude/pokemon-two-player-game-b6ol8x/pokemon-game/Our-Adventure.html in
+the phone's browser. Nothing to install and no computer needed; "Add to Home
+Screen" gives it an icon. The same two taps make the same region. With a
+computer on the same Wi-Fi, `npm run phone` serves it too. See
+`docs/ON-A-PHONE.md`.
 
 ## And then
 

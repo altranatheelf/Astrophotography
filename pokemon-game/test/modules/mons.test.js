@@ -15,7 +15,7 @@ R('js/kit/world/map.js'); R('js/kit/world/entities.js'); R('js/kit/world/world.j
 global.PKMN = global.PKMN || {};
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) R(f);
 for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) R(f);
-for (const f of ['charizard', 'venusaur', 'machamp', 'jynx', 'electabuzz', 'jolteon', 'vaporeon']) R('js/sprites/' + f + '.js');
+for (const f of R('tools/load-modules.js').SPRITES()) R(f);
 for (const f of ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'panel', 'manifest']) R('js/modules/mons/' + f + '.js');
 
 const loaded = KIT.modules.activate({ modules: ['mons'] });

@@ -34,6 +34,12 @@
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
   let playBar = null;
+  /** The bar floats over the top of the page, so the game steps down out from under it. */
+  function markPlaying(on) {
+    if (ED.el && ED.el.host) ED.el.host.classList.toggle('is-playing', on);
+    const app = document.getElementById('app');
+    if (app) app.classList.toggle('ed-playing', on);
+  }
   function buildPlayBar() {
     // Every open rebuilds the shell's DOM, so a bar from the last open is a detached
     // element: forget it, or the second time round Play here has no way back on a phone.
@@ -44,13 +50,13 @@
     back.type = 'button';
     back.onclick = () => ED.backToEdit();
     playBar.appendChild(back);
-    playBar.appendChild(UI.make('span.ed-playbar-hint', { text: 'Escape' }));
+    if (!(KIT.input && KIT.input.isTouch && KIT.input.isTouch())) playBar.appendChild(UI.make('span.ed-playbar-hint', { text: 'Escape' }));   // a phone has no Escape key
     ED.el.root.appendChild(playBar);
   }
   ED.on('mode', (mode) => {
     buildPlayBar();
     const playing = mode === 'play';
-    if (ED.el && ED.el.host) ED.el.host.classList.toggle('is-playing', playing);
+    markPlaying(playing);
     if (playBar) playBar.hidden = !playing;
     if (playing && KIT.game && KIT.game.resize) setTimeout(() => KIT.game.resize(), 0);
   });
@@ -70,7 +76,7 @@
   const playHere = ED.playHere;
   ED.playHere = function (opts) {
     const o = Object.assign({}, opts || {});
-    const at = o.at || ED.state.cursor;
+    const at = o.at || ED.playStart();
     const save = (KIT.game && KIT.game._editorReturn && KIT.game._editorReturn.save) || null;
     o.testState = Object.assign({
       map: ED.state.mapId, x: at.x, y: at.y, dir: 'down',
@@ -96,7 +102,7 @@
     try { if (KIT.audio) KIT.audio.music(null, { fade: 150 }); } catch (e) { /* ditto */ }
     if (KIT.game) KIT.game.world = null;
     backToEdit.call(ED);
-    if (ED.el && ED.el.host) ED.el.host.classList.remove('is-playing');
+    markPlaying(false);
     if (playBar) playBar.hidden = true;
     ED.toast('Back in Creator Mode');
   };
@@ -111,7 +117,8 @@
   ED.open = function (opts) {
     if (ED.isOpen()) return ED;
     const out = open.call(ED, opts || {});
-    if (ED.el && ED.el.host) { ED.el.host.hidden = false; ED.el.host.classList.remove('is-playing'); }
+    if (ED.el && ED.el.host) ED.el.host.hidden = false;
+    markPlaying(false);
     if (parked && ED.el && ED.el.panel) {
       for (const body of parked) if (body.dataset.panel) ED.el.panel.appendChild(body);
       parked = null;
@@ -134,7 +141,8 @@
     try { await close.call(ED); }
     finally { if (game && toTitle) game.toTitle = toTitle; }
     parked = ED.el && ED.el.panel ? Array.from(ED.el.panel.children) : null;
-    if (ED.el && ED.el.host) { ED.el.host.hidden = true; ED.el.host.classList.remove('is-playing'); }
+    if (ED.el && ED.el.host) ED.el.host.hidden = true;
+    markPlaying(false);
     if (game && resume && game.resumeFromEditor) await game.resumeFromEditor(ED.state.project);
   };
 

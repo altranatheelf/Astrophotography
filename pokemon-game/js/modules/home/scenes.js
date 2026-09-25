@@ -257,7 +257,7 @@
           rows = [];
           ui = panel(title, rows, {
             overMap: true,
-            hint: S(p, 'home-place-hint'),
+            hint: S(p, KIT.input.isTouch() ? 'home-place-hint-touch' : 'home-place-hint'),
             buttons: [
               { action: 'rotate', label: S(p, 'home-place-rotate'), disabled: vs.length < 2 },
               { action: 'put', label: S(p, 'home-place-put'), primary: true, disabled: !can.ok },
@@ -270,7 +270,7 @@
           rows = [];
           ui = panel(`${S(p, 'home-place-take')} · ${name}`, rows, {
             overMap: true,
-            hint: S(p, 'home-place-hint'),
+            hint: S(p, KIT.input.isTouch() ? 'home-place-hint-touch' : 'home-place-hint'),
             buttons: [
               { action: 'put', label: S(p, 'home-place-take'), primary: true, disabled: !rec },
               { action: 'back', label: S(p, 'home-place-done') },

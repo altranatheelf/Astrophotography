@@ -81,10 +81,16 @@ test('every browser suite is wired into `npm run e2e`', () => {
   // that exists and never runs is exactly as useful as a feature nobody can
   // reach. Writing e2e/whatever.js and forgetting the package.json line is one
   // keystroke away at all times.
-  const suites = fs.readdirSync(path.join(ROOT, 'e2e')).filter((f) => f.endsWith('.js')).sort();
+  // A module keeps its own play-through next to it (js/modules/<id>/e2e.node.js);
+  // the mons one sat outside this check and so outside the run, and missed the
+  // pause menu painting over the party it opened.
+  const mods = path.join(ROOT, 'js', 'modules');
+  const suites = fs.readdirSync(path.join(ROOT, 'e2e')).filter((f) => f.endsWith('.js')).map((f) => 'e2e/' + f)
+    .concat(fs.readdirSync(mods).filter((m) => fs.existsSync(path.join(mods, m, 'e2e.node.js'))).map((m) => `js/modules/${m}/e2e.node.js`))
+    .sort();
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const script = pkg.scripts.e2e || '';
-  const orphans = suites.filter((f) => !script.includes('e2e/' + f));
+  const orphans = suites.filter((f) => !script.includes(f));
   assert.deepEqual(orphans, [],
     `these browser suites exist but never run: ${orphans.join(', ')}. Add them to scripts.e2e.`);
   assert.ok(suites.length >= 8, `and there are real ones (${suites.length})`);

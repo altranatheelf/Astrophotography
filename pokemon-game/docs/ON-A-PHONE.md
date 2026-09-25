@@ -10,6 +10,17 @@ The whole engine runs on a phone: the game, and Creator Mode with it.
 
 ## The short version
 
+**With only a phone, open this link** in the phone's browser:
+
+https://raw.githack.com/altranatheelf/Astrophotography/claude/pokemon-two-player-game-b6ol8x/pokemon-game/Our-Adventure.html
+
+That is the whole game in one page, served straight from the repository
+(raw.githack.com hands GitHub's copy of `Our-Adventure.html` to the browser as
+a web page). It is the latest version pushed to that branch; once the branch is
+merged, the same address with `main` in place of the branch name is the one to
+use. Saves stay in that browser on that phone. For an icon, use the browser's
+Share menu › **Add to Home Screen**.
+
 **On the phone, start your own game in two taps.** Open the page, tap **Start
 your own game** on the title screen, tap **A region to explore**. You get a
 town with a house and a lab you can walk into, a route north with tall grass
@@ -20,7 +31,7 @@ Once there is a game on the device, that second tap asks before replacing it,
 and names what it would replace. **↶** in Creator Mode undoes it in one step
 either way.
 
-**On the computer, put it on the phone with one command:**
+**Or, from a computer on the same Wi-Fi, with one command:**
 
 ```
 npm run phone

@@ -356,5 +356,5 @@ Save `save.modules.dungeon` · content `project.packs.dungeon`. Used by the `dun
 `KIT.bullet` — a bullet-hell fight as an add-on (`js/modules/bullet`). Save `save.modules.bullet` · content `project.packs.bullet`. `PATTERNS` (`rain sweep hunt ring`, each `(f, count) -> pattern`) `pattern(steps)` `runPattern` `patternDone` · `spawn` `movers` `steer` `step` · `create(...)` `registerAll()` `MANIFEST` `VERSION`.
 
 ## Still to build
-Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus `npm run e2e`: eighteen browser play-throughs in `e2e/`, every one wired in (`test/kit/docs.test.js` fails on an orphan).
+Nothing in the engine. `core/*`, `world/*`, `script/*`, `render/*`, `scenes/*`, `game.js`, `main.js`, `index.html`, `css/*`, `import/*` and `editor/*` are written and covered by `npm test` plus `npm run e2e`: eighteen browser play-throughs in `e2e/` and one beside the mons module, every one wired in (`test/kit/docs.test.js` fails on an orphan).
 What the engine still **owes** its modules — seventeen hooks each of them had to work around — is the punch list in `docs/ENGINE-HOOKS.md`.

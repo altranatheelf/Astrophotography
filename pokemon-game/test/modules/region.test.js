@@ -17,7 +17,7 @@ global.PKMN = global.PKMN || {};
 // doorway and the flood fill below proves nothing.
 for (const f of ['js/art/tiles.js', 'js/art/chars.js', 'js/art/tiles-nature.js', 'js/art/tiles-town.js', 'js/art/tiles-interior.js', 'js/art/chars-heroes.js', 'js/art/chars-placeholder.js']) R(f);
 for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) R(f);
-for (const f of ['charizard', 'venusaur', 'machamp', 'jynx', 'electabuzz', 'jolteon', 'vaporeon']) R('js/sprites/' + f + '.js');
+for (const f of R('tools/load-modules.js').SPRITES()) R(f);
 for (const f of ['rules', 'strings', 'art', 'actions', 'script', 'systems', 'essentials', 'region', 'panel', 'manifest']) R('js/modules/mons/' + f + '.js');
 
 KIT.modules.activate({ modules: ['mons'] });

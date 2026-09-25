@@ -141,8 +141,13 @@ async function run(browser, label, size, touch) {
   await page.waitForTimeout(300);
 
   beat(3, 'play it: north out of the town and into the long grass');
-  // Where the game says it starts, not where the editor's cursor happens to be.
-  await page.evaluate(() => { const s = KIT.editor.state.project.start; KIT.editor.playHere({ at: { x: s.x, y: s.y } }); });
+  // The Play button, as a person presses it. This test used to call playHere
+  // with the start square, because the button played from the editor's cursor,
+  // and on a phone that had never been moved the cursor sat in the top-left
+  // corner, walled in by trees: the hero stood there and could not take a step.
+  // The button is fixed; the test presses the button.
+  if (touch) await page.tap('.ed-toolbar .ed-btn.primary:has-text("Play")');
+  else await page.click('.ed-toolbar .ed-btn.primary:has-text("Play")');
   await page.waitForFunction(() => KIT.game.scene() === 'map' && KIT.game.world && !KIT.game.world.busy, undefined, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(500);
   const where = await page.evaluate(() => { const h = KIT.game.world.hero(); return { map: KIT.game.world.map.id, x: h.x, y: h.y }; });
@@ -162,10 +167,18 @@ async function run(browser, label, size, touch) {
     await page.screenshot({ path: `${SHOTS}/onetap-${label}-3b-starter.png` });
     await page.click('#choice .kit-option[data-index="0"]');
     await page.waitForTimeout(600);
-    await clearMessages(page);
     // packs.mons.starters watches the variable the choice sets, and asks for a
-    // name once the script it was set inside has finished talking.
-    if (await page.waitForFunction(() => KIT.game.scene() === 'nameEntry', undefined, { timeout: 9000 }).then(() => true).catch(() => false)) {
+    // name once the script it was set inside has finished talking — and the
+    // professor now hands over balls and berries first, so keep reading until
+    // the name box is up (a moment with only a toast on screen is not the end).
+    let named = false;
+    for (let i = 0; i < 40 && !named; i++) {
+      const ids = await scenes(page);
+      if (ids.includes('nameEntry')) { named = true; break; }
+      if (ids.includes('dialogue') || ids.includes('chapter')) await pressA(page);
+      else await page.waitForTimeout(250);
+    }
+    if (named) {
       await page.fill('[data-role="name-entry"]', 'Sprout');
       await page.click('[data-action="ok"]');
       await page.waitForTimeout(500);
@@ -173,6 +186,8 @@ async function run(browser, label, size, touch) {
     await clearMessages(page);
     const party = await page.evaluate(() => (KIT.mons ? KIT.mons.read(KIT.game.world.save) : null));
     check(!!party && party.party.length === 1, `and it is a real partner, in your party (${party && party.party.map(m => m.id).join(', ')})`);
+    const bag = await page.evaluate(() => KIT.game.world.save.inventory || {});
+    check(bag.pokeball === 5 && bag.berry === 3, `and something to catch with: the region's catch screen used to offer a ball that did not exist (${JSON.stringify(bag)})`);
     check(!!party && party.party[0] && party.party[0].nickname === 'Sprout', 'called what you called them');
   }
   // Back to the path, for the walk north.

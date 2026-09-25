@@ -101,7 +101,9 @@ body { overflow: hidden; }
 .overlay { position: absolute; inset: 0; }
 /* Stacked the way scenes are pushed, not the way the divs happen to sit in the
    page: Quit's Yes/No was painted under the pause menu, and Settings from the
-   title under the title. */
+   title under the title. A module's own screen that opens from the menu shares
+   its 2 and sits after it in the page, so it paints over the menu and under a
+   dialogue. */
 #screen-title { z-index: 1; }
 #pause-menu { z-index: 2; }
 #dialogue { z-index: 3; }
@@ -921,6 +923,9 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40dvh; backg
   display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #151a24ee; border: 1px solid #2f3a4f;
   border-radius: 999px; box-shadow: 0 6px 20px #0008; z-index: 6; }
 .ed-playbar[hidden] { display: none; }
+/* It covered the top of every screen under it — the party's "Seen · Befriended",
+   a dialogue's name tab — so the game moves down below it instead: 8px + 58px of bar. */
+#app.ed-playing #stage { padding-top: calc(max(8px, env(safe-area-inset-top)) - env(safe-area-inset-top) + 64px); }
 .ed-playbar .ed-btn { min-height: 44px; white-space: nowrap; }
 .ed-playbar-hint { color: #8494ab; font-size: 11.5px; padding-right: 6px; }
 
@@ -23829,6 +23834,492 @@ PKMN.TILES.register([
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
+<script>
+// ---- js/sprites/pikachu.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.pikachu = {
+    size: 32,
+    palette: {
+      k: '#4a3212', // dark brown outline
+      y: '#f8d030', // base yellow
+      Y: '#fff28a', // light yellow highlight
+      d: '#d8a018', // shadow yellow
+      b: '#8c5a1c', // brown back stripes / tail base
+      r: '#e8402c', // red cheeks
+      e: '#141414', // eyes / ear tips
+      w: '#ffffff', // eye highlight
+    },
+    rows: [
+      '...........kk................kk.', // 0
+      '...........kek..............kek.', // 1
+      '...........keek............keek.', // 2
+      '...........keeek..........keeek.', // 3
+      '.kkkkk......kYydk........kyydk..', // 4
+      'kYYYydk.....kYyydk......kyyydk..', // 5
+      'kYYyyydk.....kYyydk....kyyydk...', // 6
+      '.kYyyyydk....kYyyyykkkkyyyyyk...', // 7
+      '..kyyyyydk...kYYYyyyyyyyyyyyyk..', // 8
+      '...kyyyyydk.kYYyyyyyyyyyyyyyyyk.', // 9
+      'kkkkkyyydk.kYyyyyyyyyyyyyyyyyyk.', // 10
+      'kYyyyyydk..kyyyyyyweyyyyyweyyyk.', // 11
+      '.kyyydkkk..kyyyyyyeeyyyyyeeyyyk.', // 12
+      '..kyyydk...kyyyyyyeeyyyyyeeyyyk.', // 13
+      '...kyyydk..kyrrryyyyyyyyyyyrrrk.', // 14
+      '.kkkkyyydk.kyrrrryyykykykyyrrrk.', // 15
+      '.kyyyyyydk.kyrrrryyyykykyyyrrrk.', // 16
+      '.kyyydkkkk..kyrryyyyyyyyyyyrrk..', // 17
+      '..kyydk......kyyyyyyyyydddddk...', // 18
+      '...kyydk......kkkddddddddkkk....', // 19
+      '....kyydk.....kYYyyyyyyyyyyk....', // 20
+      '.....kyydkkkkkYyyyyyyydddykkk...', // 21
+      '......kyyybbbkyyyyyyyykYyykYyk..', // 22
+      '.......kybbbbkyyyyyyyykyydkydk..', // 23
+      '........kkkkkkyyyyyyyyykkkykk...', // 24
+      '.............kbbbyyyyyyyyyydk...', // 25
+      '.............kyyyyyyyyyyyyydk...', // 26
+      '.............kbbbyyyyyyyyyydk...', // 27
+      '.............kddyyyyyyyyyyydk...', // 28
+      '..............kdddyykkyyyydk....', // 29
+      '.............kyyyyydkkyyyyydk...', // 30
+      '..............kkkkkk..kkkkkk....', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/butterfree.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.butterfree = {
+    size: 32,
+    palette: {
+      k: '#221a3a', // near-black purple outline and wing veins
+      B: '#7c74d8', // base purple-blue body
+      b: '#b4acf8', // light purple highlight
+      d: '#4c44a0', // shadow purple
+      w: '#ffffff', // wing white, eye glint, fang
+      W: '#d4d0ec', // wing shade (cell edges, far-side wings)
+      r: '#e02838', // red compound eye
+      R: '#ff8a8a', // eye light
+      q: '#8c1428', // eye dark facets
+      c: '#8cd0f0', // light blue hands and feet
+    },
+    rows: [
+      '...............k................', // 0
+      '...kkkkkkk......kk.....kk.kkkkk.', // 1
+      '.kkwwwwwwwkk......k....k.kwwWWWk', // 2
+      'kwwkwwwwwwwWk......k..k..kwwWkWk', // 3
+      'kwwwkwwwwwwwWk.....kkkkkkkwWkWWk', // 4
+      'kwwwwkwwwwwwWk...kkbbbbbbkkkWWWk', // 5
+      'kwwwwwkwwwwwwWk.kbbbbBBBBBBkWWWk', // 6
+      'kwwwwwwkwwwwwWkkbkkkkBBBBkkkkWWk', // 7
+      'kwwwwwwwkwwwwWkBkwwRrkBBkwRrrkWk', // 8
+      'kWWwwwwwwkwwWkkBkwRrrkBBkRrqrkk.', // 9
+      'kkkWWWwwwwkwWkkBkRrqrkBBkrqrqk..', // 10
+      'kwwkkkWWWwwkWkkBkrqrqkBBkrrqqk..', // 11
+      'kwwwwwkkkWWWkkkdkqrqqkBBkqrqk...', // 12
+      '.kwwwwwwwkkkWkkddkkkkBBBBkkkk...', // 13
+      '..kwwwwWWWWWkkkkdBBBBBkwkBBk....', // 14
+      '...kkWWWWWWWWkkkkdddddddddk.....', // 15
+      '.....kkkkkkkkkkdBkkkkkkkkk......', // 16
+      '..kkkwwwwwwwwwwkBbbbbBBkkk......', // 17
+      '.kwwwwwwwwwwwwkBbbbBBBBdcckkkk..', // 18
+      '.kwwwwwwwwwwwkkBbbBBBBBdcckwwwk.', // 19
+      '.kwwwwwwwwwwkWkBbBBBBBdkkkwwwwwk', // 20
+      '.kwwwwwwwwwkwwkBBBBBBBddcckkwwwk', // 21
+      '.kwwwwwwwwkwwkWkdBBBBdddcckwkWWk', // 22
+      '.kwwwwwwwkwwwkWWkdddddkkkkwwwkWk', // 23
+      '..kwwwwwkwwwkWWkkcckcckwwwwWWkk.', // 24
+      '..kwwwwkwwwwkWWk.kk.kkkwwwwWWWk.', // 25
+      '...kwwkwwwwkWWk.......kwwwWWWk..', // 26
+      '...kwkwwwwwkWWk........kwWWWk...', // 27
+      '....kwwwwwkwWWk.........kkkk....', // 28
+      '.....kwwwwkWWk..................', // 29
+      '......kkwkWWWk..................', // 30
+      '........kkkkk...................', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/clefable.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.clefable = {
+    size: 32,
+    palette: {
+      k: '#6b2d45', // dark plum outline
+      P: '#f7b5c6', // base pink
+      p: '#fde0e8', // light pink highlight
+      d: '#dc8aa3', // shadow pink
+      n: '#7a4a2a', // brown ear tips
+      v: '#fff0f5', // pale wing
+      V: '#f0bccd', // wing fold
+      e: '#3a1f2a', // eye
+      w: '#ffffff', // eye highlight
+      r: '#e0506c', // open mouth
+    },
+    rows: [
+      '.....k....................k.....', // 0
+      '....knk.......kkk........knk....', // 1
+      '....knnk.....kpPPk......knnk....', // 2
+      '....knnnk...kPkkPk.....knnnk....', // 3
+      '....knnnnk..kk.kPk....knnnnk....', // 4
+      '.....knnPPk....kPk...kPPnnk.....', // 5
+      '.....kpPPPPkkkkkPkkkkPPPPdk.....', // 6
+      '......kppPPPPPPPPPPPPPPPPdk.....', // 7
+      '......kpPPPPPPPPPPPPPPPPPPdk....', // 8
+      '......kpPPPPPPPPPPPPPPPPPPdk....', // 9
+      '......kpPPPPPPPPewPPPPewPPdk....', // 10
+      '..kk..kpPPPPPPPPeePPPPeePPdk....', // 11
+      '.kvvk.kPPPPPPPPPeePPPPeePPdk....', // 12
+      'kvvvvvkPPPPPPPPPPPPPPPPPPPdk....', // 13
+      'kvVvvvkPPPPPPPPPPPPkrrkPPdk.....', // 14
+      'kvvVvvkdPPPPPPPPPPPPkkPPdk......', // 15
+      '.kkvVvkdPPPPPPPPPddddddk........', // 16
+      '.kvvvVkPPPPPPPPPPPPPPPkkkk......', // 17
+      '..kkvVkppPPPPPPPPPPPPPPPPPk.....', // 18
+      '...kkkpppPPPPPPPPPPPPkPPddk.....', // 19
+      '..kpPPppPPPPPPPPPPPPPPkkkk......', // 20
+      '.kpPPkpPPPPPPPPPPPPPPdddddk.....', // 21
+      '.kPdkPPPPPPPPPPPPPPPPPPPdddk....', // 22
+      '..kkkPPPPPPPPPPPPPPPPPPPdddk....', // 23
+      '...kdPPPPPPPPPPPPPPPPPPPdddk....', // 24
+      '...kdPPPPPPPPPPPPPPPPPPddddk....', // 25
+      '....kddPPPPPPPPPPPPPPPPdddk.....', // 26
+      '.....kddPPPPPPPPPPPPPPdddk......', // 27
+      '.....kdPPPPdkkkPPPPPPPddk.......', // 28
+      '....kdPPPPPPdk.kPPPPPPPPddk.....', // 29
+      '....kdPPPPPPPdkkdPPPPPPPddk.....', // 30
+      '.....kkkkkkkkk..kkkkkkkkkk......', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/wigglytuff.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.wigglytuff = {
+    size: 32,
+    palette: {
+      k: '#5a2440', // dark plum outline
+      p: '#f4a0bc', // base pink
+      P: '#fcd0de', // light pink highlight
+      d: '#d06890', // shadow pink
+      n: '#3c2030', // inner ear dark
+      w: '#ffffff', // tuft / belly / eye highlight
+      W: '#d8d0dc', // white shade
+      b: '#48b0c8', // blue-green iris
+      B: '#206888', // dark iris
+      r: '#e04868', // mouth
+    },
+    rows: [
+      '...kk......................kk...', // 0
+      '..kPpk....................kppk..', // 1
+      '..kPnpk.......kkkk.......kpnpk..', // 2
+      '..kPnnpk....kkwwwwkk....kpnnpk..', // 3
+      '...kPnnpk..kwwwwwwwwk..kpnnpk...', // 4
+      '...kPnnpk.kwwwwwwwwwwk.kpnnpk...', // 5
+      '....kPnnpkwwwwwwWWWwwwkpnnpk....', // 6
+      '....kPnnpkwwwwwWwwwWwwkpnnpk....', // 7
+      '.....kPnnpkwwwwWwWwWWkpnnpk.....', // 8
+      '.......kPpkWwwwWwWWWWkppk.......', // 9
+      '......kPPppkWWkWWWkWWkppdk......', // 10
+      '.....kPpppppkkpkkkpkkppppdk.....', // 11
+      '.....kPpppkkkkpppppppkkkpdk.....', // 12
+      '....kPpppkwwBBkpppppkwwBkpdk....', // 13
+      '....kPpppkwwBBkpppppkwBBkpdk....', // 14
+      '....kppppkBBBbkpppppkBBbkpdk....', // 15
+      '...kPppppkbbbbkpppppkbbbkppdk...', // 16
+      '...kpppppkbbbwkpppppkbbwkpddk...', // 17
+      '.kkkppppppkkkkpppppppkkkpppdkkk.', // 18
+      '.kPpppppppppppppkkkppppppppdddk.', // 19
+      '.kppppppppppppppkrkppppppppdddk.', // 20
+      '..kkkppppppppppppkppppppppdkkk..', // 21
+      '...kpppppppppwwwwwwwwwpppdddk...', // 22
+      '...kpppppppwwwwwwwwwwwwwpdddk...', // 23
+      '...kppppppwwwwwwwwwwwwwwWdddk...', // 24
+      '....kdppppwwwwwwwwwwwwWWWddk....', // 25
+      '....kddppppwwwwwwwwwwWWWdddk....', // 26
+      '.....kddppppwwwwwwWWWWWdddk.....', // 27
+      '......kddpppppWWWWWWWpdddk......', // 28
+      '.....kppppppkkkkkkkkppppddk.....', // 29
+      '.....kdppppdk......kppppddk.....', // 30
+      '......kkkkkk........kkkkkk......', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/ninetales.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.ninetales = {
+    size: 32,
+    palette: {
+      k: '#6a4818', // dark brown outline
+      c: '#f6dfa0', // cream-gold base
+      C: '#fff6d6', // light cream highlight
+      d: '#d4b064', // gold shade
+      o: '#f59a3a', // orange tail tip
+      O: '#d0661e', // dark orange tip shade
+      r: '#d82020', // red eye
+      w: '#ffffff', // eye highlight
+    },
+    rows: [
+      '.......k...k....................', // 0
+      '...k..kok.kokk....k.............', // 1
+      '.kkokkooOkoOkok..kCk.kk.....k...', // 2
+      'kokOkkoooOkkooOk.kCdkCCk...kck..', // 3
+      'kookkooooOkoooOkkCcdkCcck.kcdk..', // 4
+      'kooOkOcccdkOOcdkkCcddkCcckccddk.', // 5
+      'kOccdkCccdkCccdkkCcddcCccccddck.', // 6
+      'kCccdkCccdkCccdkCCccccccccccck..', // 7
+      'kCcccdkCcdkCccdkcccccccccccccck.', // 8
+      '.kCccdkCcdkccddkcccccckkkcccccck', // 9
+      'kkkCcdkccdkccddkccccckrrwkccccck', // 10
+      'kokccddkcdkccddkcccccckrrkccckk.', // 11
+      'kookcddkcdkcdddkccccccckkccck...', // 12
+      'kOoOkcddkckcddkcccdddddddddk....', // 13
+      '.kOcckcddcdcdkccccCCCCCccck.....', // 14
+      '..kccddcdcdckccccdCCccccCcck....', // 15
+      '.kokcddcddkkCccccdCCcccddkk.....', // 16
+      'kooOckcdkkCccccccdCCCCcccck.....', // 17
+      'kOocCcdkCCcccccccdcCCcddkk......', // 18
+      '.kOccdkcCccccccccddCCcck........', // 19
+      '..kkdkdcCcccdccccddCckk.........', // 20
+      '.....kdccCccdkcccddkCck.........', // 21
+      '.....kdccccdkdddkddkCck.........', // 22
+      '......kccdkddkkkkddkCck.........', // 23
+      '.......kcdkddk..kddkCck.........', // 24
+      '.......kcdkddk..kddkCck.........', // 25
+      '.......kcdkddk..kddkCck.........', // 26
+      '.......kcdkddk..kddkCck.........', // 27
+      '.......kcdkddk..kddkCck.........', // 28
+      '.......kcdkddk..kddkCck.........', // 29
+      '......kCcckdddkkdddkCcck........', // 30
+      '......kkkkkkkkkkkkkkkkkk........', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/scyther.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.scyther = {
+    size: 32,
+    palette: {
+      k: '#1f4a24', // dark green outline
+      G: '#6cc04a', // base green
+      g: '#a6e070', // light green highlight
+      d: '#3e8a38', // shadow green (far limbs, back)
+      c: '#f6eab8', // cream belly plates
+      C: '#cfb880', // cream segment lines
+      s: '#f2f2de', // scythe blade
+      S: '#b4b8a0', // scythe shade / far blade
+      W: '#e6f6f2', // pale wing
+      V: '#a8d0c8', // wing shade
+      e: '#101010', // pupil
+      w: '#ffffff', // eye white / claws
+    },
+    rows: [
+      'kk.......kkkkk..........kk......', // 0
+      'ksk......kggggkkk........kkkk...', // 1
+      'kSsk......kdGGgggkkkkk....kssk..', // 2
+      '.kSsk......kkdGGGggggGkk..kssk..', // 3
+      '.kSSsk.......kkkGGGGGGGGk.ksssk.', // 4
+      '.kSSSsk........kGGGkkkkkGkkSsssk', // 5
+      '..kSSSsk.......kdGGkwweeGkkSsssk', // 6
+      '..kkSSSSkk.....kdGGGkweeGkkSsssk', // 7
+      '....kkSSSskk....kdGGGkkkGkkSsssk', // 8
+      '......kkSSSkk....kddGGGGk.kSsssk', // 9
+      '........kkkkdk..kGGkkkkk..kSsssk', // 10
+      '.kkk.......kddk.kGGGk.....kSsssk', // 11
+      'kWWWkkkk....kdkkGgGGGkkk.kSsssk.', // 12
+      'kVWWWWWWkkkk.kGGgGGGGkGGkkSssk..', // 13
+      '.kVVVWWWWWWWkkGgGGGGkGgGGkSsk...', // 14
+      '..kkkkVVVWWWWkGgGGGGkGGGGdkk....', // 15
+      '......kkkkkkkkkGGGGGkkGddk......', // 16
+      '........kkkWk.kdGGGGddkkk.......', // 17
+      '.....kkkWWWWkkddcccccck.........', // 18
+      '...kkWWWWWVkkddcccccccCk........', // 19
+      '..kWWWWWVVkkddCCCCCCCCCk........', // 20
+      '.kWWVVkkkk.kddccccccccCk........', // 21
+      '.kkkkk.....kddCCCCCCCCk.........', // 22
+      '............kdccccckGGGk........', // 23
+      '.............kdcccCkGGGGk.......', // 24
+      '............kddkkkkkkGGGGk......', // 25
+      '...........kddk......kGGGGk.....', // 26
+      '...........kddk......kGGdk......', // 27
+      '...........kdk.......kGGdk......', // 28
+      '..........kddk......kGGdkk......', // 29
+      '.........kdddwk....kGGGGGwk.....', // 30
+      '.........kkkkkk....kkkkkkkk.....', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/gengar.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.gengar = {
+    size: 32,
+    palette: {
+      k: '#26143a', // dark purple outline
+      P: '#6e4ea0', // base purple
+      p: '#9676c8', // light purple highlight
+      d: '#4a3078', // shadow purple
+      R: '#e8282c', // red eye
+      w: '#ffffff', // teeth / eye highlight
+    },
+    rows: [
+      '...k........................k...', // 0
+      '..kpk......................kPk..', // 1
+      '..kpPkk..................kkPPk..', // 2
+      '...kpPPk....kkkkkkkk....kPPdk...', // 3
+      '...kpPPPk.kkppppppppkk.kPPPdk...', // 4
+      '.k..kpPPPkPppppppppppPkPPPdk....', // 5
+      'kPk.kppPPPPPPPPPPPPPPPPPPPdk....', // 6
+      'kPdkppPPPPPPPPPPPPPPPPPPPPdk....', // 7
+      'kPddpPPPPPkkPPPPPPPPPPPPkkPdk...', // 8
+      '.kddpPPPPPkRkkkPPPPPPPkkRkPdk...', // 9
+      'kPkdPPPPPPkwRRRkPPPPPkwRRkPPdk..', // 10
+      'kPdkPPPPPPkRRRRkPPPPPkRRRkPPdk..', // 11
+      'kPddPPPPPPPkkkkkPPPPPkkkkPPPdk..', // 12
+      '.kddPPPPkPPPPPPPPPPPPPPPPPkPdk..', // 13
+      'kPkdPPPPkkkPPPPPPPPPPPPPkkkPdk..', // 14
+      'kPdkPPPPkwwkkkkkkkkkkkkkwwkPdk..', // 15
+      'kPddPPPPPkkwwkwwwkwwwkwwkkPdk...', // 16
+      '.kddPPPPPPPkkkkkkkkkkkkkPPPdkkk.', // 17
+      '..kdPPPPPPPkwwwkwwwkwwwkPPPdPpPk', // 18
+      '.kkkPPPPPPPPkkkkkkkkkkkPPPddPPPk', // 19
+      'kPPkPPPPPPPPPPPPPPPPPPPPPddkPPdk', // 20
+      'kdPkPPPPPPPPPPPPPPPPPPPdddkkdkdk', // 21
+      '.kdkdPPPPPPPPPPPPPPPPPPdddk.k.k.', // 22
+      '..k.kdPPPPPPPPPPPPPPPPdddk......', // 23
+      '.....kdPPPPPPPPPPPPPPPdddk......', // 24
+      '.....kdPPPPPkkkkkPPPPPPPdk......', // 25
+      '.....kdPPPPk.....kPPPPPPdk......', // 26
+      '.....kdPPPPk.....kPPPPPPdk......', // 27
+      '....kddPPPPk.....kPPPPPPPdk.....', // 28
+      '...kdPPPPPPkk...kPPPPPPPPdkk....', // 29
+      '..kdPPPPPkPkPk..kdPPPPPPkPkPk...', // 30
+      '..kkkkkkkkkkkk..kkkkkkkkkkkkk...', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// ---- js/sprites/blastoise.js ----
+// One portrait, as pixel rows. Wrapped like every other file in the repo so it
+// loads the same in a page and in Node.
+(function (root) {
+  const PKMN = root.PKMN = root.PKMN || {};
+  PKMN.SPRITES = PKMN.SPRITES || {};
+  PKMN.SPRITES.blastoise = {
+    size: 32,
+    palette: {
+      k: '#182c58', // dark navy outline
+      b: '#98c4f8', // light blue highlight
+      B: '#5c90e0', // base blue
+      d: '#3862b0', // shadow blue
+      s: '#c88a50', // shell light brown
+      S: '#9a5e30', // shell brown
+      D: '#6a3c1c', // shell shadow
+      c: '#f8f0c8', // cream rim / belly
+      C: '#d8c488', // cream shade / plate lines
+      G: '#e0e6ee', // cannon light
+      g: '#a8b2c0', // cannon grey
+      m: '#6a7486', // cannon shadow
+      e: '#101018', // pupil / cannon bore
+      w: '#ffffff', // eye highlight / claws
+    },
+    rows: [
+      '................................', // 0
+      '..kkkk..........................', // 1
+      '.kmeemk..................kkkk...', // 2
+      '.kgeegk.....k........k..kmeemk..', // 3
+      '.kGggmk....kbk......kBk.kgeegk..', // 4
+      '..kGggmk...kbBkkkkkkBdkkkGggmk..', // 5
+      '..kGggmk..kbbbbbbbbbbBBdkGggmk..', // 6
+      '..kGggmk..kbBkkkBBBBkkkdkGggmk..', // 7
+      '...kGggmk.kbBkweBBBBkwedkGggmk..', // 8
+      '...kGggmkkkBBkweBBBBkweBdkggmk..', // 9
+      '.kkkGggmkSkBBBBBkBBBBBBBBdkgmk..', // 10
+      '.ksSkkkkSckdBBBBBkkkkkkkBdkkkSk.', // 11
+      '.ksSckkkkkckdBBBBBBBBBBBdkcSSDk.', // 12
+      'ksSckbbBBdkcckkkkkkkkkkkkkkcSDk.', // 13
+      'ksSckbBBBdkcccccccccccCkBdkcSDk.', // 14
+      'ksSckbBBBdkCCCCCCCCCCCCkBdkcSSDk', // 15
+      'ksSckBBBBdkcccccccccccCkBdkcSSDk', // 16
+      'ksSSckBBBdkcccccccccccCkBdkcSSDk', // 17
+      'ksSSckBBBdkCCCCCCCCCCCCkBdkcSSDk', // 18
+      'ksSkbBBBBBBdkcccccccccCkBBdkSSDk', // 19
+      'ksSkBBBBBBBdkcccccccccCkBBdkSSDk', // 20
+      'ksSkdBBBBBddkCCCCCCCCCCkBddkSSDk', // 21
+      'ksSSckwkwkwkkccccccccCkkwkwkSDk.', // 22
+      '.ksSSSckbBBBdkcccccccCkBBdkcSDk.', // 23
+      '..kSSSckBBBBdkCCCCCCCCkBBdkcSDk.', // 24
+      '...kSSckBBBBdkkccccCkkBBBdkDDk..', // 25
+      '....kkbBBBBBBdkkkkkkbBBBBdkkk...', // 26
+      '.....kbBBBBBBdk....kBBBBBdk.....', // 27
+      '.....kBBBBBBBdk....kBBBBBdk.....', // 28
+      '....kbBBBBBBBBdk..kbBBBBBdk.....', // 29
+      '....kwBwBwBBBBdk..kwBwBwBdk.....', // 30
+      '....kkkkkkkkkkkk..kkkkkkkkk.....', // 31
+    ]
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = PKMN;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 
 <!-- Content: the demo world. If these files are missing the game still boots (blank project). -->
 <script>
@@ -27447,6 +27938,7 @@ PKMN.TILES.register([
     state.mapId = id;
     state.map = KIT.mapView(state.project, null, id);
     state.view.x = 0; state.view.y = 0;
+    cursorTouched = false;              // the cursor square belongs to the map it was put on
     ED.select(null);
     emit('change', { mapId: id });
     ED.repaint();
@@ -27805,6 +28297,7 @@ PKMN.TILES.register([
     ED.beginStroke(KIT.labelOf(tool, ED, tool.id));
     try { if (tool.begin) tool.begin(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); }
     state.cursor = { x: pt.tx, y: pt.ty };
+    cursorTouched = true;
     ED.repaint();
     ev.preventDefault();
   }
@@ -27819,7 +28312,7 @@ PKMN.TILES.register([
       ED.repaint();
       return;
     }
-    if (state.cursor.x !== pt.tx || state.cursor.y !== pt.ty) { state.cursor = { x: pt.tx, y: pt.ty }; updateStatus(); ED.repaint(); }
+    if (state.cursor.x !== pt.tx || state.cursor.y !== pt.ty) { state.cursor = { x: pt.tx, y: pt.ty }; cursorTouched = true; updateStatus(); ED.repaint(); }
     if (!drawing) return;
     const tool = KIT.registry('editorTools').get(state.tool);
     if (tool && tool.move) { try { tool.move(pt, ED); } catch (e) { (KIT.log || console).error('[tool]', e); } }
@@ -28185,6 +28678,37 @@ PKMN.TILES.register([
   };
 
   // ---- play here -----------------------------------------------------------------
+  /**
+   * playStart() -> { x, y } — where Play here puts the hero. The square the
+   * author last touched, when a hero can stand there and walk off it; else the
+   * game's start, when it is on this map; else the open square nearest either.
+   * On a phone nobody hovers: open a map, tap Play, and the cursor was still at
+   * its default, the top-left corner, which in the region "Start your own game"
+   * makes is walled in by trees. The hero stood there and could not move.
+   */
+  let cursorTouched = false;
+  ED.playStart = function () {
+    const p = state.project, id = state.mapId, map = p.maps[id];
+    const view = KIT.mapView(p, null, id);
+    const open = (x, y) => x >= 0 && y >= 0 && x < map.width && y < map.height && !view.flagsAt(x, y).solid
+      && ['up', 'down', 'left', 'right'].some((d) => { const r = view.passable(x, y, d, {}); return r.ok && r.reason !== 'connection'; });
+    const c = state.cursor;
+    if (cursorTouched && open(c.x, c.y)) return { x: c.x, y: c.y };
+    const s = p.start;
+    const from = s && s.map === id ? { x: s.x, y: s.y } : { x: c.x, y: c.y };
+    // Breadth-first from there, so the answer is the nearest open square.
+    const seen = new Set();
+    const queue = [from];
+    while (queue.length) {
+      const q = queue.shift();
+      const k = q.x + ',' + q.y;
+      if (seen.has(k) || q.x < 0 || q.y < 0 || q.x >= map.width || q.y >= map.height) continue;
+      seen.add(k);
+      if (open(q.x, q.y)) return q;
+      queue.push({ x: q.x + 1, y: q.y }, { x: q.x - 1, y: q.y }, { x: q.x, y: q.y + 1 }, { x: q.x, y: q.y - 1 });
+    }
+    return { x: c.x, y: c.y };
+  };
   ED.playHere = async function (opts) {
     if (!game || !game.loadProject) { ED.toast('The game is not running'); return; }
     await ED.saveNow();
@@ -28192,10 +28716,10 @@ PKMN.TILES.register([
     emit('mode', 'play');
     ED.el.root.classList.add('playing');
     game.loadProject(KIT.deepClone(state.project));
-    const at = (opts && opts.at) || state.cursor;
+    const at = (opts && opts.at) || ED.playStart();
     await game.newGame({ testState: (opts && opts.testState) || null, silent: true });
     if (game.warp) await game.warp(state.mapId, at.x, at.y, 'down');
-    ED.toast('Playing — press Escape to come back');
+    ED.toast('Playing · ‹ Back to Creator Mode is at the top');
   };
   ED.backToEdit = function () {
     state.mode = 'edit';
@@ -35504,6 +36028,12 @@ PKMN.TILES.register([
   // handler is off in play mode — so without this the game is invisible and Escape is
   // the pause menu. The bar is a real button because a keyboard is not a given.
   let playBar = null;
+  /** The bar floats over the top of the page, so the game steps down out from under it. */
+  function markPlaying(on) {
+    if (ED.el && ED.el.host) ED.el.host.classList.toggle('is-playing', on);
+    const app = document.getElementById('app');
+    if (app) app.classList.toggle('ed-playing', on);
+  }
   function buildPlayBar() {
     // Every open rebuilds the shell's DOM, so a bar from the last open is a detached
     // element: forget it, or the second time round Play here has no way back on a phone.
@@ -35514,13 +36044,13 @@ PKMN.TILES.register([
     back.type = 'button';
     back.onclick = () => ED.backToEdit();
     playBar.appendChild(back);
-    playBar.appendChild(UI.make('span.ed-playbar-hint', { text: 'Escape' }));
+    if (!(KIT.input && KIT.input.isTouch && KIT.input.isTouch())) playBar.appendChild(UI.make('span.ed-playbar-hint', { text: 'Escape' }));   // a phone has no Escape key
     ED.el.root.appendChild(playBar);
   }
   ED.on('mode', (mode) => {
     buildPlayBar();
     const playing = mode === 'play';
-    if (ED.el && ED.el.host) ED.el.host.classList.toggle('is-playing', playing);
+    markPlaying(playing);
     if (playBar) playBar.hidden = !playing;
     if (playing && KIT.game && KIT.game.resize) setTimeout(() => KIT.game.resize(), 0);
   });
@@ -35540,7 +36070,7 @@ PKMN.TILES.register([
   const playHere = ED.playHere;
   ED.playHere = function (opts) {
     const o = Object.assign({}, opts || {});
-    const at = o.at || ED.state.cursor;
+    const at = o.at || ED.playStart();
     const save = (KIT.game && KIT.game._editorReturn && KIT.game._editorReturn.save) || null;
     o.testState = Object.assign({
       map: ED.state.mapId, x: at.x, y: at.y, dir: 'down',
@@ -35566,7 +36096,7 @@ PKMN.TILES.register([
     try { if (KIT.audio) KIT.audio.music(null, { fade: 150 }); } catch (e) { /* ditto */ }
     if (KIT.game) KIT.game.world = null;
     backToEdit.call(ED);
-    if (ED.el && ED.el.host) ED.el.host.classList.remove('is-playing');
+    markPlaying(false);
     if (playBar) playBar.hidden = true;
     ED.toast('Back in Creator Mode');
   };
@@ -35581,7 +36111,8 @@ PKMN.TILES.register([
   ED.open = function (opts) {
     if (ED.isOpen()) return ED;
     const out = open.call(ED, opts || {});
-    if (ED.el && ED.el.host) { ED.el.host.hidden = false; ED.el.host.classList.remove('is-playing'); }
+    if (ED.el && ED.el.host) ED.el.host.hidden = false;
+    markPlaying(false);
     if (parked && ED.el && ED.el.panel) {
       for (const body of parked) if (body.dataset.panel) ED.el.panel.appendChild(body);
       parked = null;
@@ -35604,7 +36135,8 @@ PKMN.TILES.register([
     try { await close.call(ED); }
     finally { if (game && toTitle) game.toTitle = toTitle; }
     parked = ED.el && ED.el.panel ? Array.from(ED.el.panel.children) : null;
-    if (ED.el && ED.el.host) { ED.el.host.hidden = true; ED.el.host.classList.remove('is-playing'); }
+    if (ED.el && ED.el.host) ED.el.host.hidden = true;
+    markPlaying(false);
     if (game && resume && game.resumeFromEditor) await game.resumeFromEditor(ED.state.project);
   };
 
@@ -36636,6 +37168,7 @@ PKMN.TILES.register([
     { id: 'mons-party-title', default: 'Your Pokémon' },
     { id: 'mons-party-empty', default: 'You have not befriended anyone yet.' },
     { id: 'mons-party-hint', default: 'Arrows · Z opens · X closes' },
+    { id: 'mons-party-hint-touch', default: 'Tap one to see it' },
     { id: 'mons-dex-title', default: 'Pokédex' },
     { id: 'mons-dex-count', default: 'Seen {seen} · Befriended {caught} of {total}' },
     { id: 'mons-dex-unseen', default: 'Not met yet.' },
@@ -36733,8 +37266,10 @@ PKMN.TILES.register([
 // mons/art.js — the portraits, the 16×16 overworld icons and the sprite
 // entries that let a Pokémon walk around like any other character.
 //
-// Seven species have hand-drawn 32×32 portraits (js/sprites/*.js). The other
-// twenty-five do not, and that must never be a crash or a blank: they fall back
+// Fifteen species have hand-drawn 32×32 portraits (js/sprites/*.js), including
+// every one that lives in the demo's grass and in the region "Start your own
+// game" makes. The other seventeen do not, and that must never be a crash or a
+// blank: they fall back
 // to KIT.pixels.silhouette in the species colour, which reads as "we know who
 // this is, we have not drawn them yet".
 (function (root) {
@@ -36845,7 +37380,7 @@ PKMN.TILES.register([
 
   /**
    * spriteId(speciesId, shiny) — the id in the 'sprites' registry.
-   * Registering lazily means twenty-five silhouettes are never built until
+   * Registering lazily means seventeen silhouettes are never built until
    * something actually walks around.
    */
   M.spriteId = function (id, shiny) { return 'mon:' + String(id || 'unknown') + (shiny ? ':shiny' : ''); };
@@ -37595,9 +38130,11 @@ PKMN.TILES.register([
 
   // ---- the host element -------------------------------------------------------
   /**
-   * One overlay element for all four screens, added under the kit's own
-   * overlays: a dialogue box, a toast or a name prompt opened *on top of* the
-   * catch scene has to paint above it, and DOM order is what decides.
+   * One overlay element for all four screens, layered between the pause menu
+   * and the dialogue box (kit.css numbers them): the party opened from the menu
+   * has to paint over the menu, and a dialogue, toast or name prompt opened on
+   * top of the catch scene has to paint over it. It shares the menu's z-index
+   * and sits after it in the page, which is what puts it above.
    */
   function host() {
     let el = document.getElementById('mons-scene');
@@ -37607,8 +38144,10 @@ PKMN.TILES.register([
       el.className = 'overlay';
       el.hidden = true;
       const screen = document.getElementById('screen') || document.body;
+      const menu = document.getElementById('pause-menu');
       const canvas = document.getElementById('game-canvas');
-      if (canvas && canvas.parentNode === screen) screen.insertBefore(el, canvas.nextSibling);
+      const after = (menu && menu.parentNode === screen) ? menu : (canvas && canvas.parentNode === screen) ? canvas : null;
+      if (after) screen.insertBefore(el, after.nextSibling);
       else screen.appendChild(el);
     }
     return el;
@@ -37674,7 +38213,7 @@ PKMN.TILES.register([
 
   // ---- styles -----------------------------------------------------------------
   const CSS = `
-#mons-scene { display: flex; align-items: center; justify-content: center; padding: 10px; pointer-events: auto; background: rgba(6,7,12,.62); }
+#mons-scene { z-index: 2; display: flex; align-items: center; justify-content: center; padding: 10px; pointer-events: auto; background: rgba(6,7,12,.62); }
 #mons-scene[hidden] { display: none; }
 #mons-scene[data-kind="catch"] { background: rgba(6,7,12,.72); flex-direction: column; justify-content: space-between; padding: 8px; }
 .mons-portrait { image-rendering: pixelated; display: block; }
@@ -38071,7 +38610,7 @@ PKMN.TILES.register([
       const foot = make('div.kit-row');
       foot.appendChild(UI.button('close', t(project, 'mons-close'), 'is-primary'));
       panel.appendChild(foot);
-      panel.appendChild(make('p.kit-hint', { text: t(project, 'mons-party-hint') }));
+      panel.appendChild(make('p.kit-hint', { text: t(project, KIT.input.isTouch() ? 'mons-party-hint-touch' : 'mons-party-hint') }));
       el.appendChild(panel);
 
       markSelected(rows.map(r => r.el), index);
@@ -38968,6 +39507,11 @@ PKMN.TILES.register([
       then: [
         { t: 'setVar', name: 'starter', op: 'set', value: id, var: null, min: 1, max: 6 },
         { t: 'setVar', name: 'hasStarter', op: 'set', value: true, var: null, min: 1, max: 6 },
+        // Without these the catch screen offers a ball you do not have, and the
+        // first creature in the grass can only be talked to or run from.
+        { t: 'give', item: 'pokeball', count: 5, notify: true },
+        { t: 'give', item: 'berry', count: 3, notify: true },
+        say('Take these too. {pause} A berry calms a nervous one; a ball asks it to come along.', 'Professor'),
         say('Then off you go. {pause} The tall grass north of town is full of them.', 'Professor'),
       ],
     }));
@@ -39091,6 +39635,13 @@ PKMN.TILES.register([
         connections: [{ a: 'town', side: 'n', b: 'route', offset: 0 }],
       },
       maps: { town, route, home, lab },
+      // What the catch screen's buttons use. A region with no items had a Throw
+      // Ball button for a ball that did not exist.
+      items: {
+        pokeball: { kind: 'ball', name: 'Poké Ball', icon: 'pokeball', desc: 'For making friends.', note: '', props: { power: 1 } },
+        berry: { kind: 'berry', name: 'Berry', icon: 'berry', desc: 'Sweet. Calms a nervous one.', note: '', props: { calm: 1, friendship: 10, golden: false } },
+        'golden-berry': { kind: 'berry', name: 'Golden Berry', icon: 'golden-berry', desc: 'Rare and very sweet. The next ball you throw will surely work.', note: '', props: { calm: 1, friendship: 20, golden: true } },
+      },
       packs: { mons: { starters: { var: 'starter', friendship: 70, ask: true } } },
     };
   };
@@ -40435,6 +40986,7 @@ PKMN.TILES.register([
     { id: 'home-place-title', default: 'Where shall it go?' },
     { id: 'home-place-empty', default: 'Nothing in the bag to put down yet.' },
     { id: 'home-place-hint', default: 'Move it with the pad · Z puts it down · X stops' },
+    { id: 'home-place-hint-touch', default: 'Move it with the pad, then tap a button' },
     { id: 'home-place-rotate', default: 'Turn' },
     { id: 'home-place-put', default: 'Put down' },
     { id: 'home-place-take', default: 'Pick up' },
@@ -41102,7 +41654,7 @@ PKMN.TILES.register([
           rows = [];
           ui = panel(title, rows, {
             overMap: true,
-            hint: S(p, 'home-place-hint'),
+            hint: S(p, KIT.input.isTouch() ? 'home-place-hint-touch' : 'home-place-hint'),
             buttons: [
               { action: 'rotate', label: S(p, 'home-place-rotate'), disabled: vs.length < 2 },
               { action: 'put', label: S(p, 'home-place-put'), primary: true, disabled: !can.ok },
@@ -41115,7 +41667,7 @@ PKMN.TILES.register([
           rows = [];
           ui = panel(`${S(p, 'home-place-take')} · ${name}`, rows, {
             overMap: true,
-            hint: S(p, 'home-place-hint'),
+            hint: S(p, KIT.input.isTouch() ? 'home-place-hint-touch' : 'home-place-hint'),
             buttons: [
               { action: 'put', label: S(p, 'home-place-take'), primary: true, disabled: !rec },
               { action: 'back', label: S(p, 'home-place-done') },

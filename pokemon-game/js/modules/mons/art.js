@@ -1,8 +1,10 @@
 // mons/art.js — the portraits, the 16×16 overworld icons and the sprite
 // entries that let a Pokémon walk around like any other character.
 //
-// Seven species have hand-drawn 32×32 portraits (js/sprites/*.js). The other
-// twenty-five do not, and that must never be a crash or a blank: they fall back
+// Fifteen species have hand-drawn 32×32 portraits (js/sprites/*.js), including
+// every one that lives in the demo's grass and in the region "Start your own
+// game" makes. The other seventeen do not, and that must never be a crash or a
+// blank: they fall back
 // to KIT.pixels.silhouette in the species colour, which reads as "we know who
 // this is, we have not drawn them yet".
 (function (root) {
@@ -113,7 +115,7 @@
 
   /**
    * spriteId(speciesId, shiny) — the id in the 'sprites' registry.
-   * Registering lazily means twenty-five silhouettes are never built until
+   * Registering lazily means seventeen silhouettes are never built until
    * something actually walks around.
    */
   M.spriteId = function (id, shiny) { return 'mon:' + String(id || 'unknown') + (shiny ? ':shiny' : ''); };

@@ -79,7 +79,9 @@ body { overflow: hidden; }
 .overlay { position: absolute; inset: 0; }
 /* Stacked the way scenes are pushed, not the way the divs happen to sit in the
    page: Quit's Yes/No was painted under the pause menu, and Settings from the
-   title under the title. */
+   title under the title. A module's own screen that opens from the menu shares
+   its 2 and sits after it in the page, so it paints over the menu and under a
+   dialogue. */
 #screen-title { z-index: 1; }
 #pause-menu { z-index: 2; }
 #dialogue { z-index: 3; }

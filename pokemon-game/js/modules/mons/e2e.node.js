@@ -114,12 +114,24 @@ function ok(cond, what) { if (!cond) { throw new Error('FAILED: ' + what); } con
   ok(balls === 8, `a ball was spent (${balls} left of 9)`);
 
   // ---- 3. the party and the Pokédex ----------------------------------------
-  // fire-and-forget: scenes.run resolves only when the scene closes
-  await page.evaluate(() => { KIT.scenes.run('mons-party', { game: KIT.game, project: KIT.game.project }); });
+  // Opened the way a player does, from the pause menu: opened straight from a
+  // script it hid that the menu stayed painted on top of it.
+  await page.keyboard.press('Escape');
+  await wait(350);
+  await page.click('#pause-menu [data-action="menu:mons-party"]');
   await wait(400);
   ok(await page.$('#mons-scene .mons-hearts'), 'the party list shows friendship hearts');
+  const onTop = await page.evaluate(() => {
+    const r = document.querySelector('#mons-scene .mons-panel').getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!(hit && hit.closest('#mons-scene'));
+  });
+  ok(onTop, 'the party list is drawn over the pause menu that opened it');
   await shot('05-party.png');
-  await page.click('[data-action="close"]');
+  await page.click('#mons-scene [data-action="close"]');
+  await wait(300);
+  ok(await page.isVisible('#pause-menu [data-action="menu:mons-party"]'), 'closing it goes back to the pause menu');
+  await page.keyboard.press('Escape');
   await wait(300);
 
   await page.evaluate(() => { KIT.scenes.run('mons-dex', { game: KIT.game, project: KIT.game.project }); });
@@ -131,7 +143,7 @@ function ok(cond, what) { if (!cond) { throw new Error('FAILED: ' + what); } con
   ok(unseen === 32 - counts.seen, `${counts.seen} known, ${unseen} still silhouettes`);
   ok(counts.caught === counts.seen && counts.caught >= 1, `${counts.caught} befriended`);
   await shot('06-dex.png');
-  await page.click('[data-action="close"]');
+  await page.click('#mons-scene [data-action="close"]');
   await wait(300);
 
   // ---- 4. the follower walks behind ----------------------------------------

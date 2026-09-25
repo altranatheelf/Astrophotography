@@ -251,6 +251,11 @@
       then: [
         { t: 'setVar', name: 'starter', op: 'set', value: id, var: null, min: 1, max: 6 },
         { t: 'setVar', name: 'hasStarter', op: 'set', value: true, var: null, min: 1, max: 6 },
+        // Without these the catch screen offers a ball you do not have, and the
+        // first creature in the grass can only be talked to or run from.
+        { t: 'give', item: 'pokeball', count: 5, notify: true },
+        { t: 'give', item: 'berry', count: 3, notify: true },
+        say('Take these too. {pause} A berry calms a nervous one; a ball asks it to come along.', 'Professor'),
         say('Then off you go. {pause} The tall grass north of town is full of them.', 'Professor'),
       ],
     }));
@@ -374,6 +379,13 @@
         connections: [{ a: 'town', side: 'n', b: 'route', offset: 0 }],
       },
       maps: { town, route, home, lab },
+      // What the catch screen's buttons use. A region with no items had a Throw
+      // Ball button for a ball that did not exist.
+      items: {
+        pokeball: { kind: 'ball', name: 'Poké Ball', icon: 'pokeball', desc: 'For making friends.', note: '', props: { power: 1 } },
+        berry: { kind: 'berry', name: 'Berry', icon: 'berry', desc: 'Sweet. Calms a nervous one.', note: '', props: { calm: 1, friendship: 10, golden: false } },
+        'golden-berry': { kind: 'berry', name: 'Golden Berry', icon: 'golden-berry', desc: 'Rare and very sweet. The next ball you throw will surely work.', note: '', props: { calm: 1, friendship: 20, golden: true } },
+      },
       packs: { mons: { starters: { var: 'starter', friendship: 70, ask: true } } },
     };
   };

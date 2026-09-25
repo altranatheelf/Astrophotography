@@ -21,11 +21,22 @@ const FILES = {
   bullet: ['rules', 'register', 'manifest'],
 };
 
+/**
+ * SPRITES() -> every portrait file, read from the folder. It used to be a list
+ * written out here and in two tests, and a new portrait had to be added to all
+ * three or it silently was not there. index.html is held to the folder by
+ * test/kit/load-order.test.js.
+ */
+function SPRITES() {
+  const dir = path.join(root, 'js', 'sprites');
+  return require('fs').readdirSync(dir).filter(f => f.endsWith('.js')).sort().map(f => 'js/sprites/' + f);
+}
+
 /** What a module needs from outside its own folder before it will load. */
 function prerequisites(id) {
   if (id !== 'mons') return;
   for (const f of ['js/data/types.js', 'js/data/moves.js', 'js/data/pokemon.js']) R(f);
-  for (const f of ['charizard', 'venusaur', 'machamp', 'jynx', 'electabuzz', 'jolteon', 'vaporeon']) R('js/sprites/' + f + '.js');
+  for (const f of SPRITES()) R(f);
 }
 
 /**
@@ -47,4 +58,4 @@ function load(KIT, ids) {
   return KIT.modules.activate({ modules: wanted });
 }
 
-module.exports = { load, FILES };
+module.exports = { load, FILES, SPRITES };

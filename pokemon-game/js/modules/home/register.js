@@ -52,6 +52,7 @@
     { id: 'home-place-title', default: 'Where shall it go?' },
     { id: 'home-place-empty', default: 'Nothing in the bag to put down yet.' },
     { id: 'home-place-hint', default: 'Move it with the pad · Z puts it down · X stops' },
+    { id: 'home-place-hint-touch', default: 'Move it with the pad, then tap a button' },
     { id: 'home-place-rotate', default: 'Turn' },
     { id: 'home-place-put', default: 'Put down' },
     { id: 'home-place-take', default: 'Pick up' },

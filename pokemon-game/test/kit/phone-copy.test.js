@@ -17,10 +17,10 @@ const FILES = fs.readdirSync(path.join(ROOT, 'js/kit/editor'))
   .concat(['../scenes/start.js', '../scenes/title.js', '../world/project.js'])
   .map(f => path.join('js/kit/editor', f));
 
-/** A line that says Ctrl to somebody, rather than about somebody. */
-const MENTIONS = /Ctrl\+/;
-/** The ones that are allowed to, because they name the button in the same breath. */
-const PAIRED = /↶|↷|Undo \(|Redo \(/;
+/** A line that says Ctrl, or Escape, to somebody, rather than about somebody. */
+const MENTIONS = /Ctrl\+|[Pp]ress Escape|text: 'Escape'/;
+/** The ones that are allowed to: they name the button in the same breath, or only show on a keyboard. */
+const PAIRED = /↶|↷|Undo \(|Redo \(|isTouch\(\)/;
 
 test('no editor message tells a phone to press a key it does not have', () => {
   const guilty = [];
@@ -36,7 +36,7 @@ test('no editor message tells a phone to press a key it does not have', () => {
     });
   }
   assert.deepEqual(guilty, [],
-    'these say Ctrl+ to a person without naming the ↶ button that works everywhere:\n  ' + guilty.join('\n  '));
+    'these name a key a phone does not have, without the button that works everywhere:\n  ' + guilty.join('\n  '));
 });
 
 test('the undo button is still there to be named', () => {

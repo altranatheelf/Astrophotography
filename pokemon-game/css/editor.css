@@ -493,6 +493,9 @@ textarea.ed-json { width: 100%; box-sizing: border-box; min-height: 40dvh; backg
   display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #151a24ee; border: 1px solid #2f3a4f;
   border-radius: 999px; box-shadow: 0 6px 20px #0008; z-index: 6; }
 .ed-playbar[hidden] { display: none; }
+/* It covered the top of every screen under it — the party's "Seen · Befriended",
+   a dialogue's name tab — so the game moves down below it instead: 8px + 58px of bar. */
+#app.ed-playing #stage { padding-top: calc(max(8px, env(safe-area-inset-top)) - env(safe-area-inset-top) + 64px); }
 .ed-playbar .ed-btn { min-height: 44px; white-space: nowrap; }
 .ed-playbar-hint { color: #8494ab; font-size: 11.5px; padding-right: 6px; }
 
