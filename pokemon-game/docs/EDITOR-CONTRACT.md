@@ -42,7 +42,7 @@ Selection:
 { kind: 'script', path: ['scripts','meet-mom'] }  // a common event
 { kind: 'slot', map, id, page, slot }             // a page's script slot
 { kind: 'map', id } | { kind: 'project' } | { kind: 'fragment', id } | { kind: 'item', id } | { kind: 'var', name } | { kind: 'rule', id }
-{ kind: 'look', path: ['ui', 'tokens', 'ink'] }  // something in the game's look (a problem picked in Problems opens its Look section)
+{ kind: 'look', path: ['ui', 'tokens', 'ink'] }  // something in the game's look, or ['fonts', id] one of its font files (a problem picked in Problems opens its Look section)
 ```
 
 Calls every panel and tool uses:
@@ -104,7 +104,14 @@ those as chips above its box, which takes anything else (a cursor, a mark). A
 `nullable` colour has a chip for "no colour", named by `noneLabel`; while it
 has none, its square shows the colour the form's `ctx.noneColour(field)` names
 — the Look panel reads it from the token the field `follows` ("Same as
-accent" is the accent), so the square is what the game draws, not black.
+accent" is the accent), so the square is what the game draws, not black. A
+`font` field (a look's) is a chip for each of the game's own fonts
+(`ctx.project.fonts`) and each font word, each chip written in its own
+letters, plus "Add a font…" when the form hands in `ctx.addFont(field)`. A
+`text` field with `display: 'message'` — words shown in the message box: what
+Show Text, a sign or a person says — shows the pages the look's box will make
+of them (its lines to a page and its mark before each line); other text shows
+no pages, because it never goes in the box.
 
 ## Importers (`importers` registry)
 ```js

@@ -11,15 +11,57 @@
   const UI = KIT.ui;
   const scenes = KIT.registry('scenes');
 
-  const SPEEDS = { slow: 22, normal: 48, fast: 96, instant: 0 };
+  /** Letters a second at each text speed a player can pick: the kit's, when the look has none (it always has). */
+  const SPEEDS = { slow: 22, normal: 48, fast: 96 };
   /** How many lines a page holds: the look's, three in the kit's. */
   const lines = () => KIT.look.get('dialogue.lines', 3);
+  /** Where the answers go when they go by the message box, and the question stays on screen. */
+  const BOX_PLACES = new Set(['above-box', 'in-box', 'beside-box']);
+  const byTheBox = () => BOX_PLACES.has(KIT.look.get('choice.place', 'corner'));
+
+  /**
+   * Message boxes that were on screen during this turn of the game: one a line
+   * has just closed, or one a question by the box has just answered. A line
+   * said straight after (a script goes from one command to the next without
+   * waiting for a frame) takes the box over rather than opening it again, so a
+   * conversation opens once — the look's pop or slide plays when the box comes
+   * up after being away, not for the next line, nor for the answer to a
+   * question whose box stood where it stands.
+   */
+  const upThisTurn = new WeakSet();
+  function wasUp(host) {
+    if (!host) return;
+    upThisTurn.add(host);
+    setTimeout(() => upThisTurn.delete(host), 0);
+  }
 
   function settings() { return (KIT.storage && KIT.storage.settings) ? KIT.storage.settings() : {}; }
   function instant() { return !!(KIT.fx && KIT.fx.instant) || settings().textSpeed === 'instant'; }
+  /**
+   * The player picks Slow, Normal or Fast; the look says how fast each one is.
+   * A handheld types at a handheld's pace and a look for quick readers can
+   * make all three quicker, while the choice between them stays the player's.
+   */
   function charsPerSecond() {
     if (instant()) return 0;
-    return SPEEDS[settings().textSpeed] == null ? SPEEDS.normal : SPEEDS[settings().textSpeed];
+    const speeds = KIT.look.get('dialogue.speeds', SPEEDS);
+    const s = settings().textSpeed;
+    return speeds[s] == null ? speeds.normal : speeds[s];
+  }
+
+  /**
+   * heroFraction() -> how far down the game screen the hero stands, from 0 at
+   * the top to 1 at the bottom; null when there is no hero on a map to look
+   * at (the title, a preview). Read off the renderer, which knows where the
+   * camera is.
+   */
+  function heroFraction() {
+    const G = KIT.game;
+    const world = G && G.world, r = G && G.renderer;
+    const hero = world && world.map && typeof world.hero === 'function' ? world.hero() : null;
+    const h = r && r.canvas ? r.canvas.clientHeight : 0;
+    if (!hero || !h || typeof r.tileToScreen !== 'function') return null;
+    return r.tileToScreen(0, (hero.py != null ? hero.py : hero.y) + 0.5, world).y / h;
   }
 
   /**
@@ -38,16 +80,25 @@
    * KIT.dialogueLayout — the message box's own line breaking, pure, for when
    * the look starts each line with a mark ("* ").
    *
-   *   lines(spans, layout) -> { lines, starts }
+   *   lines(spans, layout) -> { lines, starts, joins }
    *
    * The spans are split at every line break the author wrote, each piece is
    * wrapped on its own, and `starts` is the set of line numbers where a piece
    * begins: those lines get the mark, and the lines a long piece wraps onto
    * line up after it. A piece with nothing to read in it (a blank line
    * between two) gets no mark. The lines are the same ones KIT.text.wrap would
-   * make; only the marking is new, so a look without a mark never comes here.
+   * make; only the marking is new, so a look without a mark or a question by
+   * the box never comes here.
+   *
+   * `joins` maps each line that only wrapped — the rest of a piece, not a line
+   * the author started — to what the wrap took out before it: ' ' where it
+   * broke at a space, '' inside a word too long for the box. With it, a copy
+   * of the page can put the words back together and let a narrower box wrap
+   * them again (a question's box beside its answers).
    */
   const DL = KIT.dialogueLayout = KIT.dialogueLayout || {};
+  /** The letters of some spans, an icon as one character: what a wrap walks along. */
+  const lettersOf = (spans) => spans.map((sp) => (sp.type === 'text' ? sp.text : sp.type === 'icon' ? '\uFFFC' : '')).join('');
   DL.lines = function (spans, layout) {
     const pieces = [[]];
     for (const sp of spans || []) {
@@ -56,13 +107,56 @@
     }
     // A break at the very end closes the last line; it does not open another.
     if (pieces.length > 1 && !pieces[pieces.length - 1].length) pieces.pop();
-    const out = [], starts = new Set();
+    const out = [], starts = new Set(), joins = new Map();
     for (const piece of pieces) {
       const readable = piece.some((sp) => sp.type === 'icon' || (sp.type === 'text' && sp.text.trim()));
       if (readable) starts.add(out.length);
-      for (const line of KIT.text.wrap(piece, layout)) out.push(line);
+      // KIT.text.wrap drops the spaces at either end of a line and keeps the
+      // letters in between as they were, so walking the piece's letters line
+      // by line finds whether a space was dropped where each line begins.
+      const letters = lettersOf(piece);
+      let at = 0;
+      KIT.text.wrap(piece, layout).forEach((line, i) => {
+        const was = at;
+        while (at < letters.length && /\s/.test(letters[at])) at++;
+        if (i) joins.set(out.length, at > was ? ' ' : '');
+        at += lettersOf(line).length;
+        out.push(line);
+      });
     }
-    return { lines: out, starts };
+    return { lines: out, starts, joins };
+  };
+
+  /**
+   * pages(lines, n, turn) -> [{ lines, keep, from }] — what each press of A
+   * shows. `from` is the number of the page's first line; `keep` how many of
+   * its lines were on the page before.
+   *
+   *   'clear'   n lines at a time, each page starting empty: exactly what
+   *             KIT.text.paginate has always made.
+   *   'scroll'  the handheld way: after the first page, each press moves the
+   *             lines up one and brings in one more, so ['a','b','c','d'] two
+   *             at a time is ab, bc, cd — the kept line is already read, and
+   *             only the new one types.
+   */
+  DL.pages = function (lines, n, turn) {
+    const per = Math.max(1, n || 3);
+    const all = lines || [];
+    if (turn !== 'scroll') return KIT.text.paginate(all, per).map((page, i) => ({ lines: page, keep: 0, from: i * per }));
+    const out = [];
+    for (let k = 0; k <= Math.max(0, all.length - per); k++) out.push({ lines: all.slice(k, k + per), keep: k ? per - 1 : 0, from: k });
+    return out;
+  };
+
+  /**
+   * place(position, heroFraction, mode) -> where the box goes. With the look's
+   * box out of the hero's way ('avoid-hero'), a box meant for the bottom goes
+   * to the top while the hero stands in the bottom half of the screen; a line
+   * the author told to go at the top or in the middle stays where it was told.
+   */
+  DL.place = function (position, heroFraction, mode) {
+    const at = position || 'bottom';
+    return mode === 'avoid-hero' && at === 'bottom' && typeof heroFraction === 'number' && heroFraction > 0.5 ? 'top' : at;
   };
 
   /** effectFor(id) -> the textEffects definition, or null. */
@@ -81,7 +175,10 @@
    */
   function dress(el, voice) {
     if (!el || !voice) return;
-    if (voice.font) el.style.fontFamily = voice.font;
+    // A voice's font is a family written out as CSS writes one, one of the
+    // look's words (pixel, mono…), or one of the game's own fonts by its id:
+    // KIT.look.family says which, and passes a written-out family through.
+    if (voice.font) el.style.fontFamily = KIT.look.family(voice.font, ((KIT.game && KIT.game.project) || {}).fonts);
     if (voice.color) el.style.color = voice.color;
     if (voice.size === 'big') el.classList.add('is-big');
     else if (voice.size === 'small') el.classList.add('is-small');
@@ -156,35 +253,45 @@
     create() {
       let ui = null, units = [], unitIndex = 0, charIndex = 0, acc = 0, pages = [], pageIndex = 0;
       let waiting = false, complete = false, speed = 1, pauseLeft = 0;
-      let voice = null, sinceBlip = 0, spoken = 0, starts = null, perPage = 3;
+      let voice = null, sinceBlip = 0, spoken = 0, starts = null, joins = null;
 
       function layoutFor(textEl) {
         return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: lines() };
       }
 
       /**
-       * paged(body, ctx, layout, prefix) -> pages. With no mark to start the
-       * lines with, exactly the render or layout call it always was; with one,
-       * the same lines broken by KIT.dialogueLayout, which also says which of
-       * them start a piece the author wrote.
+       * paged(body, ctx, layout, prefix, turn) -> pages (DL.pages). With no
+       * mark to start the lines with, pages that clear and no question by the
+       * box, exactly the render or layout call it always was; otherwise the
+       * same lines, broken by KIT.dialogueLayout — which also says which of
+       * them start a piece the author wrote, and which only wrapped — and
+       * paged the look's way. A question by the box may keep the page on
+       * screen as its question, and beside the box its box is narrower: the
+       * lines that only wrapped say so (data-join), for the copy to join them
+       * and let them wrap again at that width (KIT.ui.parts.choicePanel).
        */
-      function paged(body, ctx, lay, prefix) {
-        starts = null;
-        perPage = lay.lines;
-        if (!prefix) return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages;
+      function paged(body, ctx, lay, prefix, turn) {
+        starts = null; joins = null;
+        const asked = byTheBox();
+        if (!prefix && turn !== 'scroll' && !asked) {
+          return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages.map((page, i) => ({ lines: page, keep: 0, from: i * lay.lines }));
+        }
         const r = DL.lines(KIT.text.tokenize(ctx ? KIT.text.substitute(body, ctx) : body), lay);
-        starts = r.starts;
-        return KIT.text.paginate(r.lines, lay.lines);
+        if (prefix) starts = r.starts;
+        if (asked) joins = r.joins;
+        return DL.pages(r.lines, lay.lines, turn);
       }
 
       function buildPage(at) {
-        const page = pages[at] || [];
+        const page = pages[at] || { lines: [], keep: 0, from: 0 };
         const t = ui.text;
         t.innerHTML = '';
         units = []; unitIndex = 0; charIndex = 0; acc = 0; complete = false; waiting = false; speed = 1; pauseLeft = 0;
-        page.forEach((line, n) => {
+        let kept = 0;
+        page.lines.forEach((line, n) => {
           const lineEl = UI.make('div.kit-line');
-          if (starts && starts.has(at * perPage + n)) lineEl.classList.add('is-start');
+          if (starts && starts.has(page.from + n)) lineEl.classList.add('is-start');
+          if (joins && joins.has(page.from + n)) lineEl.setAttribute('data-join', joins.get(page.from + n));
           for (const span of line) {
             if (span.type === 'text') {
               // The span's own voice wins over the line's, so `{voice:sans}`
@@ -214,7 +321,24 @@
             else if (span.type === 'shake') units.push({ type: 'shake' });
           }
           t.appendChild(lineEl);
+          if (n === page.keep - 1) kept = units.length;
         });
+        // A page that scrolled up: the lines it kept were read on the page
+        // before, so they are there at once — no blips, their pauses and
+        // shakes long over — and the text slides up a line (a look's
+        // animation, off when things may not move). Only the new line types.
+        t.classList.remove('is-scrolled');
+        if (page.keep) {
+          for (let i = 0; i < kept; i++) {
+            const u = units[i];
+            if (u.type === 'text') reveal(u, u.text.length);
+            else if (u.type === 'icon') u.el.style.visibility = 'visible';
+            else if (u.type === 'speed') speed = u.mode === 'instant' ? 999 : 2.5;
+          }
+          unitIndex = kept;
+          void t.offsetWidth;
+          t.classList.add('is-scrolled');
+        }
         if (instant()) revealAll();
         updatePrompt();
       }
@@ -287,8 +411,21 @@
           const p = params || {};
           ui = UI.parts.dialogueBox(UI.el('dialogue', p.root));
           if (!ui) { this.finish(); return; }
+          // This line takes the box over from any line before it that was
+          // waiting for a question (see exit), and a shake that line had is
+          // over: kept, it played again the next time the box was shown.
+          // The box opens (`.is-opening`, the look's pop or slide) only when it
+          // comes up after being away (upThisTurn); the class is taken off for
+          // every other line, or a shake giving way let the opening play again
+          // in the middle of a conversation. The preview draws each tab afresh,
+          // and there it always opens. A look with no opening (the kit's) never
+          // has the class, so its box is the one it always was.
+          const opens = KIT.look.get('dialogue.open', 'none') !== 'none' && ui.host.hidden && (!!p.preview || !upThisTurn.has(ui.host));
+          ui.host.removeAttribute('data-linger');
+          if (ui.box) ui.box.classList.remove('is-shaking', 'is-opening');
           ui.host.hidden = false;
-          ui.host.setAttribute('data-position', p.position || 'bottom');
+          if (opens && ui.box) { void ui.box.offsetWidth; ui.box.classList.add('is-opening'); }
+          ui.host.setAttribute('data-position', DL.place(p.position, p.preview ? null : heroFraction(), KIT.look.get('dialogue.at', 'bottom')));
           ui.host.setAttribute('data-bg', p.bg || 'window');
           ui.name.textContent = p.who || '';
           ui.name.hidden = !p.who;
@@ -313,7 +450,7 @@
           const prefix = KIT.look.get('dialogue.prefix', '');
           if (prefix) ui.text.style.setProperty('--kit-prefix-w', Math.ceil(measurerFor(ui.text)(prefix)) + 'px');
           else ui.text.style.removeProperty('--kit-prefix-w');
-          pages = paged(body, p.ctx, layoutFor(ui.text), prefix);
+          pages = paged(body, p.ctx, layoutFor(ui.text), prefix, KIT.look.get('dialogue.pageTurn', 'clear'));
           pageIndex = 0;
           buildPage(0);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
@@ -325,10 +462,17 @@
         },
         exit() {
           if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
-          if (ui) {
-            ui.host.hidden = true;
-            if (this._tap) ui.host.removeEventListener('click', this._tap);
-          }
+          if (!ui) return;
+          if (this._tap) ui.host.removeEventListener('click', this._tap);
+          // With the answers by the box, a question asked straight after this
+          // line shows it as its question: the box stays up for the rest of
+          // this turn, and the choice scene takes it (it runs before the timer
+          // does — a script goes from one command to the next without waiting
+          // for one). Anything else finds it gone; a next line takes it back.
+          if (!byTheBox()) { ui.host.hidden = true; wasUp(ui.host); return; }
+          const host = ui.host;
+          host.setAttribute('data-linger', '');
+          setTimeout(() => { if (host.hasAttribute('data-linger')) { host.removeAttribute('data-linger'); host.hidden = true; } }, 0);
         },
         update(dt) {
           if (complete || waiting || !units.length) return;
@@ -368,6 +512,9 @@
           if (ev.key === 'a' || ev.key === 'menu') {
             if (waiting) { waiting = false; updatePrompt(); return true; }
             if (!complete) { revealAll(); return true; }
+            // The press that turns the page, or closes the box, has a sound of
+            // its own in a look that wants one (silent in the kit's).
+            KIT.look.sound('page');
             if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pageIndex); return true; }
             this.finish(true);
             return true;
@@ -380,10 +527,87 @@
   });
 
   // ---- choice ---------------------------------------------------------------------
+
+  /** Where `el` is on screen, or null when it is not drawn. */
+  const shownRect = (el) => (el && el.getClientRects().length ? el.getBoundingClientRect() : null);
+  /** The room left between a portrait, or a window, and what it keeps clear of: a portrait hangs 6px off its box. */
+  const FACE_GAP = 6;
+
+  /**
+   * besideOrOver(host, box, panel): the answers' window beside the question's
+   * box, or over the box's right end. Beside it the box is narrower, and its
+   * words flow again at that width — a long question next to a wide window (a
+   * grid of two) came out one or two words to a line, the box three times the
+   * height of the line it carries on, jumping up the screen as the question
+   * came. So the box is measured both ways: when beside the window it is more
+   * than a line taller than at its own width, or the window does not fit
+   * beside it at all, the window goes over the box's right end instead
+   * (data-over, css/kit.css) and the box keeps its width.
+   */
+  function besideOrOver(host, box, panel) {
+    if (!box || !panel) return;
+    host.setAttribute('data-over', '');
+    const whole = box.getBoundingClientRect().height;
+    host.removeAttribute('data-over');
+    const b = box.getBoundingClientRect(), w = panel.getBoundingClientRect(), h = host.getBoundingClientRect();
+    const text = box.querySelector('.kit-text');
+    const line = (text && parseFloat(getComputedStyle(text).lineHeight)) || 24;
+    const beside = w.left >= b.right - 1 && w.right <= h.right + 1 && w.top < b.bottom && w.bottom > b.top;
+    if (!beside || b.height > whole + line * 1.5) host.setAttribute('data-over', '');
+  }
+
+  /**
+   * clearOfTab(box, panel): a name on a tab over the box's corner stays in
+   * sight. An answers' window over the box stands by its right end, and a
+   * wide one (four answers in a row, a grid of three) reached the tab at the
+   * left and covered the name of whoever was asking; it stands just clear
+   * of the tab instead.
+   */
+  function clearOfTab(box, panel) {
+    const name = box && panel ? box.querySelector('.kit-name') : null;
+    const tab = shownRect(name);
+    if (!tab || getComputedStyle(name).position !== 'absolute') return;
+    const w = panel.getBoundingClientRect();
+    if (w.left >= tab.right || w.right <= tab.left || w.top >= tab.bottom || w.bottom <= tab.top || w.bottom > tab.bottom) return;
+    panel.style.marginBottom = `${(parseFloat(getComputedStyle(panel).marginBottom) || 0) + w.bottom - tab.top + FACE_GAP}px`;
+  }
+
+  /**
+   * keepFace(was, box, panel, host): a portrait hung over (or under) the
+   * message box stays where the player saw it while the question is asked.
+   * It hangs off the box's corner, and beside its answers the question's box
+   * is narrower: a portrait over the right corner jumped a hundred pixels to
+   * the left as Yes and No came up, on every question. So it goes back where
+   * it was — and where the answers' window stands there, or the box grown to
+   * hold its answers, it moves up (down, hanging under a box at the top) just
+   * clear of them rather than be painted over. `was` is where it stood in the
+   * line's box; `panel`, the answers' window, if they have one.
+   */
+  function keepFace(was, box, panel, host) {
+    const face = box && box.querySelector('.kit-facebox');
+    const now = shownRect(face);
+    if (!was || !now || getComputedStyle(face).position !== 'absolute') return;
+    const inBox = box.getBoundingClientRect();
+    const under = now.top >= inBox.bottom - 1;
+    const blocks = [shownRect(panel), inBox].filter(Boolean);
+    let top = was.top;
+    // Twice round: clear of the window can be onto a box grown taller than it.
+    for (let round = 0; round < 2; round++) {
+      for (const r of blocks) {
+        if (was.left < r.right && was.right > r.left && top < r.bottom && top + was.height > r.top) top = under ? r.bottom + FACE_GAP : r.top - FACE_GAP - was.height;
+      }
+    }
+    // Off the screen it could not be seen at all: then it stays where it was, the window over part of it.
+    const h = host.getBoundingClientRect();
+    if (top < h.top || top + was.height > h.bottom) top = was.top;
+    const dx = was.left - now.left, dy = top - now.top;
+    if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) face.style.transform = `translate(${dx}px,${dy}px)`;
+  }
+
   scenes.add({
     id: 'choice', name: 'Choices', previewable: true,
     create() {
-      let host = null, index = 0, options = [];
+      let host = null, index = 0, options = [], talk = null;
       return {
         id: 'choice', transparent: true,
         enter(params) {
@@ -392,7 +616,32 @@
           index = 0;
           host = UI.el('choice', p.root);
           if (!host) { this.finish(-1); return; }
-          const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
+          // Answers by the message box keep the question on screen, in a box
+          // like the message box: the question's own words, or — when it has
+          // none — the line said just before it, still up (see dialogue's exit).
+          const place = byTheBox() ? KIT.look.get('choice.place', 'corner') : null;
+          talk = place ? UI.el('dialogue', p.root) : null;
+          const said = talk && talk.hasAttribute('data-linger') && !talk.hidden ? talk : null;
+          const copied = said && !p.prompt ? said : null;
+          const faceWas = copied ? shownRect(copied.querySelector('.kit-facebox')) : null;
+          const built = UI.parts.choicePanel(host, {
+            prompt: p.prompt, options, place,
+            promptClone: copied ? copied.querySelector('.kit-box') : null,
+          });
+          const list = built.list;
+          if (place) {
+            host.setAttribute('data-place', place);
+            // Where that line was, or where a line would go now.
+            host.setAttribute('data-position', (said && said.getAttribute('data-position')) || DL.place('bottom', p.preview ? null : heroFraction(), KIT.look.get('dialogue.at', 'bottom')));
+          }
+          // The line's own background comes with its box: no window, or the
+          // game dimmed behind it, stays so while the question is asked.
+          const bg = copied && copied.getAttribute('data-bg');
+          if (bg && bg !== 'window') host.setAttribute('data-bg', bg);
+          if (place === 'beside-box') besideOrOver(host, built.promptBox, list.parentElement);
+          if (place && place !== 'in-box') clearOfTab(built.promptBox, list.parentElement);
+          if (faceWas) keepFace(faceWas, built.promptBox, place === 'in-box' ? null : list.parentElement, host);
+          if (said) { said.removeAttribute('data-linger'); said.hidden = true; }
           UI.select(list, index);
           this._list = list;
           this._off = UI.onAction(host, (action, el) => {
@@ -404,14 +653,34 @@
           this._pick = pick;
           this._cancel = p.cancel || 'none';
         },
-        exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
+        exit() {
+          if (host) {
+            host.hidden = true;
+            UI.clear(host);
+            for (const a of ['data-place', 'data-position', 'data-bg', 'data-over']) host.removeAttribute(a);
+          }
+          // The question's box stood where the message box stands: an answer
+          // said straight after carries the conversation on, it does not open
+          // the box again.
+          if (talk) { wasUp(talk); talk = null; }
+          if (this._off) this._off();
+        },
         input(ev) {
           const arrow = ev.key === 'up' || ev.key === 'down' || ev.key === 'left' || ev.key === 'right';
-          // Answers side by side, or in a grid, move the way the arrow points:
-          // in reading order, ▼ in a grid of two went to the next answer, up and
-          // across, rather than the one underneath it.
-          if (arrow && KIT.look.get('choice.layout', 'column') !== 'column') {
-            const next = UI.nav(Array.from(this._list.children, (b) => b.getBoundingClientRect()), index, ev.key, true);
+          // Answers side by side — a row, a grid, Yes and No inside the box —
+          // move the way the arrow points: in reading order, ▼ in a grid of two
+          // went to the next answer, up and across, rather than the one
+          // underneath it. Answers in one column step up and down the list as
+          // they always have, with ◀ and ▶ too. Which it is, is read off where
+          // the answers are, not off the look alone: a row too narrow for its
+          // answers wraps them into a column.
+          const rects = arrow ? Array.from(this._list.children, (b) => b.getBoundingClientRect()) : [];
+          if (arrow && rects.some(r => Math.abs(r.left - rects[0].left) >= 1)) {
+            let next = UI.nav(rects, index, ev.key, true);
+            // ◀ and ▶ always move. In a row wrapped one answer to a line (long
+            // answers in a narrow box) there is nothing beside the chosen one,
+            // and they step along the answers as they do in a column.
+            if (next === index && (ev.key === 'left' || ev.key === 'right')) next = (index + (ev.key === 'left' ? -1 : 1) + options.length) % options.length;
             if (next !== index) { index = next; UI.select(this._list, index); KIT.look.sound('move'); }
             return true;
           }
@@ -577,6 +846,7 @@
         enter(params) {
           const p = params || {};
           host = UI.el('dialogue');
+          host.removeAttribute('data-linger');           // the host is this scene's now, not a line's waiting for a question
           host.hidden = false;
           host.setAttribute('data-bg', 'dim');
           host.classList.add('is-scroll');

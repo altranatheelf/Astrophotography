@@ -183,6 +183,11 @@
       try { kind = KIT.import.aseprite.detect(f.text); } catch (e) { kind = null; }
       if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
     }
+    // Fonts, on their own: the game's own letters (Look › Fonts uses them).
+    const fonts = list.filter(f => KIT.import.image && KIT.import.image.FONT_EXT.test(base(f.name)));
+    if (fonts.length && list.length === fonts.length) {
+      return { tool: 'font', kind: 'font', label: `Font ${base(fonts[0].name)}${fonts.length > 1 ? ` and ${fonts.length - 1} more` : ''}`, main: fonts[0], files: fonts, images, problems };
+    }
     const audio = list.filter(f => KIT.import.image && KIT.import.image.AUDIO_EXT.test(base(f.name)));
     if (audio.length && list.length === audio.length) {
       return { tool: 'audio', kind: 'audio', label: `Sound ${base(audio[0].name)}${audio.length > 1 ? ` and ${audio.length - 1} more` : ''}`, main: audio[0], files: audio, images, problems };
@@ -192,7 +197,7 @@
       // slicer asks how it is cut and does the rest.
       return { tool: 'image', kind: 'sheet', label: `Image ${base(images[0].name)}`, main: images[0], files: list, images, problems };
     } else {
-      problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, or an RPG Maker MV/MZ data folder.', where: {} });
+      problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, an RPG Maker MV/MZ data folder, a picture, a sound or a font.', where: {} });
     }
     return { tool: null, kind: null, label: 'Nothing recognised', main: null, files: list, images, problems };
   };
@@ -1146,7 +1151,7 @@
         clear(el.report);
         el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` }));
       });
-      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — or music and sound effects (.ogg, .mp3, .wav). Everything is embedded, so nothing depends on where the file lived.' }));
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — music and sound effects (.ogg, .mp3, .wav), or fonts (.ttf, .otf, .woff, .woff2) for Look › Fonts. Everything is embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
       el.drop.appendChild(make('div', { text: 'Drop files here' }));
@@ -1388,7 +1393,8 @@
       catch (e) { unreadable.push(name); continue; }
       const isImage = IMAGE_EXT.test(name);
       const isAudio = !!(KIT.import.image && KIT.import.image.AUDIO_EXT.test(name));
-      const isBinary = isImage || isAudio || /\.(aseprite|ase)$/i.test(name);
+      const isFont = !!(KIT.import.image && KIT.import.image.FONT_EXT.test(name));
+      const isBinary = isImage || isAudio || isFont || /\.(aseprite|ase)$/i.test(name);
       let text = null;
       if (!isBinary) { try { text = new TextDecoder().decode(bytes); } catch (e) { text = null; } }
       files.push({ name, bytes, text, type: f.type });
@@ -1427,11 +1433,7 @@
       },
     };
   }
-  function bytesToBase64(bytes) {
-    let s = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return btoa(s);
-  }
+  const bytesToBase64 = (bytes) => KIT.import.image.base64(bytes);
   /** Synchronous inflate in the browser: the Aseprite importer carries its own. */
   function inflate(bytes, method) {
     const A = KIT.import.aseprite;
@@ -1471,6 +1473,7 @@
     }
     if (found.tool === 'image') { showImageForm(panel, found); return; }
     if (found.tool === 'audio') { showAudioForm(panel, found); return; }
+    if (found.tool === 'font') { finishImport(panel, found, KIT.import.image.fontsFrom(found.files), { missing: [] }); return; }
     const assets = assetResolver(files, prefix);
     const p = project();
     const mapId = (name) => {
@@ -1524,7 +1527,8 @@
   }
 
   const COUNTS = [['maps', 'map'], ['objects', 'event'], ['tiles', 'tile'], ['sprites', 'sprite'], ['faces', 'face'], ['icons', 'icon'],
-    ['animations', 'animation'], ['assets', 'image'], ['scripts', 'script'], ['vars', 'variable'], ['items', 'item'], ['terrains', 'terrain'], ['autotiles', 'autotile group']];
+    ['animations', 'animation'], ['assets', 'image'], ['scripts', 'script'], ['vars', 'variable'], ['items', 'item'], ['terrains', 'terrain'], ['autotiles', 'autotile group'],
+    ['sounds', 'sound'], ['music', 'track'], ['fonts', 'font']];
   function countLine(counts) {
     const parts = [];
     for (const [key, label] of COUNTS) if (counts[key]) parts.push(`${counts[key]} ${label}${counts[key] === 1 ? '' : 's'}`);

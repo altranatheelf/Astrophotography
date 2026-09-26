@@ -114,6 +114,25 @@ test('look: the kit look compiles to nothing', () => {
   assert.equal(L.compile(L.resolve({ ui: { tokens: { paper: '#fdfdfb', frameWidth: 3 } } })), '');
 });
 
+test('look: in a game with fonts of its own, the kit look is only their @font-face, kept apart from the look', () => {
+  const fonts = { dot: { name: 'Dot', src: 'data:font/ttf;base64,AAEAAA==', pixel: false } };
+  const face = '@font-face{font-family:"kitf-dot";src:url("data:font/ttf;base64,AAEAAA==") format("truetype");font-display:block}';
+  // The kit look with a font brought in from Game › Import and not used yet:
+  // the font is declared (the Look panel shows it in its own letters), and
+  // that is all.
+  assert.equal(L.css({ fonts }), face);
+  assert.equal(L.fontFaces(fonts), face);
+  assert.equal(L.css({ fonts }, { faces: false }), '', 'the look itself is still nothing');
+  assert.equal(L.fontFaces({}), '');
+  // A look that uses it: the @font-face, a line each, then the look's rules —
+  // which is how apply puts them in two stylesheets, the fonts written only
+  // when they change.
+  const p = { fonts, ui: { tokens: { fontText: 'dot', paper: '#000000' } } };
+  assert.equal(L.css(p), L.fontFaces(fonts) + '\n' + L.css(p, { faces: false }));
+  assert.ok(!L.css(p, { faces: false }).includes('@font-face'));
+  assert.ok(read('js/kit/ui/parts.js').includes("styleIn('kit-look-fonts')"), 'apply keeps the fonts in a sheet of their own');
+});
+
 test('look: a change is one custom property on #stage, and only that', () => {
   const css = L.compile(L.resolve({ ui: { tokens: { paper: '#000000', frameWidth: 4 } } }));
   assert.equal(css, '#stage{--paper:#000000;--kit-frame-w:4px}');
@@ -179,16 +198,22 @@ test('look: a key every object inherits is not a part (a file\'s `constructor` d
 test('look: a font is a word or one of the game\'s own fonts, and nothing else reaches the stylesheet', () => {
   // The game's own font: its family, then a stack to fall back on while it
   // loads — monospace for a pixel font — and the family fontsReady waits for.
-  const fonts = { dtm: { name: 'DTM Mono', pixel: true }, soft: { name: 'Soft' } };
+  const fonts = { dtm: { name: 'DTM Mono', pixel: true, src: 'data:font/ttf;base64,AAEAAA==' }, soft: { name: 'Soft', src: 'data:font/woff2;base64,d09GMg==' } };
+  const faces = '@font-face{font-family:"kitf-dtm";src:url("data:font/ttf;base64,AAEAAA==") format("truetype");font-display:block}\n'
+    + '@font-face{font-family:"kitf-soft";src:url("data:font/woff2;base64,d09GMg==") format("woff2");font-display:block}\n';
+  // Every font the game has comes first as an @font-face, then the look names
+  // one; a pixel font asks for its squares unsmudged.
   assert.equal(L.css({ ui: { tokens: { fontText: 'dtm' } }, fonts }),
-    '#stage{--kit-font-text:"kitf-dtm", ui-monospace, "SFMono-Regular", Menlo, Consolas, "Courier New", monospace}');
+    faces + '#stage{--kit-font-text:"kitf-dtm", ui-monospace, "SFMono-Regular", Menlo, Consolas, "Courier New", monospace}\n#screen{-webkit-font-smoothing:none;font-smooth:never}');
   assert.equal(L.css({ ui: { tokens: { fontUi: 'soft' } }, fonts }),
-    '#stage{--font-ui:"kitf-soft", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif}');
+    faces + '#stage{--font-ui:"kitf-soft", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif}');
   // An id the game has no font for, or a CSS keyword dressed as one, keeps the
   // kit's font: a bare `dtm` or `initial` threw the whole fallback stack away.
   for (const v of ['dtm', 'initial', 'inherit', 'unset', 'revert']) {
     assert.equal(L.css({ ui: { tokens: { fontText: v, fontUi: v } } }), '', v);
   }
+  // A font whose file is not a font inside the game is not a font at all.
+  assert.equal(L.family('dtm', { dtm: { name: 'DTM', src: 'https://example.com/dtm.ttf' } }), 'dtm');
   assert.equal(L.compile(L.resolve({ ui: { tokens: { fontText: 'dtm' } } }), { fonts }), L.css({ ui: { tokens: { fontText: 'dtm' } }, fonts }));
   // family() on its own: words, the game's fonts, and anything else untouched
   // (a voice's font written out as a family still works).
@@ -197,6 +222,54 @@ test('look: a font is a word or one of the game\'s own fonts, and nothing else r
   assert.equal(L.family('Georgia', fonts), 'Georgia');
   assert.equal(L.family('monospace'), 'monospace', 'a generic family is not one of the game\'s fonts');
   assert.equal(L.family('constructor', {}), 'constructor');
+});
+
+test('look: only a font file inside the game becomes an @font-face, and a bad one says why', () => {
+  const ok = 'data:font/ttf;base64,AAEAAA==';
+  const fonts = { good: { name: 'Good', src: ok }, link: { name: 'Linked', src: 'https://example.com/x.ttf' }, pixel: { name: 'Named like a word', src: ok },
+    fake: { name: 'Not a font', src: 'data:image/png;base64,iVBORw0KGgo=' } };
+  const p = { fonts, ui: { tokens: { fontText: 'link' } } };
+  const faces = L.css(p).split('\n').filter(r => r.startsWith('@font-face'));
+  assert.deepEqual(faces, ['@font-face{font-family:"kitf-good";src:url("' + ok + '") format("truetype");font-display:block}'], 'only the good one');
+  assert.ok(!L.css(p).includes('https:'), 'nothing that fetches reaches the page');
+  const got = L.problems(p).map(q => `${q.code} ${q.where.path.join('.')}`).sort();
+  assert.deepEqual(got, ['ui-bad-value fonts.pixel', 'ui-ref ui.tokens.fontText', 'ui-src fonts.fake', 'ui-src fonts.link']);
+  assert.ok(L.problems(p).every(q => q.severity === 'warn' && q.where.look), 'all warnings, each one tapped opens the look');
+  // Big fonts: one over 300 KB, and all of them over 1.5 MB.
+  const big = (kb) => ({ name: 'Big', src: 'data:font/woff2;base64,' + 'A'.repeat(Math.ceil(kb * 1024 * 4 / 3)) });
+  const sizes = L.problems({ fonts: { a: big(310), b: big(600), c: big(700) } }).filter(q => q.code === 'ui-big').map(q => q.where.path.join('.'));
+  assert.deepEqual(sizes, ['fonts.a', 'fonts.b', 'fonts.c', 'fonts']);
+  assert.deepEqual(L.problems({ fonts: { a: big(100) } }), [], 'a small font is no problem');
+});
+
+test('look: a pixel font is drawn at a whole multiple of its own size', () => {
+  const fonts = { dot: { name: 'Dot', src: 'data:font/ttf;base64,AAEAAA==', pixel: true, px: 8 } };
+  const size = (textSize, f) => {
+    const m = /--kit-text-size:([^;}]+)/.exec(L.css({ fonts: f || fonts, ui: { tokens: { fontText: 'dot', textSize } } }));
+    return m ? m[1] : null;
+  };
+  assert.equal(size('large'), '24px', 'Large aims at 20: 8 × 3 is nearer than 8 × 2');
+  assert.equal(size('normal'), '16px', 'and Normal is 16 even though Normal writes nothing for any other font');
+  assert.equal(size('small'), '16px', 'Small aims at 14: 8 × 2');
+  assert.equal(size('huge'), '24px');
+  assert.equal(size('small', { dot: Object.assign({}, fonts.dot, { px: 24 }) }), '24px', 'never less than the size it was drawn for');
+  assert.equal(size('large', { dot: Object.assign({}, fonts.dot, { pixel: false }) }), 'clamp(17px,4.2vw,21px)', 'a font that is not pixel keeps the ordinary sizes');
+  assert.equal(size('normal', { dot: Object.assign({}, fonts.dot, { px: null }) }), null, 'nor does a pixel font with no size of its own');
+});
+
+test('look: how the box opens and how a page scrolls only move where things may move', () => {
+  const MOVING = '#stage:not([data-kit-motion=reduce]):not([data-kit-fast])';
+  const pop = rulesOf(L.css({ ui: { dialogue: { open: 'pop' } } }));
+  assert.deepEqual(pop, [MOVING + ' #screen #dialogue .kit-box.is-opening{animation:kit-look-pop .18s ease-out}', MOVING + ' #screen #dialogue .kit-box.is-shaking{animation:kit-shake .32s}'],
+    'the box pops when the message box says it is opening, and a {shake} still shakes it');
+  const scene = read('js/kit/scenes/dialogue.js');
+  assert.ok(scene.includes("ui.box.classList.add('is-opening')") && scene.includes("classList.remove('is-shaking', 'is-opening')"),
+    'the message box opens only when it comes up after being away, and takes the class off for every other line');
+  assert.ok(L.css({ ui: { dialogue: { open: 'slide' } } }).includes('@keyframes kit-look-slide{'));
+  const scroll = rulesOf(L.css({ ui: { dialogue: { pageTurn: 'scroll' } } }));
+  assert.equal(scroll.length, 2);
+  assert.ok(scroll.every(r => r.startsWith(MOVING + ' #screen #dialogue .kit-text.is-scrolled')), scroll.join('\n'));
+  assert.equal(L.css({ ui: { dialogue: { open: 'none', pageTurn: 'clear' } } }), '', 'the kit\'s own write nothing');
 });
 
 test('look: apply writes what css(project) says, and says so', () => {
@@ -373,7 +446,7 @@ test('look: each built-in look resolves with no problems, and compiles the same 
 
 test('look: every compiled rule stays on the game screen, and off the title', () => {
   // The part options that are not the kit's own, all at once, on each look.
-  const every = { tokens: { paper: '#101010' }, dialogue: { lines: 4, width: 80, margin: 20, face: 'above-left', faceFrame: false, name: 'tab', nameCase: 'upper', prefix: '> ', marker: '', markerMotion: 'blink' },
+  const every = { tokens: { paper: '#101010' }, dialogue: { lines: 4, width: 80, margin: 20, face: 'above-left', faceFrame: false, name: 'tab', nameCase: 'upper', prefix: '> ', marker: '', markerMotion: 'blink', open: 'slide', pageTurn: 'scroll' },
     choice: { place: 'center', layout: 'grid', columns: 3 }, menu: { at: 'top', caps: true }, toast: { at: 'center', shape: 'box' },
     pad: { shape: 'square' }, cursor: { glyph: '*', color: '#00ff00', size: 20, highlight: false } };
   const sheets = PRESETS.map(id => L.css({ ui: { base: id } })).concat([L.css({ ui: every })]);
@@ -407,7 +480,8 @@ test('look: a mark an author types cannot close the string it is written in', ()
 test('look: a part\'s option is one rule, only when it is not the kit\'s own', () => {
   const one = (ui) => rulesOf(L.css({ ui }));
   assert.deepEqual(one({ dialogue: { lines: 3, width: 100, marker: '▼' } }), [], 'the kit\'s own values write nothing');
-  assert.deepEqual(one({ dialogue: { lines: 2 } }), ['#screen #dialogue .kit-text{min-height:calc(var(--kit-line,1.45) * 2 * 1em)}']);
+  // The question's box by the answers (a .kit-promptbox) is the message box too, but for the answers inside it.
+  assert.deepEqual(one({ dialogue: { lines: 2 } }), ['#screen #dialogue .kit-text,#screen #choice[data-place]:not([data-place=in-box]) .kit-promptbox .kit-text{min-height:calc(var(--kit-line,1.45) * 2 * 1em)}']);
   assert.deepEqual(one({ menu: { at: 'top-left' } }), ['#screen #pause-menu:has(> .kit-pause){align-items:flex-start;justify-content:flex-start}']);
   assert.deepEqual(one({ pad: { shape: 'square' } }), ['#stage{--kit-pad-ab-radius:12px}']);
   assert.deepEqual(one({ toast: { shape: 'box' }, tokens: { radius: 6 } }), ['#stage{--kit-radius:6px;--kit-toast-radius:6px}']);
@@ -416,11 +490,16 @@ test('look: a part\'s option is one rule, only when it is not the kit\'s own', (
   assert.ok(blink.includes('@keyframes kit-look-blink'));
   assert.ok(blink.includes('#stage:not([data-kit-motion=reduce]):not([data-kit-fast]) #screen #dialogue .kit-next.is-ready{animation:kit-look-blink'));
   assert.ok(blink.includes('#screen #dialogue .kit-next.is-ready{animation:none}'), 'and is still everywhere else');
-  // Options held for later are clean in a look, and write nothing yet.
-  const later = { dialogue: { pageTurn: 'scroll', at: 'avoid-hero', open: 'pop', speeds: { slow: 5 } }, choice: { place: 'in-box' }, menu: { order: ['save', '*'], hide: ['coop'] } };
-  assert.deepEqual(L.problems({ ui: later }), []);
-  assert.equal(L.css({ ui: later }), '');
-  assert.deepEqual(L.resolve({ ui: later }).dialogue.speeds, { slow: 5, normal: 48, fast: 96 });
+  // Options the scenes act on without a stylesheet — where the box goes, the
+  // typing speeds, the answers by the box (kit.css holds those rules, behind
+  // data-place) — write nothing; and the menu's order, held for later, is a
+  // clean look that writes nothing yet.
+  const quiet = { dialogue: { at: 'avoid-hero', speeds: { slow: 5 } }, choice: { place: 'in-box' }, menu: { order: ['save', '*'], hide: ['coop'] } };
+  assert.deepEqual(L.problems({ ui: quiet }), []);
+  assert.equal(L.css({ ui: quiet }), '');
+  assert.deepEqual(L.resolve({ ui: quiet }).dialogue.speeds, { slow: 5, normal: 48, fast: 96 });
+  assert.ok(L.PARTS.menu.filter(f => f.later).map(f => f.key).join() === 'order,hide', 'only the menu\'s order and hiding are held for later');
+  assert.ok(!L.PARTS.dialogue.concat(L.PARTS.choice, L.PARTS.sounds).some(f => f.later), 'the page turn, speeds, where the box goes, the answers by the box and the page sound all work now');
   const bad = L.resolve({ ui: { dialogue: { speeds: { slow: 'fast' } }, menu: { order: ['a;b'] } } });
   assert.deepEqual(bad._problems.map(q => q.where.path.join('.')).sort(), ['ui.dialogue.speeds.slow', 'ui.menu.order']);
 });
@@ -441,10 +520,23 @@ test('look: on a chosen line with colours of its own, a value takes the line\'s 
 });
 
 test('look: a name on a tab moves out of the way of a portrait above the same corner', () => {
-  const MOVE = '#screen #dialogue .kit-name{left:auto;right:12px}';
+  const MOVE = '#screen #dialogue .kit-name,#screen #choice[data-place] .kit-promptbox .kit-name{left:auto;right:12px}';
   assert.ok(rulesOf(L.css({ ui: { base: 'dream', dialogue: { face: 'above-left' } } })).includes(MOVE), 'Dream with its portrait moved to the left');
   assert.ok(!rulesOf(L.css({ ui: { base: 'dream' } })).includes(MOVE), 'Dream as it is: the portrait is right, the tab stays left');
   assert.ok(!rulesOf(L.css({ ui: { dialogue: { face: 'above-left' } } })).includes(MOVE), 'no tab, nothing to move');
+});
+
+test('look: answers in a row stay a row beside the box, and wrap only once they go over it', () => {
+  // A row that may wrap needs no wider a window than its widest answer, and
+  // beside the box that stacked Yes over No in half the screen.
+  const rows = rulesOf(L.css({ ui: { base: 'dream', choice: { layout: 'row' } } }));
+  assert.ok(rows.includes('#screen #choice .kit-list{flex-direction:row;flex-wrap:wrap;justify-content:space-around}'));
+  assert.ok(rows.includes('#screen #choice[data-place=beside-box]:not([data-over]) .kit-list{flex-wrap:nowrap}'));
+  assert.ok(!rulesOf(L.css({ ui: { base: 'dream', choice: { layout: 'grid' } } })).some(r => r.includes('nowrap')), 'a grid has columns, not a row to keep');
+  // Over the box the window may be the whole width, where a long row wraps.
+  const kitCss = stylesheet();
+  assert.match(kitCss, /#choice\[data-place=beside-box\]\[data-over\] \.kit-promptbox \{ flex-basis: 100%; \}/);
+  assert.match(kitCss, /#choice\[data-place=beside-box\]\[data-over\] \.kit-panel \{ max-width: 100%; \}/);
 });
 
 test('look: capitals leave a notice in a list as it was written', () => {
@@ -533,6 +625,65 @@ test('look: dialogueLayout marks the first line of each piece the author wrote',
   // A break at the end closes the last line; it opens no empty one.
   assert.deepEqual(DL.lines(KIT.text.tokenize('One\n'), lay).lines.length, KIT.text.wrap(KIT.text.tokenize('One\n'), lay).length);
   assert.deepEqual(Array.from(DL.lines([], lay).starts), [], 'nothing to say, nothing to mark');
+});
+
+test('look: dialogueLayout says where a line only wrapped, and what the wrap took out', () => {
+  const DL = KIT.dialogueLayout;
+  const lay = { width: 10, measure: (s) => s.length };
+  const r = DL.lines(KIT.text.tokenize('Hello there, you.\nSecond one\nabcdefghijklmnop'), lay);
+  const text = r.lines.map(l => l.map(sp => sp.text || '').join(''));
+  assert.deepEqual(text, ['Hello', 'there,', 'you.', 'Second one', 'abcdefghij', 'klmnop']);
+  // Lines 1 and 2 wrapped at a space, line 5 inside a word too long for the
+  // box; 0, 3 and 4 start a piece the author wrote, and are their own lines.
+  assert.deepEqual(Array.from(r.joins), [[1, ' '], [2, ' '], [5, '']]);
+  // Joined back with what was taken out, each piece is the words as written.
+  const pieces = [];
+  text.forEach((t, i) => { if (r.joins.has(i)) pieces[pieces.length - 1] += r.joins.get(i) + t; else pieces.push(t); });
+  assert.deepEqual(pieces, ['Hello there, you.', 'Second one', 'abcdefghijklmnop']);
+  // An icon, and styled runs, walk the same way.
+  const styled = DL.lines(KIT.text.tokenize('Take {color:#ff0000}the red{/color} {icon:key} key now'), lay);
+  assert.deepEqual(Array.from(styled.joins.values()), styled.lines.slice(1).map(() => ' '));
+});
+
+test('look: a page that scrolls keeps its last line; a page that clears is the pagination it always was', () => {
+  const DL = KIT.dialogueLayout;
+  const scroll = DL.pages(['a', 'b', 'c', 'd'], 2, 'scroll');
+  assert.deepEqual(scroll.map(w => w.lines.join('')), ['ab', 'bc', 'cd'], 'each press brings in one more line');
+  assert.deepEqual(scroll.map(w => w.keep), [0, 1, 1], 'and keeps the one before it, already read');
+  assert.deepEqual(scroll.map(w => w.from), [0, 1, 2]);
+  const lines = ['a', 'b', 'c', 'd', 'e'];
+  assert.deepEqual(DL.pages(lines, 2, 'clear').map(w => w.lines), KIT.text.paginate(lines, 2), '\'clear\' is KIT.text.paginate');
+  assert.ok(DL.pages(lines, 2, 'clear').every(w => w.keep === 0));
+  assert.deepEqual(DL.pages(['a'], 3, 'scroll').map(w => w.lines), [['a']], 'a short message is one page either way');
+  assert.deepEqual(DL.pages([], 2, 'scroll').map(w => w.lines), [[]]);
+  assert.ok(read('js/kit/scenes/dialogue.js').includes("KIT.look.get('dialogue.pageTurn', 'clear')"), 'the message box asks the look how its pages turn');
+});
+
+test('look: a box out of the hero\'s way goes to the top only when the hero is in the bottom half', () => {
+  const place = KIT.dialogueLayout.place;
+  assert.equal(place('bottom', 0.7, 'avoid-hero'), 'top');
+  assert.equal(place('middle', 0.9, 'avoid-hero'), 'middle', 'a line told where to go stays there');
+  assert.equal(place('bottom', 0.3, 'avoid-hero'), 'bottom');
+  assert.equal(place('bottom', 0.7, 'bottom'), 'bottom', 'only when the look asks for it');
+  assert.equal(place('bottom', null, 'avoid-hero'), 'bottom', 'no hero to look at (the title, a preview): where it was told');
+  assert.equal(place(undefined, 0.9, 'avoid-hero'), 'top', 'no position is the bottom');
+});
+
+test('look: typing speeds are the look\'s, and the player still picks which', () => {
+  try {
+    L.use({ ui: { base: 'handheld' } });
+    assert.deepEqual(L.get('dialogue.speeds'), { slow: 8, normal: 16, fast: 60 }, 'Handheld types at a handheld\'s pace');
+    L.use({ ui: { base: 'soul' } });
+    assert.equal(L.get('dialogue.at'), 'avoid-hero');
+    assert.equal(L.get('choice.place'), 'in-box');
+    L.use({ ui: { base: 'dream' } });
+    assert.equal(L.get('choice.place'), 'beside-box');
+    L.use({ ui: { base: 'handheld' } });
+    assert.equal(L.get('choice.place'), 'above-box');
+    assert.equal(L.get('dialogue.pageTurn'), 'scroll');
+  } finally { L.use(null); }
+  assert.ok(read('js/kit/scenes/dialogue.js').includes("KIT.look.get('dialogue.speeds', SPEEDS)"), 'the typing reads them');
+  assert.ok(read('js/kit/scenes/dialogue.js').includes("KIT.look.sound('page')"), 'and a page turn has its sound');
 });
 
 test('look: an arrow in a row or a grid of answers moves the way it points', () => {

@@ -3,11 +3,11 @@
 // Its own group, beside Map, Story and Game (ADR-0017). The top half of the
 // phone is a live preview of the game screen (js/kit/editor/look-preview.js),
 // the sheet under it is this: a row of looks to start from, then the parts of
-// the interface one at a time — colours, the message box, the answers to a
-// question, the cursor, the pause menu, the toast, the on-screen buttons and
-// the sounds. Every section is a form drawn from the look's own field lists
-// (KIT.look.TOKENS and KIT.look.PARTS), so an option added there is an option
-// here, with the words it was given there.
+// the interface one at a time — colours, fonts, the message box, how the words
+// type, the answers to a question, the cursor, the pause menu, the toast, the
+// on-screen buttons and the sounds. Every section is a form drawn from the
+// look's own field lists (KIT.look.TOKENS and KIT.look.PARTS), so an option
+// added there is an option here, with the words it was given there.
 //
 // Every change is seen at once and written once. A control's value goes into
 // a draft; the draft is put on the page (KIT.look.apply) on the next frame,
@@ -26,12 +26,18 @@
    * The sections, in the order they are listed. `tab` is what the preview
    * shows while the section is open, so opening "Message box" shows somebody
    * talking; `part` is the KIT.look.PARTS list the section's form is drawn
-   * from; `tokens` are the colours that belong with it.
+   * from (`only` and `skip` share one list between two sections); `tokens`
+   * are the colours, or the fonts, that belong with it. The message box's
+   * options about how the words arrive, not about the box, are Typing's.
    */
+  const TYPING = ['speeds', 'pageTurn'];
+  const FONT_TOKENS = ['fontText', 'fontUi', 'fontName', 'textSize', 'lineHeight'];
   const SECTIONS = [
     { id: 'start', label: 'Start from', tab: 'talk' },
     { id: 'colours', label: 'Colours' },
-    { id: 'box', label: 'Message box', tab: 'talk', part: 'dialogue', hint: 'The box people talk in.' },
+    { id: 'fonts', label: 'Fonts', tab: 'talk', tokens: FONT_TOKENS },
+    { id: 'box', label: 'Message box', tab: 'talk', part: 'dialogue', skip: TYPING, hint: 'The box people talk in.' },
+    { id: 'typing', label: 'Typing', tab: 'talk', part: 'dialogue', only: TYPING },
     { id: 'choice', label: 'Choices', tab: 'choice', part: 'choice', hint: 'The answers when the game asks a question, like Yes and No.' },
     { id: 'cursor', label: 'Cursor', tab: 'menu', part: 'cursor', hint: 'The mark beside the chosen line, in a question or a menu.' },
     { id: 'menu', label: 'Pause menu', tab: 'menu', part: 'menu', hint: 'The menu ☰ opens during the game.' },
@@ -41,8 +47,6 @@
   ];
   // The colours an author reaches for first, then the rest behind "More colours".
   const MAIN_COLOURS = ['paper', 'ink', 'frame', 'accent', 'select', 'selectInk', 'dim', 'frameWidth', 'radius'];
-  // Fonts and text size come with the Fonts section, which is still to come.
-  const NOT_YET = ['fontText', 'fontUi', 'fontName', 'textSize', 'lineHeight'];
   /**
    * Where each colour can be seen: the preview tabs that draw it, the first
    * being the one to turn to. Changing "Chosen line" while somebody talks
@@ -54,7 +58,11 @@
   const BOXES = ['talk', 'choice', 'menu', 'name', 'pad', 'dim'];
   const LISTS = ['menu', 'choice'];
   const TITLE = ['title'];
+  // The letters of what is said (fontText) are on every tab; the rest of the
+  // Fonts section is drawn where somebody talks, or where names and headings are.
+  const TALK = ['talk', 'pad', 'dim'];
   const SHOWN_IN = {
+    fontUi: ['talk', 'menu', 'title', 'toast', 'pad', 'dim'], fontName: TALK, textSize: TALK, lineHeight: TALK,
     paper: BOXES, ink: BOXES, frame: BOXES, frameWidth: BOXES, radius: BOXES, rim: BOXES, drop: BOXES, shadow: BOXES,
     accent: ['talk', 'choice', 'menu', 'pad', 'dim'], nameInk: ['talk', 'pad', 'dim'], markerInk: ['talk', 'pad', 'dim'], faceBg: ['talk', 'dim'],
     titleInk: ['menu'], valueInk: ['menu'], cursorInk: LISTS, selectFrame: LISTS, select: LISTS, selectInk: LISTS, menuDimAmount: LISTS,
@@ -71,10 +79,21 @@
    * where to turn it on, rather than change a colour nobody can see.
    */
   function showColour(key) {
-    const tabs = SHOWN_IN[key];
+    let tabs = SHOWN_IN[key];
+    // Names and menus shows on Talk only in the speaker's name, and in the
+    // menu only in its heading. A look that hides them (Handheld, Soul) shows
+    // it on the title — the game's name and buttons — and the chapter card.
+    if (key === 'fontUi') {
+      const look = L.current();
+      tabs = tabs.filter(t => !(look.dialogue.name === 'none' && TALK.includes(t)) && !(t === 'menu' && look.menu.title === false));
+    }
     if (preview && tabs && !tabs.includes(preview.tab())) preview.show(tabs[0]);
     if ((key === 'select' || key === 'selectFrame') && L.current().cursor.highlight === false) {
       ED.toast('This look has no box round the chosen line, so this colour does not show. Cursor › Box round the chosen line turns it on.');
+    }
+    // The same for the speaker's name, in a look that hides it (Handheld, Soul).
+    if ((key === 'fontName' || key === 'nameInk') && L.current().dialogue.name === 'none') {
+      ED.toast('This look hides the speaker\'s name, so this does not show. Message box › Speaker\'s name shows it.');
     }
   }
   /** Which section a path inside `ui` is set in, for a problem to open and for a tap on the preview. */
@@ -83,7 +102,17 @@
     if (!k || k === 'base') return 'start';
     if (k === 'tokens') return (SECTIONS.find(s => (s.tokens || []).includes(key)) || { id: 'colours' }).id;
     if (k === 'sounds' || k === 'voice') return 'sounds';
-    return (SECTIONS.find(s => s.part === k) || { id: 'start' }).id;
+    return (SECTIONS.find(s => s.part === k && (!s.only || s.only.includes(key)) && !(s.skip || []).includes(key)) || { id: 'start' }).id;
+  }
+  /**
+   * sectionFor(path) -> [section, field] for a problem's path in the project:
+   * ['ui', …] is the look, ['fonts', id] one of the game's font files, which
+   * Fonts lists.
+   */
+  function sectionFor(path) {
+    const p = path || [];
+    if (p[0] === 'fonts') return ['fonts', p[1] || null];
+    return [sectionOf(p.slice(1)), p[2] || null];
   }
 
   // Kept outside the panel, so leaving it and coming back finds it as it was.
@@ -127,8 +156,18 @@
   function followDocument() {
     const p = ED.state && ED.state.project;
     if (!p) return;
-    const now = JSON.stringify([p.ui || null, Array.from(draft.values())]);
+    const now = JSON.stringify([p.ui || null, fontsKey(p), Array.from(draft.values())]);
     if (now !== applied) { applied = now; showDraft(); }
+  }
+  /**
+   * fontsKey(project) -> the game's fonts, short: an import from Game ›
+   * Import changes them without touching the look, and the page needs their
+   * @font-face all the same. Each file is known by its length, not its
+   * hundreds of kilobytes, since this is asked at every change to the game.
+   */
+  function fontsKey(p) {
+    const fonts = KIT.isObject(p.fonts) ? p.fonts : {};
+    return Object.keys(fonts).sort().map(id => { const f = fonts[id] || {}; return [id, f.name, String(f.src || '').length, f.pixel, f.px]; });
   }
   let following = false;
   function follow() {
@@ -305,16 +344,17 @@
 
   /**
    * form(body, at, fields, get, inherited) — one form over `ui[at]` (a part,
-   * or the tokens); `get(look)` is that part of a resolved look. The inherited
-   * values are what ↺ goes back to and what is shown dimmed; putting one back
-   * is a delete, not a copy.
+   * the tokens, or a path inside one: ['dialogue', 'speeds']); `get(look)` is
+   * that part of a resolved look. The inherited values are what ↺ goes back to
+   * and what is shown dimmed; putting one back is a delete, not a copy. A font
+   * field can bring a font in from where it is wanted (addFontFor).
    */
   function form(body, at, fields, get, inherited) {
     const host = make('div');
     body.appendChild(host);
     const f = INS().mount(host, {
-      fields, value: get(panel.now), ctx: { inherited, project: ED.state.project, noneColour: shownColour },
-      onChange: (path, v, info) => change([at].concat(path), v, (info && info.field && info.field.label) || path.join(' ')),
+      fields, value: get(panel.now), ctx: { inherited, project: ED.state.project, noneColour: shownColour, addFont: addFontFor },
+      onChange: (path, v, info) => change([].concat(at, path), v, (info && info.field && info.field.label) || path.join(' ')),
     });
     panel.forms.push({ form: f, get });
   }
@@ -327,7 +367,7 @@
   function coloursSection(body, look, inherited) {
     body.appendChild(make('p.ed-hint', { text: 'Tap a colour to pick one, or type it as #rrggbb. Accent is the one to try first: names, the cursor and the chosen line follow it until they have colours of their own.' }));
     tokensForm(body, MAIN_COLOURS, look, inherited);
-    const owned = new Set(MAIN_COLOURS.concat(NOT_YET, ...SECTIONS.map(s => s.tokens || [])));
+    const owned = new Set(MAIN_COLOURS.concat(...SECTIONS.map(s => s.tokens || [])));
     const more = L.TOKENS.filter(t => !owned.has(t.key)).map(t => t.key);
     INS().section(body, 'More colours', moreColours.open, (inner) => {
       inner.appendChild(make('p.ed-hint', { text: 'The finer parts: the speaker\'s name, the “more” mark, the box that asks for a name, the title screen, the chapter card and the screen round the game.' }));
@@ -337,9 +377,11 @@
 
   function partSection(body, sec, look, inherited) {
     if (sec.hint) body.appendChild(make('p.ed-hint', { text: sec.hint }));
-    form(body, sec.part, offered(L.PARTS[sec.part]), (now) => now[sec.part], inherited[sec.part]);
-    // A look may hold a choice the game cannot act on yet (Handheld's answers
-    // above the box). No chip is lit for it, so say why, and what it does now.
+    const fields = offered(L.PARTS[sec.part]).filter(f => (!sec.only || sec.only.includes(f.key)) && !(sec.skip || []).includes(f.key));
+    form(body, sec.part, fields, (now) => now[sec.part], inherited[sec.part]);
+    // A look may hold a choice the game cannot act on yet (an enum whose
+    // `later` holds some of its choices back). No chip is lit for it, so say
+    // why, and what it does now.
     for (const f of L.PARTS[sec.part]) {
       if (!Array.isArray(f.later) || !f.later.includes(look[sec.part][f.key])) continue;
       const name = (v) => (f.options.find(o => o.value === v) || { label: v }).label;
@@ -413,6 +455,118 @@
     });
   }
 
+  // ---- fonts ---------------------------------------------------------------------
+  // The game's own font files (project.fonts), kept inside the game as data,
+  // then the look's choice of font for what is said and for names and menus.
+  // A font is brought in with the section's file picker, or from a font chip
+  // ("Add a font…"), which then uses it where it was tapped.
+  let fontInput = null;
+  let fontFor = null;                 // the font field that asked for a file, if one did
+
+  /** addFontFor(field) — the font field's "Add a font…": pick a file, and use it there. */
+  function addFontFor(field) {
+    if (!fontInput) return;
+    fontFor = field ? field.key : null;
+    fontInput.click();
+  }
+
+  /**
+   * addFonts(files, field) — read the picked files, bring the fonts in as ONE
+   * undo step, and use the first where it was asked for. What is not a font
+   * is said, not dropped in silence.
+   */
+  async function addFonts(list, field) {
+    const files = [];
+    for (const f of list) {
+      try { files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }); }
+      catch (e) { ED.toast(`“${f.name}” could not be read`); }
+    }
+    const res = KIT.import.image.fontsFrom(files);
+    const found = Object.keys(res.fonts);
+    if (res.problems.length) ED.toast(res.problems.map(q => q.message).join('. '));
+    if (!found.length) return;
+    ED.flushPending();
+    ED.commit(`Look: add font ${res.fonts[found[0]].name}`, (doc, O) => {
+      const got = found.map(id => O.look.addFont(doc, Object.assign({ id }, res.fonts[id])));
+      if (field) O.look.set(doc, ['tokens', field], got[0]);
+    });
+    const name = res.fonts[found[0]].name + (found.length > 1 ? ` and ${found.length - 1} more` : '');
+    const where = field && L.TOKENS.find(t => t.key === field);
+    ED.toast(where ? `${name} is in the game, for ${where.label.toLowerCase()}.` : `${name} is in the game. Tap it under Message text, or Names and menus, to use it.`);
+  }
+
+  /** One of the game's fonts: its name in itself, its size, pixel or not, and a way to take it out. */
+  function fontRow(id, f, fonts) {
+    const row = make('div.ed-f.ed-look-font');
+    row.dataset.key = id;
+    const head = make('div.ed-look-font-head');
+    const name = make('span.ed-look-font-name', { text: (f && f.name) || id });
+    const usable = L.family(id, fonts) !== id;
+    if (usable) name.style.fontFamily = L.family(id, fonts);
+    head.appendChild(name);
+    const bytes = f && typeof f.src === 'string' ? Math.round((f.src.length - f.src.indexOf(',') - 1) * 3 / 4) : 0;
+    head.appendChild(make('span.ed-sub', { text: `${Math.max(1, Math.round(bytes / 1024))} KB` }));
+    row.appendChild(head);
+    // Its file, or its name: either can be what stops it, and Problems says which.
+    if (!usable) row.appendChild(make('div.ed-problem.warn', { text: 'The game cannot use this font, so nothing is written in it. Problems says why.' }));
+    const line = make('div.ed-row.ed-look-font-row');
+    const pixel = btn('Pixel font', 'A font drawn in squares, meant for one size', () => editFont(id, f && f.pixel ? { pixel: false } : { pixel: true, px: (f && f.px) || 8 }, 'pixel font'), 'ed-chip');
+    pixel.setAttribute('aria-pressed', String(!!(f && f.pixel)));
+    line.appendChild(pixel);
+    line.appendChild(btn('Remove', `Take ${(f && f.name) || id} out of the game (↶ brings it back)`, () => editFont(id, null, 'remove font')));
+    row.appendChild(line);
+    if (f && f.pixel) {
+      const size = make('div.ed-look-font-size');
+      size.appendChild(make('span.ed-f-label', { text: 'Drawn at' }));
+      // Taps on − and + are one undo step, like every other control here.
+      let px = f.px || 8;
+      INS().field(size, { key: 'px', label: 'Drawn at', type: 'number', integer: true, min: 4, max: 64, default: 8 }, px, (v) => {
+        px = v;
+        ED.pending('look-font', () => editFont(id, { px }, 'pixel size'), 300);
+      });
+      row.appendChild(size);
+      row.appendChild(make('div.ed-hint', { text: 'The size in pixels its letters were drawn at, usually 8 or 16. The text sizes below round to whole times it, so every square stays sharp.' }));
+    }
+    return row;
+  }
+  function editFont(id, patch, what) {
+    ED.flushPending();
+    ED.commit(`Look: ${what}`, (doc, O) => O.look.editFont(doc, id, patch));
+  }
+
+  function fontsSection(body, look, inherited) {
+    const p = ED.state.project;
+    const fonts = KIT.isObject(p.fonts) ? p.fonts : {};
+    body.appendChild(make('p.ed-hint', { text: 'Bring in a font file — TTF, OTF, WOFF or WOFF2 — and it is kept inside your game, so it works offline and goes wherever the game goes. Then pick where it is used, below.' }));
+    fontInput = make('input.ed-look-font-file');
+    fontInput.type = 'file';
+    fontInput.multiple = true;
+    fontInput.accept = '.ttf,.otf,.woff,.woff2';
+    fontInput.hidden = true;
+    fontInput.setAttribute('aria-label', 'Font files');
+    const input = fontInput;
+    input.onchange = () => {
+      const list = Array.from(input.files || []);
+      const field = fontFor;
+      fontFor = null;
+      input.value = '';
+      if (list.length) addFonts(list, field);
+    };
+    body.appendChild(input);
+    const add = make('div.ed-row');
+    add.appendChild(btn('＋ Add a font…', 'Bring a font file into the game', () => addFontFor(null), 'primary'));
+    body.appendChild(add);
+    for (const id of Object.keys(fonts).sort()) body.appendChild(fontRow(id, fonts[id], fonts));
+    tokensForm(body, FONT_TOKENS, look, inherited);
+  }
+
+  function typingSection(body, inherited) {
+    body.appendChild(make('p.ed-hint', { text: 'How the words arrive. A player picks Slow, Normal or Fast in Settings; these are how many letters a second each one types in your look — about 30 is an easy read, 60 is quick.' }));
+    const speeds = L.PARTS.dialogue.find(f => f.key === 'speeds');
+    form(body, ['dialogue', 'speeds'], speeds.fields, (now) => now.dialogue.speeds, inherited.dialogue.speeds);
+    form(body, 'dialogue', L.PARTS.dialogue.filter(f => f.key === 'pageTurn'), (now) => now.dialogue, inherited.dialogue);
+  }
+
   const lookNow = () => L.resolve(draftProject());
 
   function build(host) {
@@ -440,6 +594,8 @@
       host.appendChild(body);
       if (sec.id === 'start') startSection(body, p, look);
       else if (sec.id === 'colours') coloursSection(body, look, inherited);
+      else if (sec.id === 'fonts') fontsSection(body, look, inherited);
+      else if (sec.id === 'typing') typingSection(body, inherited);
       else if (sec.id === 'sounds') soundsSection(body, look, inherited);
       else partSection(body, sec, look, inherited);
     }
@@ -513,7 +669,7 @@
       // Problems selects before it opens the panel, and a panel not yet
       // mounted hears no onSelect: the first time, the selection is read here.
       const sel = ED.state.selection;
-      if (sel && sel.kind === 'look') ask(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2]);
+      if (sel && sel.kind === 'look') ask(...sectionFor(sel.path));
       host.classList.add('ed-look');
       this.refresh(ED);
     },
@@ -521,7 +677,7 @@
       if (!panel || !panel.host) return;
       const p = ED.state.project;
       followDocument();
-      const sig = JSON.stringify([state.open, (KIT.isObject(p.ui) && p.ui.base) || 'kit', Object.keys(KIT.isObject(p.looks) ? p.looks : {})]);
+      const sig = JSON.stringify([state.open, (KIT.isObject(p.ui) && p.ui.base) || 'kit', Object.keys(KIT.isObject(p.looks) ? p.looks : {}), fontsKey(p)]);
       if (sig === panel.sig) { refreshForms(lookNow()); showField(panel.host); return; }
       if (INS().typingIn(panel.host)) return;
       panel.sig = sig;
@@ -529,7 +685,7 @@
     },
     onSelect(sel) {
       // A problem in the look, picked in Problems, opens the section it is in.
-      if (sel && sel.kind === 'look') openSection(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2] || null);
+      if (sel && sel.kind === 'look') openSection(...sectionFor(sel.path));
     },
     stage(el) {
       preview = ED.lookPreview.mount(el, {
@@ -542,7 +698,7 @@
     },
   });
 
-  ED.lookPanel = { sectionOf };
+  ED.lookPanel = { sectionOf, sectionFor };
   follow();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

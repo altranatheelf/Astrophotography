@@ -29,6 +29,7 @@
 //   result.scripts     -> project.scripts[id]
 //   result.vars        -> project.vars[name]
 //   result.items       -> project.items[id]
+//   result.fonts       -> project.fonts[id]         (the look's @font-face reads them; no registry)
 //   result.project     -> meta.title, start, settings.tileSize, terrains, autotiles
 //
 // `project.tiles/sprites/faces/icons/animations` are content tables the engine
@@ -81,6 +82,9 @@
     { key: 'sounds', kind: 'sound', registry: 'sounds' },
     { key: 'music', kind: 'music', registry: 'music' },
     { key: 'items', kind: 'item' },
+    // A font is read by the look, which is compiled from the project every
+    // time it is put on the page, so there is nothing to register.
+    { key: 'fonts', kind: 'font', registry: null },
     { key: 'vars', kind: 'var' },
     { key: 'scripts', kind: 'script' },
     { key: 'maps', kind: 'map' },
@@ -95,7 +99,9 @@
     'message', 'prompt', 'pitch', 'author', 'subtitle', 'from', 'src', 'tag', 'class']);
 
   function blankReport(label) {
-    const zero = () => ({ assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0, animations: 0, maps: 0, objects: 0, scripts: 0, vars: 0, items: 0, terrains: 0, autotiles: 0 });
+    // Every table merge writes has a counter: one missing counted up to NaN,
+    // and an imported sound was reported as nothing at all.
+    const zero = () => ({ assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0, animations: 0, maps: 0, objects: 0, scripts: 0, vars: 0, items: 0, terrains: 0, autotiles: 0, sounds: 0, music: 0, fonts: 0 });
     return { problems: [], added: zero(), replaced: zero(), unchanged: zero(), skipped: zero(), label, ids: { added: [], replaced: [], skipped: [] }, project: null, registered: 0, dryRun: false };
   }
 

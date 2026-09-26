@@ -85,8 +85,9 @@ flips it either way.
 
 **Look** makes the game look and sound like yours: start from one of four
 looks (Kit, Handheld, Soul, Dream) with one tap, then change the colours, the
-message box, the answers to a question, the cursor, the pause menu, the
-toast, the on-screen buttons and the sounds. The top half of the screen is a
+fonts (bring in your own TTF, OTF, WOFF or WOFF2, pixel fonts too), the
+message box, how the words type, the answers to a question, the cursor, the
+pause menu, the toast, the on-screen buttons and the sounds. The top half of the screen is a
 live preview — somebody from your game talking in the look as you change it;
 tap a part of it to jump to its settings, or **▶ Try** to play it. Every
 change is one undo step, and two fingers on the preview take it back. Every
@@ -185,7 +186,7 @@ place in the editor.
 | **Story · Fragments** | The notebook: lines and scenes you have not placed yet. “Use this” turns one into a Common Event or drops it into the script you have open |
 | **Story · Dialogue** | Every piece of text in the game in one table, for a read-through and a word count |
 | **Map · Map** | This map's name, kind, size, music and note; where the game starts; the doors to the maps next door; and every map in the world |
-| **Look · Look** | How the game looks and sounds: a look to start from, then colours, the message box, choices, the cursor, the pause menu, the toast, the on-screen buttons and the sounds, with a live preview in the top half (`docs/LOOKS.md`) |
+| **Look · Look** | How the game looks and sounds: a look to start from, then colours, fonts, the message box, typing, choices, the cursor, the pause menu, the toast, the on-screen buttons and the sounds, with a live preview in the top half (`docs/LOOKS.md`) |
 | **Game · Project** | Title, subtitle, pitch, the heroes, where the game starts, the settings, the modules — and moving the game to your other device |
 | **Story · Rules** | Rules of the world: when something happens (a step, a bump, an item changing), what must be true, and what to do. A rule can be switched off, rewritten, or eaten by the player with `@rule eat <id>` — and after that the game plays differently |
 | **Story · Cast** | Everybody in the story: what they know and who told them, how they feel about each other, and — the other way round — every fact and who has heard it. **＋ New person** and **＋ New fact** add to it; each one opens as a form |

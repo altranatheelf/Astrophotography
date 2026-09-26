@@ -97,6 +97,41 @@ test('look ops: overrides lists what the game changed, for "keep my changes"', (
   assert.deepEqual(O.look.overrides({}), []);
 });
 
+test('look ops: a font brought in is one step, and undo leaves no fonts table behind', () => {
+  const doc = KIT.document(blank());
+  const before = KIT.deepClone(doc.value);
+  const font = { id: 'dot', name: 'Dot', src: 'data:font/ttf;base64,AAEAAA==', pixel: false };
+  let id = null;
+  step(doc, (d) => { id = O.look.addFont(d, font); O.look.set(d, ['tokens', 'fontText'], id); });
+  assert.equal(id, 'dot');
+  assert.deepEqual(doc.value.fonts, { dot: { name: 'Dot', src: font.src, pixel: false } });
+  assert.equal(doc.value.ui.tokens.fontText, 'dot');
+  assert.equal(O.look.addFont(doc, Object.assign({}, font, { id: 'again' })), 'dot', 'the same file twice is the one font');
+  assert.equal(O.look.addFont(doc, Object.assign({}, font, { src: 'data:font/ttf;base64,AAEAAB==' })), 'dot-2', 'another file wanting the name gets the next');
+  doc.undo();
+  assert.equal(Object.keys(doc.value.fonts).length, 1, 'that was a step of its own');
+  step(doc, (d) => O.look.editFont(d, 'dot', { pixel: true, px: 8 }));
+  assert.deepEqual(doc.value.fonts.dot, { name: 'Dot', src: font.src, pixel: true, px: 8 });
+  // Taken out, it takes its uses with it: the letters go back to the look's own.
+  step(doc, (d) => O.look.editFont(d, 'dot', null));
+  assert.ok(!('fonts' in doc.value) && !('ui' in doc.value), 'no fonts, and no look naming one');
+  for (let i = 0; i < 3; i++) doc.undo();
+  assert.deepEqual(doc.value, before, 'and every step undoes to the game as it was');
+});
+
+test('look ops: a font with a long name is kept under an id the look can still name', () => {
+  const doc = KIT.document(blank());
+  const long = 'a'.repeat(63);
+  const src = (n) => 'data:font/ttf;base64,AAEAA' + 'ABCD'[n] + '==';
+  const ids = [];
+  step(doc, (d) => { for (let n = 0; n < 3; n++) ids.push(O.look.addFont(d, { id: long, name: 'Long', src: src(n) })); });
+  assert.equal(new Set(ids).size, 3, 'three files, three fonts');
+  for (const id of ids) {
+    assert.ok(id.length <= 64, `${id.length} letters`);
+    assert.notEqual(KIT.look.family(id, doc.value.fonts), id, `${id} is a font the look can use`);
+  }
+});
+
 // ---- the Look panel and its preview, their pure halves -----------------------------------
 require(path.join(__dirname, '..', '..', 'js/kit/editor/look-preview.js'));
 require(path.join(__dirname, '..', '..', 'js/kit/editor/panel-look.js'));
@@ -115,6 +150,16 @@ test('look preview: the sample line is the game\'s own, a face preferred', () =>
   assert.equal(none.who, 'Mira Vale', 'with nobody talking yet, the first of the cast says the kit\'s line');
   assert.match(none.text, /\{fx:wave\}/, 'which shows an effect, a colour and a pause');
   assert.equal(sample({}).who, 'Mira');
+  // A page that scrolls shows it on the next page: the line goes on for a
+  // page more, so Try's tap scrolls rather than closing a one-page line.
+  const look = (pageTurn, lines) => ({ dialogue: { pageTurn, lines } });
+  assert.deepEqual(sample(p, look('clear', 3)), { who: 'Mom', face: null, text: 'Up you get.' }, 'a page that clears: the line as it is');
+  for (const lines of [2, 3, 6]) {
+    const scrolled = sample(p, look('scroll', lines)).text.split('\n');
+    assert.equal(scrolled[0], 'Up you get.', 'the game\'s own line first');
+    assert.ok(scrolled.length >= lines + 1, `${lines} to a page: at least ${lines + 1} lines (${scrolled.length})`);
+  }
+  assert.equal(sample(p).text, 'Up you get.', 'and the project\'s own line is left as it was');
 });
 
 test('look panel: a path in the look opens the section it is set in', () => {
@@ -128,5 +173,13 @@ test('look panel: a path in the look opens the section it is set in', () => {
   assert.equal(sectionOf(['voice']), 'sounds');
   assert.equal(sectionOf(['base']), 'start');
   assert.equal(sectionOf([]), 'start');
+  assert.equal(sectionOf(['tokens', 'fontText']), 'fonts', 'the fonts and text size are with the fonts');
+  assert.equal(sectionOf(['tokens', 'lineHeight']), 'fonts');
+  assert.equal(sectionOf(['dialogue', 'speeds', 'slow']), 'typing', 'how the words arrive has a section of its own');
+  assert.equal(sectionOf(['dialogue', 'pageTurn']), 'typing');
+  assert.equal(sectionOf(['dialogue', 'at']), 'box', 'where the box goes is the box\'s');
+  const sectionFor = KIT.editor.lookPanel.sectionFor;
+  assert.deepEqual(sectionFor(['fonts', 'dot']), ['fonts', 'dot'], 'a problem with a font file opens Fonts at that font');
+  assert.deepEqual(sectionFor(['ui', 'tokens', 'ink']), ['colours', 'ink']);
   assert.ok(KIT.registry('editorPanels').get('look').section === 'look', 'the panel is in the Look group');
 });

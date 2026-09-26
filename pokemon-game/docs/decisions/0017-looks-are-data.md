@@ -24,8 +24,11 @@ is no field for raw CSS.
 into `<style id="kit-look">`: the tokens as custom properties on `#stage`,
 which `css/kit.css` reads through `var(--kit-*, <its old literal>)`, then one
 rule for each option that is not the kit's own. Every rule starts at `#stage`
-or `#screen`, so it wins over the kit and cannot reach Creator Mode. The kit
-look compiles to the empty string, which is how "a game that never touched its
+or `#screen`, so it wins over the kit and cannot reach Creator Mode. A game's
+own fonts come first, as `@font-face` (the page keeps those in a
+`<style id="kit-look-fonts">` of their own, so that changing a colour does not
+read every font file again). The kit look, in a game with no fonts of its own,
+compiles to the empty string, which is how "a game that never touched its
 look is the game it was" is proved: a unit test holds the fallbacks to the
 tokens, and a browser snapshot of the computed style of the game's chrome, on
 a phone and a laptop, holds the result.

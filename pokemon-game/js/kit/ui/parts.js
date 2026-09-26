@@ -84,6 +84,68 @@
     return nearest((d, off) => (d < -0.5 ? d + 2 * off : Infinity));
   };
 
+  /**
+   * promptBoxOf(prompt) -> a message box holding a question's own words, a
+   * line for each line of it. Each one is the start of a line the author
+   * wrote, so a look's mark ("* ") goes in front of it as in a message. With
+   * no words, no line: answers inside the box sat under an empty one.
+   */
+  function promptBoxOf(prompt) {
+    const box = UI.make('div.kit-box.kit-promptbox');
+    const wrap = UI.make('div.kit-textwrap');
+    const text = UI.make('div.kit-text');
+    const words = KIT.text.strip(prompt || '');
+    for (const line of words ? words.split('\n') : []) {
+      const el = UI.make('div.kit-line', { text: line });
+      if (line.trim()) el.classList.add('is-start');
+      text.appendChild(el);
+    }
+    wrap.appendChild(text);
+    box.appendChild(wrap);
+    return box;
+  }
+
+  /**
+   * copyBox(box, reflow) -> the message box as the player last saw it, to keep
+   * on screen as a question's box: every letter showing, no ▼ (the answers are
+   * what comes next), no shake or opening. A copied canvas comes without its
+   * picture, so the portrait is drawn again from the one it copies. It keeps
+   * the height it had, so the box does not shrink as the answers come up —
+   * only grows, when answers inside it need the room.
+   *
+   * `reflow`, for a box made narrower by the answers beside it: its lines were
+   * broken for the wider box, and broke again inside the narrow one, mid-
+   * sentence ("…under the / mat. Will / you open…"). A line the message box
+   * marked as only wrapped (data-join, see KIT.dialogueLayout.lines) goes back
+   * onto the line before it, with the space the wrap took out, so the words
+   * flow again at the width the box has; a line the author started stays a
+   * line of its own.
+   */
+  function copyBox(box, reflow) {
+    const copy = box.cloneNode(true);
+    copy.classList.add('kit-promptbox');
+    copy.classList.remove('is-shaking', 'is-opening');
+    if (reflow) {
+      for (const line of Array.from(copy.querySelectorAll('.kit-line[data-join]'))) {
+        const before = line.previousElementSibling;
+        if (!before || !before.classList.contains('kit-line')) continue;
+        if (line.getAttribute('data-join')) before.appendChild(document.createTextNode(line.getAttribute('data-join')));
+        while (line.firstChild) before.appendChild(line.firstChild);
+        line.remove();
+      }
+    }
+    const next = copy.querySelector('.kit-next');
+    if (next) next.remove();
+    const from = box.querySelectorAll('canvas');
+    copy.querySelectorAll('canvas').forEach((c, i) => {
+      try { c.getContext('2d').drawImage(from[i], 0, 0); }
+      catch (e) { (KIT.log || console).warn('[choice] the portrait could not be copied into the question', e); }
+    });
+    for (const el of copy.querySelectorAll('[style*="visibility"]')) el.style.visibility = '';
+    if (box.offsetHeight) copy.style.minHeight = box.offsetHeight + 'px';
+    return copy;
+  }
+
   UI.parts = {
     /**
      * dialogueBox(host) -> { host, box, face, name, text, next }
@@ -148,18 +210,26 @@
     },
 
     /**
-     * choicePanel(host, { prompt, options }) -> { host, list, promptBox }
+     * choicePanel(host, { prompt, options, place, promptClone }) -> { host, list, promptBox }
      * The text arrives already substituted — and so already translated — by
      * the command that asked, so it only has its codes taken out here.
      * Substituting again translated it twice: a line whose translation happens
      * to be another line's English came out as that other line's translation.
+     *
+     * `place` puts the answers by a message box that keeps the question on
+     * screen (`.kit-promptbox`, a `.kit-box`, so it looks like the message box):
+     *   'above-box'   the answers in a little window over the box's corner
+     *   'beside-box'  in a window to its right
+     *   'in-box'      inside the box, under the question
+     * The box holds `prompt`, or is a copy of `promptClone` — the message box
+     * as it was when the question came, portrait and all; beside the box, the
+     * copy is narrower, and its words flow again at that width (copyBox).
+     * Without a place, the prompt heads the panel of answers, as it always has.
      */
     choicePanel(host, o) {
       const opts = o || {};
       UI.clear(host);
       host.hidden = false;
-      const panel = UI.make('div.kit-panel');
-      if (opts.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.strip(opts.prompt) }));
       const list = UI.make('div.kit-list');
       (opts.options || []).forEach((opt, i) => {
         const b = UI.make('button.kit-option', { text: KIT.text.strip(opt.text) });
@@ -168,9 +238,28 @@
         b.setAttribute('data-action', 'choose');
         list.appendChild(b);
       });
+      const place = opts.place || null;
+      if (!place) {
+        const panel = UI.make('div.kit-panel');
+        if (opts.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.strip(opts.prompt) }));
+        panel.appendChild(list);
+        host.appendChild(panel);
+        return { host, list, promptBox: null };
+      }
+      let promptBox = null;
+      if (opts.promptClone) promptBox = copyBox(opts.promptClone, place === 'beside-box');
+      else if (opts.prompt || place === 'in-box') promptBox = promptBoxOf(opts.prompt || '');
+      if (place === 'in-box') {
+        promptBox.querySelector('.kit-textwrap').appendChild(list);
+        host.appendChild(promptBox);
+        return { host, list, promptBox };
+      }
+      const panel = UI.make('div.kit-panel');
       panel.appendChild(list);
-      host.appendChild(panel);
-      return { host, list, promptBox: null };
+      // Above the box is before it in the page (#choice is a column); beside it, after it (a row).
+      if (place === 'above-box') { host.appendChild(panel); if (promptBox) host.appendChild(promptBox); }
+      else { if (promptBox) host.appendChild(promptBox); host.appendChild(panel); }
+      return { host, list, promptBox };
     },
 
     /**
@@ -268,23 +357,36 @@
     return Promise.race([loads, late]);
   };
 
+  /** styleIn(id) -> the <style> of that id at the end of <head>, made the first time it is asked for. */
+  function styleIn(id) {
+    let style = document.getElementById(id);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = id;
+      document.head.appendChild(style);
+    }
+    return style;
+  }
+
   /**
    * apply(project) -> Promise — put this game's look in use and in the page.
-   * The stylesheet is one <style id="kit-look"> at the end of <head>, made the
-   * first time and rewritten only when its text changes. For the kit look it
-   * is empty, and the page is exactly css/kit.css.
+   * The look is one <style id="kit-look"> at the end of <head>, made the
+   * first time and rewritten only when its text changes; the game's own
+   * fonts (KIT.look.fontFaces) are in a <style id="kit-look-fonts"> before
+   * it, rewritten only when the fonts change. Written together, every colour
+   * of a drag made the browser read every font file again, a new font each
+   * time. For the kit look in a game with no fonts, both are empty, and the
+   * page is exactly css/kit.css. 'applied' carries what #kit-look holds.
    */
   L.apply = function (project) {
     const look = L.use(project);
     fonts = (project && KIT.isObject(project.fonts)) ? project.fonts : {};
-    const css = L.css(project);
+    const faces = L.fontFaces(fonts);
+    const css = L.css(project, { faces: false });
     if (typeof document !== 'undefined' && document.head) {
-      let style = document.getElementById('kit-look');
-      if (!style) {
-        style = document.createElement('style');
-        style.id = 'kit-look';
-        document.head.appendChild(style);
-      }
+      const fontStyle = styleIn('kit-look-fonts');
+      const style = styleIn('kit-look');
+      if (fontStyle.textContent !== faces) fontStyle.textContent = faces;
       if (style.textContent !== css) style.textContent = css;
     }
     L.syncMotion();

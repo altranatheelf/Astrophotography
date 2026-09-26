@@ -246,7 +246,7 @@
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'look', type: 'tile', default: 'door' }, { key: 'sound', type: 'ref:sound', default: 'door' }],
       objects: [{ at: 'here', type: 'warp', name: 'Door', pages: [{ props: { to: '$to', look: '$look', sound: '$sound' } }] }] },
     { id: 'sign', name: 'Sign', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
-      fields: [{ key: 'text', type: 'text', default: '' }, { key: 'look', type: 'tile', default: 'sign' }],
+      fields: [{ key: 'text', type: 'text', default: '', display: 'message' }, { key: 'look', type: 'tile', default: 'sign' }],
       objects: [{ at: 'here', type: 'sign', name: 'Sign', pages: [{ props: { look: '$look' }, on: { interact: [{ t: 'say', text: '$text' }] } }] }] },
     { id: 'item', name: 'Item on ground', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
       fields: [{ key: 'item', type: 'ref:item', nullable: false }, { key: 'count', type: 'number', integer: true, min: 1, default: 1 }, { key: 'look', type: 'tile', nullable: true, default: null }],
@@ -258,7 +258,7 @@
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
     { id: 'npc', name: 'NPC', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
-      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
+      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!', display: 'message' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
 

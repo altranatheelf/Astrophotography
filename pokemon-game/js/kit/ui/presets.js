@@ -12,16 +12,17 @@
   });
 
   // Three more, each the few things that make a well-known kind of game feel
-  // like itself: the box, the cursor, the menu, the voice. Colours, glyphs,
-  // font stacks and the kit's own synth sounds only — no pictures, so nothing
-  // here belongs to anybody. The descriptions say what a look does TODAY; a
-  // few of these values (the page that scrolls up, typing speeds, a box that
-  // steps out of the hero's way, answers placed by the box) are held for when
-  // the game acts on them, and the words will grow with it.
+  // like itself: the box, the cursor, the menu, the voice, and how the words
+  // arrive — how fast they type, how a page turns, where the answers go.
+  // Colours, glyphs, font stacks and the kit's own synth sounds only — no
+  // pictures and no fonts, so nothing here belongs to anybody. The
+  // descriptions say what a look does TODAY. Handheld's and Soul's pause-menu
+  // order is held for when the game can reorder the menu, and the words will
+  // grow with it.
   KIT.registry('looks').addAll([
     {
       id: 'handheld', label: 'Handheld', rev: 1, base: 'kit',
-      describe: 'A white two-line box with a soft shadow under the letters, a start menu down the right in capitals, and silent typing.',
+      describe: 'A white two-line box with a soft shadow under the letters, slow silent typing, a page that scrolls up a line at a time, Yes and No in a little window above the box, and a start menu down the right in capitals.',
       ui: {
         tokens: { paper: '#f8f8f8', ink: '#404040', shadow: '#d0d0c8', frame: '#5a6a86', frameWidth: 4, radius: 4,
           rim: '#c8d0e0', drop: null, accent: '#404040', markerInk: '#e03030', select: null, lineHeight: 1.6,
@@ -38,7 +39,7 @@
     },
     {
       id: 'soul', label: 'Soul', rev: 1, base: 'kit',
-      describe: 'A black box with a square white border, a heart for a cursor, a blip on every letter, and “* ” at the start of each line.',
+      describe: 'A black box with a square white border, “* ” at the start of each line, a blip on every letter, a box that moves to the top when the hero is below it, and the answers in a row inside the box with a heart for a cursor.',
       ui: {
         tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 3, radius: 0, rim: null, drop: null,
           accent: '#ffffff', select: null, selectInk: '#ffff00', faceBg: '#000000', fontText: 'mono', fontUi: 'mono',
@@ -55,7 +56,7 @@
     },
     {
       id: 'dream', label: 'Dream', rev: 1, base: 'kit',
-      describe: 'A black box with a thin white border, the speaker\'s name in capitals on a tab, and a framed portrait above the box.',
+      describe: 'A black box with a thin white border, the speaker\'s name in capitals on a tab, a framed portrait above the box, and the answers in a window of their own beside it.',
       ui: {
         tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 2, radius: 0, rim: null, drop: null,
           accent: '#ffffff', select: '#ffffff', selectInk: '#000000', faceBg: '#000000', buttonInk: '#000000', inputBg: '#000000' },

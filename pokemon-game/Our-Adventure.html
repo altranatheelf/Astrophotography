@@ -228,7 +228,42 @@ body { overflow: hidden; }
 #choice[data-place=above-box] .kit-panel { align-self: flex-end; margin-bottom: 6px; min-width: 0; }
 #choice[data-place=beside-box] { flex-direction: row; align-items: flex-end; gap: 8px; }
 #choice[data-place=beside-box] .kit-promptbox { flex: 1 1 auto; }
-#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; justify-content: space-around; }
+/* Inside the box the answers go side by side, and wrap onto the next line when
+   they do not fit: the build spec's rule had no wrap, and four answers, or two
+   long ones, ran past the box's edge and off the screen, which clips them. */
+#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; flex-wrap: wrap; justify-content: space-around; }
+/* The question's box stands where the message box stood, and the answers keep
+   by it: a box at the top has its answers under it rather than off the top of
+   the screen, and a window beside the box is as wide as its answers, not the
+   260 pixels a menu takes, which left the question a sliver on a phone. Inside
+   the box, the answers take the lines under the question. */
+#choice[data-place][data-position=middle] { justify-content: center; }
+#choice[data-place=above-box][data-position=top] { flex-direction: column-reverse; justify-content: flex-end; }
+#choice[data-place=above-box][data-position=top] .kit-panel { margin: 6px 0 0; }
+#choice[data-place=in-box] .kit-promptbox .kit-text { min-height: 0; }
+/* Beside the box, the answers' window is never narrower than its answers need
+   (a grid, its columns: squeezed into half the width it cut East and West in
+   half and put South off the edge; a row, the whole row, see the look's row
+   rule), and long answers in a column wrap inside it up to half the width. The
+   question's box takes the rest. When that would leave the box under a third
+   of the width (a grid of three, long words), or leaves the question much
+   taller than the line was (the choice scene measures it, and sets data-over),
+   the window goes over the box's right end instead, on a line of its own —
+   under the box when the box is at the top — and the box keeps its width.
+   There a portrait the window would cover moves clear of it (the choice
+   scene again): the answers are what the player has to see. */
+#choice[data-place=beside-box] { flex-wrap: wrap-reverse; align-content: flex-start; align-items: flex-start; }
+#choice[data-place=beside-box][data-position] { justify-content: flex-end; }
+#choice[data-place=beside-box][data-position=top] { flex-wrap: wrap; }
+#choice[data-place=beside-box][data-position=middle] { align-content: center; align-items: center; }
+#choice[data-place=beside-box] .kit-promptbox { flex: 1 1 30%; min-width: 0; overflow-wrap: break-word; }
+#choice[data-place=beside-box] .kit-panel { flex: 0 0 auto; min-width: min-content; max-width: 50%; position: relative; z-index: 1; }
+#choice[data-place=beside-box][data-over] .kit-promptbox { flex-basis: 100%; }
+#choice[data-place=beside-box][data-over] .kit-panel { max-width: 100%; }
+/* A line with no window, or with the game dimmed behind it, keeps that while
+   a question has its box (the choice scene copies the line's data-bg). */
+#choice[data-place][data-bg="dim"] { background: var(--kit-dim, rgba(8, 9, 15, .55)); }
+#choice[data-place][data-bg="none"] .kit-promptbox { background: rgba(10, 11, 16, .75); color: #fff; border-color: transparent; box-shadow: none; }
 
 .kit-panel {
   background: var(--paper);
@@ -1077,6 +1112,20 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 .ed-look-sound .ed-row { margin: 3px 0 0; flex-wrap: nowrap; }
 .ed-look-sound .ed-look-select { flex: 1 1 auto; min-width: 0; background: #1a212d; color: #e8ecf4; border: 1px solid #2f3a4f; border-radius: 6px; padding: 8px; font: inherit; }
 .ed-look-sound.is-inherited .ed-f-label { color: #7c8aa0; font-weight: 500; }
+/* Fonts: a card per font file, its name written in itself, then pixel or not and its size. */
+.ed-look-font { border: 1px solid #263044; border-radius: 8px; padding: 8px 10px; background: #151d2c; }
+/* The name is how an author tells their fonts apart, so it wraps rather than
+   being cut short, and the size keeps to one line beside it: in a laptop's
+   narrower sheet a wide pixel font read "SILKSCREEN REGU…" over "31" and "KB". */
+.ed-look-font-head { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; min-width: 0; }
+.ed-look-font-name { font-size: 20px; line-height: 1.3; min-width: 0; overflow-wrap: anywhere; }
+.ed-look-font-head > .ed-sub { flex: none; white-space: nowrap; }
+.ed-look-font-row { margin: 6px 0 0; flex-wrap: wrap; gap: 6px; }
+/* Drawn at: the label over a stepper the width of the card, like every other
+   number field. Beside the label on one line, the stepper was squeezed until
+   its box was 41 pixels wide, under a finger's 44. */
+.ed-look-font-size { margin: 6px 0 0; }
+.ed-look-font-size > .ed-f-label { display: block; margin: 0 0 4px; }
 
 </style>
 </head>
@@ -4188,9 +4237,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 // The DOM half — writing that stylesheet into the page — is js/kit/ui/parts.js.
 //
 //   KIT.look.resolve(project)   -> every field filled in, plus _chain and _problems
-//   KIT.look.compile(look, env) -> CSS; '' for the kit look, so a game that never
-//                                  touched its look ships exactly the stylesheet
-//                                  it always had
+//   KIT.look.compile(look, env) -> CSS; '' for the kit look in a game with no
+//                                  fonts of its own, so a game that never touched
+//                                  its look ships exactly the stylesheet it
+//                                  always had (a game's fonts are its @font-face)
 //   KIT.look.sound('confirm')   -> plays what this look says "confirm" sounds like
 //
 // Why tokens and not a stylesheet an author edits: a look travels between games,
@@ -4216,6 +4266,53 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     rounded: 'ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif',
   };
   const TEXT_SIZES = { small: 'clamp(13px,3.2vw,15px)', large: 'clamp(17px,4.2vw,21px)', huge: 'clamp(20px,5vw,26px)' };
+  /**
+   * A pixel font is drawn at a whole multiple of the size it was made for, or
+   * its squares come out as smudges of two widths. These are the sizes, in
+   * pixels, each text size aims for; the nearest multiple of the font's own
+   * size is used (at least once over).
+   */
+  const PIXEL_TARGET = { small: 14, normal: 17, large: 20, huge: 24 };
+  /** What a game's own font file has to be: a font, inside the game. Nothing that fetches, nothing that is not a font. */
+  const FONT_SRC = /^data:font\/(ttf|otf|woff2?);base64,[A-Za-z0-9+/]+=*$/;
+  const FONT_FORMAT = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
+  /** Fonts bigger than this are worth a word: a game opened from a file keeps its draft in about 5 MB of browser storage. */
+  const BIG_FONT = 300 * 1024, BIG_FONTS = 1.5 * 1024 * 1024;
+
+  /**
+   * fontOf(id, fonts) -> the game's font `id` when it can be used, else null.
+   * Its id is not one of the words (a font called "pixel" would hide the
+   * word), and its file is a font inside the game (a data: URI), never a
+   * link — a look must not be able to make the game fetch anything.
+   */
+  function fontOf(id, fonts) {
+    if (typeof id !== 'string' || !ID.test(id) || KIT.has(FONT_WORDS, id) || !isObj(fonts) || !KIT.has(fonts, id)) return null;
+    const f = fonts[id];
+    return isObj(f) && typeof f.src === 'string' && fontKindOf(f.src) ? f : null;
+  }
+  /**
+   * fontKindOf(src) -> 'ttf' | 'otf' | 'woff' | 'woff2' for a font file inside
+   * the game, else null; each file read once. The data URI is the whole font
+   * (hundreds of kilobytes), and the stylesheet is compiled again at every
+   * frame of a colour drag: reading every font through five or six times a
+   * compile made a drag slow the moment the game had one. The last few are
+   * kept, which is every font a game has.
+   */
+  const fontKinds = new Map();
+  function fontKindOf(src) {
+    let kind = fontKinds.get(src);
+    if (kind === undefined) {
+      const m = FONT_SRC.exec(src);
+      kind = m ? m[1] : null;
+      if (fontKinds.size >= 32) fontKinds.clear();
+      fontKinds.set(src, kind);
+    }
+    return kind;
+  }
+  /** nativePx(font) -> the size a pixel font was drawn for, when it is one and says so; else 0. */
+  const nativePx = (f) => (f && f.pixel && typeof f.px === 'number' && Number.isFinite(f.px) ? Math.max(1, Math.min(64, Math.round(f.px))) : 0);
+  /** fontBytes(font) -> about how big the file is, from its data URI. */
+  const fontBytes = (f) => (isObj(f) && typeof f.src === 'string' ? Math.round((f.src.length - f.src.indexOf(',') - 1) * 3 / 4) : 0);
 
   // ---- the fields ---------------------------------------------------------------
   //
@@ -4266,11 +4363,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     color('dim', 'Dimmed background', '#08090f', '--kit-dim', 'rgba(8, 9, 15, .55)', 'screen', 'What darkens the game behind a message with a dimmed background.', { form: 'rgba', alpha: 'dimAmount' }),
     { key: 'dimAmount', label: 'How dark, behind a message', type: 'number', min: 0, max: 1, step: 0.05, default: 0.55, css: null, fallback: '.55', group: 'screen', doc: 'How dark that is: 0 is not at all, 1 is black.' },
     { key: 'menuDimAmount', label: 'How dark, behind the menu', type: 'number', min: 0, max: 1, step: 0.05, default: 0.5, css: '--kit-menu-dim', fallback: 'rgba(8, 9, 15, .5)', form: 'rgba', color: 'dim', alpha: 'menuDimAmount', group: 'screen', doc: 'How dark the game goes behind the pause menu and choices.' },
-    { key: 'fontText', label: 'Letters', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of everything on the game screen.' },
-    { key: 'fontUi', label: 'Letters of names and menus', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Names, titles, values, the chapter card and the title buttons.' },
-    { key: 'fontName', label: 'Letters of the speaker\'s name', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', doc: 'The speaker\'s name only. Empty follows the one above.' },
-    { key: 'textSize', label: 'Text size', type: 'enum', options: ['small', 'normal', 'large', 'huge'], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big a message is.' },
-    { key: 'lineHeight', label: 'Line spacing', type: 'number', min: 1, max: 2.4, step: 0.05, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message.' },
+    { key: 'fontText', label: 'Message text', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of what people say, the answers and the lines of the menus: everything on the game screen but the names below.' },
+    { key: 'fontUi', label: 'Names and menus', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Menu headings and values, the speaker\'s name, the chapter card, and the game\'s name and buttons on the title screen.' },
+    { key: 'fontName', label: 'Speaker\'s name', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', noneLabel: 'Same as names and menus', doc: 'Only the name over what somebody says.' },
+    { key: 'textSize', label: 'Text size', type: 'enum', display: 'chips', options: [{ value: 'small', label: 'Small' }, { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Large' }, { value: 'huge', label: 'Huge' }], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big what people say is. With a pixel font, the nearest size its squares stay sharp at, so two sizes can come out the same (an 8-pixel font is 16 at Small and Normal, 24 at Large and Huge).' },
+    { key: 'lineHeight', label: 'Line spacing', type: 'number', min: 1, max: 2.4, step: 0.05, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message: 1 is lines touching, 2 is a line\'s height between them.' },
     color('screenBg', 'Behind the map', '#0a0b10', '--kit-screen-bg', '#0a0b10', 'screen', 'Behind the map, where it does not reach the edge.'),
     color('screenFrame', 'Screen border', '#2f3450', '--kit-screen-frame', '#2f3450', 'screen', 'The bezel round the game screen.'),
     color('highlight', 'Game name', '#ffcb3d', '--accent', '#ffcb3d', 'title', 'The game\'s name on the title, the chapter subtitle and the chosen title button.'),
@@ -4322,7 +4419,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     save: ['Saved', 'The game has been saved.'],
     open: ['Opening the menu', ''],
     close: ['Closing the menu', ''],
-    page: ['Turning a page', 'A message moving on to its next page.'],
+    page: ['Turning a page', 'A message moving on to its next page, or closing when it has none.'],
     toast: ['A note popping up', 'A toast, like “Saved.”'],
   };
 
@@ -4333,12 +4430,12 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    *
    * `later` marks an option a look may already hold — the built-in looks do —
    * that the Look panel does not offer yet, because the game does not act on
-   * it yet (how the box opens, the page turn, a box that moves out of the way,
-   * typing speeds), or because it wants an editor of its own (the pause menu's
-   * order). On an enum it can be a list of the choices held back instead: the
-   * answers can sit in the corner or the middle now, and by the box later.
-   * A look carrying one is still a clean look, and it takes effect when the
-   * game learns it, with nothing to convert.
+   * it yet, or because it wants an editor of its own (the pause menu's order
+   * and what it hides). On an enum it can be a list of the choices held back
+   * instead. A look carrying one is still a clean look, and it takes effect
+   * when the game learns it, with nothing to convert: Handheld's page that
+   * scrolls up and its answers above the box were written that way before
+   * the game could do either.
    */
   L.PARTS = {
     dialogue: [
@@ -4356,15 +4453,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       mark('marker', '“More” mark', 2, '▼', [['▼'], ['▶'], ['✦'], ['', 'None']],
         'Shown in the corner when a page has finished and there is more to read. Type your own, or pick one.'),
       pick('markerMotion', 'The mark', [['bob', 'Bobs'], ['blink', 'Blinks'], ['still', 'Stays still']], 'bob'),
-      pick('open', 'Opening', [['none', 'Appears'], ['pop', 'Pops'], ['slide', 'Slides up']], 'none', '', { later: true }),
-      pick('pageTurn', 'Next page', [['clear', 'Clears the box'], ['scroll', 'Scrolls up a line']], 'clear', '', { later: true }),
-      pick('at', 'Where the box goes', [['bottom', 'Bottom'], ['avoid-hero', 'Out of the hero\'s way']], 'bottom', '', { later: true }),
-      { key: 'speeds', label: 'Typing speeds', type: 'group', later: true, doc: 'Letters a second for each text speed a player can pick.',
+      pick('open', 'Opening', [['none', 'Appears'], ['pop', 'Pops'], ['slide', 'Slides up']], 'none',
+        'How the box comes up when somebody starts talking. Lines one after another stay in the same box.'),
+      pick('at', 'Where the box goes', [['bottom', 'Bottom'], ['avoid-hero', 'Out of the hero\'s way']], 'bottom',
+        'Out of the hero\'s way puts the box at the top while the hero is in the bottom half of the screen. A line told to go at the top or in the middle stays there.'),
+      pick('pageTurn', 'Next page', [['clear', 'Clears the box'], ['scroll', 'Scrolls up a line']], 'clear',
+        'Scrolls up a line moves the last line to the top and types only the new one under it, the way the old handheld games do.'),
+      { key: 'speeds', label: 'Typing speeds', type: 'group', doc: 'Letters a second for each text speed a player can pick in Settings. A person whose voice has a speed of its own keeps it.',
         fields: [whole('slow', 'Slow', 1, 120, 22), whole('normal', 'Normal', 1, 120, 48), whole('fast', 'Fast', 1, 120, 96)] },
     ],
     choice: [
       pick('place', 'Where the answers go', [['corner', 'Corner'], ['center', 'Middle'], ['above-box', 'Above the box'], ['in-box', 'In the box'], ['beside-box', 'Beside the box']], 'corner',
-        '', { later: ['above-box', 'in-box', 'beside-box'] }),
+        'By the box, the question stays on screen in a box like the message box: the last thing said, when the question has no words of its own.'),
       pick('layout', 'Answers in a', [['column', 'Column'], ['row', 'Row'], ['grid', 'Grid']], 'column'),
       whole('columns', 'Columns', 2, 4, 2, 'How many answers across, in a grid.', { when: { field: 'layout', eq: 'grid' } }),
     ],
@@ -4392,10 +4492,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       whole('size', 'Cursor size', 8, 32, 11, 'In pixels.'),
       flag('highlight', 'Box round the chosen line', true, 'Off leaves only the cursor to say which line is chosen.'),
     ],
-    sounds: Object.keys(L.ROLES).map((role) => Object.assign(
-      { key: role, label: SOUND_WORDS[role][0], doc: SOUND_WORDS[role][1], type: 'ref:sound', nullable: true, default: L.ROLES[role] },
-      // The page-turn sound belongs with the page turn, which a look cannot change yet.
-      role === 'page' ? { later: true } : {})),
+    sounds: Object.keys(L.ROLES).map((role) => ({ key: role, label: SOUND_WORDS[role][0], doc: SOUND_WORDS[role][1], type: 'ref:sound', nullable: true, default: L.ROLES[role] })),
   };
 
   /** 'changed' { look } when a look is put in use; 'applied' { css, look } when the page has it. */
@@ -4661,10 +4758,11 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * pixels — good enough to say "this covers half the game" before anybody
    * has played it, which is all it is for.
    */
-  function boxHeight(look) {
+  function boxHeight(look, fonts) {
     const d = look.dialogue, t = look.tokens;
     const chrome = 22 + 2 * t.frameWidth;
-    let h = d.lines * t.lineHeight * (TEXT_PX[t.textSize] || 15) + chrome + (d.name === 'inside' ? 18 : 0);
+    const size = pixelSize(t, fonts) || TEXT_PX[t.textSize] || 15;
+    let h = d.lines * t.lineHeight * size + chrome + (d.name === 'inside' ? 18 : 0);
     const face = 24 * d.faceScale + 8;
     if (d.face === 'left' || d.face === 'right') h = Math.max(h, face + chrome);
     else if (d.face === 'above-left' || d.face === 'above-right') h += face + 6;
@@ -4675,8 +4773,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * checks(look, project) -> the problems a look can have that are not about
    * reading it: words hard to read against their background (below 3:1, the
    * least that still reads on a phone outdoors), a message box that would
-   * cover half the game, and a sound or voice this game does not have. All
-   * warnings: the game plays either way.
+   * cover half the game, a sound, voice or font this game does not have, and
+   * the game's font files themselves (fontChecks). All warnings: the game
+   * plays either way.
    */
   function checks(look, project) {
     const out = [];
@@ -4704,7 +4803,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const r = contrast(fg, bg);
       if (r < 3) out.push(problem('warn', 'ui-contrast', `${what} is hard to read: its colours are only ${r.toFixed(1)} to 1 apart, and 3 to 1 is the least that reads on a phone.`, ['ui'].concat(path)));
     }
-    const h = boxHeight(look);
+    const fonts = project && isObj(project.fonts) ? project.fonts : {};
+    const h = boxHeight(look, fonts);
     if (h > 0.45 * GAME_H) {
       out.push(problem('warn', 'ui-lines', `The message box would be about ${Math.round(h)} pixels tall on a phone, ${Math.round((100 * h) / GAME_H)}% of the game screen. Fewer lines, smaller text or a smaller portrait keeps the game in sight.`, ['ui', 'dialogue', 'lines']));
     }
@@ -4716,6 +4816,36 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       if (missing('sound', id)) out.push(problem('warn', 'ui-ref', `There is no sound “${id}” in this game, so ${f.label.toLowerCase()} makes no sound.`, ['ui', 'sounds', f.key]));
     }
     if (missing('voice', look.voice)) out.push(problem('warn', 'ui-ref', `There is no voice “${look.voice}” in this game, so talking sounds like the ordinary voice.`, ['ui', 'voice']));
+    for (const f of L.TOKENS) {
+      const v = t[f.key];
+      if (f.type !== 'font' || v == null || KIT.has(FONT_WORDS, v) || fontOf(v, fonts)) continue;
+      out.push(problem('warn', 'ui-ref', `There is no font “${v}” in this game that it can use, so ${f.label.toLowerCase()} keep the letters they had.`, ['ui', 'tokens', f.key]));
+    }
+    return out.concat(fontChecks(fonts));
+  }
+
+  /**
+   * fontChecks(fonts) -> what is wrong with the game's own font files: one
+   * whose file is not inside the game (a link would have to be fetched, and a
+   * look never fetches), one named like a word (a font called "pixel" would
+   * hide the word), and ones big enough to matter — a game opened from a file
+   * keeps its draft in the browser's small storage, so a few big fonts can
+   * fill it. A font that cannot be used is left out of the stylesheet, and
+   * the letters stay as they were.
+   */
+  function fontChecks(fonts) {
+    const out = [];
+    let total = 0;
+    for (const id of Object.keys(fonts).sort()) {
+      const f = fonts[id];
+      const at = ['fonts', id];
+      if (!ID.test(id) || KIT.has(FONT_WORDS, id)) { out.push(problem('warn', 'ui-bad-value', `A font cannot be called “${id}”: the name has to be lower-case letters, digits and . _ : -, and not one of ${Object.keys(FONT_WORDS).join(', ')}.`, at)); continue; }
+      if (!fontOf(id, fonts)) { out.push(problem('warn', 'ui-src', `The font “${id}” is not a font file inside the game (a TTF, OTF, WOFF or WOFF2 brought in with Add a font), so it is not used.`, at)); continue; }
+      const bytes = fontBytes(f);
+      total += bytes;
+      if (bytes > BIG_FONT) out.push(problem('warn', 'ui-big', `The font “${(f.name || id)}” is ${Math.round(bytes / 1024)} KB. Fonts over ${BIG_FONT / 1024} KB make a big game; a WOFF2, or a font with only the letters you use, is much smaller.`, at));
+    }
+    if (total > BIG_FONTS) out.push(problem('warn', 'ui-big', `The game's fonts come to ${(total / 1048576).toFixed(1)} MB. A game opened from a file keeps its unsaved changes in about 5 MB of browser storage, so fonts this big can crowd them out.`, ['fonts']));
     return out;
   }
 
@@ -4746,12 +4876,22 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    */
   L.family = function (v, fonts) {
     if (KIT.has(FONT_WORDS, v)) return FONT_WORDS[v];
-    if (typeof v === 'string' && ID.test(v) && isObj(fonts) && KIT.has(fonts, v)) {
-      const f = fonts[v];
-      return `"kitf-${v}", ${isObj(f) && f.pixel ? FONT_WORDS.mono : FONT_WORDS.system}`;
-    }
+    const f = fontOf(v, fonts);
+    if (f) return `"kitf-${v}", ${f.pixel ? FONT_WORDS.mono : FONT_WORDS.system}`;
     return v;
   };
+
+  /**
+   * pixelSize(tokens, fonts) -> the message text's size in pixels when its
+   * font is a pixel font that says what size it was drawn at, else 0: that
+   * size times the whole number nearest the text size's own (small 14,
+   * normal 17, large 20, huge 24), and never less than once. An 8-pixel font
+   * is 16 at Normal and 24 at Large.
+   */
+  function pixelSize(tokens, fonts) {
+    const n = nativePx(fontOf(tokens.fontText, fonts));
+    return n ? n * Math.max(1, Math.round((PIXEL_TARGET[tokens.textSize] || PIXEL_TARGET.normal) / n)) : 0;
+  }
 
   /**
    * tokenCss(token, tokens, env) -> the CSS value for one token, or null for
@@ -4761,6 +4901,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * game has no font for is no font at all: the kit's own is kept, rather than
    * writing the bare id as a family name nobody has installed — which also threw
    * away the fallback stack, so the text came out in the browser's default.
+   * The text size follows a pixel font's own size (pixelSize), even at Normal.
    */
   function tokenCss(t, tokens, env) {
     const v = tokens[t.key];
@@ -4769,7 +4910,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     switch (t.form) {
       case 'px': return v + 'px';
       case 'number': return String(v);
-      case 'size': return v === 'normal' ? t.fallback : TEXT_SIZES[v];
+      case 'size': { const px = pixelSize(tokens, env.fonts); return px ? px + 'px' : (v === 'normal' ? t.fallback : TEXT_SIZES[v]); }
       case 'font': { const fam = L.family(v, env.fonts); return fam === v ? null : fam; }
       case 'textShadow': return `1px 1px 0 ${v}`;
       case 'gradient': return `linear-gradient(180deg,${v},${darker(v, 0.3)})`;
@@ -4825,47 +4966,60 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   /**
-   * partRules(look, tokens, vars, kit) -> the rules for the parts' options, each
-   * only when it is not the kit's own, in a fixed order. A custom property a
-   * part sets goes into `vars` (a Map), to join the tokens on #stage. `kit` is
-   * the kit's own tokens.
+   * partRules(look, tokens, vars, kit, env) -> the rules for the parts' options,
+   * each only when it is not the kit's own, in a fixed order. A custom
+   * property a part sets goes into `vars` (a Map), to join the tokens on
+   * #stage. `kit` is the kit's own tokens; `env` is compile's.
    *
    * Every selector starts at #screen (or #stage), one id more than the rule it
    * overrides in css/kit.css, so a look wins over the kit and over a module's
    * own stylesheet loaded later, and cannot reach #editor.
    */
-  function partRules(look, tokens, vars, kit) {
+  function partRules(look, tokens, vars, kit, env) {
     const d = part(look, 'dialogue'), c = part(look, 'choice'), m = part(look, 'menu');
     const t = part(look, 'toast'), pad = part(look, 'pad'), cur = part(look, 'cursor');
     const out = [];
     const rule = (sel, body) => out.push(`${sel}{${body}}`);
+    // The message box's options reach the copy of it a question keeps on
+    // screen too. With the answers by the box, #choice draws the question in
+    // a .kit-promptbox — a .kit-box, so the colours already reach it — and it
+    // has to be the same box: its portrait on the same side, the same mark
+    // before each line, as wide unless the answers stand beside it (there it
+    // is narrower on purpose, and the choice scene keeps a portrait above it
+    // where it was). Otherwise the box changes as the question comes up.
+    const box = (inner, at) => `#screen #dialogue${at || ''} ${inner || '.kit-box'},#screen #choice[data-place]${at || ''} .kit-promptbox${inner ? ' ' + inner : ''}`;
+    const hosts = '#screen #dialogue,#screen #choice[data-place]';
 
-    if (d.width !== 100) rule('#screen #dialogue .kit-box', `width:${d.width}%;margin-left:auto;margin-right:auto`);
-    if (d.margin !== 10) rule('#screen #dialogue', `padding:${d.margin}px`);
-    if (d.lines !== 3) rule('#screen #dialogue .kit-text', `min-height:calc(var(--kit-line,1.45) * ${d.lines} * 1em)`);
-    if (d.face === 'right') rule('#screen #dialogue .kit-box', 'flex-direction:row-reverse');
+    // A pixel font's squares, not smudged at their edges (where a browser lets a page say so).
+    if ([tokens.fontText, tokens.fontUi, tokens.fontName].some(id => { const f = fontOf(id, env.fonts); return !!(f && f.pixel); })) rule('#screen', '-webkit-font-smoothing:none;font-smooth:never');
+    if (d.width !== 100) rule(box(), `width:${d.width}%;margin-left:auto;margin-right:auto`);
+    if (d.margin !== 10) rule(hosts, `padding:${d.margin}px`);
+    // The answers inside the box take the lines below the question, so there
+    // the question's text is only as tall as it is.
+    if (d.lines !== 3) rule('#screen #dialogue .kit-text,#screen #choice[data-place]:not([data-place=in-box]) .kit-promptbox .kit-text', `min-height:calc(var(--kit-line,1.45) * ${d.lines} * 1em)`);
+    if (d.face === 'right') rule(box(), 'flex-direction:row-reverse');
     else if (d.face === 'above-left' || d.face === 'above-right') {
       // Above the box, against the box's own corner; a box at the top of the
       // screen has no room above it, so there the portrait hangs below.
-      rule('#screen #dialogue .kit-facebox', `position:absolute;bottom:calc(100% + 6px);${d.face === 'above-left' ? 'left' : 'right'}:0`);
-      rule('#screen #dialogue[data-position=top] .kit-facebox', 'bottom:auto;top:calc(100% + 6px)');
-    } else if (d.face === 'none') rule('#screen #dialogue .kit-facebox', 'display:none!important');
-    if (!d.faceFrame) rule('#screen #dialogue .kit-facebox', 'border:0;background:none;padding:0');
+      rule(box('.kit-facebox'), `position:absolute;bottom:calc(100% + 6px);${d.face === 'above-left' ? 'left' : 'right'}:0`);
+      rule(box('.kit-facebox', '[data-position=top]'), 'bottom:auto;top:calc(100% + 6px)');
+    } else if (d.face === 'none') rule(box('.kit-facebox'), 'display:none!important');
+    if (!d.faceFrame) rule(box('.kit-facebox'), 'border:0;background:none;padding:0');
     if (d.name === 'tab') {
-      rule('#screen #dialogue .kit-name', 'position:absolute;left:12px;bottom:calc(100% - var(--kit-frame-w,3px));margin:0;padding:4px 10px;background:var(--paper);'
+      rule(box('.kit-name'), 'position:absolute;left:12px;bottom:calc(100% - var(--kit-frame-w,3px));margin:0;padding:4px 10px;background:var(--paper);'
         + 'border:var(--kit-frame-w,3px) solid var(--kit-frame,#2b2b3a);border-bottom:0;border-radius:var(--kit-radius,10px) var(--kit-radius,10px) 0 0');
-      rule('#screen #dialogue', `padding-top:calc(${d.margin}px + 2.4em)`);          // room for the tab over a box at the top
+      rule(hosts, `padding-top:calc(${d.margin}px + 2.4em)`);          // room for the tab over a box at the top
       // A portrait above the box's left corner sits exactly where the tab does,
       // and the tab covered the bottom of the face. The tab moves to the other
       // corner, the way Dream has it the other way round.
-      if (d.face === 'above-left') rule('#screen #dialogue .kit-name', 'left:auto;right:12px');
-    } else if (d.name === 'none') rule('#screen #dialogue .kit-name', 'display:none!important');
-    if (d.nameCase !== 'as-written') rule('#screen #dialogue .kit-name', `text-transform:${d.nameCase === 'upper' ? 'uppercase' : 'lowercase'}`);
+      if (d.face === 'above-left') rule(box('.kit-name'), 'left:auto;right:12px');
+    } else if (d.name === 'none') rule(box('.kit-name'), 'display:none!important');
+    if (d.nameCase !== 'as-written') rule(box('.kit-name'), `text-transform:${d.nameCase === 'upper' ? 'uppercase' : 'lowercase'}`);
     if (d.prefix) {
       // A margin, not a padding: the scene measures the text's clientWidth to
       // wrap it, and a margin keeps that the true width of the words.
-      rule('#screen #dialogue .kit-text', 'margin-left:var(--kit-prefix-w,2ch)');
-      rule('#screen #dialogue .kit-line.is-start::before', `content:${cssString(d.prefix)};display:inline-block;white-space:pre;width:var(--kit-prefix-w,2ch);margin-left:calc(-1 * var(--kit-prefix-w,2ch))`);
+      rule(box('.kit-text'), 'margin-left:var(--kit-prefix-w,2ch)');
+      rule(box('.kit-line.is-start::before'), `content:${cssString(d.prefix)};display:inline-block;white-space:pre;width:var(--kit-prefix-w,2ch);margin-left:calc(-1 * var(--kit-prefix-w,2ch))`);
     }
     if (d.marker === '') rule('#screen #dialogue .kit-next', 'display:none');
     if (d.markerMotion !== 'bob') {
@@ -4875,10 +5029,40 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         rule(MOVING + ' #screen #dialogue .kit-next.is-ready', 'animation:kit-look-blink 1s steps(1,end) infinite');
       }
     }
+    // How the box comes up: `.is-opening`, which the message box puts on only
+    // when it comes up after being away — not for the next line of a
+    // conversation, nor for the answer to a question asked by the box, so a
+    // conversation opens once. Drawn from the box being shown, it opened
+    // again when a {shake} gave way, and after a question. {shake} still
+    // shakes: its rule comes after, as strong as this one.
+    if (d.open !== 'none') {
+      out.push(d.open === 'pop'
+        ? '@keyframes kit-look-pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}'
+        : '@keyframes kit-look-slide{from{transform:translateY(1.5em);opacity:0}to{transform:none;opacity:1}}');
+      rule(MOVING + ' #screen #dialogue .kit-box.is-opening', `animation:kit-look-${d.open} .18s ease-out`);
+      rule(MOVING + ' #screen #dialogue .kit-box.is-shaking', 'animation:kit-shake .32s');
+    }
+    // A page that scrolls up a line: the scene marks the new page `.is-scrolled`
+    // and the lines slide up from where they were, one line's height, clipped
+    // to the text so the new line comes up from under the box's edge rather
+    // than over it. The clip is sideways-open, for a mark hanging in the margin.
+    if (d.pageTurn === 'scroll') {
+      out.push('@keyframes kit-look-scroll{from{transform:translateY(calc(var(--kit-line,1.45) * 1em))}to{transform:none}}');
+      out.push('@keyframes kit-look-clip{from,to{clip-path:polygon(-100vw 0,200vw 0,200vw 100%,-100vw 100%)}}');
+      rule(MOVING + ' #screen #dialogue .kit-text.is-scrolled', 'animation:kit-look-clip .12s');
+      rule(MOVING + ' #screen #dialogue .kit-text.is-scrolled > .kit-line', 'animation:kit-look-scroll .12s ease-out');
+    }
 
     if (c.place === 'center') rule('#screen #choice', 'align-items:center;justify-content:center;padding-bottom:14px');
-    if (c.layout === 'row') rule('#screen #choice .kit-list', 'flex-direction:row;flex-wrap:wrap;justify-content:space-around');
-    else if (c.layout === 'grid') rule('#screen #choice .kit-list', `display:grid;grid-template-columns:repeat(${c.columns},1fr)`);
+    if (c.layout === 'row') {
+      rule('#screen #choice .kit-list', 'flex-direction:row;flex-wrap:wrap;justify-content:space-around');
+      // Beside the box a row stays a row. Its window is as wide as the least
+      // its answers need, and a row that may wrap needs only its widest answer:
+      // Yes over No, in half the screen, as though Row did nothing. Unwrapped,
+      // a row too wide to stand beside the box goes over it, where it has the
+      // whole width to wrap in (kit.css, data-over).
+      rule('#screen #choice[data-place=beside-box]:not([data-over]) .kit-list', 'flex-wrap:nowrap');
+    } else if (c.layout === 'grid') rule('#screen #choice .kit-list', `display:grid;grid-template-columns:repeat(${c.columns},1fr)`);
 
     // The kit's own lists only (a .kit-pause panel): a module's screen drawn
     // in the same host places itself, and a look moving it would put a fight's
@@ -4905,10 +5089,40 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   }
 
   /**
+   * faceRules(fonts) -> an @font-face for each of the game's fonts that can
+   * be used, by id. Every one, not only those the look names: the Look
+   * panel shows each font's name, and each font chip, in its own letters
+   * before it is used, and a voice may use a font the look does not.
+   * `font-display:block` keeps the first page from being measured, and
+   * wrapped, in the stand-in font for the moment the file takes to read
+   * (fontsReady waits for it as well).
+   */
+  function faceRules(fonts) {
+    const out = [];
+    for (const id of isObj(fonts) ? Object.keys(fonts).sort() : []) {
+      const f = fontOf(id, fonts);
+      if (!f) continue;
+      const kind = fontKindOf(f.src);
+      out.push(`@font-face{font-family:"kitf-${id}";src:url("${f.src}") format("${FONT_FORMAT[kind]}");font-display:block}`);
+    }
+    return out;
+  }
+  /**
+   * fontFaces(fonts) -> the @font-face rules compile starts with, on their
+   * own: apply keeps them in a stylesheet of their own, so a change to the
+   * look (every frame of a colour drag) does not make the browser read every
+   * font file again.
+   */
+  L.fontFaces = (fonts) => faceRules(fonts).join('\n');
+
+  /**
    * compile(look, env) -> string. Pure and deterministic: the same look gives
-   * the same text, and the kit look gives ''. `env` is what the look may name
-   * that lives in the game rather than in the look: `{ fonts }`, the game's
-   * project.fonts.
+   * the same text. `env` is what the look may name that lives in the game
+   * rather than in the look: `{ fonts }`, the game's project.fonts, each
+   * usable one written first as an @font-face (fontFaces), a line each —
+   * unless `faces: false`, for a page that has them already. The kit look
+   * gives '' in a game with no fonts of its own, and only those @font-face
+   * in a game with some.
    *
    * Only what DIFFERS from the kit is written: the tokens as custom properties
    * on #stage — the element the stylesheet's `var(--kit-*, …)` fallbacks sit
@@ -4931,14 +5145,18 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       const v = tokenCss(t, tokens, e);
       if (v !== null && v !== tokenCss(t, kit, e)) vars.set(t.css, v);
     }
-    const rules = partRules(look, tokens, vars, kit);
+    const rules = partRules(look, tokens, vars, kit, e);
     if (vars.size) rules.unshift(`#stage{${Array.from(vars, ([k, v]) => `${k}:${v}`).join(';')}}`);
-    return rules.join('\n');
+    return (e.faces === false ? [] : faceRules(e.fonts)).concat(rules).join('\n');
   };
 
-  /** css(project) -> the stylesheet for this game's look: its look compiled against its own fonts. What apply writes into the page. */
-  L.css = function (project) {
-    return L.compile(L.resolve(project), { fonts: project && isObj(project.fonts) ? project.fonts : {} });
+  /**
+   * css(project, { faces }) -> the stylesheet for this game's look: its look
+   * compiled against its own fonts. `faces: false` leaves the @font-face out:
+   * what apply writes into #kit-look, the fonts having a sheet of their own.
+   */
+  L.css = function (project, opts) {
+    return L.compile(L.resolve(project), { fonts: project && isObj(project.fonts) ? project.fonts : {}, faces: !(opts && opts.faces === false) });
   };
 
   // ---- the look in use ---------------------------------------------------------------
@@ -5039,16 +5257,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   });
 
   // Three more, each the few things that make a well-known kind of game feel
-  // like itself: the box, the cursor, the menu, the voice. Colours, glyphs,
-  // font stacks and the kit's own synth sounds only — no pictures, so nothing
-  // here belongs to anybody. The descriptions say what a look does TODAY; a
-  // few of these values (the page that scrolls up, typing speeds, a box that
-  // steps out of the hero's way, answers placed by the box) are held for when
-  // the game acts on them, and the words will grow with it.
+  // like itself: the box, the cursor, the menu, the voice, and how the words
+  // arrive — how fast they type, how a page turns, where the answers go.
+  // Colours, glyphs, font stacks and the kit's own synth sounds only — no
+  // pictures and no fonts, so nothing here belongs to anybody. The
+  // descriptions say what a look does TODAY. Handheld's and Soul's pause-menu
+  // order is held for when the game can reorder the menu, and the words will
+  // grow with it.
   KIT.registry('looks').addAll([
     {
       id: 'handheld', label: 'Handheld', rev: 1, base: 'kit',
-      describe: 'A white two-line box with a soft shadow under the letters, a start menu down the right in capitals, and silent typing.',
+      describe: 'A white two-line box with a soft shadow under the letters, slow silent typing, a page that scrolls up a line at a time, Yes and No in a little window above the box, and a start menu down the right in capitals.',
       ui: {
         tokens: { paper: '#f8f8f8', ink: '#404040', shadow: '#d0d0c8', frame: '#5a6a86', frameWidth: 4, radius: 4,
           rim: '#c8d0e0', drop: null, accent: '#404040', markerInk: '#e03030', select: null, lineHeight: 1.6,
@@ -5065,7 +5284,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     },
     {
       id: 'soul', label: 'Soul', rev: 1, base: 'kit',
-      describe: 'A black box with a square white border, a heart for a cursor, a blip on every letter, and “* ” at the start of each line.',
+      describe: 'A black box with a square white border, “* ” at the start of each line, a blip on every letter, a box that moves to the top when the hero is below it, and the answers in a row inside the box with a heart for a cursor.',
       ui: {
         tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 3, radius: 0, rim: null, drop: null,
           accent: '#ffffff', select: null, selectInk: '#ffff00', faceBg: '#000000', fontText: 'mono', fontUi: 'mono',
@@ -5082,7 +5301,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     },
     {
       id: 'dream', label: 'Dream', rev: 1, base: 'kit',
-      describe: 'A black box with a thin white border, the speaker\'s name in capitals on a tab, and a framed portrait above the box.',
+      describe: 'A black box with a thin white border, the speaker\'s name in capitals on a tab, a framed portrait above the box, and the answers in a window of their own beside it.',
       ui: {
         tokens: { paper: '#000000', ink: '#ffffff', frame: '#ffffff', frameWidth: 2, radius: 0, rim: null, drop: null,
           accent: '#ffffff', select: '#ffffff', selectInk: '#000000', faceBg: '#000000', buttonInk: '#000000', inputBg: '#000000' },
@@ -6203,7 +6422,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
       fields: [{ key: 'to', type: 'position', display: 'link' }, { key: 'look', type: 'tile', default: 'door' }, { key: 'sound', type: 'ref:sound', default: 'door' }],
       objects: [{ at: 'here', type: 'warp', name: 'Door', pages: [{ props: { to: '$to', look: '$look', sound: '$sound' } }] }] },
     { id: 'sign', name: 'Sign', group: 'Objects', icon: 'sign', doc: 'A readable sign.',
-      fields: [{ key: 'text', type: 'text', default: '' }, { key: 'look', type: 'tile', default: 'sign' }],
+      fields: [{ key: 'text', type: 'text', default: '', display: 'message' }, { key: 'look', type: 'tile', default: 'sign' }],
       objects: [{ at: 'here', type: 'sign', name: 'Sign', pages: [{ props: { look: '$look' }, on: { interact: [{ t: 'say', text: '$text' }] } }] }] },
     { id: 'item', name: 'Item on ground', group: 'Objects', icon: 'bag', doc: 'An item to pick up once.',
       fields: [{ key: 'item', type: 'ref:item', nullable: false }, { key: 'count', type: 'number', integer: true, min: 1, default: 1 }, { key: 'look', type: 'tile', nullable: true, default: null }],
@@ -6215,7 +6434,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         { at: 'to', type: 'warp', name: 'Warp', pages: [{ props: { to: '$here', sound: '$sound' } }] },
       ] },
     { id: 'npc', name: 'NPC', group: 'Objects', icon: 'npc', doc: 'A character who says one line.',
-      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!' }],
+      fields: [{ key: 'name', type: 'string', default: 'Someone' }, { key: 'sprite', type: 'ref:sprite', default: 'woman', doc: 'Who they look like (an NPC with no sprite is invisible)' }, { key: 'text', type: 'text', default: 'Hello!', display: 'message' }],
       objects: [{ at: 'here', type: 'npc', name: '$name', pages: [{ sprite: '$sprite', behaviour: { kind: 'look' }, on: { interact: [{ t: 'say', who: '$name', text: '$text' }] } }] }] },
   ]);
 
@@ -10423,7 +10642,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     fields: [
       { key: 'who', type: 'string', default: '', label: 'Speaker', shown: true },
       { key: 'face', type: 'ref:face' },
-      { key: 'text', type: 'text', default: '' },
+      { key: 'text', type: 'text', default: '', display: 'message' },
       { key: 'position', type: 'enum', options: ['top', 'middle', 'bottom'], default: 'bottom' },
       { key: 'bg', type: 'enum', options: ['window', 'dim', 'none'], default: 'window', label: 'Background' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Voice',
@@ -17476,6 +17695,8 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   guessTile(w, h, prefer) / guessGrid(w, h)   what a sheet of that size probably is
 //   audio({ name, kind, src, loop, prefix, id })  a dropped .ogg/.mp3/.wav as a sound or a track
 //   guessAudio(name, bytes)                      'music' or 'sound' (long things loop)
+//   fontsFrom(files)                             .ttf/.otf/.woff/.woff2 files as the game's own fonts
+//   base64(bytes)                                the bytes as base64, for a data: URI
 //
 // A tileset goes through the Tiled importer as a synthetic tileset, so it gets
 // exactly what a .tsx gets (ids, the sheet asset, a palette group). A character
@@ -17610,6 +17831,74 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return res;
   };
 
+  /**
+   * base64(bytes) -> the bytes written as base64. `btoa` takes a string of
+   * byte-sized letters and is in every browser and in Node, so the bytes go in
+   * a slice at a time — a whole font as one call's arguments is more than a
+   * phone's browser will take.
+   */
+  I.base64 = function (bytes) {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    let s = '';
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+
+  // ---- fonts ------------------------------------------------------------------
+  I.FONT_EXT = /\.(ttf|otf|woff2?)$/i;
+  /**
+   * fontKind(bytes) -> 'ttf' | 'otf' | 'woff' | 'woff2' | null. A font file
+   * says what it is in its first four bytes, and only those are believed. A
+   * phone's file picker often hands a font over with no type, or as
+   * "application/octet-stream", so the browser's word for it is never asked;
+   * and the name's ending is not enough either: a download that failed, or
+   * another file renamed, keeps its .ttf, and taken as a font it sat in every
+   * font row, drawing nothing, with no word of why.
+   */
+  function fontKind(bytes) {
+    const b = bytes || [];
+    const head = String.fromCharCode(b[0] || 0, b[1] || 0, b[2] || 0, b[3] || 0);
+    if (head === 'wOF2') return 'woff2';
+    if (head === 'wOFF') return 'woff';
+    if (head === 'OTTO') return 'otf';
+    if (head === '\x00\x01\x00\x00' || head === 'true') return 'ttf';
+    return null;
+  }
+  // A font's id is kept short enough to take a "-2" and still be an id a look
+  // can name (at most 64 letters): a long file name made one it could not,
+  // and the font was listed as not a font at all.
+  const FONT_ID_MAX = 56;
+  // The words a look uses for fonts it does not carry. A game's font of the
+  // same name would hide the word, so it is called something else.
+  const FONT_WORDS = ['pixel', 'mono', 'system', 'serif', 'rounded'];
+
+  /**
+   * fontsFrom(files) -> Result with `fonts: { id: { name, src, pixel } }` —
+   * each dropped font as one of the game's own. `files` are `{ name, bytes }`.
+   * The id is the file's name (`one-glyph.ttf` -> `one-glyph`) and the font
+   * is inside the game as a data: URI rebuilt from its bytes, so it works
+   * offline and travels with the game. Whether it is a pixel font, and the
+   * size it was drawn for, is the author's to say afterwards (Look › Fonts).
+   */
+  I.fontsFrom = function (files) {
+    const res = Object.assign(blank(), { fonts: {} });
+    for (const f of files || []) {
+      const name = baseName(f && f.name);
+      const kind = f && f.bytes && f.bytes.length ? fontKind(f.bytes) : null;
+      if (!kind) {
+        const why = I.FONT_EXT.test(name) ? ': it is named like one, but what is inside is not (a download that did not finish, or another file renamed)' : '';
+        res.problems.push({ severity: 'warn', code: 'not-a-font', message: `“${name}” is not a TTF, OTF, WOFF or WOFF2 font${why}`, where: {} });
+        continue;
+      }
+      let id = KIT.slug(stem(name) || 'font').slice(0, FONT_ID_MAX).replace(/[-._:]+$/, '') || 'font';
+      if (FONT_WORDS.includes(id)) id += '-font';
+      res.fonts[id] = { name: titleCase(stem(name)) || id, src: `data:font/${kind};base64,${I.base64(f.bytes)}`, pixel: false };
+      if (f.bytes.length > 300 * 1024) res.problems.push({ severity: 'warn', code: 'ui-big', message: `“${name}” is ${Math.round(f.bytes.length / 1024)} KB; fonts over 300 KB make a big game, and a WOFF2 of the same font is much smaller`, where: { path: ['fonts', id] } });
+    }
+    res.stats = { fonts: Object.keys(res.fonts).length, from: 'font' };
+    return res;
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -17647,6 +17936,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
 //   result.scripts     -> project.scripts[id]
 //   result.vars        -> project.vars[name]
 //   result.items       -> project.items[id]
+//   result.fonts       -> project.fonts[id]         (the look's @font-face reads them; no registry)
 //   result.project     -> meta.title, start, settings.tileSize, terrains, autotiles
 //
 // `project.tiles/sprites/faces/icons/animations` are content tables the engine
@@ -17699,6 +17989,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     { key: 'sounds', kind: 'sound', registry: 'sounds' },
     { key: 'music', kind: 'music', registry: 'music' },
     { key: 'items', kind: 'item' },
+    // A font is read by the look, which is compiled from the project every
+    // time it is put on the page, so there is nothing to register.
+    { key: 'fonts', kind: 'font', registry: null },
     { key: 'vars', kind: 'var' },
     { key: 'scripts', kind: 'script' },
     { key: 'maps', kind: 'map' },
@@ -17713,7 +18006,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     'message', 'prompt', 'pitch', 'author', 'subtitle', 'from', 'src', 'tag', 'class']);
 
   function blankReport(label) {
-    const zero = () => ({ assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0, animations: 0, maps: 0, objects: 0, scripts: 0, vars: 0, items: 0, terrains: 0, autotiles: 0 });
+    // Every table merge writes has a counter: one missing counted up to NaN,
+    // and an imported sound was reported as nothing at all.
+    const zero = () => ({ assets: 0, tiles: 0, sprites: 0, faces: 0, icons: 0, animations: 0, maps: 0, objects: 0, scripts: 0, vars: 0, items: 0, terrains: 0, autotiles: 0, sounds: 0, music: 0, fonts: 0 });
     return { problems: [], added: zero(), replaced: zero(), unchanged: zero(), skipped: zero(), label, ids: { added: [], replaced: [], skipped: [] }, project: null, registered: 0, dryRun: false };
   }
 
@@ -18485,7 +18780,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   /** The CSS font string for a span, given the base options. */
   function fontFor(opts, span) {
     const voice = span && span.voice ? voiceOf(span.voice) : null;
-    const family = (voice && voice.font) || opts.font || DEFAULT_FONT;
+    // A voice's font the way the message box reads it (KIT.look.family): a
+    // look's word or one of the game's own fonts becomes its family, and a
+    // family written out is used as it is.
+    const family = (voice && voice.font && familyOf(voice.font)) || opts.font || DEFAULT_FONT;
     const scale = sizeScale(span, voice);
     const px = Math.max(1, Math.round((opts.size || 16) * scale));
     const weight = opts.weight || 'normal';
@@ -18494,6 +18792,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   function sizeScale(span, voice) {
     const s = (span && span.size) || (voice && voice.size) || 'normal';
     return s === 'big' ? 1.3 : s === 'small' ? 0.82 : 1;
+  }
+  function familyOf(font) {
+    return KIT.look && KIT.look.family ? KIT.look.family(font, ((KIT.game && KIT.game.project) || {}).fonts) : font;
   }
   function voiceOf(id) {
     const reg = KIT.registry && KIT.registry.exists('voices') ? KIT.registry('voices') : null;
@@ -19842,6 +20143,68 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return nearest((d, off) => (d < -0.5 ? d + 2 * off : Infinity));
   };
 
+  /**
+   * promptBoxOf(prompt) -> a message box holding a question's own words, a
+   * line for each line of it. Each one is the start of a line the author
+   * wrote, so a look's mark ("* ") goes in front of it as in a message. With
+   * no words, no line: answers inside the box sat under an empty one.
+   */
+  function promptBoxOf(prompt) {
+    const box = UI.make('div.kit-box.kit-promptbox');
+    const wrap = UI.make('div.kit-textwrap');
+    const text = UI.make('div.kit-text');
+    const words = KIT.text.strip(prompt || '');
+    for (const line of words ? words.split('\n') : []) {
+      const el = UI.make('div.kit-line', { text: line });
+      if (line.trim()) el.classList.add('is-start');
+      text.appendChild(el);
+    }
+    wrap.appendChild(text);
+    box.appendChild(wrap);
+    return box;
+  }
+
+  /**
+   * copyBox(box, reflow) -> the message box as the player last saw it, to keep
+   * on screen as a question's box: every letter showing, no ▼ (the answers are
+   * what comes next), no shake or opening. A copied canvas comes without its
+   * picture, so the portrait is drawn again from the one it copies. It keeps
+   * the height it had, so the box does not shrink as the answers come up —
+   * only grows, when answers inside it need the room.
+   *
+   * `reflow`, for a box made narrower by the answers beside it: its lines were
+   * broken for the wider box, and broke again inside the narrow one, mid-
+   * sentence ("…under the / mat. Will / you open…"). A line the message box
+   * marked as only wrapped (data-join, see KIT.dialogueLayout.lines) goes back
+   * onto the line before it, with the space the wrap took out, so the words
+   * flow again at the width the box has; a line the author started stays a
+   * line of its own.
+   */
+  function copyBox(box, reflow) {
+    const copy = box.cloneNode(true);
+    copy.classList.add('kit-promptbox');
+    copy.classList.remove('is-shaking', 'is-opening');
+    if (reflow) {
+      for (const line of Array.from(copy.querySelectorAll('.kit-line[data-join]'))) {
+        const before = line.previousElementSibling;
+        if (!before || !before.classList.contains('kit-line')) continue;
+        if (line.getAttribute('data-join')) before.appendChild(document.createTextNode(line.getAttribute('data-join')));
+        while (line.firstChild) before.appendChild(line.firstChild);
+        line.remove();
+      }
+    }
+    const next = copy.querySelector('.kit-next');
+    if (next) next.remove();
+    const from = box.querySelectorAll('canvas');
+    copy.querySelectorAll('canvas').forEach((c, i) => {
+      try { c.getContext('2d').drawImage(from[i], 0, 0); }
+      catch (e) { (KIT.log || console).warn('[choice] the portrait could not be copied into the question', e); }
+    });
+    for (const el of copy.querySelectorAll('[style*="visibility"]')) el.style.visibility = '';
+    if (box.offsetHeight) copy.style.minHeight = box.offsetHeight + 'px';
+    return copy;
+  }
+
   UI.parts = {
     /**
      * dialogueBox(host) -> { host, box, face, name, text, next }
@@ -19906,18 +20269,26 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     },
 
     /**
-     * choicePanel(host, { prompt, options }) -> { host, list, promptBox }
+     * choicePanel(host, { prompt, options, place, promptClone }) -> { host, list, promptBox }
      * The text arrives already substituted — and so already translated — by
      * the command that asked, so it only has its codes taken out here.
      * Substituting again translated it twice: a line whose translation happens
      * to be another line's English came out as that other line's translation.
+     *
+     * `place` puts the answers by a message box that keeps the question on
+     * screen (`.kit-promptbox`, a `.kit-box`, so it looks like the message box):
+     *   'above-box'   the answers in a little window over the box's corner
+     *   'beside-box'  in a window to its right
+     *   'in-box'      inside the box, under the question
+     * The box holds `prompt`, or is a copy of `promptClone` — the message box
+     * as it was when the question came, portrait and all; beside the box, the
+     * copy is narrower, and its words flow again at that width (copyBox).
+     * Without a place, the prompt heads the panel of answers, as it always has.
      */
     choicePanel(host, o) {
       const opts = o || {};
       UI.clear(host);
       host.hidden = false;
-      const panel = UI.make('div.kit-panel');
-      if (opts.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.strip(opts.prompt) }));
       const list = UI.make('div.kit-list');
       (opts.options || []).forEach((opt, i) => {
         const b = UI.make('button.kit-option', { text: KIT.text.strip(opt.text) });
@@ -19926,9 +20297,28 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         b.setAttribute('data-action', 'choose');
         list.appendChild(b);
       });
+      const place = opts.place || null;
+      if (!place) {
+        const panel = UI.make('div.kit-panel');
+        if (opts.prompt) panel.appendChild(UI.make('div.kit-prompt', { text: KIT.text.strip(opts.prompt) }));
+        panel.appendChild(list);
+        host.appendChild(panel);
+        return { host, list, promptBox: null };
+      }
+      let promptBox = null;
+      if (opts.promptClone) promptBox = copyBox(opts.promptClone, place === 'beside-box');
+      else if (opts.prompt || place === 'in-box') promptBox = promptBoxOf(opts.prompt || '');
+      if (place === 'in-box') {
+        promptBox.querySelector('.kit-textwrap').appendChild(list);
+        host.appendChild(promptBox);
+        return { host, list, promptBox };
+      }
+      const panel = UI.make('div.kit-panel');
       panel.appendChild(list);
-      host.appendChild(panel);
-      return { host, list, promptBox: null };
+      // Above the box is before it in the page (#choice is a column); beside it, after it (a row).
+      if (place === 'above-box') { host.appendChild(panel); if (promptBox) host.appendChild(promptBox); }
+      else { if (promptBox) host.appendChild(promptBox); host.appendChild(panel); }
+      return { host, list, promptBox };
     },
 
     /**
@@ -20026,23 +20416,36 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     return Promise.race([loads, late]);
   };
 
+  /** styleIn(id) -> the <style> of that id at the end of <head>, made the first time it is asked for. */
+  function styleIn(id) {
+    let style = document.getElementById(id);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = id;
+      document.head.appendChild(style);
+    }
+    return style;
+  }
+
   /**
    * apply(project) -> Promise — put this game's look in use and in the page.
-   * The stylesheet is one <style id="kit-look"> at the end of <head>, made the
-   * first time and rewritten only when its text changes. For the kit look it
-   * is empty, and the page is exactly css/kit.css.
+   * The look is one <style id="kit-look"> at the end of <head>, made the
+   * first time and rewritten only when its text changes; the game's own
+   * fonts (KIT.look.fontFaces) are in a <style id="kit-look-fonts"> before
+   * it, rewritten only when the fonts change. Written together, every colour
+   * of a drag made the browser read every font file again, a new font each
+   * time. For the kit look in a game with no fonts, both are empty, and the
+   * page is exactly css/kit.css. 'applied' carries what #kit-look holds.
    */
   L.apply = function (project) {
     const look = L.use(project);
     fonts = (project && KIT.isObject(project.fonts)) ? project.fonts : {};
-    const css = L.css(project);
+    const faces = L.fontFaces(fonts);
+    const css = L.css(project, { faces: false });
     if (typeof document !== 'undefined' && document.head) {
-      let style = document.getElementById('kit-look');
-      if (!style) {
-        style = document.createElement('style');
-        style.id = 'kit-look';
-        document.head.appendChild(style);
-      }
+      const fontStyle = styleIn('kit-look-fonts');
+      const style = styleIn('kit-look');
+      if (fontStyle.textContent !== faces) fontStyle.textContent = faces;
       if (style.textContent !== css) style.textContent = css;
     }
     L.syncMotion();
@@ -20073,15 +20476,57 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   const UI = KIT.ui;
   const scenes = KIT.registry('scenes');
 
-  const SPEEDS = { slow: 22, normal: 48, fast: 96, instant: 0 };
+  /** Letters a second at each text speed a player can pick: the kit's, when the look has none (it always has). */
+  const SPEEDS = { slow: 22, normal: 48, fast: 96 };
   /** How many lines a page holds: the look's, three in the kit's. */
   const lines = () => KIT.look.get('dialogue.lines', 3);
+  /** Where the answers go when they go by the message box, and the question stays on screen. */
+  const BOX_PLACES = new Set(['above-box', 'in-box', 'beside-box']);
+  const byTheBox = () => BOX_PLACES.has(KIT.look.get('choice.place', 'corner'));
+
+  /**
+   * Message boxes that were on screen during this turn of the game: one a line
+   * has just closed, or one a question by the box has just answered. A line
+   * said straight after (a script goes from one command to the next without
+   * waiting for a frame) takes the box over rather than opening it again, so a
+   * conversation opens once — the look's pop or slide plays when the box comes
+   * up after being away, not for the next line, nor for the answer to a
+   * question whose box stood where it stands.
+   */
+  const upThisTurn = new WeakSet();
+  function wasUp(host) {
+    if (!host) return;
+    upThisTurn.add(host);
+    setTimeout(() => upThisTurn.delete(host), 0);
+  }
 
   function settings() { return (KIT.storage && KIT.storage.settings) ? KIT.storage.settings() : {}; }
   function instant() { return !!(KIT.fx && KIT.fx.instant) || settings().textSpeed === 'instant'; }
+  /**
+   * The player picks Slow, Normal or Fast; the look says how fast each one is.
+   * A handheld types at a handheld's pace and a look for quick readers can
+   * make all three quicker, while the choice between them stays the player's.
+   */
   function charsPerSecond() {
     if (instant()) return 0;
-    return SPEEDS[settings().textSpeed] == null ? SPEEDS.normal : SPEEDS[settings().textSpeed];
+    const speeds = KIT.look.get('dialogue.speeds', SPEEDS);
+    const s = settings().textSpeed;
+    return speeds[s] == null ? speeds.normal : speeds[s];
+  }
+
+  /**
+   * heroFraction() -> how far down the game screen the hero stands, from 0 at
+   * the top to 1 at the bottom; null when there is no hero on a map to look
+   * at (the title, a preview). Read off the renderer, which knows where the
+   * camera is.
+   */
+  function heroFraction() {
+    const G = KIT.game;
+    const world = G && G.world, r = G && G.renderer;
+    const hero = world && world.map && typeof world.hero === 'function' ? world.hero() : null;
+    const h = r && r.canvas ? r.canvas.clientHeight : 0;
+    if (!hero || !h || typeof r.tileToScreen !== 'function') return null;
+    return r.tileToScreen(0, (hero.py != null ? hero.py : hero.y) + 0.5, world).y / h;
   }
 
   /**
@@ -20100,16 +20545,25 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    * KIT.dialogueLayout — the message box's own line breaking, pure, for when
    * the look starts each line with a mark ("* ").
    *
-   *   lines(spans, layout) -> { lines, starts }
+   *   lines(spans, layout) -> { lines, starts, joins }
    *
    * The spans are split at every line break the author wrote, each piece is
    * wrapped on its own, and `starts` is the set of line numbers where a piece
    * begins: those lines get the mark, and the lines a long piece wraps onto
    * line up after it. A piece with nothing to read in it (a blank line
    * between two) gets no mark. The lines are the same ones KIT.text.wrap would
-   * make; only the marking is new, so a look without a mark never comes here.
+   * make; only the marking is new, so a look without a mark or a question by
+   * the box never comes here.
+   *
+   * `joins` maps each line that only wrapped — the rest of a piece, not a line
+   * the author started — to what the wrap took out before it: ' ' where it
+   * broke at a space, '' inside a word too long for the box. With it, a copy
+   * of the page can put the words back together and let a narrower box wrap
+   * them again (a question's box beside its answers).
    */
   const DL = KIT.dialogueLayout = KIT.dialogueLayout || {};
+  /** The letters of some spans, an icon as one character: what a wrap walks along. */
+  const lettersOf = (spans) => spans.map((sp) => (sp.type === 'text' ? sp.text : sp.type === 'icon' ? '\uFFFC' : '')).join('');
   DL.lines = function (spans, layout) {
     const pieces = [[]];
     for (const sp of spans || []) {
@@ -20118,13 +20572,56 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     }
     // A break at the very end closes the last line; it does not open another.
     if (pieces.length > 1 && !pieces[pieces.length - 1].length) pieces.pop();
-    const out = [], starts = new Set();
+    const out = [], starts = new Set(), joins = new Map();
     for (const piece of pieces) {
       const readable = piece.some((sp) => sp.type === 'icon' || (sp.type === 'text' && sp.text.trim()));
       if (readable) starts.add(out.length);
-      for (const line of KIT.text.wrap(piece, layout)) out.push(line);
+      // KIT.text.wrap drops the spaces at either end of a line and keeps the
+      // letters in between as they were, so walking the piece's letters line
+      // by line finds whether a space was dropped where each line begins.
+      const letters = lettersOf(piece);
+      let at = 0;
+      KIT.text.wrap(piece, layout).forEach((line, i) => {
+        const was = at;
+        while (at < letters.length && /\s/.test(letters[at])) at++;
+        if (i) joins.set(out.length, at > was ? ' ' : '');
+        at += lettersOf(line).length;
+        out.push(line);
+      });
     }
-    return { lines: out, starts };
+    return { lines: out, starts, joins };
+  };
+
+  /**
+   * pages(lines, n, turn) -> [{ lines, keep, from }] — what each press of A
+   * shows. `from` is the number of the page's first line; `keep` how many of
+   * its lines were on the page before.
+   *
+   *   'clear'   n lines at a time, each page starting empty: exactly what
+   *             KIT.text.paginate has always made.
+   *   'scroll'  the handheld way: after the first page, each press moves the
+   *             lines up one and brings in one more, so ['a','b','c','d'] two
+   *             at a time is ab, bc, cd — the kept line is already read, and
+   *             only the new one types.
+   */
+  DL.pages = function (lines, n, turn) {
+    const per = Math.max(1, n || 3);
+    const all = lines || [];
+    if (turn !== 'scroll') return KIT.text.paginate(all, per).map((page, i) => ({ lines: page, keep: 0, from: i * per }));
+    const out = [];
+    for (let k = 0; k <= Math.max(0, all.length - per); k++) out.push({ lines: all.slice(k, k + per), keep: k ? per - 1 : 0, from: k });
+    return out;
+  };
+
+  /**
+   * place(position, heroFraction, mode) -> where the box goes. With the look's
+   * box out of the hero's way ('avoid-hero'), a box meant for the bottom goes
+   * to the top while the hero stands in the bottom half of the screen; a line
+   * the author told to go at the top or in the middle stays where it was told.
+   */
+  DL.place = function (position, heroFraction, mode) {
+    const at = position || 'bottom';
+    return mode === 'avoid-hero' && at === 'bottom' && typeof heroFraction === 'number' && heroFraction > 0.5 ? 'top' : at;
   };
 
   /** effectFor(id) -> the textEffects definition, or null. */
@@ -20143,7 +20640,10 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
    */
   function dress(el, voice) {
     if (!el || !voice) return;
-    if (voice.font) el.style.fontFamily = voice.font;
+    // A voice's font is a family written out as CSS writes one, one of the
+    // look's words (pixel, mono…), or one of the game's own fonts by its id:
+    // KIT.look.family says which, and passes a written-out family through.
+    if (voice.font) el.style.fontFamily = KIT.look.family(voice.font, ((KIT.game && KIT.game.project) || {}).fonts);
     if (voice.color) el.style.color = voice.color;
     if (voice.size === 'big') el.classList.add('is-big');
     else if (voice.size === 'small') el.classList.add('is-small');
@@ -20218,35 +20718,45 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
     create() {
       let ui = null, units = [], unitIndex = 0, charIndex = 0, acc = 0, pages = [], pageIndex = 0;
       let waiting = false, complete = false, speed = 1, pauseLeft = 0;
-      let voice = null, sinceBlip = 0, spoken = 0, starts = null, perPage = 3;
+      let voice = null, sinceBlip = 0, spoken = 0, starts = null, joins = null;
 
       function layoutFor(textEl) {
         return { width: Math.max(80, textEl.clientWidth - 2), measure: measurerFor(textEl), lines: lines() };
       }
 
       /**
-       * paged(body, ctx, layout, prefix) -> pages. With no mark to start the
-       * lines with, exactly the render or layout call it always was; with one,
-       * the same lines broken by KIT.dialogueLayout, which also says which of
-       * them start a piece the author wrote.
+       * paged(body, ctx, layout, prefix, turn) -> pages (DL.pages). With no
+       * mark to start the lines with, pages that clear and no question by the
+       * box, exactly the render or layout call it always was; otherwise the
+       * same lines, broken by KIT.dialogueLayout — which also says which of
+       * them start a piece the author wrote, and which only wrapped — and
+       * paged the look's way. A question by the box may keep the page on
+       * screen as its question, and beside the box its box is narrower: the
+       * lines that only wrapped say so (data-join), for the copy to join them
+       * and let them wrap again at that width (KIT.ui.parts.choicePanel).
        */
-      function paged(body, ctx, lay, prefix) {
-        starts = null;
-        perPage = lay.lines;
-        if (!prefix) return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages;
+      function paged(body, ctx, lay, prefix, turn) {
+        starts = null; joins = null;
+        const asked = byTheBox();
+        if (!prefix && turn !== 'scroll' && !asked) {
+          return (ctx ? KIT.text.render(body, ctx, lay) : KIT.text.layout(body, lay))[0].pages.map((page, i) => ({ lines: page, keep: 0, from: i * lay.lines }));
+        }
         const r = DL.lines(KIT.text.tokenize(ctx ? KIT.text.substitute(body, ctx) : body), lay);
-        starts = r.starts;
-        return KIT.text.paginate(r.lines, lay.lines);
+        if (prefix) starts = r.starts;
+        if (asked) joins = r.joins;
+        return DL.pages(r.lines, lay.lines, turn);
       }
 
       function buildPage(at) {
-        const page = pages[at] || [];
+        const page = pages[at] || { lines: [], keep: 0, from: 0 };
         const t = ui.text;
         t.innerHTML = '';
         units = []; unitIndex = 0; charIndex = 0; acc = 0; complete = false; waiting = false; speed = 1; pauseLeft = 0;
-        page.forEach((line, n) => {
+        let kept = 0;
+        page.lines.forEach((line, n) => {
           const lineEl = UI.make('div.kit-line');
-          if (starts && starts.has(at * perPage + n)) lineEl.classList.add('is-start');
+          if (starts && starts.has(page.from + n)) lineEl.classList.add('is-start');
+          if (joins && joins.has(page.from + n)) lineEl.setAttribute('data-join', joins.get(page.from + n));
           for (const span of line) {
             if (span.type === 'text') {
               // The span's own voice wins over the line's, so `{voice:sans}`
@@ -20276,7 +20786,24 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
             else if (span.type === 'shake') units.push({ type: 'shake' });
           }
           t.appendChild(lineEl);
+          if (n === page.keep - 1) kept = units.length;
         });
+        // A page that scrolled up: the lines it kept were read on the page
+        // before, so they are there at once — no blips, their pauses and
+        // shakes long over — and the text slides up a line (a look's
+        // animation, off when things may not move). Only the new line types.
+        t.classList.remove('is-scrolled');
+        if (page.keep) {
+          for (let i = 0; i < kept; i++) {
+            const u = units[i];
+            if (u.type === 'text') reveal(u, u.text.length);
+            else if (u.type === 'icon') u.el.style.visibility = 'visible';
+            else if (u.type === 'speed') speed = u.mode === 'instant' ? 999 : 2.5;
+          }
+          unitIndex = kept;
+          void t.offsetWidth;
+          t.classList.add('is-scrolled');
+        }
         if (instant()) revealAll();
         updatePrompt();
       }
@@ -20349,8 +20876,21 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const p = params || {};
           ui = UI.parts.dialogueBox(UI.el('dialogue', p.root));
           if (!ui) { this.finish(); return; }
+          // This line takes the box over from any line before it that was
+          // waiting for a question (see exit), and a shake that line had is
+          // over: kept, it played again the next time the box was shown.
+          // The box opens (`.is-opening`, the look's pop or slide) only when it
+          // comes up after being away (upThisTurn); the class is taken off for
+          // every other line, or a shake giving way let the opening play again
+          // in the middle of a conversation. The preview draws each tab afresh,
+          // and there it always opens. A look with no opening (the kit's) never
+          // has the class, so its box is the one it always was.
+          const opens = KIT.look.get('dialogue.open', 'none') !== 'none' && ui.host.hidden && (!!p.preview || !upThisTurn.has(ui.host));
+          ui.host.removeAttribute('data-linger');
+          if (ui.box) ui.box.classList.remove('is-shaking', 'is-opening');
           ui.host.hidden = false;
-          ui.host.setAttribute('data-position', p.position || 'bottom');
+          if (opens && ui.box) { void ui.box.offsetWidth; ui.box.classList.add('is-opening'); }
+          ui.host.setAttribute('data-position', DL.place(p.position, p.preview ? null : heroFraction(), KIT.look.get('dialogue.at', 'bottom')));
           ui.host.setAttribute('data-bg', p.bg || 'window');
           ui.name.textContent = p.who || '';
           ui.name.hidden = !p.who;
@@ -20375,7 +20915,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           const prefix = KIT.look.get('dialogue.prefix', '');
           if (prefix) ui.text.style.setProperty('--kit-prefix-w', Math.ceil(measurerFor(ui.text)(prefix)) + 'px');
           else ui.text.style.removeProperty('--kit-prefix-w');
-          pages = paged(body, p.ctx, layoutFor(ui.text), prefix);
+          pages = paged(body, p.ctx, layoutFor(ui.text), prefix, KIT.look.get('dialogue.pageTurn', 'clear'));
           pageIndex = 0;
           buildPage(0);
           this._tap = () => { this.input({ key: 'a', player: 1 }); };
@@ -20387,10 +20927,17 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         },
         exit() {
           if (this._ducked && KIT.audio && KIT.audio.unduck) { this._ducked = false; KIT.audio.unduck(360); }
-          if (ui) {
-            ui.host.hidden = true;
-            if (this._tap) ui.host.removeEventListener('click', this._tap);
-          }
+          if (!ui) return;
+          if (this._tap) ui.host.removeEventListener('click', this._tap);
+          // With the answers by the box, a question asked straight after this
+          // line shows it as its question: the box stays up for the rest of
+          // this turn, and the choice scene takes it (it runs before the timer
+          // does — a script goes from one command to the next without waiting
+          // for one). Anything else finds it gone; a next line takes it back.
+          if (!byTheBox()) { ui.host.hidden = true; wasUp(ui.host); return; }
+          const host = ui.host;
+          host.setAttribute('data-linger', '');
+          setTimeout(() => { if (host.hasAttribute('data-linger')) { host.removeAttribute('data-linger'); host.hidden = true; } }, 0);
         },
         update(dt) {
           if (complete || waiting || !units.length) return;
@@ -20430,6 +20977,9 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           if (ev.key === 'a' || ev.key === 'menu') {
             if (waiting) { waiting = false; updatePrompt(); return true; }
             if (!complete) { revealAll(); return true; }
+            // The press that turns the page, or closes the box, has a sound of
+            // its own in a look that wants one (silent in the kit's).
+            KIT.look.sound('page');
             if (pageIndex < pages.length - 1) { pageIndex++; buildPage(pageIndex); return true; }
             this.finish(true);
             return true;
@@ -20442,10 +20992,87 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
   });
 
   // ---- choice ---------------------------------------------------------------------
+
+  /** Where `el` is on screen, or null when it is not drawn. */
+  const shownRect = (el) => (el && el.getClientRects().length ? el.getBoundingClientRect() : null);
+  /** The room left between a portrait, or a window, and what it keeps clear of: a portrait hangs 6px off its box. */
+  const FACE_GAP = 6;
+
+  /**
+   * besideOrOver(host, box, panel): the answers' window beside the question's
+   * box, or over the box's right end. Beside it the box is narrower, and its
+   * words flow again at that width — a long question next to a wide window (a
+   * grid of two) came out one or two words to a line, the box three times the
+   * height of the line it carries on, jumping up the screen as the question
+   * came. So the box is measured both ways: when beside the window it is more
+   * than a line taller than at its own width, or the window does not fit
+   * beside it at all, the window goes over the box's right end instead
+   * (data-over, css/kit.css) and the box keeps its width.
+   */
+  function besideOrOver(host, box, panel) {
+    if (!box || !panel) return;
+    host.setAttribute('data-over', '');
+    const whole = box.getBoundingClientRect().height;
+    host.removeAttribute('data-over');
+    const b = box.getBoundingClientRect(), w = panel.getBoundingClientRect(), h = host.getBoundingClientRect();
+    const text = box.querySelector('.kit-text');
+    const line = (text && parseFloat(getComputedStyle(text).lineHeight)) || 24;
+    const beside = w.left >= b.right - 1 && w.right <= h.right + 1 && w.top < b.bottom && w.bottom > b.top;
+    if (!beside || b.height > whole + line * 1.5) host.setAttribute('data-over', '');
+  }
+
+  /**
+   * clearOfTab(box, panel): a name on a tab over the box's corner stays in
+   * sight. An answers' window over the box stands by its right end, and a
+   * wide one (four answers in a row, a grid of three) reached the tab at the
+   * left and covered the name of whoever was asking; it stands just clear
+   * of the tab instead.
+   */
+  function clearOfTab(box, panel) {
+    const name = box && panel ? box.querySelector('.kit-name') : null;
+    const tab = shownRect(name);
+    if (!tab || getComputedStyle(name).position !== 'absolute') return;
+    const w = panel.getBoundingClientRect();
+    if (w.left >= tab.right || w.right <= tab.left || w.top >= tab.bottom || w.bottom <= tab.top || w.bottom > tab.bottom) return;
+    panel.style.marginBottom = `${(parseFloat(getComputedStyle(panel).marginBottom) || 0) + w.bottom - tab.top + FACE_GAP}px`;
+  }
+
+  /**
+   * keepFace(was, box, panel, host): a portrait hung over (or under) the
+   * message box stays where the player saw it while the question is asked.
+   * It hangs off the box's corner, and beside its answers the question's box
+   * is narrower: a portrait over the right corner jumped a hundred pixels to
+   * the left as Yes and No came up, on every question. So it goes back where
+   * it was — and where the answers' window stands there, or the box grown to
+   * hold its answers, it moves up (down, hanging under a box at the top) just
+   * clear of them rather than be painted over. `was` is where it stood in the
+   * line's box; `panel`, the answers' window, if they have one.
+   */
+  function keepFace(was, box, panel, host) {
+    const face = box && box.querySelector('.kit-facebox');
+    const now = shownRect(face);
+    if (!was || !now || getComputedStyle(face).position !== 'absolute') return;
+    const inBox = box.getBoundingClientRect();
+    const under = now.top >= inBox.bottom - 1;
+    const blocks = [shownRect(panel), inBox].filter(Boolean);
+    let top = was.top;
+    // Twice round: clear of the window can be onto a box grown taller than it.
+    for (let round = 0; round < 2; round++) {
+      for (const r of blocks) {
+        if (was.left < r.right && was.right > r.left && top < r.bottom && top + was.height > r.top) top = under ? r.bottom + FACE_GAP : r.top - FACE_GAP - was.height;
+      }
+    }
+    // Off the screen it could not be seen at all: then it stays where it was, the window over part of it.
+    const h = host.getBoundingClientRect();
+    if (top < h.top || top + was.height > h.bottom) top = was.top;
+    const dx = was.left - now.left, dy = top - now.top;
+    if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) face.style.transform = `translate(${dx}px,${dy}px)`;
+  }
+
   scenes.add({
     id: 'choice', name: 'Choices', previewable: true,
     create() {
-      let host = null, index = 0, options = [];
+      let host = null, index = 0, options = [], talk = null;
       return {
         id: 'choice', transparent: true,
         enter(params) {
@@ -20454,7 +21081,32 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           index = 0;
           host = UI.el('choice', p.root);
           if (!host) { this.finish(-1); return; }
-          const list = UI.parts.choicePanel(host, { prompt: p.prompt, options }).list;
+          // Answers by the message box keep the question on screen, in a box
+          // like the message box: the question's own words, or — when it has
+          // none — the line said just before it, still up (see dialogue's exit).
+          const place = byTheBox() ? KIT.look.get('choice.place', 'corner') : null;
+          talk = place ? UI.el('dialogue', p.root) : null;
+          const said = talk && talk.hasAttribute('data-linger') && !talk.hidden ? talk : null;
+          const copied = said && !p.prompt ? said : null;
+          const faceWas = copied ? shownRect(copied.querySelector('.kit-facebox')) : null;
+          const built = UI.parts.choicePanel(host, {
+            prompt: p.prompt, options, place,
+            promptClone: copied ? copied.querySelector('.kit-box') : null,
+          });
+          const list = built.list;
+          if (place) {
+            host.setAttribute('data-place', place);
+            // Where that line was, or where a line would go now.
+            host.setAttribute('data-position', (said && said.getAttribute('data-position')) || DL.place('bottom', p.preview ? null : heroFraction(), KIT.look.get('dialogue.at', 'bottom')));
+          }
+          // The line's own background comes with its box: no window, or the
+          // game dimmed behind it, stays so while the question is asked.
+          const bg = copied && copied.getAttribute('data-bg');
+          if (bg && bg !== 'window') host.setAttribute('data-bg', bg);
+          if (place === 'beside-box') besideOrOver(host, built.promptBox, list.parentElement);
+          if (place && place !== 'in-box') clearOfTab(built.promptBox, list.parentElement);
+          if (faceWas) keepFace(faceWas, built.promptBox, place === 'in-box' ? null : list.parentElement, host);
+          if (said) { said.removeAttribute('data-linger'); said.hidden = true; }
           UI.select(list, index);
           this._list = list;
           this._off = UI.onAction(host, (action, el) => {
@@ -20466,14 +21118,34 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
           this._pick = pick;
           this._cancel = p.cancel || 'none';
         },
-        exit() { if (host) { host.hidden = true; UI.clear(host); } if (this._off) this._off(); },
+        exit() {
+          if (host) {
+            host.hidden = true;
+            UI.clear(host);
+            for (const a of ['data-place', 'data-position', 'data-bg', 'data-over']) host.removeAttribute(a);
+          }
+          // The question's box stood where the message box stands: an answer
+          // said straight after carries the conversation on, it does not open
+          // the box again.
+          if (talk) { wasUp(talk); talk = null; }
+          if (this._off) this._off();
+        },
         input(ev) {
           const arrow = ev.key === 'up' || ev.key === 'down' || ev.key === 'left' || ev.key === 'right';
-          // Answers side by side, or in a grid, move the way the arrow points:
-          // in reading order, ▼ in a grid of two went to the next answer, up and
-          // across, rather than the one underneath it.
-          if (arrow && KIT.look.get('choice.layout', 'column') !== 'column') {
-            const next = UI.nav(Array.from(this._list.children, (b) => b.getBoundingClientRect()), index, ev.key, true);
+          // Answers side by side — a row, a grid, Yes and No inside the box —
+          // move the way the arrow points: in reading order, ▼ in a grid of two
+          // went to the next answer, up and across, rather than the one
+          // underneath it. Answers in one column step up and down the list as
+          // they always have, with ◀ and ▶ too. Which it is, is read off where
+          // the answers are, not off the look alone: a row too narrow for its
+          // answers wraps them into a column.
+          const rects = arrow ? Array.from(this._list.children, (b) => b.getBoundingClientRect()) : [];
+          if (arrow && rects.some(r => Math.abs(r.left - rects[0].left) >= 1)) {
+            let next = UI.nav(rects, index, ev.key, true);
+            // ◀ and ▶ always move. In a row wrapped one answer to a line (long
+            // answers in a narrow box) there is nothing beside the chosen one,
+            // and they step along the answers as they do in a column.
+            if (next === index && (ev.key === 'left' || ev.key === 'right')) next = (index + (ev.key === 'left' ? -1 : 1) + options.length) % options.length;
             if (next !== index) { index = next; UI.select(this._list, index); KIT.look.sound('move'); }
             return true;
           }
@@ -20639,6 +21311,7 @@ textarea.ed-json.ed-paste { min-height: 72px; max-height: 96px; white-space: pre
         enter(params) {
           const p = params || {};
           host = UI.el('dialogue');
+          host.removeAttribute('data-linger');           // the host is this scene's now, not a line's waiting for a question
           host.hidden = false;
           host.setAttribute('data-bg', 'dim');
           host.classList.add('is-scroll');
@@ -29443,6 +30116,51 @@ PKMN.TILES.register([
     }
   };
 
+  // ---- the game's own fonts (project.fonts) ----------------------------------------
+  // A font is a file brought into the game (KIT.import.image.fontsFrom), kept
+  // as a data: URI so the game works offline; the look names it by its id.
+  // The table is made by a write of its own, like a look's parents, so undoing
+  // the first font leaves no empty `fonts: {}` behind.
+
+  /**
+   * addFont(doc, { id, name, src, pixel, px }) -> the id it is kept under.
+   * The same file twice is the one font, not two; a different file wanting a
+   * name already used gets the next free one (one-glyph-2), and the name is
+   * cut first so that one is still an id a look can name (64 letters at most).
+   */
+  LOOK.addFont = function (doc, font) {
+    const have = doc.get(['fonts']);
+    if (KIT.isObject(have)) {
+      const same = Object.keys(have).find(id => KIT.isObject(have[id]) && have[id].src === font.src);
+      if (same) return same;
+    } else doc.set(['fonts'], {}, { label: 'Look' });
+    const id = O.uniqueKey(doc.get(['fonts']), String(font.id || 'font').slice(0, 60).replace(/[-._:]+$/, '') || 'font');
+    const value = { name: font.name || id, src: font.src, pixel: !!font.pixel };
+    if (typeof font.px === 'number') value.px = font.px;
+    doc.set(['fonts', id], value, { label: 'Look' });
+    return id;
+  };
+
+  /**
+   * editFont(doc, id, patch) — change what is said about one of the game's
+   * fonts (`{ pixel: true, px: 8 }`), or with `null`, take it out of the game.
+   * A font taken out takes its uses in the look with it: the letters it drew
+   * go back to the look's own, rather than naming a font that is not there.
+   */
+  LOOK.editFont = function (doc, id, patch) {
+    if (!KIT.isObject(doc.get(['fonts', id]))) return;
+    if (patch !== null) {
+      for (const k of Object.keys(patch)) {
+        if (patch[k] === undefined) { if (doc.has(['fonts', id, k])) doc.del(['fonts', id, k], { label: 'Look' }); }
+        else if (!KIT.deepEqual(doc.get(['fonts', id, k]), patch[k])) doc.set(['fonts', id, k], patch[k], { label: 'Look' });
+      }
+      return;
+    }
+    for (const f of KIT.look.TOKENS) if (f.type === 'font' && doc.get(uiPath(['tokens', f.key])) === id) LOOK.reset(doc, ['tokens', f.key]);
+    doc.del(['fonts', id], { label: 'Look' });
+    if (!Object.keys(doc.get(['fonts']) || {}).length) doc.del(['fonts'], { label: 'Look' });
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -31897,26 +32615,59 @@ PKMN.TILES.register([
     ta.style.height = 'auto';
     ta.style.height = Math.min(320, Math.max(64, ta.scrollHeight + 2)) + 'px';
   }
+  /**
+   * messagePages(str, project) -> the pages the message box makes of a line, as
+   * rows of text: as many lines to a page as the game's look puts in the box,
+   * about as many letters to a line as a phone's box holds (fewer in a
+   * narrower box), and the look's mark ("* ") in front of each line the author
+   * started, with the lines it wraps onto lined up after it. In a look whose
+   * page scrolls up a line (Handheld), a page is what one press of A shows:
+   * the line before it kept at the top, one new line under it.
+   */
+  function messagePages(str, project) {
+    const look = KIT.look;
+    const per = look ? look.get('dialogue.lines', 3) : 3;
+    const prefix = Array.from(look ? look.get('dialogue.prefix', '') : '');
+    const lay = { width: Math.round(28 * (look ? look.get('dialogue.width', 100) : 100) / 100) - prefix.length, lines: per, measure: (s) => s.length };
+    const spans = KIT.text.tokenize(KIT.text.substitute(str, { project }));
+    const DL = KIT.dialogueLayout;
+    const mark = prefix.length && DL;
+    const marked = mark ? DL.lines(spans, lay) : { lines: KIT.text.wrap(spans, lay), starts: new Set() };
+    const rows = marked.lines.map((line, i) => (mark ? (marked.starts.has(i) ? prefix.join('') : ' '.repeat(prefix.length)) : '')
+      + line.map(sp => (sp.type === 'text' ? sp.text : (sp.type === 'icon' ? '◆' : ''))).join(''));
+    return DL && DL.pages ? DL.pages(rows, per, pageTurn()).map(w => w.lines) : KIT.text.paginate(rows, per);
+  }
+  INS.messagePages = messagePages;
+  const pageTurn = () => (KIT.look ? KIT.look.get('dialogue.pageTurn', 'clear') : 'clear');
+  /** What the pages depend on in the look: when any of it changes, they are drawn again. */
+  const pagesKey = () => (KIT.look ? JSON.stringify(['lines', 'prefix', 'width', 'pageTurn'].map(k => KIT.look.get('dialogue.' + k, null))) : '');
+
   FE.add({
+    // A `text` field whose words are shown in the message box (`display:
+    // 'message'`: what a Show Text says, a sign, a person's line) shows the
+    // pages the box will make of them as they are typed. Any other text — an
+    // item's description, a note, a chapter's title — never goes in the box,
+    // and pages it will never have would only mislead.
     id: 'text', types: ['text'],
     mount(el, f, value, onChange, ctx) {
       const ta = make('textarea.ed-grow');
       ta.rows = 2;
       ta.value = value == null ? '' : String(value);
+      const message = f.display === 'message';
       const preview = make('div.ed-preview');
+      const hint = make('div.ed-hint');
       const draw = () => {
+        if (!message) return;
+        hint.textContent = pageTurn() === 'scroll' ? 'How the message box will show it, a press of A at a time (each scrolls up a line):' : 'How the message box will break it:';
         clear(preview);
         const str = ta.value;
         if (!str.trim()) { preview.hidden = true; return; }
         preview.hidden = false;
         let pages = [[]];
-        try {
-          const out = KIT.text.render(str, { project: ctx && ctx.project }, { width: 28, lines: 3, measure: (s) => s.length });
-          pages = (out[0] && out[0].pages) || [[]];
-        } catch (e) { pages = [[[{ type: 'text', text: str }]]]; }
+        try { pages = messagePages(str, ctx && ctx.project); } catch (e) { pages = [[str]]; }
         pages.forEach((page, i) => {
           const box = make('div.ed-preview-box');
-          for (const line of page) box.appendChild(make('div.ed-preview-line', { text: line.map(sp => (sp.type === 'text' ? sp.text : (sp.type === 'icon' ? '◆' : ''))).join('') || ' ' }));
+          for (const line of page) box.appendChild(make('div.ed-preview-line', { text: line || ' ' }));
           if (pages.length > 1) box.appendChild(make('div.ed-preview-page', { text: `▼ ${i + 1}/${pages.length}` }));
           preview.appendChild(box);
         });
@@ -31925,8 +32676,21 @@ PKMN.TILES.register([
       ta.oninput = () => { autoGrow(ta); draw(); t.push(ta.value); };
       ta.onblur = () => t.flush();
       el.appendChild(ta);
-      el.appendChild(make('div.ed-hint', { text: 'How the message box will break it:' }));
-      el.appendChild(preview);
+      if (message) {
+        el.appendChild(hint);
+        el.appendChild(preview);
+        // The pages are the look's. A look changed in the Look group and come
+        // back from shows its own pages here, not the ones the form was drawn
+        // with. A form that has gone from the page stops listening.
+        let key = pagesKey();
+        if (KIT.look && KIT.look.events) {
+          const off = KIT.look.events.on('applied', () => {
+            if (preview.isConnected === false) { off(); return; }
+            const now = pagesKey();
+            if (now !== key) { key = now; draw(); }
+          });
+        }
+      }
       setTimeout(() => autoGrow(ta), 0);
       draw();
       return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== ta && ta.value !== s) { ta.value = s; autoGrow(ta); draw(); } } };
@@ -31974,7 +32738,17 @@ PKMN.TILES.register([
       let last = value;
       const commit = (v) => { if (v !== last) { last = v; onChange(v); } };
       const t = typed(commit);
-      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); commit(v); };
+      // Sums of decimals are not exact in binary: from 1.6, a step of 0.05 was
+      // 1.6500000000000001, and the box showed it and the game kept it. A step
+      // lands on as many decimals as the step, or the number it started from,
+      // has (up to six, which also cleans a number kept with the noise in it).
+      const places = (n) => Math.min(6, (String(n).split('.')[1] || '').length);
+      const step = (d) => {
+        const from = Number(input.value) || 0;
+        const v = clampV(Number((from + d).toFixed(Math.max(places(d), places(from)))));
+        input.value = String(v);
+        commit(v);
+      };
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
@@ -32086,6 +32860,44 @@ PKMN.TILES.register([
       paintNone(value);
       el.appendChild(row);
       return { set(v) { if (document.activeElement !== hex) { hex.value = v == null ? '' : String(v); hex.classList.toggle('is-bad', false); } const c = shown(v); if (c) swatch.value = c; paintNone(v); } };
+    },
+  });
+
+  // ---- font ------------------------------------------------------------------------
+  /** What the look's font words are called here, in the words of somebody making a game. */
+  const FONT_WORDS = [['system', 'Plain'], ['pixel', 'Pixel'], ['mono', 'Typewriter'], ['serif', 'Book'], ['rounded', 'Rounded']];
+  FE.add({
+    // A look's font: one chip for each of the game's own fonts, then the five
+    // the kit has without a file, each written in itself so the choice is
+    // seen rather than read; a nullable one has a chip for none (`noneLabel`).
+    // "Add a font…" is there when the form can bring one in
+    // (`ctx.addFont(field)`), so a font is added from where it is wanted.
+    // There is no chip to type a family's name: a look's font is one of the
+    // game's own or one of the words (KIT.look.sanitize drops anything else),
+    // so a typed name would be thrown away. A voice's font, which can be any
+    // family, is the place for one, when voices have a form of their own.
+    id: 'font', types: ['font'],
+    mount(el, f, value, onChange, ctx) {
+      const c = ctx || {};
+      const fonts = c.project && KIT.isObject(c.project.fonts) ? c.project.fonts : {};
+      const family = (v) => (KIT.look && KIT.look.family ? KIT.look.family(v, fonts) : '');
+      const own = Object.keys(fonts).sort().filter(id => family(id) !== id).map(id => ({ value: id, label: (fonts[id] && fonts[id].name) || id }));
+      const options = own.concat(FONT_WORDS.map(([value, label]) => ({ value, label })));
+      if (f.nullable) options.push({ value: null, label: f.noneLabel || 'None' });
+      // A font the game no longer has keeps a chip, so what is chosen is never invisible.
+      if (value != null && !options.some(o => o.value === value)) options.unshift({ value, label: `${value} (not in this game)` });
+      let cur = value;
+      const chips = chipRow(options, (v) => { cur = v; chips.paint(v); onChange(v); });
+      Array.from(chips.el.children).forEach((b, i) => { if (options[i].value != null) b.style.fontFamily = family(options[i].value); });
+      if (typeof c.addFont === 'function') {
+        const add = make('button.ed-chip.ed-font-add', { text: 'Add a font…' });
+        add.type = 'button';
+        add.onclick = (e) => { e.preventDefault(); c.addFont(f); };
+        chips.el.appendChild(add);
+      }
+      chips.paint(cur);
+      el.appendChild(chips.el);
+      return { set(v) { cur = v; chips.paint(v); } };
     },
   });
 
@@ -36122,6 +36934,11 @@ PKMN.TILES.register([
       try { kind = KIT.import.aseprite.detect(f.text); } catch (e) { kind = null; }
       if (kind === 'sheet') return { tool: 'aseprite', kind: 'sheet', label: `Aseprite sheet ${base(f.name)}`, main: f, files: [f], images, problems };
     }
+    // Fonts, on their own: the game's own letters (Look › Fonts uses them).
+    const fonts = list.filter(f => KIT.import.image && KIT.import.image.FONT_EXT.test(base(f.name)));
+    if (fonts.length && list.length === fonts.length) {
+      return { tool: 'font', kind: 'font', label: `Font ${base(fonts[0].name)}${fonts.length > 1 ? ` and ${fonts.length - 1} more` : ''}`, main: fonts[0], files: fonts, images, problems };
+    }
     const audio = list.filter(f => KIT.import.image && KIT.import.image.AUDIO_EXT.test(base(f.name)));
     if (audio.length && list.length === audio.length) {
       return { tool: 'audio', kind: 'audio', label: `Sound ${base(audio[0].name)}${audio.length > 1 ? ` and ${audio.length - 1} more` : ''}`, main: audio[0], files: audio, images, problems };
@@ -36131,7 +36948,7 @@ PKMN.TILES.register([
       // slicer asks how it is cut and does the rest.
       return { tool: 'image', kind: 'sheet', label: `Image ${base(images[0].name)}`, main: images[0], files: list, images, problems };
     } else {
-      problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, or an RPG Maker MV/MZ data folder.', where: {} });
+      problems.push({ severity: 'warn', code: 'unknown-format', message: 'That is not a Tiled map or tileset, an Aseprite sheet or document, an RPG Maker MV/MZ data folder, a picture, a sound or a font.', where: {} });
     }
     return { tool: null, kind: null, label: 'Nothing recognised', main: null, files: list, images, problems };
   };
@@ -37085,7 +37902,7 @@ PKMN.TILES.register([
         clear(el.report);
         el.report.appendChild(make('div.ed-problem', { text: `Those files could not be read: ${err && err.message ? err.message : err}` }));
       });
-      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — or music and sound effects (.ogg, .mp3, .wav). Everything is embedded, so nothing depends on where the file lived.' }));
+      host.appendChild(make('div.ed-hint', { text: 'Bring in a Tiled map (.tmj/.tmx + its tilesets), an RPG Maker MV/MZ data folder, Aseprite art, a Pokémon Essentials PBS file (pokemon.txt, encounters.txt), a PNG on its own — cut into tiles or a walking character — music and sound effects (.ogg, .mp3, .wav), or fonts (.ttf, .otf, .woff, .woff2) for Look › Fonts. Everything is embedded, so nothing depends on where the file lived.' }));
       el.drop = make('div.ed-drop');
       el.drop.appendChild(make('div.ed-drop-big', { text: '⤓' }));
       el.drop.appendChild(make('div', { text: 'Drop files here' }));
@@ -37327,7 +38144,8 @@ PKMN.TILES.register([
       catch (e) { unreadable.push(name); continue; }
       const isImage = IMAGE_EXT.test(name);
       const isAudio = !!(KIT.import.image && KIT.import.image.AUDIO_EXT.test(name));
-      const isBinary = isImage || isAudio || /\.(aseprite|ase)$/i.test(name);
+      const isFont = !!(KIT.import.image && KIT.import.image.FONT_EXT.test(name));
+      const isBinary = isImage || isAudio || isFont || /\.(aseprite|ase)$/i.test(name);
       let text = null;
       if (!isBinary) { try { text = new TextDecoder().decode(bytes); } catch (e) { text = null; } }
       files.push({ name, bytes, text, type: f.type });
@@ -37366,11 +38184,7 @@ PKMN.TILES.register([
       },
     };
   }
-  function bytesToBase64(bytes) {
-    let s = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return btoa(s);
-  }
+  const bytesToBase64 = (bytes) => KIT.import.image.base64(bytes);
   /** Synchronous inflate in the browser: the Aseprite importer carries its own. */
   function inflate(bytes, method) {
     const A = KIT.import.aseprite;
@@ -37410,6 +38224,7 @@ PKMN.TILES.register([
     }
     if (found.tool === 'image') { showImageForm(panel, found); return; }
     if (found.tool === 'audio') { showAudioForm(panel, found); return; }
+    if (found.tool === 'font') { finishImport(panel, found, KIT.import.image.fontsFrom(found.files), { missing: [] }); return; }
     const assets = assetResolver(files, prefix);
     const p = project();
     const mapId = (name) => {
@@ -37463,7 +38278,8 @@ PKMN.TILES.register([
   }
 
   const COUNTS = [['maps', 'map'], ['objects', 'event'], ['tiles', 'tile'], ['sprites', 'sprite'], ['faces', 'face'], ['icons', 'icon'],
-    ['animations', 'animation'], ['assets', 'image'], ['scripts', 'script'], ['vars', 'variable'], ['items', 'item'], ['terrains', 'terrain'], ['autotiles', 'autotile group']];
+    ['animations', 'animation'], ['assets', 'image'], ['scripts', 'script'], ['vars', 'variable'], ['items', 'item'], ['terrains', 'terrain'], ['autotiles', 'autotile group'],
+    ['sounds', 'sound'], ['music', 'track'], ['fonts', 'font']];
   function countLine(counts) {
     const parts = [];
     for (const [key, label] of COUNTS) if (counts[key]) parts.push(`${counts[key]} ${label}${counts[key] === 1 ? '' : 's'}`);
@@ -37811,15 +38627,28 @@ PKMN.TILES.register([
   };
 
   const SAMPLE = 'Hello! This is how talking looks.\nA {color:#e04848}coloured{/color} word, a {fx:wave}wavy{/fx} one, and a {pause:300}pause.';
+  // Short lines, one to a line of the box, for as many lines as a page can hold (six at most).
+  const SCROLLING = ['Tap, and the next line', 'comes up from under the box', 'while the one above it', 'moves up out of the way.', 'Only the new line types.', 'That is the scroll.'];
 
   /**
-   * sample(project) -> { who, face, text } — the line the preview types: the
-   * first line in the game said by somebody, preferring one with a portrait,
-   * so an author sees their own people talking in the look; when there is
-   * none, a line that shows a colour, an effect and a pause, said by the first
-   * of the cast (or Mira).
+   * sample(project, look) -> { who, face, text } — the line the preview types:
+   * the first line in the game said by somebody, preferring one with a
+   * portrait, so an author sees their own people talking in the look; when
+   * there is none, a line that shows a colour, an effect and a pause, said by
+   * the first of the cast (or Mira).
+   *
+   * A page that scrolls up a line shows it only when the next page comes, and
+   * a game's first line is often one page: Try's tap on it closed the box, and
+   * Scrolls up a line seemed to do nothing. So with a `look` that scrolls, the
+   * line goes on for a page's worth of lines more, and a tap scrolls.
    */
-  function sample(project) {
+  function sample(project, look) {
+    const line = firstLine(project);
+    const d = look && look.dialogue;
+    if (d && d.pageTurn === 'scroll') line.text += '\n' + SCROLLING.slice(0, d.lines || 3).join('\n');
+    return line;
+  }
+  function firstLine(project) {
     const p = project || {};
     let best = null;
     const visit = (v, depth) => {
@@ -37931,6 +38760,9 @@ PKMN.TILES.register([
       // A web font's stylesheet is the page's to fetch, once; the fonts it
       // declares reach the shadow root by name.
       if (node.tagName === 'LINK' && /^(https?:)?\/\//i.test(node.getAttribute('href') || '')) continue;
+      // The game's own fonts too: declared in the page, they reach the shadow
+      // root by name, and a copy here is every font file read twice.
+      if (node.id === 'kit-look-fonts') continue;
       const copy = node.cloneNode(true);
       if (copy.tagName === 'LINK') loads.push(new Promise((res) => { copy.onload = res; copy.onerror = res; setTimeout(res, 1500); }));
       if (node.id === 'kit-look') lookStyle = copy;
@@ -38025,7 +38857,8 @@ PKMN.TILES.register([
      */
     function talk(short, bg) {
       const p = project();
-      const line = sample(p);
+      // The Pad tab's strip of a screen has no room for a second page.
+      const line = sample(p, short ? null : KIT.look.current());
       const ctx = KIT.interpreter && KIT.interpreter.fakeCtx ? KIT.interpreter.fakeCtx({ project: p }) : null;
       const who = ctx ? KIT.text.substitute(line.who, ctx) : line.who;
       const said = KIT.cast && KIT.cast.speaker ? KIT.cast.speaker(p, { who, text: line.text }) : { who, text: line.text };
@@ -38130,10 +38963,17 @@ PKMN.TILES.register([
     // there asks for (the name box's, and the darkness behind a dimmed line).
     const DRAW = { talk, choice, menu, title, toast, pad() { pad.hidden = false; talk(true); }, name: nameBox, dim() { talk(false, 'dim'); } };
 
-    /** What a tab draws depends on; when the look changes any of it, the tab is drawn again. */
+    /**
+     * What a tab draws depends on; when the look changes any of it, the tab is
+     * drawn again. Talk is wrapped by measuring its letters, so a new font, a
+     * new size or a pixel font's own size is a new talk, not the old line
+     * breaks in new letters.
+     */
     function signature() {
-      const look = KIT.look.current();
-      const parts = { talk: [look.dialogue, look.voice], pad: [look.dialogue, look.voice], dim: [look.dialogue, look.voice], choice: [look.choice], menu: [look.menu], title: [], toast: [look.toast], name: [] };
+      const look = KIT.look.current(), t = look.tokens;
+      const fonts = project().fonts;
+      const words = [look.dialogue, look.voice, t.fontText, t.textSize, t.lineHeight, KIT.look.family(t.fontText, fonts), fonts && fonts[t.fontText] ? [fonts[t.fontText].pixel, fonts[t.fontText].px] : null];
+      const parts = { talk: words, pad: words, dim: words, choice: [look.choice, look.dialogue.at], menu: [look.menu], title: [], toast: [look.toast], name: [] };
       return JSON.stringify([state.tab, parts[state.tab]]);
     }
 
@@ -38224,11 +39064,16 @@ PKMN.TILES.register([
     // ---- keeping up with the look -----------------------------------------------------
     const offApplied = KIT.look.events.on('applied', (ev) => {
       if (!alive) return;
-      lookStyle.textContent = ev.css;
+      // Written only when it changed, like the page's own (the fonts are the
+      // page's, in #kit-look-fonts).
+      if (lookStyle.textContent !== ev.css) lookStyle.textContent = ev.css;
       syncFlags();
-      if (signature() !== sig) draw();
+      // A font the look has just started using is waited for before the talk
+      // is measured again (fontsReady gives up after a moment and it is drawn
+      // in the stand-in).
+      KIT.look.fontsReady().then(() => { if (alive && signature() !== sig) draw(); });
     });
-    lookStyle.textContent = KIT.look.css(project());
+    lookStyle.textContent = KIT.look.css(project(), { faces: false });
 
     function frameStep(t) {
       raf = 0;
@@ -38269,11 +39114,11 @@ PKMN.TILES.register([
 // Its own group, beside Map, Story and Game (ADR-0017). The top half of the
 // phone is a live preview of the game screen (js/kit/editor/look-preview.js),
 // the sheet under it is this: a row of looks to start from, then the parts of
-// the interface one at a time — colours, the message box, the answers to a
-// question, the cursor, the pause menu, the toast, the on-screen buttons and
-// the sounds. Every section is a form drawn from the look's own field lists
-// (KIT.look.TOKENS and KIT.look.PARTS), so an option added there is an option
-// here, with the words it was given there.
+// the interface one at a time — colours, fonts, the message box, how the words
+// type, the answers to a question, the cursor, the pause menu, the toast, the
+// on-screen buttons and the sounds. Every section is a form drawn from the
+// look's own field lists (KIT.look.TOKENS and KIT.look.PARTS), so an option
+// added there is an option here, with the words it was given there.
 //
 // Every change is seen at once and written once. A control's value goes into
 // a draft; the draft is put on the page (KIT.look.apply) on the next frame,
@@ -38292,12 +39137,18 @@ PKMN.TILES.register([
    * The sections, in the order they are listed. `tab` is what the preview
    * shows while the section is open, so opening "Message box" shows somebody
    * talking; `part` is the KIT.look.PARTS list the section's form is drawn
-   * from; `tokens` are the colours that belong with it.
+   * from (`only` and `skip` share one list between two sections); `tokens`
+   * are the colours, or the fonts, that belong with it. The message box's
+   * options about how the words arrive, not about the box, are Typing's.
    */
+  const TYPING = ['speeds', 'pageTurn'];
+  const FONT_TOKENS = ['fontText', 'fontUi', 'fontName', 'textSize', 'lineHeight'];
   const SECTIONS = [
     { id: 'start', label: 'Start from', tab: 'talk' },
     { id: 'colours', label: 'Colours' },
-    { id: 'box', label: 'Message box', tab: 'talk', part: 'dialogue', hint: 'The box people talk in.' },
+    { id: 'fonts', label: 'Fonts', tab: 'talk', tokens: FONT_TOKENS },
+    { id: 'box', label: 'Message box', tab: 'talk', part: 'dialogue', skip: TYPING, hint: 'The box people talk in.' },
+    { id: 'typing', label: 'Typing', tab: 'talk', part: 'dialogue', only: TYPING },
     { id: 'choice', label: 'Choices', tab: 'choice', part: 'choice', hint: 'The answers when the game asks a question, like Yes and No.' },
     { id: 'cursor', label: 'Cursor', tab: 'menu', part: 'cursor', hint: 'The mark beside the chosen line, in a question or a menu.' },
     { id: 'menu', label: 'Pause menu', tab: 'menu', part: 'menu', hint: 'The menu ☰ opens during the game.' },
@@ -38307,8 +39158,6 @@ PKMN.TILES.register([
   ];
   // The colours an author reaches for first, then the rest behind "More colours".
   const MAIN_COLOURS = ['paper', 'ink', 'frame', 'accent', 'select', 'selectInk', 'dim', 'frameWidth', 'radius'];
-  // Fonts and text size come with the Fonts section, which is still to come.
-  const NOT_YET = ['fontText', 'fontUi', 'fontName', 'textSize', 'lineHeight'];
   /**
    * Where each colour can be seen: the preview tabs that draw it, the first
    * being the one to turn to. Changing "Chosen line" while somebody talks
@@ -38320,7 +39169,11 @@ PKMN.TILES.register([
   const BOXES = ['talk', 'choice', 'menu', 'name', 'pad', 'dim'];
   const LISTS = ['menu', 'choice'];
   const TITLE = ['title'];
+  // The letters of what is said (fontText) are on every tab; the rest of the
+  // Fonts section is drawn where somebody talks, or where names and headings are.
+  const TALK = ['talk', 'pad', 'dim'];
   const SHOWN_IN = {
+    fontUi: ['talk', 'menu', 'title', 'toast', 'pad', 'dim'], fontName: TALK, textSize: TALK, lineHeight: TALK,
     paper: BOXES, ink: BOXES, frame: BOXES, frameWidth: BOXES, radius: BOXES, rim: BOXES, drop: BOXES, shadow: BOXES,
     accent: ['talk', 'choice', 'menu', 'pad', 'dim'], nameInk: ['talk', 'pad', 'dim'], markerInk: ['talk', 'pad', 'dim'], faceBg: ['talk', 'dim'],
     titleInk: ['menu'], valueInk: ['menu'], cursorInk: LISTS, selectFrame: LISTS, select: LISTS, selectInk: LISTS, menuDimAmount: LISTS,
@@ -38337,10 +39190,21 @@ PKMN.TILES.register([
    * where to turn it on, rather than change a colour nobody can see.
    */
   function showColour(key) {
-    const tabs = SHOWN_IN[key];
+    let tabs = SHOWN_IN[key];
+    // Names and menus shows on Talk only in the speaker's name, and in the
+    // menu only in its heading. A look that hides them (Handheld, Soul) shows
+    // it on the title — the game's name and buttons — and the chapter card.
+    if (key === 'fontUi') {
+      const look = L.current();
+      tabs = tabs.filter(t => !(look.dialogue.name === 'none' && TALK.includes(t)) && !(t === 'menu' && look.menu.title === false));
+    }
     if (preview && tabs && !tabs.includes(preview.tab())) preview.show(tabs[0]);
     if ((key === 'select' || key === 'selectFrame') && L.current().cursor.highlight === false) {
       ED.toast('This look has no box round the chosen line, so this colour does not show. Cursor › Box round the chosen line turns it on.');
+    }
+    // The same for the speaker's name, in a look that hides it (Handheld, Soul).
+    if ((key === 'fontName' || key === 'nameInk') && L.current().dialogue.name === 'none') {
+      ED.toast('This look hides the speaker\'s name, so this does not show. Message box › Speaker\'s name shows it.');
     }
   }
   /** Which section a path inside `ui` is set in, for a problem to open and for a tap on the preview. */
@@ -38349,7 +39213,17 @@ PKMN.TILES.register([
     if (!k || k === 'base') return 'start';
     if (k === 'tokens') return (SECTIONS.find(s => (s.tokens || []).includes(key)) || { id: 'colours' }).id;
     if (k === 'sounds' || k === 'voice') return 'sounds';
-    return (SECTIONS.find(s => s.part === k) || { id: 'start' }).id;
+    return (SECTIONS.find(s => s.part === k && (!s.only || s.only.includes(key)) && !(s.skip || []).includes(key)) || { id: 'start' }).id;
+  }
+  /**
+   * sectionFor(path) -> [section, field] for a problem's path in the project:
+   * ['ui', …] is the look, ['fonts', id] one of the game's font files, which
+   * Fonts lists.
+   */
+  function sectionFor(path) {
+    const p = path || [];
+    if (p[0] === 'fonts') return ['fonts', p[1] || null];
+    return [sectionOf(p.slice(1)), p[2] || null];
   }
 
   // Kept outside the panel, so leaving it and coming back finds it as it was.
@@ -38393,8 +39267,18 @@ PKMN.TILES.register([
   function followDocument() {
     const p = ED.state && ED.state.project;
     if (!p) return;
-    const now = JSON.stringify([p.ui || null, Array.from(draft.values())]);
+    const now = JSON.stringify([p.ui || null, fontsKey(p), Array.from(draft.values())]);
     if (now !== applied) { applied = now; showDraft(); }
+  }
+  /**
+   * fontsKey(project) -> the game's fonts, short: an import from Game ›
+   * Import changes them without touching the look, and the page needs their
+   * @font-face all the same. Each file is known by its length, not its
+   * hundreds of kilobytes, since this is asked at every change to the game.
+   */
+  function fontsKey(p) {
+    const fonts = KIT.isObject(p.fonts) ? p.fonts : {};
+    return Object.keys(fonts).sort().map(id => { const f = fonts[id] || {}; return [id, f.name, String(f.src || '').length, f.pixel, f.px]; });
   }
   let following = false;
   function follow() {
@@ -38571,16 +39455,17 @@ PKMN.TILES.register([
 
   /**
    * form(body, at, fields, get, inherited) — one form over `ui[at]` (a part,
-   * or the tokens); `get(look)` is that part of a resolved look. The inherited
-   * values are what ↺ goes back to and what is shown dimmed; putting one back
-   * is a delete, not a copy.
+   * the tokens, or a path inside one: ['dialogue', 'speeds']); `get(look)` is
+   * that part of a resolved look. The inherited values are what ↺ goes back to
+   * and what is shown dimmed; putting one back is a delete, not a copy. A font
+   * field can bring a font in from where it is wanted (addFontFor).
    */
   function form(body, at, fields, get, inherited) {
     const host = make('div');
     body.appendChild(host);
     const f = INS().mount(host, {
-      fields, value: get(panel.now), ctx: { inherited, project: ED.state.project, noneColour: shownColour },
-      onChange: (path, v, info) => change([at].concat(path), v, (info && info.field && info.field.label) || path.join(' ')),
+      fields, value: get(panel.now), ctx: { inherited, project: ED.state.project, noneColour: shownColour, addFont: addFontFor },
+      onChange: (path, v, info) => change([].concat(at, path), v, (info && info.field && info.field.label) || path.join(' ')),
     });
     panel.forms.push({ form: f, get });
   }
@@ -38593,7 +39478,7 @@ PKMN.TILES.register([
   function coloursSection(body, look, inherited) {
     body.appendChild(make('p.ed-hint', { text: 'Tap a colour to pick one, or type it as #rrggbb. Accent is the one to try first: names, the cursor and the chosen line follow it until they have colours of their own.' }));
     tokensForm(body, MAIN_COLOURS, look, inherited);
-    const owned = new Set(MAIN_COLOURS.concat(NOT_YET, ...SECTIONS.map(s => s.tokens || [])));
+    const owned = new Set(MAIN_COLOURS.concat(...SECTIONS.map(s => s.tokens || [])));
     const more = L.TOKENS.filter(t => !owned.has(t.key)).map(t => t.key);
     INS().section(body, 'More colours', moreColours.open, (inner) => {
       inner.appendChild(make('p.ed-hint', { text: 'The finer parts: the speaker\'s name, the “more” mark, the box that asks for a name, the title screen, the chapter card and the screen round the game.' }));
@@ -38603,9 +39488,11 @@ PKMN.TILES.register([
 
   function partSection(body, sec, look, inherited) {
     if (sec.hint) body.appendChild(make('p.ed-hint', { text: sec.hint }));
-    form(body, sec.part, offered(L.PARTS[sec.part]), (now) => now[sec.part], inherited[sec.part]);
-    // A look may hold a choice the game cannot act on yet (Handheld's answers
-    // above the box). No chip is lit for it, so say why, and what it does now.
+    const fields = offered(L.PARTS[sec.part]).filter(f => (!sec.only || sec.only.includes(f.key)) && !(sec.skip || []).includes(f.key));
+    form(body, sec.part, fields, (now) => now[sec.part], inherited[sec.part]);
+    // A look may hold a choice the game cannot act on yet (an enum whose
+    // `later` holds some of its choices back). No chip is lit for it, so say
+    // why, and what it does now.
     for (const f of L.PARTS[sec.part]) {
       if (!Array.isArray(f.later) || !f.later.includes(look[sec.part][f.key])) continue;
       const name = (v) => (f.options.find(o => o.value === v) || { label: v }).label;
@@ -38679,6 +39566,118 @@ PKMN.TILES.register([
     });
   }
 
+  // ---- fonts ---------------------------------------------------------------------
+  // The game's own font files (project.fonts), kept inside the game as data,
+  // then the look's choice of font for what is said and for names and menus.
+  // A font is brought in with the section's file picker, or from a font chip
+  // ("Add a font…"), which then uses it where it was tapped.
+  let fontInput = null;
+  let fontFor = null;                 // the font field that asked for a file, if one did
+
+  /** addFontFor(field) — the font field's "Add a font…": pick a file, and use it there. */
+  function addFontFor(field) {
+    if (!fontInput) return;
+    fontFor = field ? field.key : null;
+    fontInput.click();
+  }
+
+  /**
+   * addFonts(files, field) — read the picked files, bring the fonts in as ONE
+   * undo step, and use the first where it was asked for. What is not a font
+   * is said, not dropped in silence.
+   */
+  async function addFonts(list, field) {
+    const files = [];
+    for (const f of list) {
+      try { files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }); }
+      catch (e) { ED.toast(`“${f.name}” could not be read`); }
+    }
+    const res = KIT.import.image.fontsFrom(files);
+    const found = Object.keys(res.fonts);
+    if (res.problems.length) ED.toast(res.problems.map(q => q.message).join('. '));
+    if (!found.length) return;
+    ED.flushPending();
+    ED.commit(`Look: add font ${res.fonts[found[0]].name}`, (doc, O) => {
+      const got = found.map(id => O.look.addFont(doc, Object.assign({ id }, res.fonts[id])));
+      if (field) O.look.set(doc, ['tokens', field], got[0]);
+    });
+    const name = res.fonts[found[0]].name + (found.length > 1 ? ` and ${found.length - 1} more` : '');
+    const where = field && L.TOKENS.find(t => t.key === field);
+    ED.toast(where ? `${name} is in the game, for ${where.label.toLowerCase()}.` : `${name} is in the game. Tap it under Message text, or Names and menus, to use it.`);
+  }
+
+  /** One of the game's fonts: its name in itself, its size, pixel or not, and a way to take it out. */
+  function fontRow(id, f, fonts) {
+    const row = make('div.ed-f.ed-look-font');
+    row.dataset.key = id;
+    const head = make('div.ed-look-font-head');
+    const name = make('span.ed-look-font-name', { text: (f && f.name) || id });
+    const usable = L.family(id, fonts) !== id;
+    if (usable) name.style.fontFamily = L.family(id, fonts);
+    head.appendChild(name);
+    const bytes = f && typeof f.src === 'string' ? Math.round((f.src.length - f.src.indexOf(',') - 1) * 3 / 4) : 0;
+    head.appendChild(make('span.ed-sub', { text: `${Math.max(1, Math.round(bytes / 1024))} KB` }));
+    row.appendChild(head);
+    // Its file, or its name: either can be what stops it, and Problems says which.
+    if (!usable) row.appendChild(make('div.ed-problem.warn', { text: 'The game cannot use this font, so nothing is written in it. Problems says why.' }));
+    const line = make('div.ed-row.ed-look-font-row');
+    const pixel = btn('Pixel font', 'A font drawn in squares, meant for one size', () => editFont(id, f && f.pixel ? { pixel: false } : { pixel: true, px: (f && f.px) || 8 }, 'pixel font'), 'ed-chip');
+    pixel.setAttribute('aria-pressed', String(!!(f && f.pixel)));
+    line.appendChild(pixel);
+    line.appendChild(btn('Remove', `Take ${(f && f.name) || id} out of the game (↶ brings it back)`, () => editFont(id, null, 'remove font')));
+    row.appendChild(line);
+    if (f && f.pixel) {
+      const size = make('div.ed-look-font-size');
+      size.appendChild(make('span.ed-f-label', { text: 'Drawn at' }));
+      // Taps on − and + are one undo step, like every other control here.
+      let px = f.px || 8;
+      INS().field(size, { key: 'px', label: 'Drawn at', type: 'number', integer: true, min: 4, max: 64, default: 8 }, px, (v) => {
+        px = v;
+        ED.pending('look-font', () => editFont(id, { px }, 'pixel size'), 300);
+      });
+      row.appendChild(size);
+      row.appendChild(make('div.ed-hint', { text: 'The size in pixels its letters were drawn at, usually 8 or 16. The text sizes below round to whole times it, so every square stays sharp.' }));
+    }
+    return row;
+  }
+  function editFont(id, patch, what) {
+    ED.flushPending();
+    ED.commit(`Look: ${what}`, (doc, O) => O.look.editFont(doc, id, patch));
+  }
+
+  function fontsSection(body, look, inherited) {
+    const p = ED.state.project;
+    const fonts = KIT.isObject(p.fonts) ? p.fonts : {};
+    body.appendChild(make('p.ed-hint', { text: 'Bring in a font file — TTF, OTF, WOFF or WOFF2 — and it is kept inside your game, so it works offline and goes wherever the game goes. Then pick where it is used, below.' }));
+    fontInput = make('input.ed-look-font-file');
+    fontInput.type = 'file';
+    fontInput.multiple = true;
+    fontInput.accept = '.ttf,.otf,.woff,.woff2';
+    fontInput.hidden = true;
+    fontInput.setAttribute('aria-label', 'Font files');
+    const input = fontInput;
+    input.onchange = () => {
+      const list = Array.from(input.files || []);
+      const field = fontFor;
+      fontFor = null;
+      input.value = '';
+      if (list.length) addFonts(list, field);
+    };
+    body.appendChild(input);
+    const add = make('div.ed-row');
+    add.appendChild(btn('＋ Add a font…', 'Bring a font file into the game', () => addFontFor(null), 'primary'));
+    body.appendChild(add);
+    for (const id of Object.keys(fonts).sort()) body.appendChild(fontRow(id, fonts[id], fonts));
+    tokensForm(body, FONT_TOKENS, look, inherited);
+  }
+
+  function typingSection(body, inherited) {
+    body.appendChild(make('p.ed-hint', { text: 'How the words arrive. A player picks Slow, Normal or Fast in Settings; these are how many letters a second each one types in your look — about 30 is an easy read, 60 is quick.' }));
+    const speeds = L.PARTS.dialogue.find(f => f.key === 'speeds');
+    form(body, ['dialogue', 'speeds'], speeds.fields, (now) => now.dialogue.speeds, inherited.dialogue.speeds);
+    form(body, 'dialogue', L.PARTS.dialogue.filter(f => f.key === 'pageTurn'), (now) => now.dialogue, inherited.dialogue);
+  }
+
   const lookNow = () => L.resolve(draftProject());
 
   function build(host) {
@@ -38706,6 +39705,8 @@ PKMN.TILES.register([
       host.appendChild(body);
       if (sec.id === 'start') startSection(body, p, look);
       else if (sec.id === 'colours') coloursSection(body, look, inherited);
+      else if (sec.id === 'fonts') fontsSection(body, look, inherited);
+      else if (sec.id === 'typing') typingSection(body, inherited);
       else if (sec.id === 'sounds') soundsSection(body, look, inherited);
       else partSection(body, sec, look, inherited);
     }
@@ -38779,7 +39780,7 @@ PKMN.TILES.register([
       // Problems selects before it opens the panel, and a panel not yet
       // mounted hears no onSelect: the first time, the selection is read here.
       const sel = ED.state.selection;
-      if (sel && sel.kind === 'look') ask(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2]);
+      if (sel && sel.kind === 'look') ask(...sectionFor(sel.path));
       host.classList.add('ed-look');
       this.refresh(ED);
     },
@@ -38787,7 +39788,7 @@ PKMN.TILES.register([
       if (!panel || !panel.host) return;
       const p = ED.state.project;
       followDocument();
-      const sig = JSON.stringify([state.open, (KIT.isObject(p.ui) && p.ui.base) || 'kit', Object.keys(KIT.isObject(p.looks) ? p.looks : {})]);
+      const sig = JSON.stringify([state.open, (KIT.isObject(p.ui) && p.ui.base) || 'kit', Object.keys(KIT.isObject(p.looks) ? p.looks : {}), fontsKey(p)]);
       if (sig === panel.sig) { refreshForms(lookNow()); showField(panel.host); return; }
       if (INS().typingIn(panel.host)) return;
       panel.sig = sig;
@@ -38795,7 +39796,7 @@ PKMN.TILES.register([
     },
     onSelect(sel) {
       // A problem in the look, picked in Problems, opens the section it is in.
-      if (sel && sel.kind === 'look') openSection(sectionOf((sel.path || []).slice(1)), (sel.path || [])[2] || null);
+      if (sel && sel.kind === 'look') openSection(...sectionFor(sel.path));
     },
     stage(el) {
       preview = ED.lookPreview.mount(el, {
@@ -38808,7 +39809,7 @@ PKMN.TILES.register([
     },
   });
 
-  ED.lookPanel = { sectionOf };
+  ED.lookPanel = { sectionOf, sectionFor };
   follow();
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;

@@ -49,15 +49,28 @@
   };
 
   const SAMPLE = 'Hello! This is how talking looks.\nA {color:#e04848}coloured{/color} word, a {fx:wave}wavy{/fx} one, and a {pause:300}pause.';
+  // Short lines, one to a line of the box, for as many lines as a page can hold (six at most).
+  const SCROLLING = ['Tap, and the next line', 'comes up from under the box', 'while the one above it', 'moves up out of the way.', 'Only the new line types.', 'That is the scroll.'];
 
   /**
-   * sample(project) -> { who, face, text } — the line the preview types: the
-   * first line in the game said by somebody, preferring one with a portrait,
-   * so an author sees their own people talking in the look; when there is
-   * none, a line that shows a colour, an effect and a pause, said by the first
-   * of the cast (or Mira).
+   * sample(project, look) -> { who, face, text } — the line the preview types:
+   * the first line in the game said by somebody, preferring one with a
+   * portrait, so an author sees their own people talking in the look; when
+   * there is none, a line that shows a colour, an effect and a pause, said by
+   * the first of the cast (or Mira).
+   *
+   * A page that scrolls up a line shows it only when the next page comes, and
+   * a game's first line is often one page: Try's tap on it closed the box, and
+   * Scrolls up a line seemed to do nothing. So with a `look` that scrolls, the
+   * line goes on for a page's worth of lines more, and a tap scrolls.
    */
-  function sample(project) {
+  function sample(project, look) {
+    const line = firstLine(project);
+    const d = look && look.dialogue;
+    if (d && d.pageTurn === 'scroll') line.text += '\n' + SCROLLING.slice(0, d.lines || 3).join('\n');
+    return line;
+  }
+  function firstLine(project) {
     const p = project || {};
     let best = null;
     const visit = (v, depth) => {
@@ -169,6 +182,9 @@
       // A web font's stylesheet is the page's to fetch, once; the fonts it
       // declares reach the shadow root by name.
       if (node.tagName === 'LINK' && /^(https?:)?\/\//i.test(node.getAttribute('href') || '')) continue;
+      // The game's own fonts too: declared in the page, they reach the shadow
+      // root by name, and a copy here is every font file read twice.
+      if (node.id === 'kit-look-fonts') continue;
       const copy = node.cloneNode(true);
       if (copy.tagName === 'LINK') loads.push(new Promise((res) => { copy.onload = res; copy.onerror = res; setTimeout(res, 1500); }));
       if (node.id === 'kit-look') lookStyle = copy;
@@ -263,7 +279,8 @@
      */
     function talk(short, bg) {
       const p = project();
-      const line = sample(p);
+      // The Pad tab's strip of a screen has no room for a second page.
+      const line = sample(p, short ? null : KIT.look.current());
       const ctx = KIT.interpreter && KIT.interpreter.fakeCtx ? KIT.interpreter.fakeCtx({ project: p }) : null;
       const who = ctx ? KIT.text.substitute(line.who, ctx) : line.who;
       const said = KIT.cast && KIT.cast.speaker ? KIT.cast.speaker(p, { who, text: line.text }) : { who, text: line.text };
@@ -368,10 +385,17 @@
     // there asks for (the name box's, and the darkness behind a dimmed line).
     const DRAW = { talk, choice, menu, title, toast, pad() { pad.hidden = false; talk(true); }, name: nameBox, dim() { talk(false, 'dim'); } };
 
-    /** What a tab draws depends on; when the look changes any of it, the tab is drawn again. */
+    /**
+     * What a tab draws depends on; when the look changes any of it, the tab is
+     * drawn again. Talk is wrapped by measuring its letters, so a new font, a
+     * new size or a pixel font's own size is a new talk, not the old line
+     * breaks in new letters.
+     */
     function signature() {
-      const look = KIT.look.current();
-      const parts = { talk: [look.dialogue, look.voice], pad: [look.dialogue, look.voice], dim: [look.dialogue, look.voice], choice: [look.choice], menu: [look.menu], title: [], toast: [look.toast], name: [] };
+      const look = KIT.look.current(), t = look.tokens;
+      const fonts = project().fonts;
+      const words = [look.dialogue, look.voice, t.fontText, t.textSize, t.lineHeight, KIT.look.family(t.fontText, fonts), fonts && fonts[t.fontText] ? [fonts[t.fontText].pixel, fonts[t.fontText].px] : null];
+      const parts = { talk: words, pad: words, dim: words, choice: [look.choice, look.dialogue.at], menu: [look.menu], title: [], toast: [look.toast], name: [] };
       return JSON.stringify([state.tab, parts[state.tab]]);
     }
 
@@ -462,11 +486,16 @@
     // ---- keeping up with the look -----------------------------------------------------
     const offApplied = KIT.look.events.on('applied', (ev) => {
       if (!alive) return;
-      lookStyle.textContent = ev.css;
+      // Written only when it changed, like the page's own (the fonts are the
+      // page's, in #kit-look-fonts).
+      if (lookStyle.textContent !== ev.css) lookStyle.textContent = ev.css;
       syncFlags();
-      if (signature() !== sig) draw();
+      // A font the look has just started using is waited for before the talk
+      // is measured again (fontsReady gives up after a moment and it is drawn
+      // in the stand-in).
+      KIT.look.fontsReady().then(() => { if (alive && signature() !== sig) draw(); });
     });
-    lookStyle.textContent = KIT.look.css(project());
+    lookStyle.textContent = KIT.look.css(project(), { faces: false });
 
     function frameStep(t) {
       raf = 0;

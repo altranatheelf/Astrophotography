@@ -39,6 +39,15 @@
 // Beat 5 is a shorter phone, an iPhone's Safari with its bars showing: the
 // title shrunk to fit the preview, and a toast in the middle kept off the
 // chapter card's words.
+//
+// Beat 6 is fonts and feel, on a phone, with fingers: a font file brought in
+// and used for what people say (and Game › Import knowing it too), Line
+// spacing stepped without stray decimals, a page scrolling up a line in the
+// preview's Try, then Handheld's two-line box whose page scrolls up a line
+// with a sound, Soul's box stepping out of the hero's way and its answers
+// inside the box under the line that asked, Dream's answers in a window
+// beside it (a row kept a row, a long question's box kept whole, a portrait
+// kept in its corner), and a box that pops open only where things may move.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -654,7 +663,7 @@ async function pickALook(browser) {
   const narrow = await page.evaluate(() => { const b = document.querySelector('.ed-group[data-group="problems"]'); return getComputedStyle(b.querySelector('.ed-group-label')).display === 'none' && b.getAttribute('aria-label') === 'Problems'; });
   check(narrow, 'five groups fit: Problems is ⚠ on a phone this narrow, and still called Problems');
   const small = [];
-  for (const id of ['start', 'colours', 'box', 'choice', 'cursor', 'menu', 'toast', 'pad', 'sounds']) {
+  for (const id of ['start', 'colours', 'fonts', 'box', 'typing', 'choice', 'cursor', 'menu', 'toast', 'pad', 'sounds']) {
     await openSection(page, id);
     for (const s of await tooSmall(page)) small.push(`${id}: ${s}`);
   }
@@ -1021,6 +1030,19 @@ async function laptopLook(browser) {
   await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return !!r.querySelector('#dialogue .kit-next.is-ready'); })()`, 'the page is typed again');
   const wide = await lines();
   check(wide < narrow, `the same page takes fewer lines filling the space than a phone wide (${narrow} → ${wide})`);
+  // The sheet is narrower here than on a phone: a font's card keeps its whole
+  // name (on two lines if it must) and its size on one line.
+  await page.locator('.ed-look-section[data-section="fonts"]').click();
+  await page.locator('.ed-look-body .ed-look-font-file').setInputFiles({ name: 'Silkscreen Extra Wide Regular.ttf', mimeType: 'font/ttf', buffer: fs.readFileSync(FONT) });
+  await expect(page, () => !!document.querySelector('.ed-look-font[data-key="silkscreen-extra-wide-regular"]'), 'a font with a long name comes in');
+  const card = await page.evaluate(() => {
+    const row = document.querySelector('.ed-look-font[data-key="silkscreen-extra-wide-regular"]');
+    const name = row.querySelector('.ed-look-font-name'), size = row.querySelector('.ed-look-font-head > .ed-sub');
+    const one = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
+    return { name: name.textContent, cut: name.scrollWidth > name.clientWidth + 1, size: size.textContent, lines: one(size) };
+  });
+  check(!card.cut && /^Silkscreen Extra Wide Regular$/i.test(card.name), `its card shows the whole name ("${card.name}")`);
+  check(card.lines === 1, `and "${card.size}" on one line (${card.lines} line boxes)`);
   beat('4.2', 'nothing broke');
   noErrors(errors);
   await ctx.close();
@@ -1046,6 +1068,365 @@ async function shortPhone(browser) {
   await expect(page, `(() => { const r = document.querySelector('.ed-look-preview').shadowRoot; return r.getElementById('chapter').hasAttribute('data-apart'); })()`, 'Toast › Where › Middle');
   check(await toastOnCard(page) !== true, 'the toast in the middle does not cover the chapter card\'s words');
   beat('5.2', 'nothing broke');
+  noErrors(errors);
+  await ctx.close();
+}
+
+// ---- beat 6: fonts and feel -----------------------------------------------------------
+
+const FONT = path.join(ROOT, 'test', 'fixtures', 'look', 'one-glyph.ttf');
+/** Put a look on the game as it plays, without keeping it: (setup) only. */
+const wear = (page, ui) => page.evaluate((u) => KIT.look.apply(Object.assign({}, KIT.game.project, { ui: u })), ui);
+/** Run a little script on the map, the way an event would; window.__script says when it is done. */
+const script = (page, text) => page.evaluate((t) => {
+  window.__script = 'running';
+  KIT.interpreter.run(KIT.screenplay.parse(t).commands, KIT.game.world.makeCtx(null, 'p1')).then(() => { window.__script = 'done'; });
+}, text);
+const lineTexts = (page) => page.evaluate(() => Array.from(document.querySelectorAll('#dialogue .kit-line')).map(l => l.textContent));
+const ready = (page) => page.waitForFunction(() => KIT.game.scene() !== 'dialogue' || !!document.querySelector('#dialogue:not([hidden]) .kit-next.is-ready'), undefined, { timeout: 8000 });
+
+async function fontsAndFeel(browser) {
+  const { ctx, page, errors } = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+
+  beat('6.1', 'a font of the game\'s own, brought in on the phone');
+  await page.locator('#screen-title [data-action="creator"]').tap();
+  await page.locator('.ed-group[data-group="look"]').tap();
+  await expect(page, () => !!document.querySelector('.ed-stage .ed-look-preview'), 'Look is open');
+  await openSection(page, 'fonts');
+  const h0 = await history(page);
+  await page.locator('.ed-look-body .ed-look-font-file').setInputFiles(FONT);
+  await expect(page, () => document.fonts.check('16px "kitf-one-glyph"') && Array.from(document.fonts).some(f => f.family.replace(/"/g, '') === 'kitf-one-glyph' && f.status === 'loaded'),
+    'within 2 s the page has the font, loaded', undefined, 2000);
+  check(await history(page) === h0 + 1, 'bringing it in was one undo step');
+  await expect(page, () => !!document.querySelector('.ed-look-font[data-key="one-glyph"]'), 'Fonts lists it, with its size');
+  const small = await tooSmall(page);
+  check(small.length === 0, `every control in Fonts is at least 44×44${small.length ? ': ' + small.slice(0, 3).join('; ') : ''}`);
+  // A pixel font asks what size it was drawn at: that stepper is a control a thumb has to hit too.
+  await page.locator('.ed-look-font[data-key="one-glyph"] button', { hasText: 'Pixel font' }).tap();
+  await expect(page, () => !!document.querySelector('.ed-look-font[data-key="one-glyph"] .ed-look-font-size input'), 'Pixel font on: it asks what size it was drawn at');
+  const smallPixel = await tooSmall(page);
+  check(smallPixel.length === 0, `and every control, Drawn at's too, is still at least 44×44${smallPixel.length ? ': ' + smallPixel.slice(0, 3).join('; ') : ''}`);
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= 390), 'with nothing wider than the phone');
+  await page.locator('.ed-look-font[data-key="one-glyph"] button', { hasText: 'Pixel font' }).tap();
+  await expect(page, () => !document.querySelector('.ed-look-font[data-key="one-glyph"] .ed-look-font-size'), 'and off again');
+  await page.locator('.ed-look-body .ed-f[data-key="fontText"] .ed-chip[data-value="one-glyph"]').tap();
+  await expect(page, () => { const t = document.querySelector('.ed-look-preview').shadowRoot.querySelector('#dialogue .kit-text'); return !!t && /^"?kitf-one-glyph"?,/.test(getComputedStyle(t).fontFamily); },
+    'tapped for Message text, the preview\'s words are in it');
+  await page.waitForTimeout(400);
+  check(await page.evaluate(() => KIT.editor.state.project.ui.tokens.fontText) === 'one-glyph', 'and the look keeps it');
+  check(await page.evaluate(() => !document.getElementById('kit-look').textContent.includes('@font-face') && document.getElementById('kit-look-fonts').textContent.startsWith('@font-face{font-family:"kitf-one-glyph"')),
+    'the font is in a stylesheet of its own, apart from the look that changes at every tap');
+  // Line spacing steps by 0.05: six taps on + from 1.45 were 1.7500000000000002, in the box and in the game.
+  const spacing = '.ed-look-body .ed-f[data-key="lineHeight"]';
+  for (let i = 0; i < 6; i++) await page.locator(`${spacing} button[aria-label="More"]`).tap();
+  await page.waitForTimeout(400);
+  const spaced = await page.evaluate((sel) => [document.querySelector(sel + ' input').value, KIT.editor.state.project.ui.tokens.lineHeight], spacing);
+  check(spaced[0] === '1.75' && spaced[1] === 1.75, `six taps on Line spacing + make 1.75, in the box and in the look (${spaced.join(', ')})`);
+  for (let i = 0; i < 6; i++) await page.locator(`${spacing} button[aria-label="Less"]`).tap();
+  await expect(page, () => !('lineHeight' in KIT.editor.state.project.ui.tokens), 'and six on − bring it back to the look\'s own 1.45');
+  // The same file through Game › Import: it knows a font, and that the game has this one.
+  await page.locator('.ed-group[data-group="game"]').tap();
+  const tab = page.locator('.ed-tab[data-panel="import"]');
+  if (await tab.isVisible()) await tab.tap();
+  await page.locator('.ed-panel-body[data-panel="import"] input[type="file"]').setInputFiles(FONT);
+  await expect(page, () => /1 font(?!s)/.test((document.querySelector('.ed-import-report') || {}).textContent || ''), 'Game › Import takes the same file, and its report says "1 font"');
+
+  beat('6.1b', 'Scrolls up a line, tried in the preview, where the game\'s first line fits one page');
+  await page.locator('.ed-group[data-group="look"]').tap();
+  await openSection(page, 'typing');
+  await page.locator('.ed-look-body .ed-f[data-key="pageTurn"] .ed-chip[data-value="scroll"]').tap();
+  await expect(page, () => (KIT.editor.state.project.ui.dialogue || {}).pageTurn === 'scroll', 'Next page › Scrolls up a line');
+  await page.locator('.ed-look-chip[data-preview-mode]').tap();
+  // Each finished page, as a tap on the preview turns it (a tap on a page still typing finishes it).
+  const tried = [];
+  for (let i = 0; i < 8 && tried.length < 2; i++) {
+    const shown = await inPreview(page, (r) => { const d = r.querySelector('#dialogue'); return d && !d.hidden && r.querySelector('#dialogue .kit-next.is-ready') ? Array.from(r.querySelectorAll('#dialogue .kit-line'), (l) => l.textContent) : null; });
+    if (shown && (!tried.length || shown.join('|') !== tried[tried.length - 1].join('|'))) tried.push(shown);
+    await page.locator('.ed-look-preview').tap();
+    await page.waitForTimeout(150);
+  }
+  check(tried.length === 2 && tried[0].length === 3 && tried[1][0] === tried[0][1],
+    `a tap scrolls the page up a line: the new first line is the old second (${JSON.stringify(tried)})`);
+  await page.locator('.ed-look-chip[data-preview-mode]').tap();
+
+  beat('6.2', 'Handheld: two lines, and the page scrolls up a line');
+  await openSection(page, 'start');
+  await page.locator('.ed-look-card[data-look="handheld"]').tap();
+  await page.locator('.ed-look-sheet button', { hasText: 'Start clean' }).tap();
+  await expect(page, () => KIT.editor.state.project.ui && KIT.editor.state.project.ui.base === 'handheld' && !KIT.editor.state.project.ui.tokens, 'the game starts from Handheld, as it comes');
+  // Handheld hides the speaker's name and the menu's heading, so Names and
+  // menus is seen on the title: a tap on one of its fonts turns the preview there.
+  await openSection(page, 'fonts');
+  await page.locator('.ed-look-body .ed-f[data-key="fontUi"] .ed-chip[data-value="mono"]').tap();
+  await expect(page, () => (document.querySelector('.ed-look-chips .ed-look-chip[aria-selected="true"]') || {}).textContent === 'Title',
+    'a font for names and menus, in a look that hides the name, is shown on the title');
+  await page.locator('.ed-look-body .ed-f[data-key="fontUi"] .ed-chip[data-value="pixel"]').tap();
+  await expect(page, () => !KIT.editor.state.project.ui.tokens, 'and put back, Handheld is as it came again');
+  await page.locator('.ed-toolbar .ed-btn[title="Close Creator Mode"]').tap();
+  await expect(page, () => !KIT.editor.isOpen() && KIT.game.scene() === 'title', 'closed, at the title');
+  await page.locator('#screen-title [data-action="new-game"]').tap();
+  const intro = [];
+  for (let i = 0; i < 30; i++) {
+    const s = await page.evaluate(() => ({ top: KIT.game.scene(), busy: !!(KIT.game.world && KIT.game.world.busy), main: KIT.interpreter.mainBusy() }));
+    if (s.top === 'map' && !s.busy && !s.main) break;
+    if (s.top === 'dialogue') {
+      await ready(page);
+      intro.push((await lineTexts(page)).length);
+      await page.locator('#dialogue').tap();
+    }
+    await page.waitForTimeout(120);
+  }
+  check(intro.length >= 1 && intro.every(n => n <= 2), `each of the intro's ${intro.length} page(s) has at most two lines (${intro.join(', ')})`);
+  await page.evaluate(() => {                                                    // (setup) note every sound, and a line long enough for several pages
+    window.__played = [];
+    const play = KIT.audio.play;
+    KIT.audio.play = function (id) { window.__played.push(id); return play.apply(this, arguments); };
+    KIT.game.ports.io.say({ who: 'Mom', text: 'Remember to take the map, the berries, the bus fare and the letter for your aunt, and come home before it gets dark tonight.' });
+  });
+  await ready(page);
+  const before = await lineTexts(page);
+  check(before.length === 2, `a long line: two lines to a page (${before.length})`);
+  await page.evaluate(() => { window.__played.length = 0; });                  // (setup)
+  await pad(page, 'a');
+  await ready(page);
+  const after = await lineTexts(page);
+  check(after[0] === before[1], `A on a finished page scrolls it up: the new first line is the old second ("${after[0]}")`);
+  check(after[1] && after[1] !== before[1], 'and a new line types under it');
+  check((await page.evaluate(() => window.__played)).includes('select'), `the page turn has Handheld's sound (${await page.evaluate(() => window.__played.join(', '))})`);
+  const seen = [before, after];
+  for (let i = 0; i < 10 && await scene(page) === 'dialogue'; i++) {
+    await pad(page, 'a');
+    await ready(page);
+    if (await scene(page) === 'dialogue') seen.push(await lineTexts(page));
+  }
+  await expect(page, () => KIT.game.scene() === 'map', 'the line ends');
+  check(seen.length >= 3 && seen.every(p => p.length <= 2) && seen.every((p, i) => !i || p[0] === seen[i - 1][1]),
+    `all ${seen.length} presses of it: two lines each, each keeping the line before`);
+  // A voice can name one of the game's own fonts by its id, as a look does.
+  await page.evaluate(() => {                                                    // (setup) such a voice, until voices have a form of their own
+    KIT.registry('voices').add({ id: 't-glyph', name: 'Glyph', font: 'one-glyph' });
+    KIT.game.ports.io.say({ text: 'A', voice: 't-glyph' });
+  });
+  await ready(page);
+  const voiceFont = await page.evaluate(() => (document.querySelector('#dialogue .kit-line > span') || { style: {} }).style.fontFamily);
+  check(/^"?kitf-one-glyph"?, /.test(voiceFont || ''), `a voice whose font is the game's own speaks in it (${voiceFont})`);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'map', 'a tap closes it');
+
+  beat('6.3', 'Soul: the box steps out of the hero\'s way');
+  await wear(page, { base: 'soul' });                                            // (setup)
+  const heroAt = (page2, row) => page2.evaluate((r) => {                        // (setup) the hero on a row of the map, the camera on them
+    const w = KIT.game.world, h = w.hero();
+    const y = r === 'bottom' ? w.map.height - 2 : 1;
+    h.y = y; h.py = y;
+    return new Promise((res) => setTimeout(res, 150));
+  }, row);
+  const fraction = () => page.evaluate(() => { const r = KIT.game.renderer, h = KIT.game.world.hero(); return r.tileToScreen(0, h.py + 0.5).y / r.canvas.clientHeight; });
+  await heroAt(page, 'bottom');
+  check(await fraction() > 0.5, `the hero stands in the bottom half of the screen (${(await fraction()).toFixed(2)})`);
+  await page.evaluate(() => { KIT.game.ports.io.say({ text: 'x' }); });        // (setup)
+  await expect(page, () => { const d = document.getElementById('dialogue'); return !d.hidden && d.getAttribute('data-position') === 'top'; }, 'a line meant for the bottom goes to the top');
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'map', 'a tap closes it');
+  await heroAt(page, 'top');
+  await page.evaluate(() => { KIT.game.ports.io.say({ text: 'x' }); });        // (setup)
+  await expect(page, () => { const d = document.getElementById('dialogue'); return !d.hidden && d.getAttribute('data-position') === 'bottom'; }, 'with the hero up top, it stays at the bottom');
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'map', 'a tap closes it');
+
+  beat('6.4', 'Soul: the answers inside the box, under the line that asked');
+  const asked = () => page.evaluate(() => KIT.conditions.getVar(KIT.game.world.makeCtx(null, 'p1'), 'picked'));
+  await script(page, 'Mom: Take it?\n?\n- Yes\n\t@set picked = 1\n- No\n\t@set picked = 2');  // (setup) a line, then a question with no words of its own
+  await expect(page, () => KIT.game.scene() === 'dialogue', 'Mom asks');
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'choice', 'the question comes up');
+  const inBox = await page.evaluate(() => {
+    const box = document.querySelector('#choice[data-place="in-box"] .kit-promptbox');
+    const opts = Array.from(document.querySelectorAll('#choice .kit-promptbox .kit-option')).map(o => o.getBoundingClientRect());
+    return { text: box ? box.textContent : null, tops: opts.map(r => Math.round(r.top)), talk: document.getElementById('dialogue').hidden };
+  });
+  check(!!inBox.text && inBox.text.includes('Take it?'), `the question's box still says what Mom said (${inBox.text})`);
+  check(inBox.tops.length === 2 && inBox.tops[0] === inBox.tops[1], `the answers sit in a row inside it (tops ${inBox.tops.join(', ')})`);
+  check(inBox.talk, 'and the message box it came from is gone, not doubled');
+  const picked = () => page.evaluate(() => (document.querySelector('#choice .kit-option.is-selected') || {}).textContent);
+  await pad(page, 'right');
+  check(await picked() === 'No', `▶ on the pad moves to No (${await picked()})`);
+  await page.locator('#choice .kit-option[data-index="0"]').tap();
+  await expect(page, () => window.__script === 'done' && KIT.game.scene() === 'map', 'tapping Yes answers, and the script goes on');
+  check(await asked() === 1, `and it was Yes that was answered (${await asked()})`);
+  // Four long answers inside the box, in the kit's own column: they wrap onto
+  // lines of their own, every one inside the box, and ◀ ▶ still move.
+  await wear(page, { choice: { place: 'in-box' } });                            // (setup)
+  await script(page, 'Mom: Which way?\n?\n- Buy something to eat\n\t@set picked = 1\n- Sell the old locket\n\t@set picked = 2\n- Ask about the ruins\n\t@set picked = 3\n- Leave the shop\n\t@set picked = 4');  // (setup)
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'choice', 'four long answers, inside the box');
+  const four = await page.evaluate(() => {
+    const box = document.querySelector('#choice .kit-promptbox').getBoundingClientRect(), screen = document.getElementById('screen').getBoundingClientRect();
+    const opts = Array.from(document.querySelectorAll('#choice .kit-promptbox .kit-option')).map(o => o.getBoundingClientRect());
+    return { n: opts.length, out: opts.filter(r => r.left < box.left || r.right > box.right || r.top < box.top || r.bottom > box.bottom || r.right > screen.right).length };
+  });
+  check(four.n === 4 && four.out === 0, `all four inside the box, none off the screen (${four.out} outside)`);
+  await pad(page, 'right');
+  check(await picked() === 'Sell the old locket', `▶ moves to the next answer, though none is beside it (${await picked()})`);
+  await page.locator('#choice .kit-option[data-index="3"]').tap();
+  await expect(page, () => window.__script === 'done' && KIT.game.scene() === 'map', 'tapping the last answers');
+  check(await asked() === 4, `and it was the one tapped (${await asked()})`);
+  // A question with no words, and nothing said before it: the box holds the answers and nothing else.
+  await page.evaluate(() => { window.__answer = null; KIT.game.ports.io.choice({ options: [{ text: 'Yes', index: 0 }, { text: 'No', index: 1 }] }).then((i) => { window.__answer = i; }); });  // (setup)
+  await expect(page, () => KIT.game.scene() === 'choice', 'a question with no words');
+  check(await page.evaluate(() => document.querySelectorAll('#choice .kit-promptbox .kit-line').length) === 0, 'has no empty line over its answers');
+  await page.locator('#choice .kit-option[data-index="1"]').tap();
+  await expect(page, () => window.__answer === 1 && KIT.game.scene() === 'map', 'and tapping No answers 1');
+
+  beat('6.5', 'Dream: the answers in a window beside the box');
+  await wear(page, { base: 'dream' });                                           // (setup)
+  await script(page, 'Mom: You found the key under the mat. Will you open the door now?\n?\n- Yes\n\t@set picked = 1\n- No\n\t@set picked = 2');  // (setup)
+  await expect(page, () => KIT.game.scene() === 'dialogue', 'Mom asks');
+  await ready(page);
+  const said = await lineTexts(page);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'choice', 'the question comes up');
+  const beside = await page.evaluate(() => {
+    const box = document.querySelector('#choice[data-place="beside-box"] .kit-promptbox'), panel = document.querySelector('#choice[data-place="beside-box"] .kit-panel');
+    if (!box || !panel) return null;
+    const b = box.getBoundingClientRect(), p = panel.getBoundingClientRect();
+    return { box: Math.round(b.left), panel: Math.round(p.left), right: Math.round(b.right), text: box.textContent,
+      lines: Array.from(box.querySelectorAll('.kit-line')).map(l => l.textContent), cut: box.scrollHeight > box.clientHeight + 1 };
+  });
+  check(!!beside && beside.panel >= beside.right && beside.text.includes('Will you open'), `the answers' window is to the right of the question's box (${beside && `${beside.box}–${beside.right} | ${beside.panel}`})`);
+  // The question's box is narrower than the line's was: the words flow again
+  // at its width, rather than each old line breaking again mid-sentence.
+  check(said.length === 2 && !!beside && beside.lines.length === 1 && beside.lines[0] === said.join(' ') && !beside.cut,
+    `its lines, wrapped for the wider box, are one flowing line again (${beside && JSON.stringify(beside.lines)})`);
+  await page.locator('#choice .kit-option[data-index="1"]').tap();
+  await expect(page, () => window.__script === 'done', 'tapping No answers');
+  check(await asked() === 2, `and it was No that was answered (${await asked()})`);
+  // A grid of answers beside the box: every answer inside its window, and
+  // three across — too wide to leave the box room — go over the box instead.
+  for (const columns of [2, 3]) {
+    await wear(page, { base: 'dream', choice: { layout: 'grid', columns } });   // (setup)
+    await script(page, 'Mom: Which way?\n?\n- North\n- East\n- West\n- South');  // (setup)
+    await ready(page);
+    await page.locator('#dialogue').tap();
+    await expect(page, () => KIT.game.scene() === 'choice', `a grid of ${columns} comes up`);
+    const grid = await page.evaluate(() => {
+      const panel = document.querySelector('#choice .kit-panel').getBoundingClientRect(), box = document.querySelector('#choice .kit-promptbox').getBoundingClientRect();
+      const screen = document.getElementById('screen').getBoundingClientRect();
+      const opts = Array.from(document.querySelectorAll('#choice .kit-option')).map(o => o.getBoundingClientRect());
+      return { out: opts.filter(r => r.left < panel.left || r.right > panel.right || r.top < panel.top || r.bottom > panel.bottom).length,
+        off: panel.right > screen.right || panel.left < screen.left, above: panel.bottom <= box.top, beside: panel.left >= box.right };
+    });
+    check(grid.out === 0 && !grid.off, `every answer of a grid of ${columns} inside its window, on the screen`);
+    check(columns === 2 ? grid.beside : grid.above, columns === 2 ? 'two across fit beside the box' : 'three across go over the box');
+    await page.locator('#choice .kit-option[data-index="0"]').tap();
+    await expect(page, () => window.__script === 'done', 'tapping North answers');
+  }
+  // Where the question and its answers stand, beside the box: the box, the window, the portrait and the name's tab.
+  const layout = () => page.evaluate(() => {
+    const rect = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+    const c = document.getElementById('choice'), box = c.querySelector('.kit-promptbox');
+    return { box: rect(box), panel: rect(c.querySelector('.kit-panel')), face: rect(box.querySelector('.kit-facebox')), tab: rect(box.querySelector('.kit-name')),
+      tops: Array.from(c.querySelectorAll('.kit-option'), (o) => Math.round(o.getBoundingClientRect().top)) };
+  });
+  const said2 = () => page.evaluate(() => { const rect = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+    return { box: rect(document.querySelector('#dialogue .kit-box')), face: rect(document.querySelector('#dialogue .kit-facebox')) }; });
+  const meets = (a, b) => !!a && !!b && a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+  // A long question beside a grid of two: squeezed into what the grid left,
+  // it was a column of one or two words, three times the line's height.
+  await wear(page, { base: 'dream', choice: { layout: 'grid', columns: 2 } });   // (setup)
+  await script(page, 'Mom: You found the key under the mat. Will you open the door now? It is getting late and cold.\n?\n- North\n- East\n- West\n- South');  // (setup)
+  await ready(page);
+  const longSaid = await said2();
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'choice', 'a long question with a grid of two comes up');
+  const longAsk = await layout();
+  check(Math.abs(longAsk.box.l - longSaid.box.l) < 1 && Math.abs(longAsk.box.r - longSaid.box.r) < 1 && Math.abs(longAsk.box.t - longSaid.box.t) < 1,
+    `its box keeps the line's width and height, not squeezed taller beside the window (${Math.round(longSaid.box.r - longSaid.box.l)}×${Math.round(longSaid.box.b - longSaid.box.t)} → ${Math.round(longAsk.box.r - longAsk.box.l)}×${Math.round(longAsk.box.b - longAsk.box.t)})`);
+  check(longAsk.panel.b <= longAsk.box.t && !meets(longAsk.panel, longAsk.tab), 'the window goes over the box\'s right end, clear of the name\'s tab');
+  await page.locator('#choice .kit-option[data-index="3"]').tap();
+  await expect(page, () => window.__script === 'done', 'tapping South answers');
+  // Answers in a row stay a row beside the box: its window took half the
+  // screen, and a row that may wrap stacked Yes over No in it.
+  await wear(page, { base: 'dream', choice: { layout: 'row' } });               // (setup)
+  for (const [yes, no] of [['Yes', 'No'], ['Yes please', 'No thanks']]) {
+    await script(page, `Mom: Ready?\n?\n- ${yes}\n- ${no}`);                    // (setup)
+    await ready(page);
+    await page.locator('#dialogue').tap();
+    await expect(page, () => KIT.game.scene() === 'choice', `"${yes}" and "${no}" in a row come up`);
+    const row = await layout();
+    check(row.tops.length === 2 && row.tops[0] === row.tops[1] && (row.panel.l >= row.box.r || row.panel.b <= row.box.t),
+      `side by side, the window beside the box or over it (${JSON.stringify(row.tops)})`);
+    await page.locator('#choice .kit-option[data-index="1"]').tap();
+    await expect(page, () => window.__script === 'done', `tapping ${no} answers`);
+  }
+  // Dream's portrait over the box's right corner stays in its corner as the
+  // question comes up: it followed the narrowed box a hundred pixels left.
+  // Clear of the window, which is taller than the box, it sits on top of it.
+  for (const [columns, what] of [[1, 'Yes and No'], [3, 'a grid of three, over the box']]) {
+    await wear(page, columns === 1 ? { base: 'dream' } : { base: 'dream', choice: { layout: 'grid', columns } });   // (setup)
+    await script(page, `Mom (face=mom): Is that you? Come here, I have something for you.\n?\n- ${columns === 1 ? 'Yes\n- No' : 'North\n- East\n- West\n- South'}`);  // (setup)
+    await ready(page);
+    const before = await said2();
+    await page.locator('#dialogue').tap();
+    await expect(page, () => KIT.game.scene() === 'choice', `${what}, asked with a portrait`);
+    const ask = await layout();
+    check(!!before.face && !!ask.face && Math.abs(ask.face.l - before.face.l) < 1 && Math.abs(ask.face.r - before.face.r) < 1,
+      `the portrait keeps its corner (${before.face && Math.round(before.face.l)} → ${ask.face && Math.round(ask.face.l)})`);
+    check(!meets(ask.face, ask.panel) && !meets(ask.face, ask.box), 'and no window or box covers it');
+    await page.locator('#choice .kit-option[data-index="0"]').tap();
+    await expect(page, () => window.__script === 'done', 'tapping the first answer answers');
+  }
+  // A line with the game dimmed behind it keeps the dim while it asks.
+  await wear(page, { base: 'handheld' });                                        // (setup)
+  await script(page, 'Mom (bg=dim): Take it?\n?\n- Yes\n- No');                // (setup)
+  await ready(page);
+  const dimmed = await page.evaluate(() => getComputedStyle(document.getElementById('dialogue')).backgroundColor);
+  await page.locator('#dialogue').tap();
+  await expect(page, () => KIT.game.scene() === 'choice', 'Handheld asks, over a dimmed game');
+  const stillDim = await page.evaluate(() => getComputedStyle(document.getElementById('choice')).backgroundColor);
+  check(dimmed !== 'rgba(0, 0, 0, 0)' && stillDim === dimmed, `the game stays dimmed behind the question (${dimmed} → ${stillDim})`);
+  await page.locator('#choice .kit-option[data-index="0"]').tap();
+  await expect(page, () => window.__script === 'done' && KIT.game.scene() === 'map', 'tapping Yes answers');
+
+  beat('6.6', 'a box that pops open, once a conversation, only where things may move');
+  await wear(page, { dialogue: { open: 'pop' }, choice: { place: 'in-box' } });  // (setup)
+  const boxAnimation = () => page.evaluate(() => getComputedStyle(document.querySelector('#dialogue .kit-box')).animationName);
+  // A box gone for good is hidden (a line by a box that asks keeps it up to
+  // the end of its turn): only then is the next line a new conversation.
+  const gone = (what) => expect(page, () => KIT.game.scene() === 'map' && document.getElementById('dialogue').hidden, what);
+  await page.evaluate(() => { KIT.game.ports.io.say({ text: 'Pop!' }); });     // (setup)
+  check(await boxAnimation() === 'none', 'with ?fast=1 the box just appears');
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await gone('a tap closes it');
+  await page.evaluate(() => {                                                    // (setup) as a game without ?fast=1, noting each animation the box starts
+    KIT.fx.instant = false; KIT.look.syncMotion();
+    window.__opened = [];
+    document.getElementById('dialogue').addEventListener('animationstart', (e) => { if (/^kit-(look-pop|shake)$/.test(e.animationName)) window.__opened.push(e.animationName); });
+  });
+  await page.evaluate(() => { KIT.game.ports.io.say({ text: 'Pop!' }); });     // (setup)
+  check(await boxAnimation() === 'kit-look-pop', 'without it, the box pops');
+  await ready(page);
+  await page.locator('#dialogue').tap();
+  await gone('a tap closes it, once the words are all there');
+  await page.evaluate(() => { window.__opened.length = 0; });                   // (setup)
+  await script(page, 'Mom: One.\nMom: Two {shake}shake.\nMom: Three.\n?\n- Yes\n- No\nMom: Four.');  // (setup)
+  for (let i = 0; i < 12 && await page.evaluate(() => window.__script) !== 'done'; i++) {
+    if (await scene(page) === 'choice') await page.locator('#choice .kit-option[data-index="0"]').tap();
+    else if (await scene(page) === 'dialogue') { await ready(page); await page.locator('#dialogue').tap(); }
+    await page.waitForTimeout(80);
+  }
+  await expect(page, () => window.__script === 'done' && KIT.game.scene() === 'map', 'a conversation of four lines and a question, tapped through');
+  const opened = await page.evaluate(() => window.__opened.slice());
+  check(opened.filter(n => n === 'kit-look-pop').length === 1 && opened.includes('kit-shake'),
+    `the box popped open once, for the first line — not after the shake, nor after the question (${opened.join(', ')})`);
+  await page.evaluate(() => { KIT.fx.instant = true; KIT.look.syncMotion(); });  // (setup)
+
+  beat('6.7', 'nothing broke');
   noErrors(errors);
   await ctx.close();
 }
@@ -1080,6 +1461,7 @@ async function shortPhone(browser) {
       await pickALook(browser);
       await laptopLook(browser);
       await shortPhone(browser);
+      await fontsAndFeel(browser);
     }
   } catch (e) { failures++; log('\nUNCAUGHT: ' + (e && e.stack ? e.stack : e)); }
   await browser.close();

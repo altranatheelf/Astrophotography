@@ -26,7 +26,10 @@
   /** The CSS font string for a span, given the base options. */
   function fontFor(opts, span) {
     const voice = span && span.voice ? voiceOf(span.voice) : null;
-    const family = (voice && voice.font) || opts.font || DEFAULT_FONT;
+    // A voice's font the way the message box reads it (KIT.look.family): a
+    // look's word or one of the game's own fonts becomes its family, and a
+    // family written out is used as it is.
+    const family = (voice && voice.font && familyOf(voice.font)) || opts.font || DEFAULT_FONT;
     const scale = sizeScale(span, voice);
     const px = Math.max(1, Math.round((opts.size || 16) * scale));
     const weight = opts.weight || 'normal';
@@ -35,6 +38,9 @@
   function sizeScale(span, voice) {
     const s = (span && span.size) || (voice && voice.size) || 'normal';
     return s === 'big' ? 1.3 : s === 'small' ? 0.82 : 1;
+  }
+  function familyOf(font) {
+    return KIT.look && KIT.look.family ? KIT.look.family(font, ((KIT.game && KIT.game.project) || {}).fonts) : font;
   }
   function voiceOf(id) {
     const reg = KIT.registry && KIT.registry.exists('voices') ? KIT.registry('voices') : null;

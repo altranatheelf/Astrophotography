@@ -7,9 +7,10 @@
 // The DOM half — writing that stylesheet into the page — is js/kit/ui/parts.js.
 //
 //   KIT.look.resolve(project)   -> every field filled in, plus _chain and _problems
-//   KIT.look.compile(look, env) -> CSS; '' for the kit look, so a game that never
-//                                  touched its look ships exactly the stylesheet
-//                                  it always had
+//   KIT.look.compile(look, env) -> CSS; '' for the kit look in a game with no
+//                                  fonts of its own, so a game that never touched
+//                                  its look ships exactly the stylesheet it
+//                                  always had (a game's fonts are its @font-face)
 //   KIT.look.sound('confirm')   -> plays what this look says "confirm" sounds like
 //
 // Why tokens and not a stylesheet an author edits: a look travels between games,
@@ -35,6 +36,53 @@
     rounded: 'ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif',
   };
   const TEXT_SIZES = { small: 'clamp(13px,3.2vw,15px)', large: 'clamp(17px,4.2vw,21px)', huge: 'clamp(20px,5vw,26px)' };
+  /**
+   * A pixel font is drawn at a whole multiple of the size it was made for, or
+   * its squares come out as smudges of two widths. These are the sizes, in
+   * pixels, each text size aims for; the nearest multiple of the font's own
+   * size is used (at least once over).
+   */
+  const PIXEL_TARGET = { small: 14, normal: 17, large: 20, huge: 24 };
+  /** What a game's own font file has to be: a font, inside the game. Nothing that fetches, nothing that is not a font. */
+  const FONT_SRC = /^data:font\/(ttf|otf|woff2?);base64,[A-Za-z0-9+/]+=*$/;
+  const FONT_FORMAT = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
+  /** Fonts bigger than this are worth a word: a game opened from a file keeps its draft in about 5 MB of browser storage. */
+  const BIG_FONT = 300 * 1024, BIG_FONTS = 1.5 * 1024 * 1024;
+
+  /**
+   * fontOf(id, fonts) -> the game's font `id` when it can be used, else null.
+   * Its id is not one of the words (a font called "pixel" would hide the
+   * word), and its file is a font inside the game (a data: URI), never a
+   * link — a look must not be able to make the game fetch anything.
+   */
+  function fontOf(id, fonts) {
+    if (typeof id !== 'string' || !ID.test(id) || KIT.has(FONT_WORDS, id) || !isObj(fonts) || !KIT.has(fonts, id)) return null;
+    const f = fonts[id];
+    return isObj(f) && typeof f.src === 'string' && fontKindOf(f.src) ? f : null;
+  }
+  /**
+   * fontKindOf(src) -> 'ttf' | 'otf' | 'woff' | 'woff2' for a font file inside
+   * the game, else null; each file read once. The data URI is the whole font
+   * (hundreds of kilobytes), and the stylesheet is compiled again at every
+   * frame of a colour drag: reading every font through five or six times a
+   * compile made a drag slow the moment the game had one. The last few are
+   * kept, which is every font a game has.
+   */
+  const fontKinds = new Map();
+  function fontKindOf(src) {
+    let kind = fontKinds.get(src);
+    if (kind === undefined) {
+      const m = FONT_SRC.exec(src);
+      kind = m ? m[1] : null;
+      if (fontKinds.size >= 32) fontKinds.clear();
+      fontKinds.set(src, kind);
+    }
+    return kind;
+  }
+  /** nativePx(font) -> the size a pixel font was drawn for, when it is one and says so; else 0. */
+  const nativePx = (f) => (f && f.pixel && typeof f.px === 'number' && Number.isFinite(f.px) ? Math.max(1, Math.min(64, Math.round(f.px))) : 0);
+  /** fontBytes(font) -> about how big the file is, from its data URI. */
+  const fontBytes = (f) => (isObj(f) && typeof f.src === 'string' ? Math.round((f.src.length - f.src.indexOf(',') - 1) * 3 / 4) : 0);
 
   // ---- the fields ---------------------------------------------------------------
   //
@@ -85,11 +133,11 @@
     color('dim', 'Dimmed background', '#08090f', '--kit-dim', 'rgba(8, 9, 15, .55)', 'screen', 'What darkens the game behind a message with a dimmed background.', { form: 'rgba', alpha: 'dimAmount' }),
     { key: 'dimAmount', label: 'How dark, behind a message', type: 'number', min: 0, max: 1, step: 0.05, default: 0.55, css: null, fallback: '.55', group: 'screen', doc: 'How dark that is: 0 is not at all, 1 is black.' },
     { key: 'menuDimAmount', label: 'How dark, behind the menu', type: 'number', min: 0, max: 1, step: 0.05, default: 0.5, css: '--kit-menu-dim', fallback: 'rgba(8, 9, 15, .5)', form: 'rgba', color: 'dim', alpha: 'menuDimAmount', group: 'screen', doc: 'How dark the game goes behind the pause menu and choices.' },
-    { key: 'fontText', label: 'Letters', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of everything on the game screen.' },
-    { key: 'fontUi', label: 'Letters of names and menus', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Names, titles, values, the chapter card and the title buttons.' },
-    { key: 'fontName', label: 'Letters of the speaker\'s name', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', doc: 'The speaker\'s name only. Empty follows the one above.' },
-    { key: 'textSize', label: 'Text size', type: 'enum', options: ['small', 'normal', 'large', 'huge'], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big a message is.' },
-    { key: 'lineHeight', label: 'Line spacing', type: 'number', min: 1, max: 2.4, step: 0.05, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message.' },
+    { key: 'fontText', label: 'Message text', type: 'font', default: 'system', css: '--kit-font-text', fallback: 'var(--font-text)', form: 'font', group: 'text', doc: 'The letters of what people say, the answers and the lines of the menus: everything on the game screen but the names below.' },
+    { key: 'fontUi', label: 'Names and menus', type: 'font', default: 'pixel', css: '--font-ui', fallback: '"Press Start 2P", ui-monospace, "Courier New", monospace', form: 'font', group: 'text', doc: 'Menu headings and values, the speaker\'s name, the chapter card, and the game\'s name and buttons on the title screen.' },
+    { key: 'fontName', label: 'Speaker\'s name', type: 'font', nullable: true, default: null, css: '--kit-font-name', fallback: 'var(--font-ui)', form: 'font', group: 'text', noneLabel: 'Same as names and menus', doc: 'Only the name over what somebody says.' },
+    { key: 'textSize', label: 'Text size', type: 'enum', display: 'chips', options: [{ value: 'small', label: 'Small' }, { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Large' }, { value: 'huge', label: 'Huge' }], default: 'normal', css: '--kit-text-size', fallback: 'clamp(15px, 3.6vw, 18px)', form: 'size', group: 'text', doc: 'How big what people say is. With a pixel font, the nearest size its squares stay sharp at, so two sizes can come out the same (an 8-pixel font is 16 at Small and Normal, 24 at Large and Huge).' },
+    { key: 'lineHeight', label: 'Line spacing', type: 'number', min: 1, max: 2.4, step: 0.05, default: 1.45, css: '--kit-line', fallback: '1.45', form: 'number', group: 'text', doc: 'Space between the lines of a message: 1 is lines touching, 2 is a line\'s height between them.' },
     color('screenBg', 'Behind the map', '#0a0b10', '--kit-screen-bg', '#0a0b10', 'screen', 'Behind the map, where it does not reach the edge.'),
     color('screenFrame', 'Screen border', '#2f3450', '--kit-screen-frame', '#2f3450', 'screen', 'The bezel round the game screen.'),
     color('highlight', 'Game name', '#ffcb3d', '--accent', '#ffcb3d', 'title', 'The game\'s name on the title, the chapter subtitle and the chosen title button.'),
@@ -141,7 +189,7 @@
     save: ['Saved', 'The game has been saved.'],
     open: ['Opening the menu', ''],
     close: ['Closing the menu', ''],
-    page: ['Turning a page', 'A message moving on to its next page.'],
+    page: ['Turning a page', 'A message moving on to its next page, or closing when it has none.'],
     toast: ['A note popping up', 'A toast, like “Saved.”'],
   };
 
@@ -152,12 +200,12 @@
    *
    * `later` marks an option a look may already hold — the built-in looks do —
    * that the Look panel does not offer yet, because the game does not act on
-   * it yet (how the box opens, the page turn, a box that moves out of the way,
-   * typing speeds), or because it wants an editor of its own (the pause menu's
-   * order). On an enum it can be a list of the choices held back instead: the
-   * answers can sit in the corner or the middle now, and by the box later.
-   * A look carrying one is still a clean look, and it takes effect when the
-   * game learns it, with nothing to convert.
+   * it yet, or because it wants an editor of its own (the pause menu's order
+   * and what it hides). On an enum it can be a list of the choices held back
+   * instead. A look carrying one is still a clean look, and it takes effect
+   * when the game learns it, with nothing to convert: Handheld's page that
+   * scrolls up and its answers above the box were written that way before
+   * the game could do either.
    */
   L.PARTS = {
     dialogue: [
@@ -175,15 +223,18 @@
       mark('marker', '“More” mark', 2, '▼', [['▼'], ['▶'], ['✦'], ['', 'None']],
         'Shown in the corner when a page has finished and there is more to read. Type your own, or pick one.'),
       pick('markerMotion', 'The mark', [['bob', 'Bobs'], ['blink', 'Blinks'], ['still', 'Stays still']], 'bob'),
-      pick('open', 'Opening', [['none', 'Appears'], ['pop', 'Pops'], ['slide', 'Slides up']], 'none', '', { later: true }),
-      pick('pageTurn', 'Next page', [['clear', 'Clears the box'], ['scroll', 'Scrolls up a line']], 'clear', '', { later: true }),
-      pick('at', 'Where the box goes', [['bottom', 'Bottom'], ['avoid-hero', 'Out of the hero\'s way']], 'bottom', '', { later: true }),
-      { key: 'speeds', label: 'Typing speeds', type: 'group', later: true, doc: 'Letters a second for each text speed a player can pick.',
+      pick('open', 'Opening', [['none', 'Appears'], ['pop', 'Pops'], ['slide', 'Slides up']], 'none',
+        'How the box comes up when somebody starts talking. Lines one after another stay in the same box.'),
+      pick('at', 'Where the box goes', [['bottom', 'Bottom'], ['avoid-hero', 'Out of the hero\'s way']], 'bottom',
+        'Out of the hero\'s way puts the box at the top while the hero is in the bottom half of the screen. A line told to go at the top or in the middle stays there.'),
+      pick('pageTurn', 'Next page', [['clear', 'Clears the box'], ['scroll', 'Scrolls up a line']], 'clear',
+        'Scrolls up a line moves the last line to the top and types only the new one under it, the way the old handheld games do.'),
+      { key: 'speeds', label: 'Typing speeds', type: 'group', doc: 'Letters a second for each text speed a player can pick in Settings. A person whose voice has a speed of its own keeps it.',
         fields: [whole('slow', 'Slow', 1, 120, 22), whole('normal', 'Normal', 1, 120, 48), whole('fast', 'Fast', 1, 120, 96)] },
     ],
     choice: [
       pick('place', 'Where the answers go', [['corner', 'Corner'], ['center', 'Middle'], ['above-box', 'Above the box'], ['in-box', 'In the box'], ['beside-box', 'Beside the box']], 'corner',
-        '', { later: ['above-box', 'in-box', 'beside-box'] }),
+        'By the box, the question stays on screen in a box like the message box: the last thing said, when the question has no words of its own.'),
       pick('layout', 'Answers in a', [['column', 'Column'], ['row', 'Row'], ['grid', 'Grid']], 'column'),
       whole('columns', 'Columns', 2, 4, 2, 'How many answers across, in a grid.', { when: { field: 'layout', eq: 'grid' } }),
     ],
@@ -211,10 +262,7 @@
       whole('size', 'Cursor size', 8, 32, 11, 'In pixels.'),
       flag('highlight', 'Box round the chosen line', true, 'Off leaves only the cursor to say which line is chosen.'),
     ],
-    sounds: Object.keys(L.ROLES).map((role) => Object.assign(
-      { key: role, label: SOUND_WORDS[role][0], doc: SOUND_WORDS[role][1], type: 'ref:sound', nullable: true, default: L.ROLES[role] },
-      // The page-turn sound belongs with the page turn, which a look cannot change yet.
-      role === 'page' ? { later: true } : {})),
+    sounds: Object.keys(L.ROLES).map((role) => ({ key: role, label: SOUND_WORDS[role][0], doc: SOUND_WORDS[role][1], type: 'ref:sound', nullable: true, default: L.ROLES[role] })),
   };
 
   /** 'changed' { look } when a look is put in use; 'applied' { css, look } when the page has it. */
@@ -480,10 +528,11 @@
    * pixels — good enough to say "this covers half the game" before anybody
    * has played it, which is all it is for.
    */
-  function boxHeight(look) {
+  function boxHeight(look, fonts) {
     const d = look.dialogue, t = look.tokens;
     const chrome = 22 + 2 * t.frameWidth;
-    let h = d.lines * t.lineHeight * (TEXT_PX[t.textSize] || 15) + chrome + (d.name === 'inside' ? 18 : 0);
+    const size = pixelSize(t, fonts) || TEXT_PX[t.textSize] || 15;
+    let h = d.lines * t.lineHeight * size + chrome + (d.name === 'inside' ? 18 : 0);
     const face = 24 * d.faceScale + 8;
     if (d.face === 'left' || d.face === 'right') h = Math.max(h, face + chrome);
     else if (d.face === 'above-left' || d.face === 'above-right') h += face + 6;
@@ -494,8 +543,9 @@
    * checks(look, project) -> the problems a look can have that are not about
    * reading it: words hard to read against their background (below 3:1, the
    * least that still reads on a phone outdoors), a message box that would
-   * cover half the game, and a sound or voice this game does not have. All
-   * warnings: the game plays either way.
+   * cover half the game, a sound, voice or font this game does not have, and
+   * the game's font files themselves (fontChecks). All warnings: the game
+   * plays either way.
    */
   function checks(look, project) {
     const out = [];
@@ -523,7 +573,8 @@
       const r = contrast(fg, bg);
       if (r < 3) out.push(problem('warn', 'ui-contrast', `${what} is hard to read: its colours are only ${r.toFixed(1)} to 1 apart, and 3 to 1 is the least that reads on a phone.`, ['ui'].concat(path)));
     }
-    const h = boxHeight(look);
+    const fonts = project && isObj(project.fonts) ? project.fonts : {};
+    const h = boxHeight(look, fonts);
     if (h > 0.45 * GAME_H) {
       out.push(problem('warn', 'ui-lines', `The message box would be about ${Math.round(h)} pixels tall on a phone, ${Math.round((100 * h) / GAME_H)}% of the game screen. Fewer lines, smaller text or a smaller portrait keeps the game in sight.`, ['ui', 'dialogue', 'lines']));
     }
@@ -535,6 +586,36 @@
       if (missing('sound', id)) out.push(problem('warn', 'ui-ref', `There is no sound “${id}” in this game, so ${f.label.toLowerCase()} makes no sound.`, ['ui', 'sounds', f.key]));
     }
     if (missing('voice', look.voice)) out.push(problem('warn', 'ui-ref', `There is no voice “${look.voice}” in this game, so talking sounds like the ordinary voice.`, ['ui', 'voice']));
+    for (const f of L.TOKENS) {
+      const v = t[f.key];
+      if (f.type !== 'font' || v == null || KIT.has(FONT_WORDS, v) || fontOf(v, fonts)) continue;
+      out.push(problem('warn', 'ui-ref', `There is no font “${v}” in this game that it can use, so ${f.label.toLowerCase()} keep the letters they had.`, ['ui', 'tokens', f.key]));
+    }
+    return out.concat(fontChecks(fonts));
+  }
+
+  /**
+   * fontChecks(fonts) -> what is wrong with the game's own font files: one
+   * whose file is not inside the game (a link would have to be fetched, and a
+   * look never fetches), one named like a word (a font called "pixel" would
+   * hide the word), and ones big enough to matter — a game opened from a file
+   * keeps its draft in the browser's small storage, so a few big fonts can
+   * fill it. A font that cannot be used is left out of the stylesheet, and
+   * the letters stay as they were.
+   */
+  function fontChecks(fonts) {
+    const out = [];
+    let total = 0;
+    for (const id of Object.keys(fonts).sort()) {
+      const f = fonts[id];
+      const at = ['fonts', id];
+      if (!ID.test(id) || KIT.has(FONT_WORDS, id)) { out.push(problem('warn', 'ui-bad-value', `A font cannot be called “${id}”: the name has to be lower-case letters, digits and . _ : -, and not one of ${Object.keys(FONT_WORDS).join(', ')}.`, at)); continue; }
+      if (!fontOf(id, fonts)) { out.push(problem('warn', 'ui-src', `The font “${id}” is not a font file inside the game (a TTF, OTF, WOFF or WOFF2 brought in with Add a font), so it is not used.`, at)); continue; }
+      const bytes = fontBytes(f);
+      total += bytes;
+      if (bytes > BIG_FONT) out.push(problem('warn', 'ui-big', `The font “${(f.name || id)}” is ${Math.round(bytes / 1024)} KB. Fonts over ${BIG_FONT / 1024} KB make a big game; a WOFF2, or a font with only the letters you use, is much smaller.`, at));
+    }
+    if (total > BIG_FONTS) out.push(problem('warn', 'ui-big', `The game's fonts come to ${(total / 1048576).toFixed(1)} MB. A game opened from a file keeps its unsaved changes in about 5 MB of browser storage, so fonts this big can crowd them out.`, ['fonts']));
     return out;
   }
 
@@ -565,12 +646,22 @@
    */
   L.family = function (v, fonts) {
     if (KIT.has(FONT_WORDS, v)) return FONT_WORDS[v];
-    if (typeof v === 'string' && ID.test(v) && isObj(fonts) && KIT.has(fonts, v)) {
-      const f = fonts[v];
-      return `"kitf-${v}", ${isObj(f) && f.pixel ? FONT_WORDS.mono : FONT_WORDS.system}`;
-    }
+    const f = fontOf(v, fonts);
+    if (f) return `"kitf-${v}", ${f.pixel ? FONT_WORDS.mono : FONT_WORDS.system}`;
     return v;
   };
+
+  /**
+   * pixelSize(tokens, fonts) -> the message text's size in pixels when its
+   * font is a pixel font that says what size it was drawn at, else 0: that
+   * size times the whole number nearest the text size's own (small 14,
+   * normal 17, large 20, huge 24), and never less than once. An 8-pixel font
+   * is 16 at Normal and 24 at Large.
+   */
+  function pixelSize(tokens, fonts) {
+    const n = nativePx(fontOf(tokens.fontText, fonts));
+    return n ? n * Math.max(1, Math.round((PIXEL_TARGET[tokens.textSize] || PIXEL_TARGET.normal) / n)) : 0;
+  }
 
   /**
    * tokenCss(token, tokens, env) -> the CSS value for one token, or null for
@@ -580,6 +671,7 @@
    * game has no font for is no font at all: the kit's own is kept, rather than
    * writing the bare id as a family name nobody has installed — which also threw
    * away the fallback stack, so the text came out in the browser's default.
+   * The text size follows a pixel font's own size (pixelSize), even at Normal.
    */
   function tokenCss(t, tokens, env) {
     const v = tokens[t.key];
@@ -588,7 +680,7 @@
     switch (t.form) {
       case 'px': return v + 'px';
       case 'number': return String(v);
-      case 'size': return v === 'normal' ? t.fallback : TEXT_SIZES[v];
+      case 'size': { const px = pixelSize(tokens, env.fonts); return px ? px + 'px' : (v === 'normal' ? t.fallback : TEXT_SIZES[v]); }
       case 'font': { const fam = L.family(v, env.fonts); return fam === v ? null : fam; }
       case 'textShadow': return `1px 1px 0 ${v}`;
       case 'gradient': return `linear-gradient(180deg,${v},${darker(v, 0.3)})`;
@@ -644,47 +736,60 @@
   }
 
   /**
-   * partRules(look, tokens, vars, kit) -> the rules for the parts' options, each
-   * only when it is not the kit's own, in a fixed order. A custom property a
-   * part sets goes into `vars` (a Map), to join the tokens on #stage. `kit` is
-   * the kit's own tokens.
+   * partRules(look, tokens, vars, kit, env) -> the rules for the parts' options,
+   * each only when it is not the kit's own, in a fixed order. A custom
+   * property a part sets goes into `vars` (a Map), to join the tokens on
+   * #stage. `kit` is the kit's own tokens; `env` is compile's.
    *
    * Every selector starts at #screen (or #stage), one id more than the rule it
    * overrides in css/kit.css, so a look wins over the kit and over a module's
    * own stylesheet loaded later, and cannot reach #editor.
    */
-  function partRules(look, tokens, vars, kit) {
+  function partRules(look, tokens, vars, kit, env) {
     const d = part(look, 'dialogue'), c = part(look, 'choice'), m = part(look, 'menu');
     const t = part(look, 'toast'), pad = part(look, 'pad'), cur = part(look, 'cursor');
     const out = [];
     const rule = (sel, body) => out.push(`${sel}{${body}}`);
+    // The message box's options reach the copy of it a question keeps on
+    // screen too. With the answers by the box, #choice draws the question in
+    // a .kit-promptbox — a .kit-box, so the colours already reach it — and it
+    // has to be the same box: its portrait on the same side, the same mark
+    // before each line, as wide unless the answers stand beside it (there it
+    // is narrower on purpose, and the choice scene keeps a portrait above it
+    // where it was). Otherwise the box changes as the question comes up.
+    const box = (inner, at) => `#screen #dialogue${at || ''} ${inner || '.kit-box'},#screen #choice[data-place]${at || ''} .kit-promptbox${inner ? ' ' + inner : ''}`;
+    const hosts = '#screen #dialogue,#screen #choice[data-place]';
 
-    if (d.width !== 100) rule('#screen #dialogue .kit-box', `width:${d.width}%;margin-left:auto;margin-right:auto`);
-    if (d.margin !== 10) rule('#screen #dialogue', `padding:${d.margin}px`);
-    if (d.lines !== 3) rule('#screen #dialogue .kit-text', `min-height:calc(var(--kit-line,1.45) * ${d.lines} * 1em)`);
-    if (d.face === 'right') rule('#screen #dialogue .kit-box', 'flex-direction:row-reverse');
+    // A pixel font's squares, not smudged at their edges (where a browser lets a page say so).
+    if ([tokens.fontText, tokens.fontUi, tokens.fontName].some(id => { const f = fontOf(id, env.fonts); return !!(f && f.pixel); })) rule('#screen', '-webkit-font-smoothing:none;font-smooth:never');
+    if (d.width !== 100) rule(box(), `width:${d.width}%;margin-left:auto;margin-right:auto`);
+    if (d.margin !== 10) rule(hosts, `padding:${d.margin}px`);
+    // The answers inside the box take the lines below the question, so there
+    // the question's text is only as tall as it is.
+    if (d.lines !== 3) rule('#screen #dialogue .kit-text,#screen #choice[data-place]:not([data-place=in-box]) .kit-promptbox .kit-text', `min-height:calc(var(--kit-line,1.45) * ${d.lines} * 1em)`);
+    if (d.face === 'right') rule(box(), 'flex-direction:row-reverse');
     else if (d.face === 'above-left' || d.face === 'above-right') {
       // Above the box, against the box's own corner; a box at the top of the
       // screen has no room above it, so there the portrait hangs below.
-      rule('#screen #dialogue .kit-facebox', `position:absolute;bottom:calc(100% + 6px);${d.face === 'above-left' ? 'left' : 'right'}:0`);
-      rule('#screen #dialogue[data-position=top] .kit-facebox', 'bottom:auto;top:calc(100% + 6px)');
-    } else if (d.face === 'none') rule('#screen #dialogue .kit-facebox', 'display:none!important');
-    if (!d.faceFrame) rule('#screen #dialogue .kit-facebox', 'border:0;background:none;padding:0');
+      rule(box('.kit-facebox'), `position:absolute;bottom:calc(100% + 6px);${d.face === 'above-left' ? 'left' : 'right'}:0`);
+      rule(box('.kit-facebox', '[data-position=top]'), 'bottom:auto;top:calc(100% + 6px)');
+    } else if (d.face === 'none') rule(box('.kit-facebox'), 'display:none!important');
+    if (!d.faceFrame) rule(box('.kit-facebox'), 'border:0;background:none;padding:0');
     if (d.name === 'tab') {
-      rule('#screen #dialogue .kit-name', 'position:absolute;left:12px;bottom:calc(100% - var(--kit-frame-w,3px));margin:0;padding:4px 10px;background:var(--paper);'
+      rule(box('.kit-name'), 'position:absolute;left:12px;bottom:calc(100% - var(--kit-frame-w,3px));margin:0;padding:4px 10px;background:var(--paper);'
         + 'border:var(--kit-frame-w,3px) solid var(--kit-frame,#2b2b3a);border-bottom:0;border-radius:var(--kit-radius,10px) var(--kit-radius,10px) 0 0');
-      rule('#screen #dialogue', `padding-top:calc(${d.margin}px + 2.4em)`);          // room for the tab over a box at the top
+      rule(hosts, `padding-top:calc(${d.margin}px + 2.4em)`);          // room for the tab over a box at the top
       // A portrait above the box's left corner sits exactly where the tab does,
       // and the tab covered the bottom of the face. The tab moves to the other
       // corner, the way Dream has it the other way round.
-      if (d.face === 'above-left') rule('#screen #dialogue .kit-name', 'left:auto;right:12px');
-    } else if (d.name === 'none') rule('#screen #dialogue .kit-name', 'display:none!important');
-    if (d.nameCase !== 'as-written') rule('#screen #dialogue .kit-name', `text-transform:${d.nameCase === 'upper' ? 'uppercase' : 'lowercase'}`);
+      if (d.face === 'above-left') rule(box('.kit-name'), 'left:auto;right:12px');
+    } else if (d.name === 'none') rule(box('.kit-name'), 'display:none!important');
+    if (d.nameCase !== 'as-written') rule(box('.kit-name'), `text-transform:${d.nameCase === 'upper' ? 'uppercase' : 'lowercase'}`);
     if (d.prefix) {
       // A margin, not a padding: the scene measures the text's clientWidth to
       // wrap it, and a margin keeps that the true width of the words.
-      rule('#screen #dialogue .kit-text', 'margin-left:var(--kit-prefix-w,2ch)');
-      rule('#screen #dialogue .kit-line.is-start::before', `content:${cssString(d.prefix)};display:inline-block;white-space:pre;width:var(--kit-prefix-w,2ch);margin-left:calc(-1 * var(--kit-prefix-w,2ch))`);
+      rule(box('.kit-text'), 'margin-left:var(--kit-prefix-w,2ch)');
+      rule(box('.kit-line.is-start::before'), `content:${cssString(d.prefix)};display:inline-block;white-space:pre;width:var(--kit-prefix-w,2ch);margin-left:calc(-1 * var(--kit-prefix-w,2ch))`);
     }
     if (d.marker === '') rule('#screen #dialogue .kit-next', 'display:none');
     if (d.markerMotion !== 'bob') {
@@ -694,10 +799,40 @@
         rule(MOVING + ' #screen #dialogue .kit-next.is-ready', 'animation:kit-look-blink 1s steps(1,end) infinite');
       }
     }
+    // How the box comes up: `.is-opening`, which the message box puts on only
+    // when it comes up after being away — not for the next line of a
+    // conversation, nor for the answer to a question asked by the box, so a
+    // conversation opens once. Drawn from the box being shown, it opened
+    // again when a {shake} gave way, and after a question. {shake} still
+    // shakes: its rule comes after, as strong as this one.
+    if (d.open !== 'none') {
+      out.push(d.open === 'pop'
+        ? '@keyframes kit-look-pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}'
+        : '@keyframes kit-look-slide{from{transform:translateY(1.5em);opacity:0}to{transform:none;opacity:1}}');
+      rule(MOVING + ' #screen #dialogue .kit-box.is-opening', `animation:kit-look-${d.open} .18s ease-out`);
+      rule(MOVING + ' #screen #dialogue .kit-box.is-shaking', 'animation:kit-shake .32s');
+    }
+    // A page that scrolls up a line: the scene marks the new page `.is-scrolled`
+    // and the lines slide up from where they were, one line's height, clipped
+    // to the text so the new line comes up from under the box's edge rather
+    // than over it. The clip is sideways-open, for a mark hanging in the margin.
+    if (d.pageTurn === 'scroll') {
+      out.push('@keyframes kit-look-scroll{from{transform:translateY(calc(var(--kit-line,1.45) * 1em))}to{transform:none}}');
+      out.push('@keyframes kit-look-clip{from,to{clip-path:polygon(-100vw 0,200vw 0,200vw 100%,-100vw 100%)}}');
+      rule(MOVING + ' #screen #dialogue .kit-text.is-scrolled', 'animation:kit-look-clip .12s');
+      rule(MOVING + ' #screen #dialogue .kit-text.is-scrolled > .kit-line', 'animation:kit-look-scroll .12s ease-out');
+    }
 
     if (c.place === 'center') rule('#screen #choice', 'align-items:center;justify-content:center;padding-bottom:14px');
-    if (c.layout === 'row') rule('#screen #choice .kit-list', 'flex-direction:row;flex-wrap:wrap;justify-content:space-around');
-    else if (c.layout === 'grid') rule('#screen #choice .kit-list', `display:grid;grid-template-columns:repeat(${c.columns},1fr)`);
+    if (c.layout === 'row') {
+      rule('#screen #choice .kit-list', 'flex-direction:row;flex-wrap:wrap;justify-content:space-around');
+      // Beside the box a row stays a row. Its window is as wide as the least
+      // its answers need, and a row that may wrap needs only its widest answer:
+      // Yes over No, in half the screen, as though Row did nothing. Unwrapped,
+      // a row too wide to stand beside the box goes over it, where it has the
+      // whole width to wrap in (kit.css, data-over).
+      rule('#screen #choice[data-place=beside-box]:not([data-over]) .kit-list', 'flex-wrap:nowrap');
+    } else if (c.layout === 'grid') rule('#screen #choice .kit-list', `display:grid;grid-template-columns:repeat(${c.columns},1fr)`);
 
     // The kit's own lists only (a .kit-pause panel): a module's screen drawn
     // in the same host places itself, and a look moving it would put a fight's
@@ -724,10 +859,40 @@
   }
 
   /**
+   * faceRules(fonts) -> an @font-face for each of the game's fonts that can
+   * be used, by id. Every one, not only those the look names: the Look
+   * panel shows each font's name, and each font chip, in its own letters
+   * before it is used, and a voice may use a font the look does not.
+   * `font-display:block` keeps the first page from being measured, and
+   * wrapped, in the stand-in font for the moment the file takes to read
+   * (fontsReady waits for it as well).
+   */
+  function faceRules(fonts) {
+    const out = [];
+    for (const id of isObj(fonts) ? Object.keys(fonts).sort() : []) {
+      const f = fontOf(id, fonts);
+      if (!f) continue;
+      const kind = fontKindOf(f.src);
+      out.push(`@font-face{font-family:"kitf-${id}";src:url("${f.src}") format("${FONT_FORMAT[kind]}");font-display:block}`);
+    }
+    return out;
+  }
+  /**
+   * fontFaces(fonts) -> the @font-face rules compile starts with, on their
+   * own: apply keeps them in a stylesheet of their own, so a change to the
+   * look (every frame of a colour drag) does not make the browser read every
+   * font file again.
+   */
+  L.fontFaces = (fonts) => faceRules(fonts).join('\n');
+
+  /**
    * compile(look, env) -> string. Pure and deterministic: the same look gives
-   * the same text, and the kit look gives ''. `env` is what the look may name
-   * that lives in the game rather than in the look: `{ fonts }`, the game's
-   * project.fonts.
+   * the same text. `env` is what the look may name that lives in the game
+   * rather than in the look: `{ fonts }`, the game's project.fonts, each
+   * usable one written first as an @font-face (fontFaces), a line each —
+   * unless `faces: false`, for a page that has them already. The kit look
+   * gives '' in a game with no fonts of its own, and only those @font-face
+   * in a game with some.
    *
    * Only what DIFFERS from the kit is written: the tokens as custom properties
    * on #stage — the element the stylesheet's `var(--kit-*, …)` fallbacks sit
@@ -750,14 +915,18 @@
       const v = tokenCss(t, tokens, e);
       if (v !== null && v !== tokenCss(t, kit, e)) vars.set(t.css, v);
     }
-    const rules = partRules(look, tokens, vars, kit);
+    const rules = partRules(look, tokens, vars, kit, e);
     if (vars.size) rules.unshift(`#stage{${Array.from(vars, ([k, v]) => `${k}:${v}`).join(';')}}`);
-    return rules.join('\n');
+    return (e.faces === false ? [] : faceRules(e.fonts)).concat(rules).join('\n');
   };
 
-  /** css(project) -> the stylesheet for this game's look: its look compiled against its own fonts. What apply writes into the page. */
-  L.css = function (project) {
-    return L.compile(L.resolve(project), { fonts: project && isObj(project.fonts) ? project.fonts : {} });
+  /**
+   * css(project, { faces }) -> the stylesheet for this game's look: its look
+   * compiled against its own fonts. `faces: false` leaves the @font-face out:
+   * what apply writes into #kit-look, the fonts having a sheet of their own.
+   */
+  L.css = function (project, opts) {
+    return L.compile(L.resolve(project), { fonts: project && isObj(project.fonts) ? project.fonts : {}, faces: !(opts && opts.faces === false) });
   };
 
   // ---- the look in use ---------------------------------------------------------------

@@ -361,6 +361,7 @@ function withDocument(fn) {
       this.classList = { toggle: (c, on) => { if (on === undefined ? !names.has(c) : on) names.add(c); else names.delete(c); }, contains: (c) => names.has(c) };
     }
     appendChild(c) { this.children.push(c); return c; }
+    set innerHTML(v) { if (v === '') this.children = []; }
     setAttribute(k, v) { this.attrs[k] = String(v); }
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; }
     all(tag) { return this.children.flatMap(c => (c.tagName === tag ? [c] : []).concat(c.all(tag))); }
@@ -420,6 +421,77 @@ test('inspector: a colour that may be empty says what empty means', () => withDo
   const plain = div();
   INS.field(plain, { key: 'paper', type: 'color' }, '#ffffff', () => {});
   assert.equal(plain.all('BUTTON').length, 0, 'a colour that must be a colour has no such button');
+}));
+
+test('inspector: a font is a chip for each of the game\'s fonts and each font word, written in itself', () => withDocument((div) => {
+  const host = div();
+  const picked = [], asked = [];
+  const project = { fonts: { dot: { name: 'Dot Gothic', src: 'data:font/ttf;base64,AAEAAA==', pixel: true }, gone: { name: 'Linked', src: 'https://x/y.ttf' } } };
+  const field = { key: 'fontName', label: 'Speaker\'s name', type: 'font', nullable: true, noneLabel: 'Same as names and menus' };
+  const w = INS.field(host, field, null, (v) => picked.push(v), { project, addFont: (f) => asked.push(f.key) });
+  const buttons = host.all('BUTTON');
+  assert.deepEqual(buttons.map(b => b.textContent), ['Dot Gothic', 'Plain', 'Pixel', 'Typewriter', 'Book', 'Rounded', 'Same as names and menus', 'Add a font…'],
+    'the game\'s own usable fonts first, then the five words, none, and a way to bring one in');
+  assert.ok(/^"kitf-dot", /.test(buttons[0].style.fontFamily), 'each chip in its own letters');
+  assert.equal(buttons[6].getAttribute('aria-pressed'), 'true', 'empty is "Same as names and menus"');
+  click(buttons[0]);
+  assert.deepEqual(picked, ['dot']);
+  click(buttons[7]);
+  assert.deepEqual(asked, ['fontName'], '"Add a font…" asks the form for a file, for this field');
+  w.set('mono');
+  assert.equal(buttons[3].getAttribute('aria-pressed'), 'true');
+  // A font the game no longer has keeps a chip, so what is chosen can be seen.
+  const lost = div();
+  INS.field(lost, { key: 'fontText', type: 'font' }, 'gone', () => {}, { project });
+  assert.equal(lost.all('BUTTON')[0].textContent, 'gone (not in this game)');
+  assert.equal(lost.all('BUTTON')[0].getAttribute('aria-pressed'), 'true');
+}));
+
+test('inspector: what a message says shows the pages the look\'s box will make of it', () => withDocument((div) => {
+  R('js/kit/ui/parts.js'); R('js/kit/scenes/dialogue.js');                    // the message box's own line breaking
+  try {
+    KIT.look.use({ ui: { dialogue: { lines: 2, prefix: '* ' } } });
+    const pages = INS.messagePages('One two three four five six seven eight nine ten eleven twelve thirteen.\nNext', {});
+    assert.ok(pages.every(p => p.length <= 2), 'two lines to a page, as the look says');
+    assert.ok(pages[0][0].startsWith('* One'), `the look's mark starts the line (${pages[0][0]})`);
+    assert.ok(pages[0][1].startsWith('  '), 'and a wrapped line lines up after it');
+    assert.ok(pages.flat().some(l => l === '* Next'), 'a new line of the author\'s starts with the mark again');
+  } finally { KIT.look.use(null); }
+  // Only a message's own text: a description or a note never goes in the box, so it shows no pages.
+  const say = div(), desc = div();
+  INS.field(say, { key: 'text', type: 'text', display: 'message' }, 'Hello', () => {}, {});
+  INS.field(desc, { key: 'desc', type: 'text' }, 'Hello', () => {}, {});
+  const boxes = (el) => el.all('DIV').filter(d => d.className === 'ed-preview-box').length;
+  assert.equal(boxes(say), 1);
+  assert.equal(boxes(desc), 0);
+  assert.equal(KIT.registry('commands').get('say').fields.find(f => f.key === 'text').display, 'message', 'Show Text\'s words are a message');
+}));
+
+test('inspector: a look whose page scrolls shows each press of A, and a look changed later is drawn again', () => withDocument((div) => {
+  R('js/kit/ui/parts.js'); R('js/kit/scenes/dialogue.js');                    // the message box's own paging
+  const text = 'One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen.';
+  try {
+    KIT.look.use({ ui: { dialogue: { lines: 2, pageTurn: 'scroll' } } });
+    const scroll = INS.messagePages(text, {});
+    KIT.look.use({ ui: { dialogue: { lines: 2 } } });
+    const clear = INS.messagePages(text, {});
+    const rows = clear.flat();
+    assert.ok(rows.length >= 4, `${rows.length} lines`);
+    assert.equal(scroll.length, rows.length - 1, 'a press for each line after the first two, as the game has it');
+    for (let i = 1; i < scroll.length; i++) assert.equal(scroll[i][0], scroll[i - 1][1], 'each press keeps the line before it at the top');
+    // The Show Text form follows the look: drawn with Handheld's two lines
+    // that scroll, it is drawn again when the look changes to three that clear.
+    KIT.look.use({ ui: { dialogue: { lines: 2, pageTurn: 'scroll' } } });
+    const say = div();
+    INS.field(say, { key: 'text', type: 'text', display: 'message' }, text, () => {}, {});
+    const boxes = () => say.all('DIV').filter(d => d.className === 'ed-preview-box');
+    assert.equal(boxes().length, scroll.length);
+    assert.ok(say.all('DIV').some(d => d.className === 'ed-hint' && /a press of A at a time/.test(d.textContent)), 'and says each is a press of A');
+    KIT.look.use(null);
+    KIT.look.events.emit('applied', { css: '', look: KIT.look.current() });
+    assert.equal(boxes().length, KIT.text.paginate(INS.messagePages(text, {}).flat(), 3).length, 'the kit\'s three lines that clear, once the look is applied');
+    assert.ok(boxes().every(b => b.children.filter(c => c.className === 'ed-preview-line').length <= 3));
+  } finally { KIT.look.use(null); }
 }));
 
 test('inspector: an empty colour that follows another shows that colour in its square, not black', () => withDocument((div) => {

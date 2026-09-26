@@ -257,3 +257,27 @@ test('merge: bad input is a throw, everything else is data', () => {
   assert.throws(() => KIT.import.merge(null, {}), TypeError);
   assert.throws(() => KIT.import.merge(blank(), 'nope'), TypeError);
 });
+
+test('merge: fonts are a table of their own — added, kept on a clash, and a second import changes nothing', () => {
+  R('js/kit/import/image.js');
+  const bytes = new Uint8Array(fs.readFileSync(path.join(FIX, 'look', 'one-glyph.ttf')));
+  const res = KIT.import.image.fontsFrom([{ name: 'one-glyph.ttf', bytes }]);
+  const p = blank();
+  const rep = KIT.import.merge(p, res, { source: 'one-glyph.ttf' });
+  assert.equal(rep.added.fonts, 1, 'the report counts it');
+  assert.equal(p.fonts['one-glyph'].src, res.fonts['one-glyph'].src);
+  const once = JSON.stringify(p);
+  const again = KIT.import.merge(p, KIT.import.image.fontsFrom([{ name: 'one-glyph.ttf', bytes }]));
+  assert.equal(JSON.stringify(p), once, 'the same font twice leaves the project byte for byte as it was');
+  assert.equal(again.unchanged.fonts, 1);
+  // A different font under the same name is not taken without "Replace what is there".
+  const other = KIT.import.image.fontsFrom([{ name: 'one-glyph.ttf', bytes: bytes.slice(0, 100) }]);
+  const clash = KIT.import.merge(p, other);
+  assert.equal(clash.skipped.fonts, 1);
+  assert.ok(clash.problems.some(q => q.code === 'duplicate-id'));
+  assert.equal(JSON.stringify(p), once, 'kept the one that was there');
+  assert.equal(KIT.import.merge(p, other, { overwrite: true }).replaced.fonts, 1);
+  assert.equal(p.fonts['one-glyph'].src, other.fonts['one-glyph'].src);
+  // Sounds and music are counted too: an imported sound was reported as nothing.
+  assert.equal(KIT.import.merge(blank(), { sounds: { ding: { id: 'ding', name: 'Ding', kind: 'file', src: 'data:audio/wav;base64,AAAA' } } }).added.sounds, 1);
+});

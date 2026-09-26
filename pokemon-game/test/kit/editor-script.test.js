@@ -7,7 +7,7 @@ const path = require('path');
 const KIT = require('./_load.js');
 const R = (f) => require(path.join(__dirname, '..', '..', f));
 R('js/kit/world/map.js');
-R('js/kit/import/tiled.js'); R('js/kit/import/rpgmaker.js'); R('js/kit/import/aseprite.js'); R('js/kit/import/merge.js');
+R('js/kit/import/tiled.js'); R('js/kit/import/rpgmaker.js'); R('js/kit/import/aseprite.js'); R('js/kit/import/merge.js'); R('js/kit/import/image.js');
 R('js/kit/editor/ops.js');
 R('js/kit/editor/script-editor.js');
 R('js/kit/editor/panels-writing.js');
@@ -351,6 +351,10 @@ test('import dispatch: the right importer by name and by content', () => {
   d = IMPP.dispatch([{ name: 'hero.png', bytes: new Uint8Array([0x89, 0x50]) }]);
   assert.equal(d.tool, 'image', 'a picture on its own goes to the slicer, not nowhere');
   assert.equal(d.main.name, 'hero.png');
+
+  d = IMPP.dispatch([{ name: 'Fonts/DotGothic.TTF', bytes: new Uint8Array([0, 1, 0, 0]) }, { name: 'soft.woff2', bytes: new Uint8Array([0x77, 0x4f, 0x46, 0x32]) }]);
+  assert.equal(d.tool, 'font', 'fonts on their own are the game\'s own letters');
+  assert.equal(d.files.length, 2);
 
   d = IMPP.dispatch([{ name: 'notes.txt', text: 'hello' }]);
   assert.equal(d.tool, null);

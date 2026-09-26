@@ -81,3 +81,26 @@ test('canvas text: the short names are on KIT where a scene would reach for them
   assert.equal(typeof KIT.textWriter, 'function');
   assert.equal(KIT.drawText, TC.draw);
 });
+
+test('canvas text: a voice\'s font is read the way the message box reads it', () => {
+  // A look's word, one of the game's own fonts by its id, and a family
+  // written out as CSS writes one (which is used as it is).
+  const voices = KIT.registry('voices');
+  voices.addAll([{ id: 't-word', name: 'Word', font: 'mono' }, { id: 't-own', name: 'Own', font: 'dot' }, { id: 't-raw', name: 'Raw', font: '"Comic Sans MS", cursive' }]);
+  const had = KIT.game;
+  KIT.game = { project: { fonts: { dot: { name: 'Dot', src: 'data:font/ttf;base64,AAEAAA==', pixel: true } } } };
+  try {
+    const fontOf = (voice) => {
+      const set = [];
+      const ctx = { set font(f) { set.push(f); }, get font() { return set[set.length - 1]; }, measureText: (s) => ({ width: s.length }) };
+      TC.layout(ctx, `{voice:${voice}}Hi`, { size: 16 });
+      return set[set.length - 1];
+    };
+    assert.ok(fontOf('t-word').endsWith('16px ' + KIT.look.family('mono')), fontOf('t-word'));
+    assert.ok(/16px "kitf-dot", ui-monospace/.test(fontOf('t-own')), fontOf('t-own'));
+    assert.ok(fontOf('t-raw').endsWith('16px "Comic Sans MS", cursive'), fontOf('t-raw'));
+  } finally {
+    KIT.game = had;
+    for (const id of ['t-word', 't-own', 't-raw']) voices.remove(id);
+  }
+});

@@ -79,3 +79,46 @@ test('image: a one-row strip is a sprite that only faces down, and an uneven gri
   assert.ok(uneven.problems.some(p => p.code === 'grid-uneven'));
   assert.throws(() => I.tileset({ name: 'x.png', w: 0, h: 0, asset }), /no size/);
 });
+
+// ---- fonts ------------------------------------------------------------------------------
+// test/fixtures/look/one-glyph.ttf is a real TrueType font, written by
+// tools/make-test-font.js: one square for the letter A.
+const fs = require('fs');
+const ONE_GLYPH = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'look', 'one-glyph.ttf')));
+
+test('image: a dropped font becomes one of the game\'s own, inside the game', () => {
+  const res = I.fontsFrom([{ name: 'fonts/one-glyph.ttf', bytes: ONE_GLYPH }]);
+  assert.deepEqual(Object.keys(res.fonts), ['one-glyph'], 'named after the file');
+  const f = res.fonts['one-glyph'];
+  assert.ok(f.src.startsWith('data:font/ttf;base64,'), f.src.slice(0, 30));
+  assert.deepEqual(Buffer.from(f.src.slice(f.src.indexOf(',') + 1), 'base64'), Buffer.from(ONE_GLYPH), 'the bytes, as they were');
+  assert.equal(f.pixel, false, 'pixel or not is the author\'s to say');
+  assert.equal(f.name, 'One Glyph');
+  assert.deepEqual(res.problems, []);
+  // What the bytes say it is: a .woff2 is a WOFF2 by its first four bytes,
+  // and a WOFF2 misnamed .ttf is a WOFF2 all the same.
+  const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0, 1, 0, 0]);
+  assert.ok(I.fontsFrom([{ name: 'soft.woff2', bytes: woff2 }]).fonts.soft.src.startsWith('data:font/woff2;base64,'));
+  assert.ok(I.fontsFrom([{ name: 'misnamed.ttf', bytes: woff2 }]).fonts.misnamed.src.startsWith('data:font/woff2;base64,'));
+  // A file named like a font with something else inside (a download that did
+  // not finish, a file renamed) is not taken, and says so: taken, it sat in
+  // every font row drawing nothing.
+  for (const [name, bytes] of [['notafont.ttf', new TextEncoder().encode('hello this is not a font')], ['soft.woff2', new Uint8Array([1, 2, 3])]]) {
+    const r = I.fontsFrom([{ name, bytes }]);
+    assert.deepEqual(r.fonts, {}, name);
+    assert.equal(r.problems[0].code, 'not-a-font');
+    assert.ok(/named like one, but what is inside is not/.test(r.problems[0].message), r.problems[0].message);
+  }
+  // A long file name makes an id a look can still name, with room for a "-2".
+  const long = I.fontsFrom([{ name: 'PressStart2P-Regular-with-extended-latin-glyphs-and-cyrillic-v3.0-final-release.woff2', bytes: ONE_GLYPH }]);
+  const longId = Object.keys(long.fonts)[0];
+  assert.ok(longId.length <= 56 && !/-$/.test(longId), longId);
+  assert.notEqual(KIT.look.family(longId, long.fonts), longId, 'the look can use it');
+  // A font called like one of the look's words gets a name of its own.
+  assert.deepEqual(Object.keys(I.fontsFrom([{ name: 'Pixel.otf', bytes: ONE_GLYPH }]).fonts), ['pixel-font']);
+  const bad = I.fontsFrom([{ name: 'notes.txt', bytes: new Uint8Array([1]) }]);
+  assert.deepEqual(bad.fonts, {});
+  assert.equal(bad.problems[0].code, 'not-a-font');
+  // The fonts the look's stylesheet can use: this is one.
+  assert.ok(KIT.look.css({ fonts: res.fonts }).startsWith('@font-face{font-family:"kitf-one-glyph";src:url("data:font/ttf;base64,'));
+});

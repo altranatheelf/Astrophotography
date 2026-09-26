@@ -7,12 +7,15 @@ you will do it. Where this page and the game disagree, the game wins and this
 page is wrong — say so and it gets fixed.
 
 A **look** is a set of choices about everything round the game that is not
-the map: the message box people talk in, the answers to a question, the
+the map: the message box people talk in, the letters it is written in, how
+fast the words type and how a page turns, the answers to a question, the
 cursor, the pause menu, the little note that pops up ("Saved."), the buttons
 on a phone's screen, and the sounds all of these make. Your game starts from
 one of four looks, and anything you change is kept on top of it. Nothing is
 drawn: a look is colours, shapes, letters and the game's own sounds, so it
-works offline and costs your game almost nothing to carry.
+works offline and costs your game almost nothing to carry. The one thing you
+can bring in is a font: its file is kept inside the game, so that works
+offline too.
 
 ## Opening it
 
@@ -33,8 +36,8 @@ The row of tabs above it says what it shows:
 
 | Tab | Shows |
 |---|---|
-| **Talk** | Somebody from your game talking, typing and blipping the way the game will. It uses the first line in your game that somebody says (one with a portrait, if there is one). When no line in your game has a portrait, one of your game's portraits stands in (or a plain face shape, if the game has none), so you can see what the portrait settings do. |
-| **Choice** | A question — "Ready?" — with Yes and No. |
+| **Talk** | Somebody from your game talking, typing and blipping the way the game will — at the look's speed, in its font, turning its pages its way. It uses the first line in your game that somebody says (one with a portrait, if there is one). When no line in your game has a portrait, one of your game's portraits stands in (or a plain face shape, if the game has none), so you can see what the portrait settings do. |
+| **Choice** | A question — "Ready?" — with Yes and No, where the look puts them: in the corner, in the middle, or by a message box holding the question. |
 | **Menu** | The pause menu that ☰ opens, with the entries your game really has. The whole of it is shown, made smaller when it has a lot of lines, so the last line and the help line under it are always in sight. |
 | **Title** | The title screen, as a player sees it — made smaller when the preview is too short for all of it, so the help line at the bottom is always in sight. |
 | **Toast** | A "Saved." note and a chapter card. With the note in the **Middle**, the card's words move to the top so you can read both. |
@@ -72,14 +75,18 @@ the difference before you tap:
 * **Kit** — the engine's own: a white box with a dark border and round
   corners, a blue accent, a ▶ cursor.
 * **Handheld** — a white box with a soft shadow under the letters, two lines
-  at a time, no names or portraits in the box, the pause menu down the right
-  in capitals, silent typing.
+  at a time that **scroll up** a line at a time, slow silent typing, no names
+  or portraits in the box, **Yes and No in a little window above the box**
+  with the question still in it, and the pause menu down the right in
+  capitals.
 * **Soul** — a black box with a square white border, monospace letters, a red
-  heart for a cursor, a blip on every letter, `* ` at the start of each line
-  and no ▼.
+  heart for a cursor, a blip on every letter, `* ` at the start of each line,
+  no ▼, a box that **moves to the top when the hero is below it**, and **the
+  answers in a row inside the box**, under the line that asked.
 * **Dream** — a black box with a thin white border, the speaker's name on a
-  tab in capitals, a framed portrait above the box, a blinking ▼, and a white
-  bar with a black ☞ for the chosen answer.
+  tab in capitals, a framed portrait above the box, a blinking ▼, **the
+  answers in a window of their own beside the box**, and a white bar with a
+  black ☞ for the chosen answer.
 
 The look in use has a ✓ and a blue edge, and its description is under the
 cards. Tap another card to start from it. If you have changed things
@@ -126,6 +133,57 @@ A setting still at the look's own value has its name greyed.
 
 **↺** next to any setting puts back what the look you started from has.
 
+## Fonts
+
+A font is the shape of the letters. Your game can carry fonts of its own:
+
+1. Tap **＋ Add a font…** and pick a font file from the phone (or the
+   computer) — a **TTF**, **OTF**, **WOFF** or **WOFF2**. You can pick more
+   than one. It is kept *inside* your game, so the game still works with no
+   internet, and the font goes wherever the game goes. Game › Import takes
+   font files too.
+2. The font appears as a card, its name written in the font itself, with its
+   size. Under it:
+   * **Pixel font** — tap it if the font is drawn in squares (most retro
+     fonts are). Then **Drawn at** says the size its letters were drawn at,
+     in pixels — usually 8 or 16, and the font's page usually says. The game
+     then only draws it at whole times that size (16 or 24 for an 8-pixel
+     font), so every square stays sharp instead of smudging.
+   * **Remove** takes the font out of the game. Anything that was written in
+     it goes back to the look's own letters. ↶ brings it back.
+3. Then pick where it is used. Each choice is a row of buttons, each written in
+   its own letters so you can see them before you tap:
+   * **Message text** — what people say, the answers and the lines of the
+     menus: most of the words on the game screen.
+   * **Names and menus** — menu headings and values, the speaker's name, the
+     chapter card, and the game's name and buttons on the title screen.
+   * **Speaker's name** — only the name over what somebody says. **Same as
+     names and menus** unless you pick one.
+   * Without a font of your own: **Plain** (the phone's own), **Pixel**,
+     **Typewriter**, **Book** and **Rounded**. On a phone these use the fonts
+     it already has, so they look a little different from phone to phone.
+   * **Add a font…** at the end of each row brings a file in and uses it
+     right there.
+4. **Text size** — Small, Normal, Large or Huge, for what people say. With a
+   pixel font, the nearest size where its squares stay sharp, so two sizes can
+   come out the same: an 8-pixel font is 16 at Small and Normal, and 24 at
+   Large and Huge; a 16-pixel font is 16 at all but Huge, which is 32.
+5. **Line spacing** — the space between the lines of a message.
+
+A few things to know:
+
+* A file is taken as a font only if what is inside it is one. A download that
+  did not finish, or another file renamed to `.ttf`, is refused with a note
+  saying so, rather than added as a font that draws nothing.
+* **Big fonts make a big game.** A font over 300 KB gets a warning in
+  Problems, and so do fonts adding up to more than 1.5 MB: a game opened from
+  a file keeps its unsaved changes in about 5 MB of the browser's storage. A
+  **WOFF2** of the same font is usually a third of the size of the TTF.
+* A font only has the letters its maker drew. A letter it does not have (an
+  accent, a symbol) is drawn in the look's own letters instead.
+* Make sure the font's licence lets you put it in a game you share. Many free
+  pixel fonts do; the page you got it from says.
+
 ## Message box
 
 * **Lines in the box** — how many lines show at once (2 to 6). Fewer lines,
@@ -149,15 +207,77 @@ A setting still at the look's own value has its name greyed.
 * **“More” mark** — the ▼ in the corner when a page is done and there is more.
   Pick one, type your own (one or two letters), or **None**.
 * **The mark** — **Bobs**, **Blinks**, or **Stays still**.
+* **Opening** — how the box comes up when somebody starts talking: it
+  **Appears**, **Pops** or **Slides up**. Lines one after another stay in the
+  same box, so a conversation opens once — a line after a `{shake}`, or the
+  answer to a question asked by the box, carries on in it rather than opening
+  it again. With the phone's or the game's *Reduce motion* on, it just
+  appears.
+* **Where the box goes** — at the **Bottom**, or **Out of the hero's way**:
+  at the bottom unless the hero is standing in the bottom half of the screen,
+  and then at the top, so you can always see who is talking. A line you told
+  to go at the top or in the middle (in Show Text) still goes there. A line
+  cannot be made to stay at the bottom over the hero with this on: pick
+  **Bottom** here for that.
+
+## Typing
+
+How the words arrive.
+
+* **Typing speeds** — **Slow**, **Normal** and **Fast** are the three a
+  player picks from in Settings; here you say how many letters a second each
+  one types in your look. About 30 is an easy read, 60 is quick, and the old
+  handhelds are about 15. The player still chooses which of the three. A
+  person in the Cast whose voice has a speed of its own keeps it.
+* **Next page** — **Clears the box**: the next page starts empty. **Scrolls
+  up a line**: the bottom line moves up to the top and only the new line
+  types under it, the way the old handheld games do; the line that moved up
+  is not typed again, and makes no sound. Each tap brings one more line.
+  To see it, tap **▶ Try** and then the box: with Scrolls up a line the
+  preview's line goes on for a page more than the box holds, so a tap always
+  has a page to scroll to, even when your game's first line fits in one.
+
+The Show Text box in Story shows how the message box will break what you
+write — how many lines to a page, and the mark in front of each line — in
+your look. With **Scrolls up a line**, it shows what each press of A shows:
+the line before kept at the top, one new line under it. Change the look and
+come back, and it shows the new look's pages.
 
 ## Choices
 
-* **Where the answers go** — the **Corner** (bottom right) or the **Middle**.
-* **Answers in a** — **Column**, **Row** (side by side), or **Grid**. In a
-  row or a grid the arrows on the pad move the way they point: ▼ goes to the
-  answer underneath, and ▼ in a row of Yes and No stays where it is.
-  Pressed at the edge, an arrow goes round to the other end of that row or
-  column, the way a column goes from its last answer back to its first.
+* **Where the answers go** — the **Corner** (bottom right), the **Middle**,
+  or by a message box that keeps the question on screen:
+  * **Above the box** — the answers in a little window over the box's right
+    corner (the handheld way).
+  * **In the box** — the answers side by side inside the box, under the
+    question. Answers too long to sit side by side go onto the lines under,
+    still inside the box.
+  * **Beside the box** — the answers in a window of their own, to the right of
+    the box. The box is narrower then, and the question's words flow again to
+    fit it. The window goes over the box's right end instead, and the box
+    keeps its full width, when there is not room beside it — long answers, a
+    grid of three, a row too wide — or when the question squeezed beside the
+    window would be more than a line taller than it was. A portrait above the
+    box stays in its corner: when the window is taller than the box, the
+    portrait sits on top of the window rather than behind it. The window keeps
+    clear of a name on a tab, too.
+
+  In these three the question is in a box like the message box. When the
+  question has words of its own (the text box of Show Choices), those are
+  in it. When it has none, the box keeps **the last thing that was said** —
+  so "Take it?" in Show Text followed by Show Choices with no text shows
+  "Take it?" with Yes and No by it, the way most RPGs ask. The box goes
+  where the message box went: at the top, if it moved out of the hero's way.
+  A line with no window, or with the game dimmed behind it, stays that way
+  while the question is asked.
+* **Answers in a** — **Column**, **Row** (side by side, beside the box too),
+  or **Grid**. Answers side by side — in a row, a grid, or inside the box —
+  move the way the arrows on the pad point: ▼ goes to the answer underneath,
+  and ▼ in a row of Yes and No stays where it is. Pressed at the edge, an
+  arrow goes round to the other end of that row or column, the way a column
+  goes from its last answer back to its first. ◀ and ▶ always move: when long
+  answers have gone one to a line, they step to the next answer and the one
+  before. Tapping an answer picks it, wherever it is.
 * **Columns** — for a grid, how many across.
 
 ## Cursor
@@ -201,7 +321,8 @@ A toast is the little note that pops up, like "Saved.".
 ## Sounds
 
 One line per thing the player does — moving the cursor, choosing, going back,
-"not now", saved, opening and closing the menu, a note popping up. Pick a
+"not now", saved, opening and closing the menu, turning a page of a message
+(and closing its last one), a note popping up. Pick a
 sound from your game's list (sounds you have imported are there too), or
 **Silent**. **▶** plays it; **↺** puts back the look's own. A sound still at
 the look's own has its name greyed, and so does the typing sound below.
@@ -217,27 +338,32 @@ These are starting points — each is one tap, then make it yours.
 
 **A handheld monster-catching RPG** (the look of the Pokémon games on the
 old handhelds). Start from **Handheld**. You get the clean white two-line box
-with the grey shadow under every letter, a ▶ cursor with no box round the
-chosen line, a red ▼, and a start menu down the right-hand side in capitals
-with **Keep playing** at the bottom. To go further: a pixel font of your own
-is the biggest step (it arrives with *Fonts*, below); set **Border** and
-**Box** to your palette; try **Speaker's name › Hidden** and **Portrait ›
-Hidden** if your people never show faces.
+with the grey shadow under every letter, slow silent typing, a page that
+scrolls up a line at a time with a click as it turns, Yes and No in a little
+window above the box with the question still showing, a ▶ cursor with no box
+round the chosen line, a red ▼, and a start menu down the right-hand side in
+capitals with **Keep playing** at the bottom. To go further: a pixel font of
+your own is the biggest step (**Fonts › Add a font…**, then **Pixel font**
+and its size); set **Border** and **Box** to your palette.
 
 **An RPG where you can spare everybody** (the look of Undertale). Start from
 **Soul**. You get the black box with the square white border, monospace
 letters, `* ` before each line with the wrap lined up after it, a blip on
 every letter, no ▼, a red heart cursor, answers in a row, the menu in the
-top left with no heading, and a black name box with a white OK. To go
-further: set **Cursor** to your own heart colour; turn **Gap round the box**
-up for a bigger frame; a font of your own, again, is the finishing touch.
+top left with no heading, and a black name box with a white OK. The box
+moves to the top of the screen when the hero is in the bottom half, and a
+question is asked inside the box, under the line that asked it, with the
+answers in a row and the heart beside the chosen one. To go further: set
+**Cursor** to your own heart colour; turn **Gap round the box** up for a
+bigger frame; a font of your own, again, is the finishing touch.
 
 **A dream-world RPG** (the look of Omori). Start from **Dream**. You get the
 black box with a thin white border, the speaker's NAME on a tab on top of the
-box, their portrait framed above the box on the right, a blinking ▼, and the
-chosen answer as a white bar with a black ☞ (and OK a white button the
-same way, over a black name box). To go further: **Portrait size** to fit
-your faces; **Border thickness** 1 for a finer line.
+box, their portrait framed above the box on the right, a blinking ▼, the
+answers in their own window beside the box with the question still in it,
+and the chosen answer as a white bar with a black ☞ (and OK a white button
+the same way, over a black name box). To go further: **Portrait size** to
+fit your faces; **Border thickness** 1 for a finer line; a font of your own.
 
 ## What happens to what you change
 
@@ -250,23 +376,17 @@ your faces; **Border thickness** 1 for a finer line.
 * The **Problems** group tells you about a look that will not work well: two
   colours too close to read one on the other (the words in the box, the
   chosen line, a toast, a name typed into the name box, the word on OK), a
-  message box so big it covers the game on a phone, or a sound or voice your
-  game does not have. None of them stop the game. Tap one and the Look group
-  opens at the setting to change, with it outlined for a moment.
+  message box so big it covers the game on a phone, a sound, voice or font
+  your game does not have, a font file that is not a font the game can use,
+  or fonts big enough to fill a phone's storage. None of them stop the game.
+  Tap one and the Look group opens at the setting to change, with it
+  outlined for a moment.
 
 ## Not yet
 
 These are on the way and are not in the Look group yet, so a look cannot do
 them today:
 
-* **Fonts** — your own font files (TTF, OTF, WOFF, WOFF2), pixel fonts,
-  text size, and line spacing.
-* **Typing feel** — text speeds for a look, the page that scrolls up a line
-  instead of clearing, a box that moves out of the hero's way, and a box that
-  pops or slides open. (The Handheld and Soul looks already hold their
-  choices for these, and will use them when the game can.)
-* **Answers by the box** — Yes/No above the box, inside it, or beside it,
-  with the question still showing. (Handheld, Soul and Dream hold theirs.)
 * The pause menu's **order** and hiding its entries (Handheld already puts
   Keep playing last, and Soul leaves it out — B closes the menu), the
   **title screen** (a logo, a background picture), hiding the Creator Mode
@@ -280,10 +400,22 @@ A game's look is `project.ui`: only the overrides, on top of `ui.base`. The
 fields are `KIT.look.TOKENS` (colours, widths) and `KIT.look.PARTS` (each
 part's options, with the words shown here as their `label` and `doc`);
 `KIT.look.resolve` fills a look in, `KIT.look.compile` turns it into one
-stylesheet (`''` for the kit look), and `KIT.look.apply` puts it in the page.
+stylesheet (`''` for the kit look in a game with no fonts of its own), and
+`KIT.look.apply` puts it in the page.
 The Look panel writes through `KIT.editor.ops.look`. All of it is in
 `docs/KIT-API.md`; why it is data and not a stylesheet is
 `docs/decisions/0017-looks-are-data.md`.
+
+A game's own fonts are `project.fonts`: `{ id: { name, src, pixel, px } }`,
+`src` a `data:font/<ttf|otf|woff|woff2>;base64,…` URI (anything else is not
+used, and never fetched). The look names one by its id (`"fontText":
+"dotgothic"`), and `compile` writes each one as an `@font-face` for the
+family `"kitf-<id>"` — every usable font, used or not, so the Look group can
+show each in its own letters. `apply` keeps those in a
+`<style id="kit-look-fonts">` of their own, written only when the fonts
+change: a colour dragged in the Look group never makes the browser read the
+font files again. `KIT.import.image.fontsFrom(files)` makes them from
+font files; `KIT.editor.ops.look.addFont` and `editFont` write them.
 
 `look.css` in a game made with `tools/new-game.js` is still there for what
 the Look group cannot do. It is loaded after the engine's stylesheet and can
@@ -294,11 +426,15 @@ Creator Mode wins over it. It never travels with a look.
 ```jsonc
 "ui": {
   "base": "soul",
-  "tokens":   { "paper": "#101010" },
-  "dialogue": { "lines": 2 },
+  "tokens":   { "paper": "#101010", "fontText": "dotgothic", "textSize": "large" },
+  "dialogue": { "lines": 2, "pageTurn": "scroll", "speeds": { "normal": 24 } },
+  "choice":   { "place": "above-box" },
   "cursor":   { "color": "#ffcc00" }
-}
+},
+"fonts": { "dotgothic": { "name": "DotGothic", "src": "data:font/woff2;base64,…", "pixel": true, "px": 8 } }
 ```
 
 Checked by `test/kit/look.test.js`, `test/kit/look-ops.test.js` and
-`e2e/look.js` (a phone picking a look with its fingers, then playing in it).
+`e2e/look.js` (a phone picking a look with its fingers, then playing in it,
+and bringing in a font: `test/fixtures/look/one-glyph.ttf`, one square for the
+letter A, written by `tools/make-test-font.js`).

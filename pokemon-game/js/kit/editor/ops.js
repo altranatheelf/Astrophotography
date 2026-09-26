@@ -397,5 +397,50 @@
     }
   };
 
+  // ---- the game's own fonts (project.fonts) ----------------------------------------
+  // A font is a file brought into the game (KIT.import.image.fontsFrom), kept
+  // as a data: URI so the game works offline; the look names it by its id.
+  // The table is made by a write of its own, like a look's parents, so undoing
+  // the first font leaves no empty `fonts: {}` behind.
+
+  /**
+   * addFont(doc, { id, name, src, pixel, px }) -> the id it is kept under.
+   * The same file twice is the one font, not two; a different file wanting a
+   * name already used gets the next free one (one-glyph-2), and the name is
+   * cut first so that one is still an id a look can name (64 letters at most).
+   */
+  LOOK.addFont = function (doc, font) {
+    const have = doc.get(['fonts']);
+    if (KIT.isObject(have)) {
+      const same = Object.keys(have).find(id => KIT.isObject(have[id]) && have[id].src === font.src);
+      if (same) return same;
+    } else doc.set(['fonts'], {}, { label: 'Look' });
+    const id = O.uniqueKey(doc.get(['fonts']), String(font.id || 'font').slice(0, 60).replace(/[-._:]+$/, '') || 'font');
+    const value = { name: font.name || id, src: font.src, pixel: !!font.pixel };
+    if (typeof font.px === 'number') value.px = font.px;
+    doc.set(['fonts', id], value, { label: 'Look' });
+    return id;
+  };
+
+  /**
+   * editFont(doc, id, patch) — change what is said about one of the game's
+   * fonts (`{ pixel: true, px: 8 }`), or with `null`, take it out of the game.
+   * A font taken out takes its uses in the look with it: the letters it drew
+   * go back to the look's own, rather than naming a font that is not there.
+   */
+  LOOK.editFont = function (doc, id, patch) {
+    if (!KIT.isObject(doc.get(['fonts', id]))) return;
+    if (patch !== null) {
+      for (const k of Object.keys(patch)) {
+        if (patch[k] === undefined) { if (doc.has(['fonts', id, k])) doc.del(['fonts', id, k], { label: 'Look' }); }
+        else if (!KIT.deepEqual(doc.get(['fonts', id, k]), patch[k])) doc.set(['fonts', id, k], patch[k], { label: 'Look' });
+      }
+      return;
+    }
+    for (const f of KIT.look.TOKENS) if (f.type === 'font' && doc.get(uiPath(['tokens', f.key])) === id) LOOK.reset(doc, ['tokens', f.key]);
+    doc.del(['fonts', id], { label: 'Look' });
+    if (!Object.keys(doc.get(['fonts']) || {}).length) doc.del(['fonts'], { label: 'Look' });
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = KIT;
 })(typeof window !== 'undefined' ? window : globalThis);

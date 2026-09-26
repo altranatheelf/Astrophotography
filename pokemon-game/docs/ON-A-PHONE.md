@@ -80,7 +80,8 @@ A served page can do three things a page opened from a file cannot:
   its count.
 * **Look** is where the game's look and sounds are made, with your thumb: a
   look to start from in one tap, a live preview to tap on, and two fingers on
-  the preview to undo (`docs/LOOKS.md`).
+  the preview to undo (`docs/LOOKS.md`). A font file saved on the phone comes
+  in with **Look › Fonts › Add a font…**, straight from the phone's Files.
 * **Chip rows scroll sideways** — the layer chips under "Painting on", the tile
   categories, the panel chips. If the one you want is not there, swipe the row.
 * **Tiles stay thumb-sized.** A map opens at a zoom that fits it *and* keeps a

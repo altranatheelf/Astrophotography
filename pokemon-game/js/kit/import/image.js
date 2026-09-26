@@ -11,6 +11,8 @@
 //   guessTile(w, h, prefer) / guessGrid(w, h)   what a sheet of that size probably is
 //   audio({ name, kind, src, loop, prefix, id })  a dropped .ogg/.mp3/.wav as a sound or a track
 //   guessAudio(name, bytes)                      'music' or 'sound' (long things loop)
+//   fontsFrom(files)                             .ttf/.otf/.woff/.woff2 files as the game's own fonts
+//   base64(bytes)                                the bytes as base64, for a data: URI
 //
 // A tileset goes through the Tiled importer as a synthetic tileset, so it gets
 // exactly what a .tsx gets (ids, the sheet asset, a palette group). A character
@@ -142,6 +144,74 @@
     }
     if (!/^data:/i.test(src)) res.problems.push({ severity: 'warn', code: 'audio-not-embedded', message: `“${o.name}” is a path, not embedded — a page opened from a file cannot read it`, where: {} });
     res.stats = { audio: 1, kind, from: 'image' };
+    return res;
+  };
+
+  /**
+   * base64(bytes) -> the bytes written as base64. `btoa` takes a string of
+   * byte-sized letters and is in every browser and in Node, so the bytes go in
+   * a slice at a time — a whole font as one call's arguments is more than a
+   * phone's browser will take.
+   */
+  I.base64 = function (bytes) {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    let s = '';
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+
+  // ---- fonts ------------------------------------------------------------------
+  I.FONT_EXT = /\.(ttf|otf|woff2?)$/i;
+  /**
+   * fontKind(bytes) -> 'ttf' | 'otf' | 'woff' | 'woff2' | null. A font file
+   * says what it is in its first four bytes, and only those are believed. A
+   * phone's file picker often hands a font over with no type, or as
+   * "application/octet-stream", so the browser's word for it is never asked;
+   * and the name's ending is not enough either: a download that failed, or
+   * another file renamed, keeps its .ttf, and taken as a font it sat in every
+   * font row, drawing nothing, with no word of why.
+   */
+  function fontKind(bytes) {
+    const b = bytes || [];
+    const head = String.fromCharCode(b[0] || 0, b[1] || 0, b[2] || 0, b[3] || 0);
+    if (head === 'wOF2') return 'woff2';
+    if (head === 'wOFF') return 'woff';
+    if (head === 'OTTO') return 'otf';
+    if (head === '\x00\x01\x00\x00' || head === 'true') return 'ttf';
+    return null;
+  }
+  // A font's id is kept short enough to take a "-2" and still be an id a look
+  // can name (at most 64 letters): a long file name made one it could not,
+  // and the font was listed as not a font at all.
+  const FONT_ID_MAX = 56;
+  // The words a look uses for fonts it does not carry. A game's font of the
+  // same name would hide the word, so it is called something else.
+  const FONT_WORDS = ['pixel', 'mono', 'system', 'serif', 'rounded'];
+
+  /**
+   * fontsFrom(files) -> Result with `fonts: { id: { name, src, pixel } }` —
+   * each dropped font as one of the game's own. `files` are `{ name, bytes }`.
+   * The id is the file's name (`one-glyph.ttf` -> `one-glyph`) and the font
+   * is inside the game as a data: URI rebuilt from its bytes, so it works
+   * offline and travels with the game. Whether it is a pixel font, and the
+   * size it was drawn for, is the author's to say afterwards (Look › Fonts).
+   */
+  I.fontsFrom = function (files) {
+    const res = Object.assign(blank(), { fonts: {} });
+    for (const f of files || []) {
+      const name = baseName(f && f.name);
+      const kind = f && f.bytes && f.bytes.length ? fontKind(f.bytes) : null;
+      if (!kind) {
+        const why = I.FONT_EXT.test(name) ? ': it is named like one, but what is inside is not (a download that did not finish, or another file renamed)' : '';
+        res.problems.push({ severity: 'warn', code: 'not-a-font', message: `“${name}” is not a TTF, OTF, WOFF or WOFF2 font${why}`, where: {} });
+        continue;
+      }
+      let id = KIT.slug(stem(name) || 'font').slice(0, FONT_ID_MAX).replace(/[-._:]+$/, '') || 'font';
+      if (FONT_WORDS.includes(id)) id += '-font';
+      res.fonts[id] = { name: titleCase(stem(name)) || id, src: `data:font/${kind};base64,${I.base64(f.bytes)}`, pixel: false };
+      if (f.bytes.length > 300 * 1024) res.problems.push({ severity: 'warn', code: 'ui-big', message: `“${name}” is ${Math.round(f.bytes.length / 1024)} KB; fonts over 300 KB make a big game, and a WOFF2 of the same font is much smaller`, where: { path: ['fonts', id] } });
+    }
+    res.stats = { fonts: Object.keys(res.fonts).length, from: 'font' };
     return res;
   };
 

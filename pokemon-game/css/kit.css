@@ -206,7 +206,42 @@ body { overflow: hidden; }
 #choice[data-place=above-box] .kit-panel { align-self: flex-end; margin-bottom: 6px; min-width: 0; }
 #choice[data-place=beside-box] { flex-direction: row; align-items: flex-end; gap: 8px; }
 #choice[data-place=beside-box] .kit-promptbox { flex: 1 1 auto; }
-#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; justify-content: space-around; }
+/* Inside the box the answers go side by side, and wrap onto the next line when
+   they do not fit: the build spec's rule had no wrap, and four answers, or two
+   long ones, ran past the box's edge and off the screen, which clips them. */
+#choice[data-place=in-box] .kit-promptbox .kit-list { flex-direction: row; flex-wrap: wrap; justify-content: space-around; }
+/* The question's box stands where the message box stood, and the answers keep
+   by it: a box at the top has its answers under it rather than off the top of
+   the screen, and a window beside the box is as wide as its answers, not the
+   260 pixels a menu takes, which left the question a sliver on a phone. Inside
+   the box, the answers take the lines under the question. */
+#choice[data-place][data-position=middle] { justify-content: center; }
+#choice[data-place=above-box][data-position=top] { flex-direction: column-reverse; justify-content: flex-end; }
+#choice[data-place=above-box][data-position=top] .kit-panel { margin: 6px 0 0; }
+#choice[data-place=in-box] .kit-promptbox .kit-text { min-height: 0; }
+/* Beside the box, the answers' window is never narrower than its answers need
+   (a grid, its columns: squeezed into half the width it cut East and West in
+   half and put South off the edge; a row, the whole row, see the look's row
+   rule), and long answers in a column wrap inside it up to half the width. The
+   question's box takes the rest. When that would leave the box under a third
+   of the width (a grid of three, long words), or leaves the question much
+   taller than the line was (the choice scene measures it, and sets data-over),
+   the window goes over the box's right end instead, on a line of its own —
+   under the box when the box is at the top — and the box keeps its width.
+   There a portrait the window would cover moves clear of it (the choice
+   scene again): the answers are what the player has to see. */
+#choice[data-place=beside-box] { flex-wrap: wrap-reverse; align-content: flex-start; align-items: flex-start; }
+#choice[data-place=beside-box][data-position] { justify-content: flex-end; }
+#choice[data-place=beside-box][data-position=top] { flex-wrap: wrap; }
+#choice[data-place=beside-box][data-position=middle] { align-content: center; align-items: center; }
+#choice[data-place=beside-box] .kit-promptbox { flex: 1 1 30%; min-width: 0; overflow-wrap: break-word; }
+#choice[data-place=beside-box] .kit-panel { flex: 0 0 auto; min-width: min-content; max-width: 50%; position: relative; z-index: 1; }
+#choice[data-place=beside-box][data-over] .kit-promptbox { flex-basis: 100%; }
+#choice[data-place=beside-box][data-over] .kit-panel { max-width: 100%; }
+/* A line with no window, or with the game dimmed behind it, keeps that while
+   a question has its box (the choice scene copies the line's data-bg). */
+#choice[data-place][data-bg="dim"] { background: var(--kit-dim, rgba(8, 9, 15, .55)); }
+#choice[data-place][data-bg="none"] .kit-promptbox { background: rgba(10, 11, 16, .75); color: #fff; border-color: transparent; box-shadow: none; }
 
 .kit-panel {
   background: var(--paper);

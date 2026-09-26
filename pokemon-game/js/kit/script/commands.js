@@ -246,7 +246,7 @@
     fields: [
       { key: 'who', type: 'string', default: '', label: 'Speaker', shown: true },
       { key: 'face', type: 'ref:face' },
-      { key: 'text', type: 'text', default: '' },
+      { key: 'text', type: 'text', default: '', display: 'message' },
       { key: 'position', type: 'enum', options: ['top', 'middle', 'bottom'], default: 'bottom' },
       { key: 'bg', type: 'enum', options: ['window', 'dim', 'none'], default: 'window', label: 'Background' },
       { key: 'voice', type: 'ref:voice', nullable: true, default: null, label: 'Voice',

@@ -619,26 +619,59 @@
     ta.style.height = 'auto';
     ta.style.height = Math.min(320, Math.max(64, ta.scrollHeight + 2)) + 'px';
   }
+  /**
+   * messagePages(str, project) -> the pages the message box makes of a line, as
+   * rows of text: as many lines to a page as the game's look puts in the box,
+   * about as many letters to a line as a phone's box holds (fewer in a
+   * narrower box), and the look's mark ("* ") in front of each line the author
+   * started, with the lines it wraps onto lined up after it. In a look whose
+   * page scrolls up a line (Handheld), a page is what one press of A shows:
+   * the line before it kept at the top, one new line under it.
+   */
+  function messagePages(str, project) {
+    const look = KIT.look;
+    const per = look ? look.get('dialogue.lines', 3) : 3;
+    const prefix = Array.from(look ? look.get('dialogue.prefix', '') : '');
+    const lay = { width: Math.round(28 * (look ? look.get('dialogue.width', 100) : 100) / 100) - prefix.length, lines: per, measure: (s) => s.length };
+    const spans = KIT.text.tokenize(KIT.text.substitute(str, { project }));
+    const DL = KIT.dialogueLayout;
+    const mark = prefix.length && DL;
+    const marked = mark ? DL.lines(spans, lay) : { lines: KIT.text.wrap(spans, lay), starts: new Set() };
+    const rows = marked.lines.map((line, i) => (mark ? (marked.starts.has(i) ? prefix.join('') : ' '.repeat(prefix.length)) : '')
+      + line.map(sp => (sp.type === 'text' ? sp.text : (sp.type === 'icon' ? '◆' : ''))).join(''));
+    return DL && DL.pages ? DL.pages(rows, per, pageTurn()).map(w => w.lines) : KIT.text.paginate(rows, per);
+  }
+  INS.messagePages = messagePages;
+  const pageTurn = () => (KIT.look ? KIT.look.get('dialogue.pageTurn', 'clear') : 'clear');
+  /** What the pages depend on in the look: when any of it changes, they are drawn again. */
+  const pagesKey = () => (KIT.look ? JSON.stringify(['lines', 'prefix', 'width', 'pageTurn'].map(k => KIT.look.get('dialogue.' + k, null))) : '');
+
   FE.add({
+    // A `text` field whose words are shown in the message box (`display:
+    // 'message'`: what a Show Text says, a sign, a person's line) shows the
+    // pages the box will make of them as they are typed. Any other text — an
+    // item's description, a note, a chapter's title — never goes in the box,
+    // and pages it will never have would only mislead.
     id: 'text', types: ['text'],
     mount(el, f, value, onChange, ctx) {
       const ta = make('textarea.ed-grow');
       ta.rows = 2;
       ta.value = value == null ? '' : String(value);
+      const message = f.display === 'message';
       const preview = make('div.ed-preview');
+      const hint = make('div.ed-hint');
       const draw = () => {
+        if (!message) return;
+        hint.textContent = pageTurn() === 'scroll' ? 'How the message box will show it, a press of A at a time (each scrolls up a line):' : 'How the message box will break it:';
         clear(preview);
         const str = ta.value;
         if (!str.trim()) { preview.hidden = true; return; }
         preview.hidden = false;
         let pages = [[]];
-        try {
-          const out = KIT.text.render(str, { project: ctx && ctx.project }, { width: 28, lines: 3, measure: (s) => s.length });
-          pages = (out[0] && out[0].pages) || [[]];
-        } catch (e) { pages = [[[{ type: 'text', text: str }]]]; }
+        try { pages = messagePages(str, ctx && ctx.project); } catch (e) { pages = [[str]]; }
         pages.forEach((page, i) => {
           const box = make('div.ed-preview-box');
-          for (const line of page) box.appendChild(make('div.ed-preview-line', { text: line.map(sp => (sp.type === 'text' ? sp.text : (sp.type === 'icon' ? '◆' : ''))).join('') || ' ' }));
+          for (const line of page) box.appendChild(make('div.ed-preview-line', { text: line || ' ' }));
           if (pages.length > 1) box.appendChild(make('div.ed-preview-page', { text: `▼ ${i + 1}/${pages.length}` }));
           preview.appendChild(box);
         });
@@ -647,8 +680,21 @@
       ta.oninput = () => { autoGrow(ta); draw(); t.push(ta.value); };
       ta.onblur = () => t.flush();
       el.appendChild(ta);
-      el.appendChild(make('div.ed-hint', { text: 'How the message box will break it:' }));
-      el.appendChild(preview);
+      if (message) {
+        el.appendChild(hint);
+        el.appendChild(preview);
+        // The pages are the look's. A look changed in the Look group and come
+        // back from shows its own pages here, not the ones the form was drawn
+        // with. A form that has gone from the page stops listening.
+        let key = pagesKey();
+        if (KIT.look && KIT.look.events) {
+          const off = KIT.look.events.on('applied', () => {
+            if (preview.isConnected === false) { off(); return; }
+            const now = pagesKey();
+            if (now !== key) { key = now; draw(); }
+          });
+        }
+      }
       setTimeout(() => autoGrow(ta), 0);
       draw();
       return { set(v) { const s = v == null ? '' : String(v); if (document.activeElement !== ta && ta.value !== s) { ta.value = s; autoGrow(ta); draw(); } } };
@@ -696,7 +742,17 @@
       let last = value;
       const commit = (v) => { if (v !== last) { last = v; onChange(v); } };
       const t = typed(commit);
-      const step = (d) => { const v = clampV((Number(input.value) || 0) + d); input.value = String(v); commit(v); };
+      // Sums of decimals are not exact in binary: from 1.6, a step of 0.05 was
+      // 1.6500000000000001, and the box showed it and the game kept it. A step
+      // lands on as many decimals as the step, or the number it started from,
+      // has (up to six, which also cleans a number kept with the noise in it).
+      const places = (n) => Math.min(6, (String(n).split('.')[1] || '').length);
+      const step = (d) => {
+        const from = Number(input.value) || 0;
+        const v = clampV(Number((from + d).toFixed(Math.max(places(d), places(from)))));
+        input.value = String(v);
+        commit(v);
+      };
       wrap.appendChild(btn('−', 'Less', () => step(-(f.step || 1))));
       wrap.appendChild(input);
       wrap.appendChild(btn('+', 'More', () => step(f.step || 1)));
@@ -808,6 +864,44 @@
       paintNone(value);
       el.appendChild(row);
       return { set(v) { if (document.activeElement !== hex) { hex.value = v == null ? '' : String(v); hex.classList.toggle('is-bad', false); } const c = shown(v); if (c) swatch.value = c; paintNone(v); } };
+    },
+  });
+
+  // ---- font ------------------------------------------------------------------------
+  /** What the look's font words are called here, in the words of somebody making a game. */
+  const FONT_WORDS = [['system', 'Plain'], ['pixel', 'Pixel'], ['mono', 'Typewriter'], ['serif', 'Book'], ['rounded', 'Rounded']];
+  FE.add({
+    // A look's font: one chip for each of the game's own fonts, then the five
+    // the kit has without a file, each written in itself so the choice is
+    // seen rather than read; a nullable one has a chip for none (`noneLabel`).
+    // "Add a font…" is there when the form can bring one in
+    // (`ctx.addFont(field)`), so a font is added from where it is wanted.
+    // There is no chip to type a family's name: a look's font is one of the
+    // game's own or one of the words (KIT.look.sanitize drops anything else),
+    // so a typed name would be thrown away. A voice's font, which can be any
+    // family, is the place for one, when voices have a form of their own.
+    id: 'font', types: ['font'],
+    mount(el, f, value, onChange, ctx) {
+      const c = ctx || {};
+      const fonts = c.project && KIT.isObject(c.project.fonts) ? c.project.fonts : {};
+      const family = (v) => (KIT.look && KIT.look.family ? KIT.look.family(v, fonts) : '');
+      const own = Object.keys(fonts).sort().filter(id => family(id) !== id).map(id => ({ value: id, label: (fonts[id] && fonts[id].name) || id }));
+      const options = own.concat(FONT_WORDS.map(([value, label]) => ({ value, label })));
+      if (f.nullable) options.push({ value: null, label: f.noneLabel || 'None' });
+      // A font the game no longer has keeps a chip, so what is chosen is never invisible.
+      if (value != null && !options.some(o => o.value === value)) options.unshift({ value, label: `${value} (not in this game)` });
+      let cur = value;
+      const chips = chipRow(options, (v) => { cur = v; chips.paint(v); onChange(v); });
+      Array.from(chips.el.children).forEach((b, i) => { if (options[i].value != null) b.style.fontFamily = family(options[i].value); });
+      if (typeof c.addFont === 'function') {
+        const add = make('button.ed-chip.ed-font-add', { text: 'Add a font…' });
+        add.type = 'button';
+        add.onclick = (e) => { e.preventDefault(); c.addFont(f); };
+        chips.el.appendChild(add);
+      }
+      chips.paint(cur);
+      el.appendChild(chips.el);
+      return { set(v) { cur = v; chips.paint(v); } };
     },
   });
 
